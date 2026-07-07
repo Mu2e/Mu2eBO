@@ -796,28 +796,20 @@ def cmd_submit(args):
             raise SystemExit("Run 'list-outputs mubeam' first to populate mubeam_outputs.txt")
         sources = [Path(p) for p in mubeam_list.read_text().splitlines() if p.strip()]
         staged_input_dir, inputs_file = stage_hardlink_farm("concat", sources)
-    elif args.stage == "mustops_ce":
-        prev = STATE / "concat_outputs.txt"
-        if not prev.exists():
-            raise SystemExit("Run 'list-outputs concat' first to populate concat_outputs.txt")
-        # auxinput list file requires basenames (same restriction as --inputs).
-        # Hard-link concat outputs into a /pnfs stage dir so xrootd can resolve them
-        # when --default-location dir:STAGED expands the basenames.
-        sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
-        staged_input_dir, basenames_file = stage_hardlink_farm("mustops_ce", sources)
-        STAGES["mustops_ce"]["auxinput"] = (
-            f"1:physics.filters.TargetStopResampler.fileNames:{basenames_file}"
-        )
-    elif args.stage == "mustops_pileup":
-        # Same resampler input as mustops_ce (concat MuminusStopsCat); the
-        # capture-product generators inside MuStopPileup.fcl turn each stop into
-        # protons/etc. propagated through the IPA + detector. See bo-ipa wiki.
+    elif args.stage in ("mustops_ce", "mustops_pileup"):
+        # Both resample concat MuminusStopsCat via TargetStopResampler
+        # (mustops_pileup's capture-product generators inside MuStopPileup.fcl
+        # then turn each stop into protons/etc. through the IPA + detector;
+        # see bo-ipa wiki). auxinput list file requires basenames (same
+        # restriction as --inputs): hard-link concat outputs into a /pnfs
+        # stage dir so xrootd can resolve them when --default-location
+        # dir:STAGED expands the basenames.
         prev = STATE / "concat_outputs.txt"
         if not prev.exists():
             raise SystemExit("Run 'list-outputs concat' first to populate concat_outputs.txt")
         sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
-        staged_input_dir, basenames_file = stage_hardlink_farm("mustops_pileup", sources)
-        STAGES["mustops_pileup"]["auxinput"] = (
+        staged_input_dir, basenames_file = stage_hardlink_farm(args.stage, sources)
+        STAGES[args.stage]["auxinput"] = (
             f"1:physics.filters.TargetStopResampler.fileNames:{basenames_file}"
         )
     submit_stage(args.stage, env, inputs_file=inputs_file,
@@ -829,6 +821,26 @@ def cmd_poll(args):
     cluster_file = STATE / f"{args.stage}_cluster.txt"
     cluster = int(cluster_file.read_text().strip())
     poll_cluster(args.stage, cluster, quorum=args.quorum, cap_hours=args.cap_hours)
+
+
+def _edep_from_stage_outputs(stage, env):
+    """Fail-soft StrawGasStep-Edep extraction from a stage's landed outputs.
+
+    Shared skeleton of harvest Steps 6 (mustops_pileup) and 7 (elebeam_flash):
+    read state/<stage>_outputs.txt, run _extract_trk_edep_per_pot over the
+    files, print-and-swallow failures. Returns (metrics_4tuple, files) or
+    None when the stage didn't run this chain / extraction failed — callers
+    name the tuple elements per their metric (trk_* vs flash_*).
+    """
+    outputs = STATE / f"{stage}_outputs.txt"
+    if not outputs.exists():
+        return None
+    files = [Path(p) for p in outputs.read_text().splitlines() if p.strip()]
+    try:
+        return _extract_trk_edep_per_pot(files, env), files
+    except Exception as e:  # noqa: BLE001
+        print(f"    {stage} edep extraction failed: {e}")
+        return None
 
 
 def cmd_list_outputs(args):
@@ -1244,18 +1256,14 @@ def cmd_harvest(args):
     # pileup (capture protons etc.). Only present when the IPA chain ran the
     # mustops_pileup stage. Fail-soft like calo.
     print(">>> Step 6: tracker StrawGasStep Edep from mustops_pileup outputs")
-    pileup_outputs = STATE / "mustops_pileup_outputs.txt"
     trk_edep_per_pot = None
     trk_edep_total_MeV = None
     trk_edep_events = None
     trk_edep_tag = None
-    if pileup_outputs.exists():
-        pileup_files = [Path(p) for p in pileup_outputs.read_text().splitlines() if p.strip()]
-        try:
-            (trk_edep_per_pot, trk_edep_total_MeV, trk_edep_events,
-             trk_edep_tag) = _extract_trk_edep_per_pot(pileup_files, env)
-        except Exception as e:  # noqa: BLE001
-            print(f"    trk_edep extraction failed: {e}")
+    res = _edep_from_stage_outputs("mustops_pileup", env)
+    if res is not None:
+        (trk_edep_per_pot, trk_edep_total_MeV, trk_edep_events,
+         trk_edep_tag), _ = res
     if trk_edep_per_pot is not None:
         print(f"    trk_edep_total_MeV  = {trk_edep_total_MeV}")
         print(f"    trk_edep_events     = {trk_edep_events}")
@@ -1276,20 +1284,16 @@ def cmd_harvest(args):
     # count) is BLIND to the lever and is kept only for back-compat/diagnostics.
     # Fail-soft like calo/trk_edep.
     print(">>> Step 7: tracker StrawGasStep Edep from elebeam_flash (early) outputs")
-    flash_outputs = STATE / "elebeam_flash_outputs.txt"
     flash_edep_per_event = None
     flash_edep_total_MeV = None
     flash_edep_events = None
     flash_edep_tag = None
     flash_edep_per_pot = None
     flash_n_input = None
-    if flash_outputs.exists():
-        flash_files = [Path(p) for p in flash_outputs.read_text().splitlines() if p.strip()]
-        try:
-            (flash_edep_per_event, flash_edep_total_MeV, flash_edep_events,
-             flash_edep_tag) = _extract_trk_edep_per_pot(flash_files, env)
-        except Exception as e:  # noqa: BLE001
-            print(f"    flash_edep extraction failed: {e}")
+    res = _edep_from_stage_outputs("elebeam_flash", env)
+    if res is not None:
+        (flash_edep_per_event, flash_edep_total_MeV, flash_edep_events,
+         flash_edep_tag), flash_files = res
         # POT denominator = landed files x stamped events_per_job (input electrons
         # resampled 1:1) x POT_PER_ELECTRON. Uses the SUBMIT-stamped events_per_job
         # so a mid-flight STAGES edit doesn't mis-scale (see events-per-job incident).

@@ -228,17 +228,52 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
     return X, Y, bounds, spec["int_dims"]
 
 
+def _seed(round_idx: int) -> int:
+    """Per-round RNG seed: `42 ^ round_idx` (xor, NOT pow — see
+    wiki/incidents/botorch-predict-seed-pow-vs-xor.md). Single home for the
+    formula; every picker/cold-start path calls this."""
+    return 42 ^ int(round_idx)
+
+
+def _sampler(round_idx: int):
+    """The shared qMC sampler all acquisition pickers use."""
+    from botorch.sampling.normal import SobolQMCNormalSampler
+    return SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=_seed(round_idx))
+
+
+def _optimize(acq, bounds, q: int) -> torch.Tensor:
+    """Shared optimize_acqf call for all acquisition pickers; returns (q, d).
+
+    sequential greedy: optimize the q candidates one-at-a-time (each a
+    cheap d-dim problem) instead of jointly (one q*d-dim problem). For
+    qNEHVI/qLogNEHVI this is the recommended batch mode AND the only
+    tractable one at large q — joint (sequential=False) is ~q*d dims and
+    blew past a 10-min wall at q=10 (botorch_predict q=10 smoke-test,
+    2026-06-04). The "N" handles pending picks correctly via fantasies.
+    """
+    from botorch.optim import optimize_acqf
+    candidates, _ = optimize_acqf(
+        acq_function=acq,
+        bounds=bounds,
+        q=q,
+        num_restarts=16,
+        raw_samples=512,
+        options={"batch_limit": 5, "maxiter": 200},
+        sequential=True,
+    )
+    return candidates.detach()
+
+
 def _sobol_cold_start(bounds: torch.Tensor, int_dims, q: int, round_idx: int) -> torch.Tensor:
     """Draw q Sobol points over `bounds` for the very-first batch.
 
     Used when load_priors()+load_history() is empty: there's nothing for the
     GP to fit on. Sobol is the standard cold-start for BO and matches what
-    skopt does internally via N_INITIAL_POINTS. Seed mirrors qnehvi:
-    `42 ^ round_idx` (xor — see wiki/incidents/botorch-predict-seed-pow-vs-xor.md).
+    skopt does internally via N_INITIAL_POINTS. Seed via the shared _seed().
     int_dims are rounded post-draw to mirror _emit_picks.
     """
     from botorch.utils.sampling import draw_sobol_samples
-    seed = 42 ^ int(round_idx)
+    seed = _seed(round_idx)
     # draw_sobol_samples returns (n=1, q, d); squeeze the leading dim.
     cands = draw_sobol_samples(bounds=bounds, n=1, q=q, seed=seed).squeeze(0)
     return cands.detach()
@@ -274,8 +309,6 @@ def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int):
     from botorch.acquisition.multi_objective.logei import (
         qLogNoisyExpectedHypervolumeImprovement,
     )
-    from botorch.optim import optimize_acqf
-    from botorch.sampling.normal import SobolQMCNormalSampler
 
     # Per-round ref-point: nadir of the observed front, pushed out 10% of
     # the span. For maximization, "dominated" = smaller — so subtract the
@@ -284,33 +317,14 @@ def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int):
     span = (Y.max(dim=0).values - nadir).abs().clamp(min=1e-9)
     ref_point = (nadir - 0.1 * span).tolist()
 
-    seed = 42 ^ int(round_idx)
-    sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=seed)
-
     acq = qLogNoisyExpectedHypervolumeImprovement(
         model=model,
         ref_point=ref_point,
         X_baseline=X,
-        sampler=sampler,
+        sampler=_sampler(round_idx),
         prune_baseline=True,
     )
-
-    candidates, _ = optimize_acqf(
-        acq_function=acq,
-        bounds=bounds,
-        q=q,
-        num_restarts=16,
-        raw_samples=512,
-        options={"batch_limit": 5, "maxiter": 200},
-        # sequential greedy: optimize the q candidates one-at-a-time (each a
-        # cheap d-dim problem) instead of jointly (one q*d-dim problem). For
-        # qNEHVI/qLogNEHVI this is the recommended batch mode AND the only
-        # tractable one at large q — joint (sequential=False) is ~q*d dims and
-        # blew past a 10-min wall at q=10 (botorch_predict q=10 smoke-test,
-        # 2026-06-04). The "N" handles pending picks correctly via fantasies.
-        sequential=True,
-    )
-    return candidates.detach()
+    return _optimize(acq, bounds, q)
 
 
 def _qlnei_picks(model, X, bounds, q: int, round_idx: int):
@@ -321,29 +335,14 @@ def _qlnei_picks(model, X, bounds, q: int, round_idx: int):
     (calo measurement is unused) and converges much faster on the plateau.
     """
     from botorch.acquisition.logei import qLogNoisyExpectedImprovement
-    from botorch.optim import optimize_acqf
-    from botorch.sampling.normal import SobolQMCNormalSampler
-
-    seed = 42 ^ int(round_idx)
-    sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=seed)
 
     acq = qLogNoisyExpectedImprovement(
         model=model,
         X_baseline=X,
-        sampler=sampler,
+        sampler=_sampler(round_idx),
         prune_baseline=True,
     )
-
-    candidates, _ = optimize_acqf(
-        acq_function=acq,
-        bounds=bounds,
-        q=q,
-        num_restarts=16,
-        raw_samples=512,
-        options={"batch_limit": 5, "maxiter": 200},
-        sequential=True,
-    )
-    return candidates.detach()
+    return _optimize(acq, bounds, q)
 
 
 def _emit_picks(cands, int_dims):
@@ -377,7 +376,7 @@ def _pareto_sob_picks(model, bounds, q: int, round_idx: int):
     from scipy.stats import qmc
 
     N = 16384
-    seed = 42 ^ int(round_idx)
+    seed = _seed(round_idx)
     # Bulk Sobol via scipy (matches the cloud renderer); botorch's
     # draw_sobol_samples builds SobolEngine(q*d) and caps at 21201 dims, so it
     # can't bulk-sample N points. Draw in [0,1]^d then scale to bounds.

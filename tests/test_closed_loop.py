@@ -483,7 +483,7 @@ class TestBarrierDeadPid(unittest.TestCase):
              mock.patch.object(cl, "SqliteSaver", return_value=mock.Mock()), \
              mock.patch("graph.build.build_graph", return_value=mock.Mock()), \
              mock.patch("graph.build.is_child_terminal", return_value=False), \
-             mock.patch.object(cl, "_child_in_leaderboard", return_value=False), \
+             mock.patch.object(cl, "_leaderboard_names", return_value=set()), \
              mock.patch.object(cl, "_child_is_broken", return_value=False), \
              mock.patch.object(cl, "_stop_requested", return_value=False):
             out = cl.node_barrier(state)
@@ -516,7 +516,7 @@ class TestBarrierDeadPid(unittest.TestCase):
              mock.patch.object(cl, "SqliteSaver", return_value=mock.Mock()), \
              mock.patch("graph.build.build_graph", return_value=mock.Mock()), \
              mock.patch("graph.build.is_child_terminal", return_value=False), \
-             mock.patch.object(cl, "_child_in_leaderboard", return_value=False), \
+             mock.patch.object(cl, "_leaderboard_names", return_value=set()), \
              mock.patch.object(cl, "_child_is_broken", return_value=False), \
              mock.patch.object(cl, "_stop_requested", return_value=False):
             out = cl.node_barrier(state)

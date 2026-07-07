@@ -99,8 +99,7 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     # `TypeError: Type is not msgpack serializable: numpy.int64` at end-of-run.
     # Affects prodtarget mode (N=numberOfPlates is the only Integer dim across
     # all modes); see wiki/incidents/langgraph-checkpoint-numpy-int64.md.
-    x_native = [v.item() if hasattr(v, "item") else v for v in x]
-    return x_native, str(geom_path)
+    return bo.to_py_scalars(x), str(geom_path)
 
 
 # --- preflight (subprocess) ---

@@ -184,10 +184,6 @@ CLOSED_LOOP_STAGGER_SEC = 90
 # Closed-loop write rate is ~0.01 writes/sec, so polling every 5min is plenty
 # without flooding the SqliteSaver.
 CLOSED_LOOP_BARRIER_POLL_SEC = 300
-# DEPRECATED 2026-06-12, unused. The barrier waits on child process
-# liveness, not a wall-clock window — see
-# wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md.
-CLOSED_LOOP_BARRIER_TIMEOUT_MIN = 240
 # Loud backstop cap on a single round's barrier, for alive-but-hung
 # children only (NOT round pacing; alive children always resolve via
 # pipeline.py's per-stage cap_hours). 1440 = 24h. Tripping this is rare

@@ -83,7 +83,9 @@ def _flock_sh(target: Path):
     partially-written leaderboard line mid-append.
     """
     lock_path = target.with_suffix(target.suffix + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    # No mkdir here: readers (load_history/load_pending) only lock after
+    # target.exists(), so the parent dir already exists — writers' _flock_ex
+    # keeps the mkdir for the first-ever write.
     with open(lock_path, "w") as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_SH)
         try:
@@ -127,6 +129,14 @@ def _parse_float(s):
 
 def _parse_bool(s) -> bool:
     return (s or "").strip().lower() == "true"
+
+
+def to_py_scalars(x) -> list:
+    """Coerce numpy scalars (np.int64/np.float64 from skopt Integer dims /
+    Sobol init) to native Python types for JSON/msgpack. Shared by
+    append_pending and graph/pipeline_io.propose_one — see
+    wiki/incidents/langgraph-checkpoint-numpy-int64.md."""
+    return [v.item() if hasattr(v, "item") else v for v in x]
 
 
 # ============================================================================
@@ -325,9 +335,7 @@ class BOMode(ABC):
             with pp.open("a") as f:
                 if new:
                     f.write("config\tx\talpha\tsubmitted_at\n")
-                # Coerce numpy scalars (Sobol-init returns np.int64/np.float64
-                # for Integer/Real dims) to Python types for JSON.
-                x_py = [v.item() if hasattr(v, "item") else v for v in x]
+                x_py = to_py_scalars(x)
                 f.write(f"{name}\t{json.dumps(x_py)}\t{alpha:.3f}\t{int(time.time())}\n")
 
     def remove_pending(self, name: str) -> bool:
@@ -1478,22 +1486,42 @@ class ProdTargetMode(BOMode):
         # Needs per-plate edep array + x (so we know rOut[i], tPlate[i] per
         # plate; ProductionTargetMaker reads these length-N vectors). MeV->J
         # = 1.602176634e-13; g->kg = 1e-3. Length units mm -> cm via /10.
-        if (x is not None and edep_arr and total_pot
-                and len(edep_arr) == int(x[9])):
+        # Guarding on _expand's N makes this method work unchanged for
+        # ProdTarget6DMode (whose _expand returns FIXED_N) — no override.
+        if x is not None and edep_arr and total_pot:
             rOut, tPlate, _, N = self._expand(x)
-            # Volume_i = pi * rOut^2 * tPlate (mm^3 -> cm^3 by /1000).
-            vol_cm3 = np.pi * (rOut ** 2) * tPlate / 1000.0
-            mass_g = vol_cm3 * self.RHO_INCONEL718_G_PER_CM3
-            # edep_arr is per-plate Edep_total [MeV] summed across the job.
-            # Per-plate per-POT dose [Gy/POT] = (Edep_i / total_pot [MeV/POT])
-            #   * 1.602e-13 J/MeV / (mass_i [g] * 1e-3 kg/g).
-            edep_per_pot = np.asarray(edep_arr, dtype=float) / float(total_pot)
-            dose_per_pot_Gy = (edep_per_pot * 1.602176634e-13
-                               / (mass_g * 1e-3))
-            out["peak_dose_Gy_per_POT"] = float(dose_per_pot_Gy.max())
-            out["peak_dose_plate_idx"] = int(np.argmax(dose_per_pot_Gy))
-            out["mean_dose_Gy_per_POT"] = float(dose_per_pot_Gy.mean())
+            if len(edep_arr) == N:
+                # Volume_i = pi * rOut^2 * tPlate (mm^3 -> cm^3 by /1000).
+                vol_cm3 = np.pi * (rOut ** 2) * tPlate / 1000.0
+                mass_g = vol_cm3 * self.RHO_INCONEL718_G_PER_CM3
+                # edep_arr is per-plate Edep_total [MeV] summed across the job.
+                # Per-plate per-POT dose [Gy/POT] = (Edep_i / total_pot [MeV/POT])
+                #   * 1.602e-13 J/MeV / (mass_i [g] * 1e-3 kg/g).
+                edep_per_pot = np.asarray(edep_arr, dtype=float) / float(total_pot)
+                dose_per_pot_Gy = (edep_per_pot * 1.602176634e-13
+                                   / (mass_g * 1e-3))
+                out["peak_dose_Gy_per_POT"] = float(dose_per_pot_Gy.max())
+                out["peak_dose_plate_idx"] = int(np.argmax(dose_per_pot_Gy))
         return out or None
+
+    @staticmethod
+    def _parse_pt_extras(row: dict) -> dict:
+        """Shared leaderboard extras parse for prodtarget/prodtarget6d
+        load_history_row (was duplicated verbatim in both)."""
+        extras: dict = {}
+        edep = row.get("edep_per_POT_MeV")
+        if edep not in (None, "", "nan"):
+            extras["edep_per_POT_MeV"] = float(edep)
+        peak = row.get("peak_dose_Gy_per_POT")
+        if peak not in (None, "", "nan"):
+            extras["peak_dose_Gy_per_POT"] = float(peak)
+        idx = row.get("peak_plate_idx")
+        if idx not in (None, "", "nan"):
+            try:
+                extras["peak_dose_plate_idx"] = int(idx)
+            except (ValueError, TypeError):
+                pass
+        return extras
 
     def load_priors(self):
         # No external priors in v0; baseline lands via the first evaluation.
@@ -1641,19 +1669,7 @@ class ProdTargetMode(BOMode):
         return header, line
 
     def load_history_row(self, row: dict) -> Point:
-        extras: dict = {}
-        edep = row.get("edep_per_POT_MeV")
-        if edep not in (None, "", "nan"):
-            extras["edep_per_POT_MeV"] = float(edep)
-        peak = row.get("peak_dose_Gy_per_POT")
-        if peak not in (None, "", "nan"):
-            extras["peak_dose_Gy_per_POT"] = float(peak)
-        idx = row.get("peak_plate_idx")
-        if idx not in (None, "", "nan"):
-            try:
-                extras["peak_dose_plate_idx"] = int(idx)
-            except (ValueError, TypeError):
-                pass
+        extras = self._parse_pt_extras(row)
         return Point(cfg=row["config"],
                      x=[float(row["r0"]), float(row["r1"]), float(row["r2"]),
                         float(row["t0"]), float(row["t1"]), float(row["t2"]),
@@ -1730,26 +1746,8 @@ class ProdTarget6DMode(ProdTargetMode):
         lPlate[-1] = tPlate[-1]
         return rOut, tPlate, lPlate, N
 
-    def extract_extras(self, summary: dict, x=None) -> dict | None:
-        import numpy as np
-        edep_stack = summary.get("edep_per_POT_MeV")
-        edep_arr = summary.get("edep_per_plate_MeV")
-        total_pot = summary.get("total_pot")
-        out: dict = {}
-        if edep_stack is not None:
-            out["edep_per_POT_MeV"] = float(edep_stack)
-        if (x is not None and edep_arr and total_pot
-                and len(edep_arr) == self.FIXED_N):
-            rOut, tPlate, _, _ = self._expand(x)
-            vol_cm3 = np.pi * (rOut ** 2) * tPlate / 1000.0
-            mass_g = vol_cm3 * self.RHO_INCONEL718_G_PER_CM3
-            edep_per_pot = np.asarray(edep_arr, dtype=float) / float(total_pot)
-            dose_per_pot_Gy = (edep_per_pot * 1.602176634e-13
-                               / (mass_g * 1e-3))
-            out["peak_dose_Gy_per_POT"] = float(dose_per_pot_Gy.max())
-            out["peak_dose_plate_idx"] = int(np.argmax(dose_per_pot_Gy))
-            out["mean_dose_Gy_per_POT"] = float(dose_per_pot_Gy.mean())
-        return out or None
+    # extract_extras: inherited from ProdTargetMode — its guard uses
+    # _expand()'s N, which is FIXED_N here, so the parent body is exact.
 
     def _geom_text(self, x) -> str:
         rOut, tPlate, lPlate, N = self._expand(x)
@@ -1816,19 +1814,7 @@ class ProdTarget6DMode(ProdTargetMode):
         return header, line
 
     def load_history_row(self, row: dict) -> Point:
-        extras: dict = {}
-        edep = row.get("edep_per_POT_MeV")
-        if edep not in (None, "", "nan"):
-            extras["edep_per_POT_MeV"] = float(edep)
-        peak = row.get("peak_dose_Gy_per_POT")
-        if peak not in (None, "", "nan"):
-            extras["peak_dose_Gy_per_POT"] = float(peak)
-        idx = row.get("peak_plate_idx")
-        if idx not in (None, "", "nan"):
-            try:
-                extras["peak_dose_plate_idx"] = int(idx)
-            except (ValueError, TypeError):
-                pass
+        extras = self._parse_pt_extras(row)
         return Point(cfg=row["config"],
                      x=[float(row["r0"]), float(row["r1"]), float(row["r2"]),
                         float(row["t0"]), float(row["t1"]), float(row["t2"])],
@@ -1912,9 +1898,10 @@ def _cmd_propose_locked(args, mode, names):
               f"(fake y = {fake_y:+.3f})")
 
     xs, n_rejected = mode.ask_buildable(opt, real_ys, q=q, strategy=args.strategy)
-    if any(not mode.is_buildable(x) for x in xs):
+    n_unbuildable = sum(1 for x in xs if not mode.is_buildable(x))
+    if n_unbuildable:
         print(f"WARN: {mode.PROPOSE_MAX_RETRY} retries hit; returning batch with "
-              f"{sum(1 for x in xs if not mode.is_buildable(x))} unbuildable picks",
+              f"{n_unbuildable} unbuildable picks",
               file=sys.stderr)
     if n_rejected:
         penalty_y = max(real_ys) + 1.0 if real_ys else 1e6
@@ -2343,7 +2330,6 @@ def cmd_preflight(args):
         shutil.copyfile(gdml_path, keep_path)
         print(f"[preflight/{mode.name}] as-built GDML preserved at "
               f"{keep_path} ({gdml_path.stat().st_size} bytes)")
-        print(f"[preflight/{mode.name}] as-built GDML preserved: {keep_path}")
 
     # Helical preflight runs surface-check, which emits G4Exception(GeomVol1002)
     # WWWW warnings on every baseline overlap (~117 hits in stock geometry).

@@ -58,34 +58,14 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-# Stamp AUTORESEARCH_MODE BEFORE `from config import ...` — config.GRID_STAGES
-# is selected from GRID_STAGES_BY_MODE at module-load time, and build.STAGE_NODES
-# freezes it. argparse runs much later (in main()), so we pre-sniff sys.argv
-# here. Issue Mu2eBO #15.
-def _presniff_mode() -> None:
-    for i, a in enumerate(sys.argv[1:], start=1):
-        if a == "--mode" and i + 1 < len(sys.argv):
-            os.environ["AUTORESEARCH_MODE"] = sys.argv[i + 1]
-            return
-        if a.startswith("--mode="):
-            os.environ["AUTORESEARCH_MODE"] = a.split("=", 1)[1]
-            return
+# Stamp AUTORESEARCH_MODE / AUTORESEARCH_NO_RUN1B BEFORE `from config import ...`
+# — config.GRID_STAGES is selected from GRID_STAGES_BY_MODE at module-load time,
+# and build.STAGE_NODES freezes it. argparse runs much later (in main()).
+# Shared sniffers: graph/presniff.py. Issue Mu2eBO #15.
+from presniff import presniff_mode, presniff_picker  # noqa: E402
 
-
-def _presniff_picker() -> None:
-    """If picker=qlnei, stamp AUTORESEARCH_NO_RUN1B=1 so config.GRID_STAGES
-    omits run1b_mubeam at import time. Same load-order rationale as _presniff_mode."""
-    for i, a in enumerate(sys.argv[1:], start=1):
-        if a == "--picker" and i + 1 < len(sys.argv) and sys.argv[i + 1] == "qlnei":
-            os.environ["AUTORESEARCH_NO_RUN1B"] = "1"
-            return
-        if a == "--picker=qlnei":
-            os.environ["AUTORESEARCH_NO_RUN1B"] = "1"
-            return
-
-
-_presniff_mode()
-_presniff_picker()
+presniff_mode()
+presniff_picker()
 
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -227,12 +207,20 @@ def _child_is_broken(name: str) -> bool:
     return (_child_state_dir(name) / "broken.txt").exists()
 
 
-def _child_in_leaderboard(name: str, mode: str) -> bool:
-    """Read leaderboard via the BO driver (which already flocks)."""
+def _leaderboard_names(mode: str) -> set:
+    """One flock-aware leaderboard read -> set of config names.
+
+    The barrier consumes this once per poll tick; per-child reads would
+    re-parse the full (growing) TSV q times per tick, thousands of times
+    per round at q=20 under the 24h backstop cap."""
     sys.path.insert(0, str(PROJECT_ROOT))
     import autoresearch_bo_michael as bo  # noqa: WPS433
-    m = bo.MODES[mode]
-    return any(p.cfg == name for p in m.load_history())
+    return {p.cfg for p in bo.MODES[mode].load_history()}
+
+
+def _child_in_leaderboard(name: str, mode: str) -> bool:
+    """Read leaderboard via the BO driver (which already flocks)."""
+    return name in _leaderboard_names(mode)
 
 
 def _leaderboard_len(mode: str) -> int:
@@ -297,15 +285,16 @@ def node_renew_token(state: RoundState) -> dict:
     return {"errors": errors}
 
 
-def _qnehvi_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, picker: str = "qnehvi") -> list[tuple]:
+def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, picker: str = "qnehvi") -> list[tuple]:
     """Shell into .venv-botorch to run botorch_predict.py; return picks.
 
     Disjoint-venv: closed_loop.py runs under .venv-graph (no botorch); the
-    qNEHVI/qLNEI picker needs .venv-botorch (no langgraph). We round-trip
+    botorch pickers need .venv-botorch (no langgraph). We round-trip
     picks through a temp JSON file using botorch_predict.py's
     --emit-picks-json.
 
-    picker = "qnehvi" (multi-obj, default) or "qlnei" (single-obj sob).
+    picker = any non-cl_min PICKER_CHOICES entry: "qnehvi" (multi-obj),
+    "qlnei" (single-obj sob), "pareto_sob" (GP-mean sob corner).
 
     Picks come back as JSON list-of-lists; convert to list-of-tuples to match
     the sklearn-EI path (gp.compute_explore_picks return contract).
@@ -359,8 +348,8 @@ def node_predict_picks(state: RoundState) -> dict:
     mode = state["mode"]
     picker = state.get("picker", DEFAULT_PICKER)
     alpha = state.get("alpha", DEFAULT_ALPHA)
-    if picker in ("qnehvi", "qlnei", "pareto_sob"):
-        picks = _qnehvi_picks_subprocess(mode, q, state["round_idx"], alpha, picker=picker)
+    if picker != "cl_min":
+        picks = _botorch_picks_subprocess(mode, q, state["round_idx"], alpha, picker=picker)
     else:
         gp = _import_gp(mode)
         picks = gp.compute_explore_picks(
@@ -568,8 +557,9 @@ def node_barrier(state: RoundState) -> dict:
     try:
         while True:
             pending = [n for n in children if n not in completed]
+            lb_names = _leaderboard_names(mode) if pending else set()
             for name in list(pending):
-                if _child_in_leaderboard(name, mode) or _child_is_broken(name):
+                if name in lb_names or _child_is_broken(name):
                     completed.add(name)
                     dead_suspect.discard(name)
                 elif is_child_terminal(
@@ -749,8 +739,8 @@ _DRY_RUN_KNOB_LABELS = {
 
 
 def _dry_run(args: argparse.Namespace) -> int:
-    if args.picker in ("qnehvi", "qlnei", "pareto_sob"):
-        picks = _qnehvi_picks_subprocess(args.mode, args.q, round_idx=0, alpha=args.alpha, picker=args.picker)
+    if args.picker != "cl_min":
+        picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, alpha=args.alpha, picker=args.picker)
     else:
         gp = _import_gp(args.mode)
         picks = gp.compute_explore_picks(

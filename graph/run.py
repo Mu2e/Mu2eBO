@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import sys
 import uuid
@@ -24,18 +23,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Stamp AUTORESEARCH_MODE BEFORE `from config import ...` — config.GRID_STAGES
 # is selected from GRID_STAGES_BY_MODE at module-load time, and build.STAGE_NODES
-# freezes it. argparse runs in main(), too late. Issue Mu2eBO #15.
-def _presniff_mode() -> None:
-    for i, a in enumerate(sys.argv[1:], start=1):
-        if a == "--mode" and i + 1 < len(sys.argv):
-            os.environ["AUTORESEARCH_MODE"] = sys.argv[i + 1]
-            return
-        if a.startswith("--mode="):
-            os.environ["AUTORESEARCH_MODE"] = a.split("=", 1)[1]
-            return
+# freezes it. argparse runs in main(), too late. Shared sniffer: graph/presniff.py.
+from presniff import presniff_mode  # noqa: E402
 
-
-_presniff_mode()
+presniff_mode()
 
 # Load .env (LANGSMITH_*, etc.) before any langchain/langgraph import so
 # tracing client picks them up. langgraph.json's "env" field is honored only
