@@ -14,7 +14,7 @@ from typing_extensions import TypedDict
 
 
 PreflightStatus = Literal["pending", "pass", "fail_managed", "fail_init", "ambiguous"]
-StageName = Literal["mubeam", "run1b_mubeam", "concat", "mustops_ce"]
+StageName = Literal["mubeam", "run1b_mubeam", "concat", "mustops_ce", "mustops_pileup", "elebeam_flash", "pot_only"]
 
 
 class StageStatus(TypedDict, total=False):
@@ -29,7 +29,7 @@ class BOIterationState(TypedDict, total=False):
     """Per-iteration state. Persisted by SqliteSaver between node transitions."""
 
     config_name: str
-    mode: Literal["helical", "michael", "foils", "foilsf"]
+    mode: Literal["helical", "michael", "foils", "foilsf", "foilsflash", "foilsg", "ipa"]
     alpha: float
 
     x_point: List[float]

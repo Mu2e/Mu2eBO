@@ -158,11 +158,17 @@ def make_stage_node(stage: str):
 
 
 def node_harvest(state: BOIterationState) -> dict:
-    """Run pipeline.py harvest; populate metrics from summary.json."""
+    """Run pipeline.py harvest; populate metrics from summary.json.
+
+    Verb is mode-dispatched (HARVEST_VERB_BY_MODE in config.py): prodtarget
+    runs `harvest-pot-only` (uproot, mu_per_POT); others run `harvest`
+    (4-stage S/√B + calo).
+    """
     name = state["config_name"]
+    mode = state.get("mode")
     errors = list(state.get("errors", []))
     try:
-        metrics = pio.run_harvest(name)
+        metrics = pio.run_harvest(name, mode=mode)
     except Exception as exc:  # noqa: BLE001
         errors.append(f"harvest[{name}]: {exc}")
         _record_zero_row(name, "harvest_exception", str(exc))

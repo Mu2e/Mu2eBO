@@ -12,11 +12,21 @@ Each round:
                        not propagate.
   4. barrier — poll each child's SqliteSaver checkpoint (NOT the leaderboard
                TSV, which is a derived end-of-harvest artifact) until terminal
-               or timeout; cross-check leaderboard for sanity. If the round
-               produced 0 new leaderboard rows, set zero_rows=True so
-               decide_next can exit early (all children failed → continuing
-               just wastes more rounds re-proposing on the same fit).
+               or dead-pid; cross-check leaderboard for sanity. Child process
+               liveness is the wait condition — there is NO per-round pacing
+               timeout (alive children always resolve via their internal
+               stage caps). barrier_max_min (default 24h) is only a loud
+               backstop for alive-but-hung children. Children whose process
+               died without any resolution artifact are marked
+               completed-failed after one poll tick of grace (foilsf08 crash
+               shape).
   5. decide_next — loop unless max_rounds / zero_rows / STOP_FLAG.
+               zero_rows fires only when ALL of this round's launched
+               children resolved AND none produced a leaderboard row
+               (all-failed). A barrier timeout with children still pending
+               carries the round forward instead (the pending children become
+               orphans whose rows land later — see
+               wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md).
 
 Convergence-by-Pareto-hash was deleted 2026-05-29 after 15 production runs
 showed 0 true saves (FT05/FT06 r0→1 were both --max-rounds 2 and would have
@@ -48,6 +58,35 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Stamp AUTORESEARCH_MODE BEFORE `from config import ...` — config.GRID_STAGES
+# is selected from GRID_STAGES_BY_MODE at module-load time, and build.STAGE_NODES
+# freezes it. argparse runs much later (in main()), so we pre-sniff sys.argv
+# here. Issue Mu2eBO #15.
+def _presniff_mode() -> None:
+    for i, a in enumerate(sys.argv[1:], start=1):
+        if a == "--mode" and i + 1 < len(sys.argv):
+            os.environ["AUTORESEARCH_MODE"] = sys.argv[i + 1]
+            return
+        if a.startswith("--mode="):
+            os.environ["AUTORESEARCH_MODE"] = a.split("=", 1)[1]
+            return
+
+
+def _presniff_picker() -> None:
+    """If picker=qlnei, stamp AUTORESEARCH_NO_RUN1B=1 so config.GRID_STAGES
+    omits run1b_mubeam at import time. Same load-order rationale as _presniff_mode."""
+    for i, a in enumerate(sys.argv[1:], start=1):
+        if a == "--picker" and i + 1 < len(sys.argv) and sys.argv[i + 1] == "qlnei":
+            os.environ["AUTORESEARCH_NO_RUN1B"] = "1"
+            return
+        if a == "--picker=qlnei":
+            os.environ["AUTORESEARCH_NO_RUN1B"] = "1"
+            return
+
+
+_presniff_mode()
+_presniff_picker()
+
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -59,8 +98,8 @@ from config import (  # noqa: E402
     BOTORCH_PREDICT,
     BOTORCH_VENV_PY,
     CHECKPOINT_DB,
+    CLOSED_LOOP_BARRIER_MAX_MIN,
     CLOSED_LOOP_BARRIER_POLL_SEC,
-    CLOSED_LOOP_BARRIER_TIMEOUT_MIN,
     CLOSED_LOOP_MAX_ROUNDS,
     CLOSED_LOOP_MIN_PICK_SPACING,
     CLOSED_LOOP_Q,
@@ -77,7 +116,7 @@ from config import (  # noqa: E402
 
 from sourced_bash import run_sourced_bash  # noqa: E402
 
-PICKER_CHOICES = ("cl_min", "qnehvi")
+PICKER_CHOICES = ("cl_min", "qnehvi", "qlnei", "pareto_sob")
 DEFAULT_PICKER = "cl_min"
 
 # gp_predict_helical lives in the sub-repo (sister of leaderboard). Import
@@ -107,13 +146,16 @@ class RoundState(TypedDict, total=False):
     round_idx: int
     name_prefix: str
     children: Dict[str, ChildRecord]
+    launched_names: List[str]
     completed_names: List[str]
     history_len_before: int
     zero_rows: bool
     errors: List[str]
     stagger_sec: int
     barrier_poll_sec: int
-    barrier_timeout_min: int
+    barrier_max_min: int
+    stop_seen: bool
+    timeout_seen: bool
     min_spacing: float
     pessimistic_calo: bool
     picker: str
@@ -138,6 +180,12 @@ def _import_gp(mode: str = "helical"):
         import gp_predict_foils as gp  # noqa: WPS433
     elif mode == "foilsf":
         import gp_predict_foilsf as gp  # noqa: WPS433
+    elif mode == "foilsflash":
+        import gp_predict_foilsflash as gp  # noqa: WPS433
+    elif mode == "foilsg":
+        import gp_predict_foilsg as gp  # noqa: WPS433
+    elif mode == "ipa":
+        import gp_predict_ipa as gp  # noqa: WPS433
     else:
         raise ValueError(f"_import_gp: no GP picker registered for mode={mode!r}")
     return gp
@@ -145,6 +193,19 @@ def _import_gp(mode: str = "helical"):
 
 def _stop_requested() -> bool:
     return STOP_FLAG.exists()
+
+
+def _pid_alive(pid: int) -> bool:
+    """True if a process with this pid exists. PID reuse can only make a
+    dead child look alive (falls back to the barrier timeout) — a live
+    child can never look dead."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 
 
 def _open_saver_conn() -> sqlite3.Connection:
@@ -172,43 +233,6 @@ def _child_in_leaderboard(name: str, mode: str) -> bool:
     import autoresearch_bo_michael as bo  # noqa: WPS433
     m = bo.MODES[mode]
     return any(p.cfg == name for p in m.load_history())
-
-
-def _child_terminal_via_checkpoint(name: str, child_graph, thread_id: Optional[str] = None) -> bool:
-    """True if the child's compiled graph reports no remaining work.
-
-    `CheckpointTuple` does not expose `next`; only `StateSnapshot` (returned
-    by `compiled_graph.get_state(cfg)`) does. We compile the inner graph
-    once in `node_barrier` against the shared SqliteSaver and pass it in.
-
-    Empty `snap.next` is ambiguous: it means the graph is terminal OR the
-    thread has no checkpoint at all (freshly-spawned subprocess that
-    hasn't flushed its first state yet). Round-N children are launched
-    in parallel and the barrier polls within seconds; without
-    disambiguation, every fresh child is mis-resolved on the first
-    barrier tick — closed-loop declares premature convergence and exits.
-    See wiki/incidents/barrier-false-positive-round1.md.
-
-    Disambiguation: a real terminal state has both populated `values` AND
-    `metadata.step >= 1` (at least one super-step executed). Fresh threads
-    return empty `values` and `step == -1` from LangGraph's SqliteSaver.
-    """
-    # Lookup key is the per-launch thread_id (now decoupled from config_name
-    # to dodge SqliteSaver collisions); fall back to `name` only for legacy
-    # children records that pre-date the decoupling.
-    cfg = {"configurable": {"thread_id": thread_id or name}}
-    try:
-        snap = child_graph.get_state(cfg)
-    except Exception:
-        return False
-    if snap is None or snap.next:
-        return False
-    if not snap.values:
-        return False
-    meta = getattr(snap, "metadata", None) or {}
-    if meta.get("step", -1) < 1:
-        return False
-    return True
 
 
 def _leaderboard_len(mode: str) -> int:
@@ -273,12 +297,15 @@ def node_renew_token(state: RoundState) -> dict:
     return {"errors": errors}
 
 
-def _qnehvi_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float) -> list[tuple]:
-    """Shell into .venv-botorch to run botorch_predict.py qNEHVI; return picks.
+def _qnehvi_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, picker: str = "qnehvi") -> list[tuple]:
+    """Shell into .venv-botorch to run botorch_predict.py; return picks.
 
     Disjoint-venv: closed_loop.py runs under .venv-graph (no botorch); the
-    qNEHVI picker needs .venv-botorch (no langgraph). We round-trip picks
-    through a temp JSON file using botorch_predict.py's --emit-picks-json.
+    qNEHVI/qLNEI picker needs .venv-botorch (no langgraph). We round-trip
+    picks through a temp JSON file using botorch_predict.py's
+    --emit-picks-json.
+
+    picker = "qnehvi" (multi-obj, default) or "qlnei" (single-obj sob).
 
     Picks come back as JSON list-of-lists; convert to list-of-tuples to match
     the sklearn-EI path (gp.compute_explore_picks return contract).
@@ -286,7 +313,7 @@ def _qnehvi_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float) ->
     import tempfile
     if not BOTORCH_VENV_PY.exists():
         raise FileNotFoundError(
-            f"[closed_loop] picker=qnehvi requested but {BOTORCH_VENV_PY} "
+            f"[closed_loop] picker={picker} requested but {BOTORCH_VENV_PY} "
             f"is missing; install .venv-botorch or use --picker cl_min"
         )
     with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tf:
@@ -297,9 +324,10 @@ def _qnehvi_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float) ->
             "--mode", mode, "--q", str(q),
             "--round-idx", str(round_idx),
             "--alpha", str(alpha),
+            "--picker", picker,
             "--emit-picks-json", str(out_path),
         ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=14400)
         if r.returncode != 0:
             raise RuntimeError(
                 f"[closed_loop] botorch_predict rc={r.returncode}: "
@@ -331,8 +359,8 @@ def node_predict_picks(state: RoundState) -> dict:
     mode = state["mode"]
     picker = state.get("picker", DEFAULT_PICKER)
     alpha = state.get("alpha", DEFAULT_ALPHA)
-    if picker == "qnehvi":
-        picks = _qnehvi_picks_subprocess(mode, q, state["round_idx"], alpha)
+    if picker in ("qnehvi", "qlnei", "pareto_sob"):
+        picks = _qnehvi_picks_subprocess(mode, q, state["round_idx"], alpha, picker=picker)
     else:
         gp = _import_gp(mode)
         picks = gp.compute_explore_picks(
@@ -454,18 +482,75 @@ def node_launch_children(state: RoundState) -> dict:
         children[name] = rec
         if idx < len(pending) - 1:
             time.sleep(stagger)
-    return {"children": children, "errors": errors}
+    # launched_names must reflect Popens that ACTUALLY fired this round, not
+    # `children.keys()` — otherwise stale-cluster skips silently fill the dict
+    # with names that were never launched, defeating node_barrier's empty-guard
+    # at :474-479 and causing a 240-min silent hang.
+    # See wiki/incidents/closed-loop-stale-cluster-silent-no-launch.md.
+    launched_this_round = sorted(n for n, rec in children.items() if rec.get("pid"))
+    completed = list(state.get("completed_names", []))
+    for name in sorted(children):
+        if children[name].get("pid"):
+            continue
+        if _child_in_leaderboard(name, mode) or _child_is_broken(name):
+            # Legit resume — barrier will mark done on first poll tick.
+            continue
+        # Stale *_cluster.txt only: skipped by _already_running but no
+        # leaderboard row and no broken.txt → grid was submitted by a prior
+        # aborted run that never harvested. The barrier will never resolve
+        # this child (no terminal checkpoint under the freshly-minted thread_id
+        # either). Route to completed_names so the round terminates, with a
+        # loud per-name error so the operator sees what happened.
+        msg = (f"launch_children[r{state['round_idx']}]: SKIP {name} — stale "
+               f"*_cluster.txt in {_child_state_dir(name)} (prior aborted submit, "
+               f"no leaderboard row). Run "
+               f"`rm {_child_state_dir(name)}/*_cluster.txt` and relaunch, or "
+               f"use a different --name-prefix.")
+        print(f"[closed_loop] {msg}", flush=True)
+        errors.append(msg)
+        completed.append(name)
+    return {
+        "children": children,
+        "launched_names": launched_this_round,
+        "completed_names": completed,
+        "errors": errors,
+    }
 
 
 def node_barrier(state: RoundState) -> dict:
     """Block until every child resolves (terminal checkpoint, leaderboard row,
-    or broken.txt) or barrier_timeout_min elapses, or STOP_FLAG appears."""
+    broken.txt, or dead process) or STOP_FLAG appears.
+
+    There is deliberately NO per-round pacing timeout. Child process liveness
+    is the wait condition: an alive `graph.run` child is always progressing
+    toward resolution (every grid stage inside it is bounded by pipeline.py's
+    poll `cap_hours`), and a dead one is marked completed-failed within two
+    poll ticks. Wall-clock windows were only ever a proxy for "will this
+    child resolve?" and the proxy caused two orphan-storm incidents
+    (foilsg03 @240min, foilsg05 @360min — see
+    wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md).
+
+    barrier_max_min (default 24h) is a loud BACKSTOP for the one remaining
+    pathology — a child that is alive but hung — not round pacing. Tripping
+    it should be rare and is always worth investigating."""
     poll = state.get("barrier_poll_sec", CLOSED_LOOP_BARRIER_POLL_SEC)
-    deadline = time.time() + state.get(
-        "barrier_timeout_min", CLOSED_LOOP_BARRIER_TIMEOUT_MIN
-    ) * 60
+    max_min = state.get("barrier_max_min", CLOSED_LOOP_BARRIER_MAX_MIN)
+    start = time.time()
+    deadline = start + max_min * 60
+    stop_seen = False
+    timeout_seen = False
     mode = state["mode"]
     children = state["children"]
+    launched = state.get("launched_names", [])
+    # Hard guard: barrier on an empty launch set is always a state-management
+    # bug (children dict cleared/replaced between launch_children and barrier).
+    # all(n in completed for n in {}) == True would otherwise exit silently.
+    if not launched:
+        raise RuntimeError(
+            f"barrier[r{state.get('round_idx')}]: launched_names empty — "
+            f"state pipeline corrupted between launch_children and barrier "
+            f"(children dict was replaced or never written)"
+        )
     completed = set(state.get("completed_names", []))
     errors = list(state.get("errors", []))
     conn = _open_saver_conn()
@@ -475,69 +560,132 @@ def node_barrier(state: RoundState) -> dict:
     # only StateSnapshot does, and StateSnapshot only comes from a compiled
     # graph attached to the saver.
     sys.path.insert(0, str(PROJECT_ROOT))
-    from graph.build import _build_graph  # noqa: WPS433
-    child_graph = _build_graph().compile(checkpointer=saver)
+    from graph.build import build_graph, is_child_terminal  # noqa: WPS433
+    child_graph = build_graph().compile(checkpointer=saver)
+    # Children seen with a dead pid once; confirmed-failed on the NEXT poll
+    # tick (grace against racing the child's final leaderboard append).
+    dead_suspect: set = set()
     try:
         while True:
             pending = [n for n in children if n not in completed]
             for name in list(pending):
                 if _child_in_leaderboard(name, mode) or _child_is_broken(name):
                     completed.add(name)
-                elif _child_terminal_via_checkpoint(
-                    name, child_graph,
-                    thread_id=(children.get(name) or {}).get("thread_id"),
+                    dead_suspect.discard(name)
+                elif is_child_terminal(
+                    thread_id=(children.get(name) or {}).get("thread_id") or name,
+                    child_graph=child_graph,
                 ):
                     # Terminal checkpoint but no leaderboard row + no broken.txt
                     # → graph ended via preflight-fail / stage-fail. Count as done.
                     completed.add(name)
+                    dead_suspect.discard(name)
                     errors.append(
                         f"barrier[{name}]: terminal checkpoint but no leaderboard "
                         f"row (likely preflight/stage failure)"
                     )
+                else:
+                    # No resolution artifact. If the child PROCESS is gone it
+                    # can never produce one — crashed mid-write (foilsf08
+                    # SqliteSaver shape). Without this, such children stay
+                    # "pending" until the timeout cap.
+                    pid = (children.get(name) or {}).get("pid")
+                    if pid and not _pid_alive(pid):
+                        if name in dead_suspect:
+                            completed.add(name)
+                            msg = (
+                                f"barrier[{name}]: child process {pid} died "
+                                f"without resolution (no leaderboard row / "
+                                f"broken.txt / terminal checkpoint)"
+                            )
+                            print(f"[closed_loop] {msg}", flush=True)
+                            errors.append(msg)
+                        else:
+                            dead_suspect.add(name)
+                    else:
+                        dead_suspect.discard(name)
             if all(n in completed for n in children):
                 print(f"[closed_loop] barrier: all {len(children)} children resolved", flush=True)
                 break
             if _stop_requested():
-                errors.append(f"barrier[r{state['round_idx']}]: STOP_FLAG seen, exiting")
+                stop_seen = True
+                msg = (
+                    f"barrier[r{state['round_idx']}]: STOP_FLAG seen, exiting "
+                    f"({len(completed)}/{len(children)} children resolved)"
+                )
+                print(f"[closed_loop] {msg}", flush=True)
+                errors.append(msg)
                 break
             if time.time() > deadline:
-                errors.append(
-                    f"barrier[r{state['round_idx']}]: timeout after "
-                    f"{state.get('barrier_timeout_min', CLOSED_LOOP_BARRIER_TIMEOUT_MIN)}min; "
-                    f"{len(children) - len(completed)} children still pending"
+                timeout_seen = True
+                msg = (
+                    f"barrier[r{state['round_idx']}]: backstop cap "
+                    f"{max_min}min reached with "
+                    f"{len(children) - len(completed)} children still pending "
+                    f"AND alive — investigate (alive children should always "
+                    f"resolve via their internal stage caps)"
                 )
+                print(f"[closed_loop] {msg}", flush=True)
+                errors.append(msg)
                 break
             time.sleep(poll)
     finally:
         conn.close()
-    return {"completed_names": sorted(completed), "errors": errors}
+    return {
+        "completed_names": sorted(completed),
+        "errors": errors,
+        "stop_seen": stop_seen,
+        "timeout_seen": timeout_seen,
+    }
 
 
 def node_decide_next(state: RoundState) -> dict:
     """Bump round_idx; check zero-row safety break; clear children for next round.
 
-    Zero-row break: if the round's barrier added 0 new leaderboard rows
-    compared to predict_picks's snapshot, all children failed
+    Zero-row break: fires only when ALL of this round's launched children
+    resolved AND the round added 0 new leaderboard rows compared to
+    predict_picks's snapshot — i.e. every child genuinely failed
     (preflight-fail, scan_logs-broken, harvest crash). Continuing would
     refit on identical data and re-propose the same picks (foilsX04
     failure mode, 2026-05-29) — exit instead.
+
+    A barrier timeout with children still pending must NOT trip the break:
+    those children are running normally and their rows land later (foilsg03 /
+    foilsg05 false-positive, see
+    wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md).
+    Gate on this round's launched set, not the raw completed count —
+    completed_names is cumulative across rounds, so a raw count comparison
+    is trivially satisfied at round N>0.
     """
     mode = state["mode"]
     before = state.get("history_len_before", 0)
     after = _leaderboard_len(mode)
     new_rows = after - before
-    zero_rows = new_rows <= 0
+    launched = state.get("launched_names", []) or []
+    completed = set(state.get("completed_names", []))
+    this_round_done = sum(1 for n in launched if n in completed)
+    all_resolved = bool(launched) and this_round_done >= len(launched)
+    zero_rows = (new_rows <= 0) and all_resolved
     if zero_rows:
         print(f"[closed_loop] decide_next[r{state['round_idx']}]: "
-              f"0 new leaderboard rows this round (before={before} after={after}) "
-              f"— all children failed; exiting early", flush=True)
+              f"0 new leaderboard rows + all {len(launched)} children resolved "
+              f"(before={before} after={after}) — all failed; exiting early",
+              flush=True)
+    elif new_rows <= 0:
+        print(f"[closed_loop] decide_next[r{state['round_idx']}]: "
+              f"0 new rows but {len(launched) - this_round_done}/{len(launched)} "
+              f"children still pending after barrier — carrying round forward "
+              f"(NOT exiting)", flush=True)
     else:
         print(f"[closed_loop] decide_next[r{state['round_idx']}]: "
               f"+{new_rows} new rows (before={before} after={after})", flush=True)
     return {
         "round_idx": state["round_idx"] + 1,
         "zero_rows": zero_rows,
+        "stop_seen": state.get("stop_seen", False),
+        "timeout_seen": state.get("timeout_seen", False),
         "children": {},
+        "launched_names": [],
         # completed_names intentionally persists across rounds.
     }
 
@@ -547,7 +695,11 @@ def route_after_decide(state: RoundState):
         return END
     if state["round_idx"] >= state["max_rounds"]:
         return END
-    if _stop_requested():
+    # stop_seen is the barrier's recorded observation; the live re-check is
+    # belt-and-suspenders for a flag raised after the barrier exited. Keying
+    # on stop_seen alone would race an operator who rm's the flag between
+    # barrier exit and this edge (~ms window).
+    if state.get("stop_seen") or _stop_requested():
         return END
     return "renew_token"
 
@@ -586,12 +738,19 @@ _DRY_RUN_KNOB_LABELS = {
     "foils":   ("rOut_up", "rOut_dn", "hT_up", "hT_dn", "rIn_up", "rIn_dn"),
     # foilsf (v3) swaps the rIn dims for hole-fractions f = rIn/rOut.
     "foilsf":  ("rOut_up", "rOut_dn", "hT_up", "hT_dn", "f_up", "f_dn"),
+    "foilsflash": ("rOut_up", "rOut_dn", "hT_up", "hT_dn", "f_up", "f_dn"),
+    # foilsg: 4 z-groups × (rOut, hT, f) — 12 knobs, FoilsGroupMode.build_space order.
+    "foilsg":  tuple(f"{k}_g{g}" for g in range(4) for k in ("rOut", "hT", "f")),
+    # ipa: 5D IPA geometry, IPAMode.build_space order.
+    "ipa":     ("thickness", "halfLength", "OutRadius0", "OutRadius1", "distFromTargetEnd"),
+    # prodtarget6d: 6D rOut+thickness profile (N=35 fixed, lug derived).
+    "prodtarget6d": ("r0", "r1", "r2", "t0", "t1", "t2"),
 }
 
 
 def _dry_run(args: argparse.Namespace) -> int:
-    if args.picker == "qnehvi":
-        picks = _qnehvi_picks_subprocess(args.mode, args.q, round_idx=0, alpha=args.alpha)
+    if args.picker in ("qnehvi", "qlnei", "pareto_sob"):
+        picks = _qnehvi_picks_subprocess(args.mode, args.q, round_idx=0, alpha=args.alpha, picker=args.picker)
     else:
         gp = _import_gp(args.mode)
         picks = gp.compute_explore_picks(
@@ -610,7 +769,7 @@ def _dry_run(args: argparse.Namespace) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default=DEFAULT_MODE,
-                    choices=["helical", "michael", "foils", "foilsf"])
+                    choices=["helical", "michael", "foils", "foilsf", "foilsflash", "foilsg", "ipa", "prodtarget", "prodtarget6d"])
     ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
     ap.add_argument("--q", type=int, default=CLOSED_LOOP_Q)
     ap.add_argument("--max-rounds", type=int, default=CLOSED_LOOP_MAX_ROUNDS)
@@ -621,7 +780,14 @@ def main() -> int:
     ap.add_argument("--stagger", type=int, default=CLOSED_LOOP_STAGGER_SEC,
                     help="seconds between successive child launches")
     ap.add_argument("--barrier-poll-sec", type=int, default=CLOSED_LOOP_BARRIER_POLL_SEC)
-    ap.add_argument("--barrier-timeout-min", type=int, default=CLOSED_LOOP_BARRIER_TIMEOUT_MIN)
+    ap.add_argument("--barrier-timeout-min", type=int, default=None,
+                    help="DEPRECATED, ignored. The barrier waits on child "
+                         "process liveness; see --barrier-max-min for the "
+                         "hung-child backstop")
+    ap.add_argument("--barrier-max-min", type=int, default=CLOSED_LOOP_BARRIER_MAX_MIN,
+                    help="loud backstop cap on one round's barrier for "
+                         "alive-but-hung children; NOT round pacing — "
+                         "tripping it is always worth investigating")
     ap.add_argument("--min-spacing", type=float, default=CLOSED_LOOP_MIN_PICK_SPACING,
                     help="normalized-L2 minimum distance between picks")
     ap.add_argument("--pessimistic-calo", action="store_true", default=False,
@@ -661,14 +827,28 @@ def main() -> int:
         "errors": [],
         "stagger_sec": args.stagger,
         "barrier_poll_sec": args.barrier_poll_sec,
-        "barrier_timeout_min": args.barrier_timeout_min,
+        "barrier_max_min": args.barrier_max_min,
         "min_spacing": args.min_spacing,
         "pessimistic_calo": args.pessimistic_calo,
         "picker": args.picker,
     }
 
+    # Resolve the target leaderboard so the banner is self-incriminating: a
+    # mode/prefix mismatch (e.g. --mode foils with a "foilsf" prefix landing
+    # rows in v2 instead of v3) is then visible in the first log line rather
+    # than only after R0 completes. See wiki [[leaderboards]] gotcha.
+    try:
+        import autoresearch_bo_michael as _bo  # noqa: WPS433
+        _lb = str(_bo.MODES[args.mode].leaderboard)
+    except Exception as _e:  # pragma: no cover - banner is best-effort
+        _lb = f"<unresolved: {_e}>"
     print(f"[closed_loop] thread_id={thread_id} q={args.q} max_rounds={args.max_rounds} "
-          f"prefix={args.name_prefix} picker={args.picker}", flush=True)
+          f"prefix={args.name_prefix} mode={args.mode} leaderboard={_lb} "
+          f"picker={args.picker}", flush=True)
+    if args.name_prefix.startswith("foilsf") and args.mode == "foils":
+        print(f"[closed_loop] WARNING: prefix={args.name_prefix!r} looks like a "
+              f"foilsf (v3 fractional) campaign but mode=foils writes v2 "
+              f"(absolute rIn). Did you mean --mode foilsf?", flush=True)
     # Resume vs fresh: if a checkpoint exists for this thread_id, pass None
     # so LangGraph picks up from the last node instead of re-seeding state
     # (which would re-run predict_picks → assign_names → launch_children
@@ -687,6 +867,8 @@ def main() -> int:
             "completed": len(ev.get("completed_names", [])),
             "history_len_before": ev.get("history_len_before"),
             "zero_rows": ev.get("zero_rows"),
+            "stop_seen": ev.get("stop_seen"),
+            "timeout_seen": ev.get("timeout_seen"),
         }
         print(f"[closed_loop] {json.dumps(snap)}", flush=True)
     print(f"[closed_loop] done. final keys: {sorted((final or {}).keys())}")

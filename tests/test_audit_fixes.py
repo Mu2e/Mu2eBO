@@ -110,7 +110,9 @@ class TestModeArgChoices(unittest.TestCase):
         # (avoid pulling in sqlite/langgraph deps for a string check).
         src = (PROJECT_ROOT / "graph" / "closed_loop.py").read_text()
         # The choices line is colocated with the --mode argument.
-        m = re.search(r'choices\s*=\s*\[\s*"helical"\s*,\s*"michael"\s*,\s*"foils"\s*\]', src)
+        # Three load-bearing modes must appear in order; trailing modes
+        # (e.g. "foilsf") may be added later without re-pinning this test.
+        m = re.search(r'choices\s*=\s*\[\s*"helical"\s*,\s*"michael"\s*,\s*"foils"', src)
         self.assertIsNotNone(m, "--mode choices guard missing or reordered")
 
     def test_argparse_rejects_typo(self):
@@ -273,22 +275,26 @@ class TestProposeOneBuildableRetry(unittest.TestCase):
         self.assertIsNotNone(m, "propose_one not found")
         body = m.group(1)
         # x_override branch must use `x = list(x_override)` BEFORE the else
-        # that runs opt.ask()/is_buildable. Pattern check: "if x_override
-        # is not None" precedes the retry loop's `MAX_RETRY`.
+        # that runs the BO ask path. Pattern check: "if x_override is not
+        # None" precedes the ask_buildable call (which holds the retry
+        # budget formerly inline as MAX_RETRY).
         i_override = body.find("x_override is not None")
-        i_max = body.find("MAX_RETRY")
+        i_ask = body.find("ask_buildable")
         self.assertGreater(i_override, -1, "x_override branch missing")
-        self.assertGreater(i_max, -1, "MAX_RETRY retry loop missing")
+        self.assertGreater(i_ask, -1, "ask_buildable call missing")
         self.assertLess(
-            i_override, i_max,
-            "x_override branch must be evaluated before the BO retry loop"
+            i_override, i_ask,
+            "x_override branch must be evaluated before the BO ask path"
         )
 
     def test_retry_loop_constants_in_source(self):
-        # Pin MAX_RETRY value so a silent shrink doesn't slip through.
-        src = (PROJECT_ROOT / "graph" / "pipeline_io.py").read_text()
-        self.assertIn("MAX_RETRY = 20", src,
-                      "MAX_RETRY must stay at 20 (matches cmd_propose budget)")
+        # Pin retry budget so a silent shrink doesn't slip through.
+        # MAX_RETRY moved to BOMode.PROPOSE_MAX_RETRY in autoresearch_bo_michael.py
+        # (2026-06-06 Option A refactor); both CLI _cmd_propose_locked and
+        # graph propose_one consume it via mode.ask_buildable.
+        src = (PROJECT_ROOT / "autoresearch_bo_michael.py").read_text()
+        self.assertIn("PROPOSE_MAX_RETRY = 20", src,
+                      "PROPOSE_MAX_RETRY must stay at 20 (matches cmd_propose budget)")
 
 
 # --- Follow-on: node_propose re-entry preserves caller-pinned name -----------
@@ -736,6 +742,143 @@ class TestRunSourcedBash(unittest.TestCase):
         self.assertEqual(r.returncode, -1)
         self.assertEqual(m.call_count, 1)      # timeout = running, not a flake
         sleep.assert_not_called()
+
+
+class TestPreflightFatalAbortClassification(unittest.TestCase):
+    """Regression for wiki/incidents/preflight-past-init-false-pass.md:
+    a fatal GeomSolids0002 abort AFTER pre-geometry strings (BeginRun /
+    GenParticle) was classified PASS because past_init short-circuited the
+    geom-fail check. G4_FATAL_RX must catch fatal aborts unconditionally,
+    and must NOT fire on the advisory GeomVol1002 surface-check warnings
+    that past_init exists to tolerate."""
+
+    # Minimal reproduction of the foilsg06R00_00 preflight log shape.
+    FATAL_LOG = (
+        "%MSG-w CONTROL:  EventGenerator:generate@BeginRun\n"
+        "... geometry construction ...\n"
+        "-------- EEEE ------- G4Exception-START -------- EEEE -------\n"
+        "*** G4Exception : GeomSolids0002\n"
+        "      issued by : G4Tubs::G4Tubs()\n"
+        "Invalid values for radii in solid: Foil_00\n"
+        "        pRMin = 51.041, pRMax = 50\n"
+        "*** Fatal Exception *** core dump ***\n"
+    )
+
+    # Advisory surface-check noise (stock-geometry overlaps): must stay PASS.
+    ADVISORY_LOG = (
+        "%MSG-w CONTROL:  EventGenerator:generate@BeginRun\n"
+        "-------- WWWW ------- G4Exception-START -------- WWWW -------\n"
+        "*** G4Exception : GeomVol1002\n"
+        "      issued by : G4PVPlacement::CheckOverlaps()\n"
+        "Overlap is detected for volume TT_MidInner\n"
+        "-------- WWWW -------- G4Exception-END --------- WWWW -------\n"
+        "Begin processing the 1st record\n"
+        "Art has completed and will exit with status 0.\n"
+    )
+
+    def setUp(self):
+        import autoresearch_bo_michael as bo
+        self.bo = bo
+
+    def test_fatal_abort_matches(self):
+        self.assertTrue(self.bo.G4_FATAL_RX.search(self.FATAL_LOG))
+
+    def test_advisory_overlap_does_not_match_fatal(self):
+        self.assertFalse(self.bo.G4_FATAL_RX.search(self.ADVISORY_LOG))
+
+    def test_geom_fail_rx_includes_geomsolids(self):
+        # Widened G4_GEOM_FAIL_RX must now catch GeomSolids00xx too.
+        self.assertTrue(self.bo.G4_GEOM_FAIL_RX.search(self.FATAL_LOG))
+
+    def test_past_init_would_have_masked_it(self):
+        # Documents the original bug shape: the fatal log DOES contain a
+        # past_init trigger string, which is why the old classifier passed it.
+        self.assertIn("BeginRun", self.FATAL_LOG)
+
+
+class TestVerifyStoppingTargetGdml(unittest.TestCase):
+    """As-built GDML geometry assertion (prelaunch gate added 2026-06-13
+    after the foilsg uniform-hole incident — the canary proves the patch
+    is present, this proves the VALUES are right)."""
+
+    GEOM = (
+        "vector<double> stoppingTarget.radii          = { 100.0, 200.0 };\n"
+        "vector<double> stoppingTarget.halfThicknesses = { 0.5, 0.25 };\n"
+        "double stoppingTarget.holeRadius = 1.0e6;\n"
+        "vector<double> stoppingTarget.holeRadii      = { 10.0, 0.0 };\n"
+    )
+
+    @staticmethod
+    def _gdml(tubes):
+        items = "".join(
+            f'<tube name="{n}" rmin="{rmin}" rmax="{rmax}" z="{z}" '
+            f'lunit="{lunit}" deltaphi="6.28" aunit="rad"/>'
+            for n, rmin, rmax, z, lunit in tubes)
+        return f'<?xml version="1.0"?><gdml><solids>{items}</solids></gdml>'
+
+    def _run(self, tubes, geom=None):
+        import autoresearch_bo_michael as bo
+        with tempfile.NamedTemporaryFile("w", suffix=".gdml",
+                                         delete=False) as f:
+            f.write(self._gdml(tubes))
+            path = f.name
+        try:
+            return bo.verify_stopping_target_gdml(path, geom or self.GEOM)
+        finally:
+            Path(path).unlink()
+
+    def test_matching_geometry_passes(self):
+        errs = self._run([("Foil_00", 10.0, 100.0, 1.0, "mm"),
+                          ("Foil_01", 0.0, 200.0, 0.5, "mm")])
+        self.assertEqual(errs, [])
+
+    def test_wrong_hole_radius_fails(self):
+        # The uniform-hole incident shape: built rIn != geom holeRadii.
+        errs = self._run([("Foil_00", 51.041, 100.0, 1.0, "mm"),
+                          ("Foil_01", 51.041, 200.0, 0.5, "mm")])
+        self.assertEqual(len(errs), 2)
+        self.assertIn("Foil_00 rIn", errs[0])
+
+    def test_foil_count_mismatch_fails(self):
+        errs = self._run([("Foil_00", 10.0, 100.0, 1.0, "mm")])
+        self.assertTrue(any("1 Foil_* tubes" in e and "2 foils" in e
+                            for e in errs))
+
+    def test_scalar_fallback_geom_uses_scalar(self):
+        # Geom with no holeRadii vector: expected rIn is the scalar.
+        geom = ("vector<double> stoppingTarget.radii = { 100.0 };\n"
+                "double stoppingTarget.holeRadius = 21.5;\n")
+        errs = self._run([("Foil_00", 21.5, 100.0, 0.0, "mm")], geom=geom)
+        self.assertEqual(errs, [])
+
+    def test_cm_units_scaled(self):
+        errs = self._run([("Foil_00", 1.0, 10.0, 0.1, "cm"),
+                          ("Foil_01", 0.0, 20.0, 0.05, "cm")])
+        self.assertEqual(errs, [])
+
+    def test_pointer_suffixed_names_parse_correctly(self):
+        # G4's GDML writer appends 0x<addr> to every name. A greedy digit
+        # match turns "Foil_020x55d..." into foil 20 — the live-preflight
+        # bug of 2026-06-13. Indices must parse exactly.
+        errs = self._run([("Foil_000x55d1a2b3", 10.0, 100.0, 1.0, "mm"),
+                          ("Foil_010x55d1c4d5", 0.0, 200.0, 0.5, "mm")])
+        self.assertEqual(errs, [])
+
+    def test_missing_foil_indices_reported(self):
+        # Spurious/scrambled indices must surface as "missing", not be
+        # silently skipped by the per-index compare loop.
+        errs = self._run([("Foil_00", 10.0, 100.0, 1.0, "mm"),
+                          ("Foil_07", 0.0, 200.0, 0.5, "mm")])
+        self.assertTrue(any("missing from GDML: [1]" in e for e in errs))
+
+    def test_repeat_last_half_thickness(self):
+        # StoppingTargetMaker repeats the final halfThickness entry.
+        geom = ("vector<double> stoppingTarget.radii = { 100.0, 200.0 };\n"
+                "vector<double> stoppingTarget.halfThicknesses = { 0.5 };\n"
+                "vector<double> stoppingTarget.holeRadii = { 0.0, 0.0 };\n")
+        errs = self._run([("Foil_00", 0.0, 100.0, 1.0, "mm"),
+                          ("Foil_01", 0.0, 200.0, 1.0, "mm")], geom=geom)
+        self.assertEqual(errs, [])
 
 
 if __name__ == "__main__":

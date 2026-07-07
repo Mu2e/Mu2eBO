@@ -17,7 +17,7 @@ single-task GP w/ one-hot or qParEGO over Tchebycheff scalarization);
 out of scope for this shim.
 
 Recipe (wiki/projects/bo-helical.md:837-851):
-  - acquisition: qNoisyExpectedHypervolumeImprovement
+  - acquisition: qLogNoisyExpectedHypervolumeImprovement
   - objectives: maximize (sob, -log10(calo))
   - ref point: per-round nadir(feasible front) - 0.1*span (NOT hardcoded)
   - MC sampler seed: 42 ^ round_idx (NOT fixed 42 — fixed seed reuses the
@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -62,7 +63,8 @@ DEVICE = torch.device("cpu")
 MODE_SPECS = {
     "foils": {
         # v2 6D: (rOut_up, rOut_dn, hT_up, hT_dn, rIn_up, rIn_dn). All Real.
-        "lo":       [ 50.0,  50.0, 0.05, 0.05,  0.0,  0.0],
+        # MUST mirror autoresearch_bo_michael.py:FoilsMode.build_space (lines 729-730).
+        "lo":       [ 50.0,  50.0, 0.01, 0.01,  0.0,  0.0],
         "hi":       [250.0, 250.0, 1.00, 1.00, 50.0, 50.0],
         "int_dims": [],
     },
@@ -70,9 +72,32 @@ MODE_SPECS = {
         # v3 6D: (rOut_up, rOut_dn, hT_up, hT_dn, f_up, f_dn). All Real.
         # Identical to "foils" except the last two dims are the fractional
         # hole f = rIn/rOut in [0, F_MAX=0.95] (FoilsFracMode.build_space,
-        # autoresearch_bo_michael.py:823). Keep F_MAX in sync with that class.
-        "lo":       [ 50.0,  50.0, 0.05, 0.05, 0.00, 0.00],
+        # autoresearch_bo_michael.py:913). Keep F_MAX + hT floor in sync.
+        "lo":       [ 50.0,  50.0, 0.01, 0.01, 0.00, 0.00],
         "hi":       [250.0, 250.0, 1.00, 1.00, 0.95, 0.95],
+        "int_dims": [],
+    },
+    "foilsflash": {
+        # Same 6D box as foilsf (FoilsFlashMode inherits build_space); only the
+        # 2nd objective differs (electron-flash tracker edep vs calo). Keep in
+        # lockstep with the foilsf entry above.
+        "lo":       [ 50.0,  50.0, 0.01, 0.01, 0.00, 0.00],
+        "hi":       [250.0, 250.0, 1.00, 1.00, 0.95, 0.95],
+        "int_dims": [],
+    },
+    "foilsg": {
+        # 12D Real: 4 groups × (rOut, hT, f). Replaces the deployed 37-foil
+        # baseline (no pinned base). MUST mirror FoilsGroupMode.build_space.
+        "lo":       [ 50.0, 0.01, 0.00] * 4,
+        "hi":       [250.0, 1.00, 0.95] * 4,
+        "int_dims": [],
+    },
+    "ipa": {
+        # 5D Real IPA geometry: (thickness, halfLength, OutRadius0, OutRadius1,
+        # distFromTargetEnd) mm. MUST mirror IPAMode.build_space
+        # (autoresearch_bo_michael.py). Second objective = tracker Edep.
+        "lo":       [0.1, 200.0, 250.0, 250.0, 400.0],
+        "hi":       [3.0, 700.0, 400.0, 400.0, 800.0],
         "int_dims": [],
     },
     "helical": {
@@ -80,14 +105,38 @@ MODE_SPECS = {
         "hi":       [5.00, 400.0, 500.0, 720.0],
         "int_dims": [],
     },
+    "prodtarget": {
+        # 10D Stickman PT profile: (r0,r1,r2, t0,t1,t2, l0,l1,l2, N).
+        # Mirrors ProdTargetMode.build_space. N (numberOfPlates) is Integer.
+        # Lug overhang past the plate face is clipped post-hoc in
+        # ProdTargetMode._expand to [tPlate[i]+0.5, tPlate[i]+1.0];
+        # see wiki/incidents/prodtarget-spacer-supportring-overlap.md.
+        "lo":       [2.0, 2.0, 2.0, 3.0, 3.0, 3.0,  4.0,  4.0,  4.0, 25.0],
+        "hi":       [4.5, 4.5, 4.5, 8.0, 8.0, 8.0, 12.0, 12.0, 12.0, 45.0],
+        "int_dims": [9],
+    },
+    "prodtarget6d": {
+        # 6D Stickman PT profile: (r0,r1,r2, t0,t1,t2). Mirrors
+        # ProdTarget6DMode.build_space. N=35 fixed; lug = tPlate + 0.75
+        # derived in _expand. t-upper raised 7.0→8.0 (2026-06-15) after
+        # end-plate lug clamp (lPlate[0]=lPlate[-1]=tPlate) shipped in
+        # _expand — kills the spacer↔Plate00/Plate_last overhang that
+        # had forced the earlier 7.0 cap.
+        "lo":       [2.0, 2.0, 2.0, 3.0, 3.0, 3.0],
+        "hi":       [4.5, 4.5, 4.5, 8.0, 8.0, 8.0],
+        "int_dims": [],
+    },
 }
 
 
-def _load_history_tensor(mode: str):
+def _load_history_tensor(mode: str, sob_only: bool = False):
     """Return (X, Y, bounds, int_dims) tensors over the mode's search space.
 
     X shape (n, d): per-mode x vector as floats (Integer dims coerced).
     Y shape (n, 2): [sob, -log10(calo)] — botorch maximizes both.
+    If sob_only=True: Y shape (n, 1) = [sob]; rows with missing/invalid
+      calo are kept (calo not consulted). For the qlnei single-objective
+      picker.
     bounds shape (2, d): from MODE_SPECS.
     int_dims: list of column indices to round on emit.
     """
@@ -104,33 +153,95 @@ def _load_history_tensor(mode: str):
     priors = bo_mode.load_priors() if hasattr(bo_mode, "load_priors") else []
     history = bo_mode.load_history()
     seeds = priors + history
-    if not seeds:
-        raise SystemExit(f"[botorch_predict] empty history for mode={mode}; "
-                         f"need at least one row in "
-                         f"{bo_mode.leaderboard}. Seed with "
-                         "autoresearch_bo_michael.py cmd_propose or the "
-                         "skopt shim first.")
+
+    # Optional: restrict the prodtarget fit to the current t-upper box (env-gated).
+    # Set AUTORESEARCH_CURRENT_BOX_ONLY=1 to keep only rows whose max thickness
+    # control point (x dims 3,4,5 = t0,t1,t2) exceeds AUTORESEARCH_TMAX_MIN
+    # (default 7.0) — i.e. the t-upper=8 regime. Lets a closed-loop refit the
+    # GP on just the raised-box evals instead of the range-compressing full
+    # history. Inherited by this picker subprocess from the closed_loop parent
+    # env. See wiki/concepts/gp-cloud-rendering.md.
+    cur_box = os.environ.get("AUTORESEARCH_CURRENT_BOX_ONLY", "").strip().lower() \
+        not in ("", "0", "false", "no")
+    tmax_min = float(os.environ.get("AUTORESEARCH_TMAX_MIN", "7.0"))
 
     X_rows = []
     Y_rows = []
     for p in seeds:
-        if p.calo <= 0:
-            continue  # log10 undefined; rare but possible on broken harvest
-        X_rows.append([float(v) for v in p.x])
-        Y_rows.append([p.sob, -math.log10(p.calo)])
-    X = torch.tensor(X_rows, device=DEVICE)
-    Y = torch.tensor(Y_rows, device=DEVICE)
-
-    if X.shape[1] != len(spec["lo"]):
-        raise SystemExit(f"[botorch_predict] mode={mode} dim mismatch: "
-                         f"history has {X.shape[1]}D points but MODE_SPECS "
-                         f"declares {len(spec['lo'])}D bounds. Check "
-                         "leaderboard schema vs MODE_SPECS in this file.")
-
+        if mode in ("prodtarget", "prodtarget6d"):
+            if cur_box and max(float(p.x[3]), float(p.x[4]),
+                               float(p.x[5])) <= tmax_min:
+                continue
+            # Pareto objectives: maximize mu_per_POT, minimize the right
+            # thermal proxy. Prefer peak specific dose [Gy/POT] (peak
+            # plate, scales as 1/rOut^2 — the dominant thermal coupling);
+            # fall back to stack-total edep_per_POT_MeV for legacy rows
+            # written before peak_dose wiring landed. Negate so botorch
+            # maximizes both axes.
+            ex = p.extras or {}
+            peak = ex.get("peak_dose_Gy_per_POT")
+            edep = ex.get("edep_per_POT_MeV")
+            if peak is not None and peak > 0:
+                y2 = -float(peak)
+            elif edep is not None and edep > 0:
+                y2 = -float(edep)
+            else:
+                continue  # row predates Path D wiring or harvest broken
+            X_rows.append([float(v) for v in p.x])
+            Y_rows.append([p.sob, y2])
+        elif sob_only:
+            # 1D objective: only need sob. Drop rows with missing sob.
+            if p.sob is None or not math.isfinite(p.sob):
+                continue
+            X_rows.append([float(v) for v in p.x])
+            Y_rows.append([p.sob])
+        else:
+            if p.calo <= 0:
+                continue  # log10 undefined; rare but possible on broken harvest
+            X_rows.append([float(v) for v in p.x])
+            Y_rows.append([p.sob, -math.log10(p.calo)])
+    if cur_box and mode in ("prodtarget", "prodtarget6d"):
+        print(f"[botorch_predict] current-box-only: kept {len(X_rows)} rows "
+              f"tmax>{tmax_min}", flush=True)
     lo = torch.tensor(spec["lo"], device=DEVICE)
     hi = torch.tensor(spec["hi"], device=DEVICE)
     bounds = torch.stack([lo, hi], dim=0)
+
+    if X_rows:
+        X = torch.tensor(X_rows, device=DEVICE)
+        Y = torch.tensor(Y_rows, device=DEVICE)
+        if X.shape[1] != len(spec["lo"]):
+            raise SystemExit(f"[botorch_predict] mode={mode} dim mismatch: "
+                             f"history has {X.shape[1]}D points but MODE_SPECS "
+                             f"declares {len(spec['lo'])}D bounds. Check "
+                             "leaderboard schema vs MODE_SPECS in this file.")
+    else:
+        # Cold start: return empty (n=0, d) tensors. The caller switches to a
+        # Sobol cold-start path when X is empty so the very first launch of a
+        # brand-new mode doesn't need any seeding (no propose+evaluate, no
+        # projected priors). MUST emit empty with correct d so downstream
+        # shape-checks against `bounds` still pass.
+        d = len(spec["lo"])
+        m = 1 if sob_only else 2
+        X = torch.empty((0, d), device=DEVICE)
+        Y = torch.empty((0, m), device=DEVICE)
     return X, Y, bounds, spec["int_dims"]
+
+
+def _sobol_cold_start(bounds: torch.Tensor, int_dims, q: int, round_idx: int) -> torch.Tensor:
+    """Draw q Sobol points over `bounds` for the very-first batch.
+
+    Used when load_priors()+load_history() is empty: there's nothing for the
+    GP to fit on. Sobol is the standard cold-start for BO and matches what
+    skopt does internally via N_INITIAL_POINTS. Seed mirrors qnehvi:
+    `42 ^ round_idx` (xor — see wiki/incidents/botorch-predict-seed-pow-vs-xor.md).
+    int_dims are rounded post-draw to mirror _emit_picks.
+    """
+    from botorch.utils.sampling import draw_sobol_samples
+    seed = 42 ^ int(round_idx)
+    # draw_sobol_samples returns (n=1, q, d); squeeze the leading dim.
+    cands = draw_sobol_samples(bounds=bounds, n=1, q=q, seed=seed).squeeze(0)
+    return cands.detach()
 
 
 def _fit_gp(X, Y, bounds):
@@ -153,9 +264,15 @@ def _fit_gp(X, Y, bounds):
 
 
 def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int):
-    """Optimize qNEHVI for q candidates; return shape (q, d) tensor."""
-    from botorch.acquisition.multi_objective.monte_carlo import (
-        qNoisyExpectedHypervolumeImprovement,
+    """Optimize qLogNEHVI for q candidates; return shape (q, d) tensor.
+
+    qLogNEHVI = log-stabilized qNEHVI (Ament et al. 2023): same Pareto-HV
+    objective, fixes the vanishing acquisition-value / flat-gradient failure of
+    the plain MC version so optimize_acqf finds better candidates near
+    saturation. Drop-in: identical constructor args.
+    """
+    from botorch.acquisition.multi_objective.logei import (
+        qLogNoisyExpectedHypervolumeImprovement,
     )
     from botorch.optim import optimize_acqf
     from botorch.sampling.normal import SobolQMCNormalSampler
@@ -170,7 +287,7 @@ def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int):
     seed = 42 ^ int(round_idx)
     sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=seed)
 
-    acq = qNoisyExpectedHypervolumeImprovement(
+    acq = qLogNoisyExpectedHypervolumeImprovement(
         model=model,
         ref_point=ref_point,
         X_baseline=X,
@@ -185,7 +302,46 @@ def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int):
         num_restarts=16,
         raw_samples=512,
         options={"batch_limit": 5, "maxiter": 200},
-        sequential=False,
+        # sequential greedy: optimize the q candidates one-at-a-time (each a
+        # cheap d-dim problem) instead of jointly (one q*d-dim problem). For
+        # qNEHVI/qLogNEHVI this is the recommended batch mode AND the only
+        # tractable one at large q — joint (sequential=False) is ~q*d dims and
+        # blew past a 10-min wall at q=10 (botorch_predict q=10 smoke-test,
+        # 2026-06-04). The "N" handles pending picks correctly via fantasies.
+        sequential=True,
+    )
+    return candidates.detach()
+
+
+def _qlnei_picks(model, X, bounds, q: int, round_idx: int):
+    """Optimize qLogNoisyExpectedImprovement for q candidates over 1D Y (sob).
+
+    Single-objective picker — use when you want to push sob ceiling and
+    don't care about calo trade-off. Drops the entire run1b_mubeam stage
+    (calo measurement is unused) and converges much faster on the plateau.
+    """
+    from botorch.acquisition.logei import qLogNoisyExpectedImprovement
+    from botorch.optim import optimize_acqf
+    from botorch.sampling.normal import SobolQMCNormalSampler
+
+    seed = 42 ^ int(round_idx)
+    sampler = SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=seed)
+
+    acq = qLogNoisyExpectedImprovement(
+        model=model,
+        X_baseline=X,
+        sampler=sampler,
+        prune_baseline=True,
+    )
+
+    candidates, _ = optimize_acqf(
+        acq_function=acq,
+        bounds=bounds,
+        q=q,
+        num_restarts=16,
+        raw_samples=512,
+        options={"batch_limit": 5, "maxiter": 200},
+        sequential=True,
     )
     return candidates.detach()
 
@@ -206,6 +362,59 @@ def _emit_picks(cands, int_dims):
     return out
 
 
+def _pareto_sob_picks(model, bounds, q: int, round_idx: int):
+    """Return the q highest-sob points on the GP-predicted Pareto frontier.
+
+    Mirrors the cloud renderer's pushforward (gp_predict_foils_v2v3_cloud.py):
+    Sobol-sample the input box, evaluate the GP posterior MEAN for both
+    objectives (sob = output 0, -log10(calo) = output 1; both maximized), keep
+    the non-dominated set, and return the q frontier points with the highest
+    predicted sob. This submits the GP's own best-sob predictions as real evals
+    — a by-hand exploit of the sob corner. Tests whether the GP's high-sob
+    envelope (~4.06) holds at specific geometries (expect regression to ~3.9 on
+    the saturated foilsf front; see wiki/concepts/gp-cloud-rendering.md).
+    """
+    from scipy.stats import qmc
+
+    N = 16384
+    seed = 42 ^ int(round_idx)
+    # Bulk Sobol via scipy (matches the cloud renderer); botorch's
+    # draw_sobol_samples builds SobolEngine(q*d) and caps at 21201 dims, so it
+    # can't bulk-sample N points. Draw in [0,1]^d then scale to bounds.
+    d = bounds.shape[-1]
+    unit = qmc.Sobol(d=d, scramble=True, seed=seed).random(N)  # (N, d)
+    lo = bounds[0].cpu().numpy()
+    hi = bounds[1].cpu().numpy()
+    Xs = torch.tensor(lo + unit * (hi - lo), dtype=bounds.dtype, device=bounds.device)
+    with torch.no_grad():
+        mean = model.posterior(Xs).mean  # (N, m), already un-standardized
+    sob = mean[:, 0]
+    # "highest sob" = top-q by predicted sob directly. NOTE: do NOT pre-filter to
+    # the Pareto frontier — the (sob, -log10 calo) frontier deliberately includes
+    # low-sob/low-calo corners (big-hole rings), so "top-q-sob among frontier
+    # points" leaks those in. The single max-sob Sobol point IS on the frontier
+    # anyway (it's non-dominated on the sob axis), so direct top-q-sob is both
+    # correct and simpler. Spread: take top candidates and thin to q by a
+    # min-distance filter so the batch isn't all one near-duplicate cluster.
+    order = torch.argsort(sob, descending=True)
+    picks = [order[0].item()]
+    norm = (Xs - bounds[0]) / (bounds[1] - bounds[0])  # (N,d) in [0,1]
+    for idx in order[1:].tolist():
+        if len(picks) >= q:
+            break
+        dmin = min(float((norm[idx] - norm[p]).pow(2).sum().sqrt()) for p in picks)
+        if dmin >= 0.10:  # keep picks at least 0.10 apart in normalized space
+            picks.append(idx)
+    # if min-distance thinning didn't yield q, top up with the next-highest sob
+    if len(picks) < q:
+        for idx in order.tolist():
+            if idx not in picks:
+                picks.append(idx)
+            if len(picks) >= q:
+                break
+    return Xs[torch.tensor(picks[:q])].detach()
+
+
 def compute_explore_picks(q: int = 5,
                           mode: str = "foils",
                           round_idx: int = 0,
@@ -213,17 +422,37 @@ def compute_explore_picks(q: int = 5,
                           min_spacing=None,
                           pessimistic_calo: bool = False,
                           alpha: float = bo.DEFAULT_ALPHA,
+                          picker: str = "qnehvi",
                           ) -> list[tuple]:
     """qNEHVI replacement matching gp_predict_{foils,helical}.compute_explore_picks.
+
+    picker = "qnehvi" (default, multi-objective Pareto-HV) or "qlnei"
+    (single-objective qLogNoisyExpectedImprovement on sob only — drops calo
+    entirely; pair with --no-run1b-stage on the closed-loop side to actually
+    save grid time).
 
     The trailing kwargs (nsteps_budget, min_spacing, pessimistic_calo) are
     accepted for shim-compatibility and ignored: qNEHVI handles its own
     geometry-feasibility via the GP posterior on calo, and there is no
     helical-style N_crit gate baked into this picker.
     """
-    X, Y, bounds, int_dims = _load_history_tensor(mode)
+    X, Y, bounds, int_dims = _load_history_tensor(mode, sob_only=(picker == "qlnei"))
+    # Cold-start guard: SingleTaskGP needs >= 2 points to fit; <2 makes
+    # fit_gpytorch_mll either crash or fit to a degenerate posterior that
+    # collapses the acquisition. Fall back to Sobol so a brand-new mode
+    # (empty leaderboard, no load_priors override) launches cleanly.
+    if X.shape[0] < 2:
+        print(f"[botorch_predict] mode={mode} cold-start: history={X.shape[0]} rows "
+              f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)
+        cands = _sobol_cold_start(bounds, int_dims, q=q, round_idx=round_idx)
+        return _emit_picks(cands, int_dims)
     model = _fit_gp(X, Y, bounds)
-    cands = _qnehvi_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
+    if picker == "qlnei":
+        cands = _qlnei_picks(model, X, bounds, q=q, round_idx=round_idx)
+    elif picker == "pareto_sob":
+        cands = _pareto_sob_picks(model, bounds, q=q, round_idx=round_idx)
+    else:
+        cands = _qnehvi_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
     return _emit_picks(cands, int_dims)
 
 
@@ -239,12 +468,17 @@ def main(argv=None):
     ap.add_argument("--alpha", type=float, default=bo.DEFAULT_ALPHA,
                     help=f"Scalarization weight passed through for shim "
                          f"compatibility (default {bo.DEFAULT_ALPHA})")
+    ap.add_argument("--picker", choices=("qnehvi", "qlnei", "pareto_sob"), default="qnehvi",
+                    help="qnehvi = multi-obj Pareto-HV (default); "
+                         "qlnei = single-obj qLogNoisyEI on sob only; "
+                         "pareto_sob = highest-sob points on the GP Pareto frontier")
     ap.add_argument("--emit-picks-json", type=str, default=None,
                     help="If set, write picks as JSON to this path")
     ns = ap.parse_args(argv)
 
     picks = compute_explore_picks(q=ns.q, mode=ns.mode,
-                                  round_idx=ns.round_idx, alpha=ns.alpha)
+                                  round_idx=ns.round_idx, alpha=ns.alpha,
+                                  picker=ns.picker)
 
     if ns.emit_picks_json:
         Path(ns.emit_picks_json).write_text(json.dumps(picks, indent=2))

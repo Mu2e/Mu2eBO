@@ -12,6 +12,7 @@ to pipeline.py.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -29,8 +30,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import (  # noqa: E402
     BO_DRIVER,
     DEFAULT_ALPHA,
+    DEFAULT_MODE,
     GRID_DATA_ROOT,
     GRID_STAGES,
+    HARVEST_VERB_BY_MODE,
     PIPELINE_DRIVER,
     PREFLIGHT_TIMEOUT_S,
     STAGE_TARGETS,
@@ -64,40 +67,23 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
         priors = mode.load_priors()
         history = mode.load_history()
         opt, space = mode.build_optimizer()
-        real_ys = []
-        for p in priors + history:
-            y = -p.obj(alpha)
-            try:
-                opt.tell(p.x, y)
-                real_ys.append(y)
-            except ValueError:
-                continue
-        if pending and real_ys:
-            fake_y = sum(real_ys) / len(real_ys)
-            for _, px in pending:
-                try:
-                    opt.tell(px, fake_y)
-                except ValueError:
-                    continue
-        # is_buildable retry loop — mirror cmd_propose's N_crit guard at
-        # autoresearch_bo_michael.py:803-827. Without this, q parallel
-        # graph children each ask once and any unbuildable pick gets
-        # submitted blind (preflight catches it, but a grid-burning lap is
-        # wasted). x_override bypasses the guard since the caller has
-        # already chosen the point intentionally.
-        MAX_RETRY = 20
-        penalty_y = max(real_ys) + 1.0 if real_ys else 1e6
-        for _ in range(MAX_RETRY):
-            x = opt.ask()
-            if mode.is_buildable(x):
-                break
-            try:
-                opt.tell(list(x), penalty_y)
-            except ValueError:
-                pass
-        else:
-            print(f"WARN: {MAX_RETRY} retries hit; submitting unbuildable "
-                  f"pick {list(x)} (preflight will reject)", file=sys.stderr)
+        real_ys, skipped, _ = mode.seed_optimizer(opt, priors, history, pending, alpha)
+        if skipped:
+            # A silent skip here masked a class of bug: when the search space
+            # is widened or narrowed, priors drift out of bounds and disappear
+            # from the seed set with no warning. Count and surface it.
+            print(f"[propose_one {config_name}] seed: fed {len(real_ys)} real "
+                  f"points to GP, skipped {skipped} (outside search bounds)",
+                  file=sys.stderr)
+        # N_crit guard: ask_buildable retries unbuildable picks with a penalty
+        # told back to the GP. x_override bypasses this since the caller chose
+        # the point intentionally.
+        xs, _ = mode.ask_buildable(opt, real_ys, q=1)
+        x = xs[0]
+        if not mode.is_buildable(x):
+            print(f"WARN: {mode.PROPOSE_MAX_RETRY} retries hit; submitting "
+                  f"unbuildable pick {list(x)} (preflight will reject)",
+                  file=sys.stderr)
     geom_path = mode.render_proposal(config_name, x)
     # Stage geom into pipeline.py's per-config work tree (mirror cmd_propose in
     # autoresearch_bo_michael.py:567-570; pipeline.py's submit checks for this
@@ -106,7 +92,15 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     work_geom_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(geom_path, work_geom_dir / f"autoresearch_{config_name}_geom.txt")
     mode.append_pending(config_name, x, alpha)
-    return list(x), str(geom_path)
+    # Coerce numpy scalars to native Python types. skopt Integer dims return
+    # np.int64 which is NOT msgpack-serializable, and LangGraph's SqliteSaver
+    # checkpointer (graph/run.py default) calls ormsgpack on the state dict —
+    # so an unguarded np.int64 in x_point bubbles up as
+    # `TypeError: Type is not msgpack serializable: numpy.int64` at end-of-run.
+    # Affects prodtarget mode (N=numberOfPlates is the only Integer dim across
+    # all modes); see wiki/incidents/langgraph-checkpoint-numpy-int64.md.
+    x_native = [v.item() if hasattr(v, "item") else v for v in x]
+    return x_native, str(geom_path)
 
 
 # --- preflight (subprocess) ---
@@ -240,9 +234,18 @@ def run_stage(config_name: str, stage: str) -> dict:
     return read_stage_status(config_name, stage)
 
 
-def run_harvest(config_name: str) -> dict:
-    """Run pipeline.py harvest; return parsed summary.json."""
-    _run_pipeline_verb(config_name, "harvest", None)
+def run_harvest(config_name: str, mode: str | None = None) -> dict:
+    """Run pipeline.py harvest verb for the mode; return parsed summary.json.
+
+    Mode dispatch (2026-06-07): prodtarget chains a single `pot_only` stage
+    whose summary schema differs (`mu_per_POT`) from the 4-stage S/√B+calo
+    schema. Verb selection comes from HARVEST_VERB_BY_MODE; defaults to the
+    legacy 4-stage `harvest` for backward compat when no mode is passed.
+    """
+    if mode is None:
+        mode = os.environ.get("AUTORESEARCH_MODE", DEFAULT_MODE)
+    verb = HARVEST_VERB_BY_MODE.get(mode, "harvest")
+    _run_pipeline_verb(config_name, verb, None)
     summary_path = GRID_DATA_ROOT / config_name / "harvest" / "summary.json"
     if not summary_path.exists():
         raise RuntimeError(f"harvest finished but {summary_path} is missing")

@@ -84,9 +84,29 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 # win via Muse's normal link/path order — no LD_PRELOAD needed.
 # See wiki/external/muse-backing-pattern.md for the build workflow and
 # wiki/incidents/calo-constant-across-helical.md for the motivating bug.
-MUSE_BASE_TARBALL = Path(
-    "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_base.tar.bz2"
+# Mode-aware base tarball. foils/foilsf/foilsg need the patched
+# libmu2e_GeometryService.so (stoppingTarget.holeRadii vector) built in
+# Offline_helical/ — Code_helical_base ships only the patched Mu2eG4 and
+# silently falls back to the scalar holeRadius (mean of the vector), which
+# is how every foilsg row got built with uniform holes. michael/helical stay
+# on Code_helical_base because Offline_helical's Mu2eG4 lib (May 16)
+# predates the twistedbox facet fix (May 26).
+# See wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md.
+_HOLERADII_TARBALL = (
+    "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
 )
+MUSE_TARBALL_BY_MODE = {
+    "michael": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_base.tar.bz2",
+    "helical": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_base.tar.bz2",
+    "foils":   _HOLERADII_TARBALL,
+    "foilsf":  _HOLERADII_TARBALL,
+    "foilsflash": _HOLERADII_TARBALL,  # varies foil holeRadii vector — needs the patched StoppingTargetMaker
+    "foilsg":  _HOLERADII_TARBALL,
+}
+MUSE_BASE_TARBALL = Path(MUSE_TARBALL_BY_MODE.get(
+    os.environ.get("AUTORESEARCH_MODE", "michael"),
+    MUSE_TARBALL_BY_MODE["michael"],
+))
 USER = os.environ["USER"]
 OUTSTAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/workflow/default/outstage")
 
@@ -106,8 +126,18 @@ def _bind_config(cfg: str) -> None:
     ROOT = DATA_ROOT / cfg
     STATE = ROOT / "state"
     GEOM_FILE = ROOT / "geom" / f"autoresearch_{cfg}_geom.txt"
+    # DSCONF default reflects the dominant musing (Run1Bak — michael/helical/
+    # foils). Per-stage override via STAGES[s]["dsconf_musing"] for modes
+    # backing a different Musing (e.g. pot_only -> MDC2025aq).
     DSCONF = f"Run1Bak_{cfg}"
     PNFS_STAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/autoresearch_grid/{cfg}/staged")
+
+
+def _stage_dsconf(stage: str) -> str:
+    """Return the dsconf string for this stage. Per-stage `dsconf_musing` key
+    wins; otherwise the module-global DSCONF (Run1Bak_<cfg>) is used."""
+    musing = STAGES[stage].get("dsconf_musing")
+    return f"{musing}_{CONFIG}" if musing else DSCONF
 
 
 # Per-stage knobs (config-invariant). desc_fmt and template path are derived
@@ -169,7 +199,87 @@ STAGES = {
         # comfortable headroom without burning slot-matchability.
         "memory_mb": 3000,
     },
+    # Muon-stop pileup stage for the IPA BO line (bo-ipa). Resamples the same
+    # concat MuminusStopsCat as mustops_ce (TargetStopResampler), generates
+    # capture products (protons etc.) and emits StrawGasStep (tracker Edep).
+    # njobs 100×2500 = 250k events (half of mustops_ce) — capture-proton steps
+    # are dense so this is ample for the trk_edep objective; tune if noisy.
+    "mustops_pileup": {
+        "desc_fmt": "Run1A_MuStopPileup_{cfg}",
+        "njobs": STAGE_TARGETS["mustops_pileup"],
+        "events_per_job": 2500,
+        "run_number": 1802,
+        "ships_geom": True,
+        "default_loc": "disk",
+        "output_glob": "dts.*.MuStopPileup.*.art",
+        "memory_mb": 3000,
+    },
+    # Electron-beam early-flash stage for the foilsflash BO line. Resamples the
+    # external EleBeamCat dataset (like mubeam resamples MuBeamCat — static
+    # auxinput filelist, NOT concat), DS-on, ships the per-BO foil geom, and
+    # writes EarlyEleBeamFlash StrawGasStep DetSteps. Harvest sums tracker
+    # ionizingEdep (reuses _extract_trk_edep_per_pot). See bo-foilsflash.
+    "elebeam_flash": {
+        "desc_fmt": "Run1A_EleBeamFlash_{cfg}",
+        "njobs": STAGE_TARGETS["elebeam_flash"],
+        "events_per_job": 2500,
+        "run_number": 1803,
+        "ships_geom": True,
+        "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'elebeam_flash' / 'EleBeamCat.txt'}",
+        "default_loc": "disk",
+        "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
+        "memory_mb": 3000,
+    },
+    # Single-stage POT + ReadVirtualDetector for bo-prodtarget. Ships
+    # the MDC2025aq backing-only tarball (no patched libs); geom overlay
+    # carries the Stickman knob substitution. Muon counts harvested from
+    # pot_vd.root TTree; exact POT denominator from genCountLogger TH1D.
+    # VmHWM 2.83 GB measured locally -> 3000 MB request matches mustops_ce
+    # headroom.
+    "pot_only": {
+        "desc_fmt": "POT_{cfg}",
+        "njobs": STAGE_TARGETS["pot_only"],
+        # 2026-06-19: 5000→2500, paired with STAGE_TARGETS["pot_only"] 100→200
+        # (constant 500k total events → 3% noise budget preserved); halves
+        # per-job wall + doubles parallelism. Mirrors mustops_ce. First: pt6d10.
+        "events_per_job": 2500,
+        "run_number": 1700,
+        "ships_geom": True,
+        "code_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_MDC2025aq_prodtarget.tar.bz2",
+        "dsconf_musing": "MDC2025aq",
+        "default_loc": "disk",
+        "output_glob": "nts.*.POT_vd.*.root",
+        "memory_mb": 3000,
+    },
 }
+
+# foilsflash: size events_per_job for ~30-min payloads (measured per-event:
+# mubeam 9.1 ms, mustops_ce 24.1 ms, elebeam_flash 16.6 ms) instead of the
+# ~45-s default — payload then dominates the ~44-s muse/setup overhead (~80% grid
+# efficiency vs ~15-30%). Paired with njobs=100 (graph/config.py STAGE_TARGETS
+# override) → ~15-20× total stats: σ(sob)~0.09% (overkill, harmless) + σ(flash)
+# ~3.8× tighter (~59k flash events; flash is the binding noise channel). mubeam/
+# mustops_ce events_per_job are SHARED, so override ONLY for foilsflash here.
+# Stamped-at-submit (see [[events-per-job-mid-flight-edit]]); safe for a FRESH
+# campaign (kill+relaunch), NOT for mid-flight edits.
+if os.environ.get("AUTORESEARCH_MODE") == "foilsflash":
+    STAGES["mubeam"]["events_per_job"] = 200000
+    STAGES["mustops_ce"]["events_per_job"] = 75000
+    STAGES["elebeam_flash"]["events_per_job"] = 110000
+    # Measured VmPeak is only ~1.1-1.3 GB even at 200k events/job (art streams output).
+    # 2500 MB is ≥1.5× that peak (safe margin against HOLDs) while matching MANY more grid
+    # slots than the earlier precautionary 3500 MB → better concurrency at no metric cost
+    # (memory affects slot-matching only). See wiki/concepts/bo-noise-budget.md.
+    for _s in ("mubeam", "mustops_ce", "elebeam_flash"):
+        STAGES[_s]["memory_mb"] = 2500
+
+
+# EleBeamCat resampler normalization: each resampled electron corresponds to
+# dh.gencount/event_count = 25e6 POT / 2,166,994 electrons ~= 11.537 POT. Used to
+# turn the elebeam_flash TOTAL edep into an absolute MeV/POT rate (the flash-per-POT
+# objective — the geometry-sensitive lever; the per-event MEAN divides out the
+# flash-event count and is blind to it). See wiki/projects/bo-foilsflash.md.
+POT_PER_ELECTRON = 25_000_000 / 2_166_994
 
 
 def _stage_desc(stage: str) -> str:
@@ -214,15 +324,46 @@ def _check_stage_config_sha(stage: str) -> None:
         )
 
 
+def _parse_n_plates_from_geom() -> int:
+    """Return targetPS_numberOfPlates from the per-config geom file.
+
+    Returns 0 if the file or key is absent (e.g. non-Stickman geom). The
+    caller decides whether 0 plates is fatal for the stage.
+    """
+    if not GEOM_FILE.exists():
+        return 0
+    for line in GEOM_FILE.read_text().splitlines():
+        s = line.strip()
+        if s.startswith("int targetPS_numberOfPlates"):
+            return int(s.split("=", 1)[1].rstrip(";").strip())
+    return 0
+
+
+def _render_pt_plate_names_csv(n_plates: int) -> str:
+    """Return CSV of quoted ProductionTargetPlate<NN> names for N Stickman PT
+    plates. Empty string if n_plates == 0. Used for both
+    g4run.SDConfig.sensitiveVolumes and ProductionTargetEdepHist.instanceNames
+    (same volume list — one CSV serves both).
+    """
+    if n_plates <= 0:
+        return ""
+    names = [f"ProductionTargetPlate{i:02d}" for i in range(n_plates)]
+    return ", ".join(f'"{n}"' for n in names)
+
+
 def _materialize_template(stage: str) -> Path:
-    """Read pipeline_templates/<stage>/template.fcl, substitute __GEOM_FILE__,
-    write to <STATE>/<stage>_template_materialized.fcl, return that path.
+    """Read pipeline_templates/<stage>/template.fcl, substitute __GEOM_FILE__
+    and (for pot_only) the __PT_PLATE_NAMES__ token; write to
+    <STATE>/<stage>_template_materialized.fcl and return that path.
     """
     src = TEMPLATES_ROOT / stage / "template.fcl"
     text = src.read_text()
-    materialized = text.replace("__GEOM_FILE__", GEOM_FILE.name)
+    text = text.replace("__GEOM_FILE__", GEOM_FILE.name)
+    if "__PT_PLATE_NAMES__" in text:
+        n = _parse_n_plates_from_geom()
+        text = text.replace("__PT_PLATE_NAMES__", _render_pt_plate_names_csv(n))
     out = STATE / f"{stage}_template_materialized.fcl"
-    out.write_text(materialized)
+    out.write_text(text)
     return out
 
 
@@ -257,11 +398,15 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # p095 from main-HEAD's Offline/.muse and errors on the backing.
         # See wiki/external/muse-backing-pattern.md.
         #
-        # EdepAna lives in mmackenz's Run1BAna build (not in Offline/Run1Bak).
-        # His HEAD doesn't match v13_12_10 ABI, so we can't rebuild Run1BAna
-        # locally without effort. Prepend his lib dir to CET_PLUGIN_PATH +
-        # LD_LIBRARY_PATH; harvest is local-only so /exp paths are fine.
-        mmlib = "/exp/mu2e/app/users/mmackenz/run1b/build/al9-prof-e29-p094/Run1BAna/lib"
+        # EdepAna is mmackenz's Run1BAna module (not in Offline/Run1Bak). We now
+        # build it into OUR OWN autoresearch_muse p094 lib (only the standalone
+        # workflows/EdepAna target — the rest of Run1BAna's `evtana` needs
+        # EventNtuple we don't have; EdepAna itself only needs Offline+art+ROOT).
+        # Rebuild: `cd autoresearch_muse && muse setup -q p094 && muse build
+        # build/al9-prof-e29-p094/Run1BAna/lib/librun1bana_workflows_EdepAna_module.so`.
+        # 2026-06-26: switched off mmackenz's hardcoded path after he bumped
+        # p094→p101 and deleted it. See wiki/incidents/mmackenz-edepana-lib-qualifier-bump.md.
+        mmlib = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/build/al9-prof-e29-p094/Run1BAna/lib"
         prelude = (
             "cd /exp/mu2e/app/users/oksuzian/autoresearch_muse && "
             f"source {SETUPMU2E} >/dev/null 2>&1 && "
@@ -285,7 +430,11 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
             f"source {MUSING} && "
             f"muse setup ops && "
         )
-    cmd = f"{prelude}{extra} env"
+    # Move spack provider cache + flock off NFS HOME -> local /tmp; under
+    # concurrent setups the nashome lock races/corrupts -> [Errno 5] during
+    # spack load. See wiki/incidents/foilsx04-all-preflight-ambiguous.md.
+    spack_cache = f"/tmp/spack_cache_{os.environ.get('USER','x')}"
+    cmd = f"export SPACK_USER_CACHE_PATH={spack_cache} && {prelude}{extra} env"
     # Transient cvmfs read flakes (==> Error: [Errno 5] Input/output error)
     # leave museDefine.sh unsourced -> `muse` undefined -> rc=127
     # "command not found". These are NOT deterministic: a re-run seconds later
@@ -321,27 +470,33 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
     return env
 
 
-def write_code_tarball(stage_dir: Path) -> Path:
+def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Path:
     """Build Code.tar.bz2 for the --code path.
 
-    Extracts the canonical muse-built base tarball, drops the per-config geom
+    Extracts the chosen muse-built base tarball, drops the per-config geom
     file into Code/, writes Code/setup_post.sh to extend MU2E_SEARCH_PATH +
     FHICL_FILE_PATH so the geom is found by GeometryService, then repacks.
     The base tarball's setup.sh handles all framework setup via `muse setup`,
     so local libs win by link/path order (no LD_PRELOAD).
+
+    base_tarball overrides MUSE_BASE_TARBALL — used by stages whose backing
+    musing differs from the default helical-patched Run1Bak tree (e.g.
+    pot_only ships the MDC2025aq backing-only tarball).
     """
+    if base_tarball is None:
+        base_tarball = MUSE_BASE_TARBALL
     if not GEOM_FILE.exists():
         raise SystemExit(
             f"geom file missing: {GEOM_FILE}\n"
             f"  Run: ./autoresearch_bo_michael.py --mode <mode> propose {CONFIG}\n"
             f"  (propose auto-stages the geom into the per-config work dir)"
         )
-    if not MUSE_BASE_TARBALL.exists():
-        raise SystemExit(f"muse base tarball missing: {MUSE_BASE_TARBALL}")
+    if not base_tarball.exists():
+        raise SystemExit(f"muse base tarball missing: {base_tarball}")
     code_dir = stage_dir / "Code"
     if code_dir.exists():
         shutil.rmtree(code_dir)
-    run(["tar", "xjf", str(MUSE_BASE_TARBALL), "-C", str(stage_dir)])
+    run(["tar", "xjf", str(base_tarball), "-C", str(stage_dir)])
     shutil.copy(GEOM_FILE, code_dir / GEOM_FILE.name)
     (code_dir / "setup_post.sh").write_text(
         'export MU2E_SEARCH_PATH="$CODE_DIR:$MU2E_SEARCH_PATH"\n'
@@ -379,6 +534,30 @@ def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> tuple[Path, Pat
     return staged_dir, basenames_file
 
 
+def _grid_setup_sh() -> str:
+    """Worker-visible setup script for stages submitted with --setup.
+
+    MUSING may point at a LOCAL patched workdir's setup_local.sh (preflight
+    parity with the patched grid tarball — see
+    wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md).
+    Grid workers cannot see /exp, and the --setup path is sourced ON the
+    worker (mu2ejobsub.sh) — handing it a local path kills the job at setup
+    (foilsgV01 concat, 2026-06-12). Stages that use --setup instead of
+    --code (concat) run no geometry code, so the workdir's cvmfs *backing*
+    Musing is always sufficient: resolve it from the `backing` symlink.
+    """
+    if MUSING.startswith("/cvmfs/"):
+        return MUSING
+    backing = Path(MUSING).parent / "backing"
+    target = Path(os.path.realpath(backing))
+    if not str(target).startswith("/cvmfs/"):
+        raise SystemExit(
+            f"MUSING {MUSING} is local and {backing} does not resolve to a "
+            f"/cvmfs Musing — cannot build a worker-visible --setup jobdef"
+        )
+    return str(target / "setup.sh")
+
+
 def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
                  staged_input_dir: Path | None = None, dry_run: bool = False) -> int | None:
     """Build cnf via mu2ejobdef, smoke-test with mu2ejobfcl, submit via mu2ejobsub.
@@ -393,18 +572,20 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
     # Materialize the template (substitute geom basename) into state/.
     template_fcl = _materialize_template(stage)
 
-    cnf = stage_dir / f"cnf.{USER}.{desc}.{DSCONF}.0.tar"
+    dsconf = _stage_dsconf(stage)
+    cnf = stage_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
     if cnf.exists():
         print(f"[{stage}] removing existing cnf: {cnf.name}")
         cnf.unlink()
 
-    jobdef = ["mu2ejobdef", "--dsconf", DSCONF, "--dsowner", USER, "--desc", desc,
+    jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER, "--desc", desc,
               "--embed", str(template_fcl)]
     if cfg["ships_geom"]:
-        tarball = write_code_tarball(stage_dir)
+        base = Path(cfg["code_tarball"]) if "code_tarball" in cfg else None
+        tarball = write_code_tarball(stage_dir, base_tarball=base)
         jobdef += ["--code", str(tarball)]
     else:
-        jobdef += ["--setup", MUSING]
+        jobdef += ["--setup", _grid_setup_sh()]
     if "events_per_job" in cfg:
         jobdef += ["--run-number", str(cfg["run_number"]),
                    "--events-per-job", str(cfg["events_per_job"])]
@@ -460,7 +641,16 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
         if "memory_mb" in cfg:
             submit += ["--memory", f"{cfg['memory_mb']}MB"]
         print(f"[{stage}] submitting: {shlex.join(submit)}")
-        out = subprocess.run(submit, cwd=stage_dir, env=env, capture_output=True, text=True, check=True)
+        try:
+            out = subprocess.run(submit, cwd=stage_dir, env=env, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            # check=True raises BEFORE the print lines below, and str(exc) omits
+            # stderr → every mu2ejobsub rc!=0 was opaque (see wiki
+            # jobsub-disk-quota-stderr-swallowed). Surface stdout+stderr into the
+            # submit log before re-raising so the real cause is diagnosable.
+            print(e.stdout or "")
+            print("MU2EJOBSUB STDERR:\n" + (e.stderr or "(empty)"), file=sys.stderr)
+            raise
         print(out.stdout)
         if out.stderr.strip():
             print("STDERR:", out.stderr, file=sys.stderr)
@@ -618,6 +808,18 @@ def cmd_submit(args):
         STAGES["mustops_ce"]["auxinput"] = (
             f"1:physics.filters.TargetStopResampler.fileNames:{basenames_file}"
         )
+    elif args.stage == "mustops_pileup":
+        # Same resampler input as mustops_ce (concat MuminusStopsCat); the
+        # capture-product generators inside MuStopPileup.fcl turn each stop into
+        # protons/etc. propagated through the IPA + detector. See bo-ipa wiki.
+        prev = STATE / "concat_outputs.txt"
+        if not prev.exists():
+            raise SystemExit("Run 'list-outputs concat' first to populate concat_outputs.txt")
+        sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
+        staged_input_dir, basenames_file = stage_hardlink_farm("mustops_pileup", sources)
+        STAGES["mustops_pileup"]["auxinput"] = (
+            f"1:physics.filters.TargetStopResampler.fileNames:{basenames_file}"
+        )
     submit_stage(args.stage, env, inputs_file=inputs_file,
                  staged_input_dir=staged_input_dir, dry_run=args.dry_run)
 
@@ -665,11 +867,98 @@ AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
 EDEP_FCL = AUTORESEARCH / "Run1BAna/workflows/fcl/edep.fcl"
 SENSITIVITY_MACRO = AUTORESEARCH / "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C"
 
-_EDEP_SAW_RX = re.compile(r"EdepAna summary:\s*Saw\s+(\d+)\s+events")
+# Accept scientific notation: EdepAna prints the count via %g, so >1M events come
+# out as e.g. "Saw 2.70937e+06 events" (foilsflash's big mustops_ce). \d+ alone
+# missed those → false "summary not found" → harvest_exception zero rows. float()
+# then int() handles both "2709366" and "2.70937e+06" (the ~4-event rounding from
+# %g is negligible vs 2.7M). See bo-foilsflash harvest-sci-notation fix.
+_EDEP_SAW_RX = re.compile(r"EdepAna summary:\s*Saw\s+([\d.eE+-]+)\s+events")
 _S_OVER_SQRTB_RX = re.compile(r"^Signal box.*S/sqrt\(B\)\s*=\s*([\d.eE+-]+)\s*$", re.MULTILINE)
 
 # TargetMuonFinder/stopmat bin labels (mmackenz extract_analysis_results._CALO_STOP_MATERIALS)
 _CALO_STOP_MATERIALS = ("G4_CESIUM_IODIDE", "CarbonFiber", "AluminumHoneycomb")
+
+# bo-ipa: sum tracker StrawGasStep ionizing Edep in the MuStopPileup stream
+# (capture products from muon stops on the Al target — proton-dominated). This
+# is the IPA's second objective: the energy the absorber is meant to keep out of
+# the tracker. Uses gallery (uproot can't read StrawGasStep — see wiki
+# uproot-cannot-read-steppointmc). v1 sums ALL capture-product StrawGasStep
+# Edep (proton-dominated); a proton-only filter (SimParticle Ptr → pdg 2212) is
+# a future refinement. InputTag is auto-discovered from candidate labels since
+# the kept compressed-StrawGasStep label/instance is only confirmable on a real
+# MuStopPileup dts file (validate + pin in the first live smoke).
+_TRK_EDEP_CANDIDATE_TAGS = ("compressDetStepMCs", "compressDetStepMCs:tracker",
+                            "makeSGS")
+_TRK_EDEP_EXTRACT_SCRIPT = r"""
+import json, sys
+import ROOT
+ROOT.gSystem.Load("libgallery")
+data = json.loads(sys.stdin.read())
+files, tags = data["files"], data["tags"]
+files_v = ROOT.vector("string")()
+for p in files:
+    files_v.push_back(p)
+try:
+    ev = ROOT.gallery.Event(files_v)
+    # Templated gallery method MUST use the [Type] subscript idiom in PyROOT;
+    # getValidHandle(<type-object>) fails template resolution. Validated against
+    # a real dts.MuStopPileup.art (2026-06-19): tag compressDetStepMCs, accessor
+    # ionizingEdep(), ~0.029 MeV/event. See wiki/projects/bo-ipa.md.
+    getH = ev.getValidHandle[ROOT.std.vector("mu2e::StrawGasStep")]
+except Exception as e:
+    print("TRKEDEP_RESULT " + json.dumps({"error": "gallery/StrawGasStep init: %s" % e})); sys.exit(0)
+total = 0.0; n_events = 0; used = ""
+cand = list(zip(tags, [ROOT.art.InputTag(t) for t in tags]))
+while not ev.atEnd():
+    prod = None
+    trylist = [(used, ROOT.art.InputTag(used))] if used else cand
+    for tname, it in trylist:
+        try:
+            prod = getH(it).product(); used = tname; break
+        except Exception:
+            continue
+    if prod is not None:
+        for s in prod:
+            try:
+                total += s.ionizingEdep()
+            except Exception:
+                pass
+    n_events += 1
+    ev.next()
+print("TRKEDEP_RESULT " + json.dumps({"total_edep_MeV": total, "n_events": n_events, "tag": used}))
+"""
+
+
+def _extract_trk_edep_per_pot(pileup_files, env):
+    """Mean tracker StrawGasStep ionizing Edep (MeV) per MuStopPileup event.
+
+    Returns (trk_edep_per_event, total_edep_MeV, n_events, tag). This is the
+    bo-ipa second objective (proportional to per-POT since every IPA config
+    resamples the same TargetStops population, so the per-event mean is a
+    consistent objective across the BO). Gallery requires the muse env, so we
+    shell out to a python subprocess that inherits `env` (same pattern as calo).
+    """
+    if not pileup_files:
+        return None, None, None, None
+    proc = subprocess.run(
+        ["python3", "-c", _TRK_EDEP_EXTRACT_SCRIPT],
+        input=json.dumps({"files": [str(p) for p in pileup_files],
+                          "tags": list(_TRK_EDEP_CANDIDATE_TAGS)}),
+        env=env, capture_output=True, text=True, check=True,
+    )
+    # gallery/xrootd prints "Closing file, read N bytes" to stdout AFTER our
+    # result, so don't trust the last line — find the sentinel-prefixed line.
+    marker = [ln for ln in proc.stdout.splitlines() if ln.startswith("TRKEDEP_RESULT ")]
+    if not marker:
+        raise RuntimeError(f"no TRKEDEP_RESULT line in extractor stdout; tail={proc.stdout.strip()[-200:]}")
+    result = json.loads(marker[-1][len("TRKEDEP_RESULT "):])
+    if "error" in result:
+        raise RuntimeError(result["error"])
+    total = result["total_edep_MeV"]
+    n_events = result["n_events"]
+    if not n_events:
+        return None, total, n_events, result.get("tag")
+    return total / n_events, total, n_events, result.get("tag")
 
 
 _CALO_EXTRACT_SCRIPT = r"""
@@ -763,6 +1052,88 @@ def _count_events_art(art_path: Path, env: dict, harvest_dir: Path) -> int:
     return int(m.group(1))
 
 
+def cmd_harvest_pot_only(args):
+    """Aggregate pot_only outputs into mu_per_POT + per-plate edep via uproot.
+
+    Reads nts.*.POT_vd.*.root files listed in STATE/pot_only_outputs.txt:
+      - readVD/ntvd                 -> mu count (|pdg|==13, sid==8)
+      - genCountLogger/numEvents    -> exact POT per job
+      - ptEdepHist/ptEdepHist/edep_MeV         -> per-plate total energy deposit (TH1D)
+      - ptEdepHist/ptEdepHist/nielEdep_MeV     -> per-plate non-ionizing edep (TH1D)
+
+    The per-plate TH1Ds are emitted by the custom ProductionTargetEdepHist
+    analyzer in autoresearch_muse_prodtarget (uproot-readable; avoids the
+    StepPointMC memberwise wall — wiki/incidents/
+    steppointmcdumper-no-edep.md). edep histograms are missing on rows
+    submitted before that wiring landed; those rows degrade to
+    edep_per_POT_MeV=None (mu half still lands).
+    """
+    import numpy as np
+    import uproot
+
+    _check_stage_config_sha("pot_only")
+    outputs_file = STATE / "pot_only_outputs.txt"
+    if not outputs_file.exists():
+        raise SystemExit(f"missing {outputs_file}; run list-outputs pot_only first")
+    files = [Path(p) for p in outputs_file.read_text().splitlines() if p.strip()]
+    if not files:
+        raise SystemExit("pot_only outputs file is empty")
+
+    harvest_dir = ROOT / "harvest"
+    harvest_dir.mkdir(parents=True, exist_ok=True)
+
+    total_mu = 0
+    total_pot = 0
+    edep_per_plate_MeV = None  # numpy array, allocated lazily on first hit
+    niel_per_plate_MeV = None
+    files_seen = 0
+    files_with_edep = 0
+    files_skipped = []
+    for path in files:
+        try:
+            with uproot.open(path) as f:
+                tree = f["readVD/ntvd"]
+                arrs = tree.arrays(["sid", "pdg"], library="np")
+                total_mu += int(((np.abs(arrs["pdg"]) == 13) & (arrs["sid"] == 8)).sum())
+                total_pot += int(f["genCountLogger/numEvents"].values()[0])
+                # Per-plate edep histograms (optional — pre-wiring files
+                # lack ptEdepHist/). uproot's TH1D.values() drops the
+                # under/overflow bins, so the length matches N_plates.
+                if "ptEdepHist/ptEdepHist/edep_MeV" in f:
+                    e = f["ptEdepHist/ptEdepHist/edep_MeV"].values()
+                    n = f["ptEdepHist/ptEdepHist/nielEdep_MeV"].values()
+                    if edep_per_plate_MeV is None:
+                        edep_per_plate_MeV = np.zeros_like(e, dtype=float)
+                        niel_per_plate_MeV = np.zeros_like(n, dtype=float)
+                    edep_per_plate_MeV += e
+                    niel_per_plate_MeV += n
+                    files_with_edep += 1
+                files_seen += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"WARN skipping {path}: {e}")
+            files_skipped.append(str(path))
+
+    total_edep_MeV = float(edep_per_plate_MeV.sum()) if edep_per_plate_MeV is not None else 0.0
+    total_niel_MeV = float(niel_per_plate_MeV.sum()) if niel_per_plate_MeV is not None else 0.0
+    summary = {
+        "config": CONFIG,
+        "mu_per_POT": (total_mu / total_pot) if total_pot else None,
+        "edep_per_POT_MeV": (total_edep_MeV / total_pot) if (total_pot and files_with_edep) else None,
+        "niel_per_POT_MeV": (total_niel_MeV / total_pot) if (total_pot and files_with_edep) else None,
+        "total_mu": total_mu,
+        "total_edep_MeV": total_edep_MeV,
+        "total_niel_MeV": total_niel_MeV,
+        "total_pot": total_pot,
+        "edep_per_plate_MeV": edep_per_plate_MeV.tolist() if edep_per_plate_MeV is not None else None,
+        "niel_per_plate_MeV": niel_per_plate_MeV.tolist() if niel_per_plate_MeV is not None else None,
+        "files_seen": files_seen,
+        "files_with_edep": files_with_edep,
+        "files_skipped": files_skipped,
+    }
+    (harvest_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    print("\n" + json.dumps(summary, indent=2))
+
+
 def cmd_harvest(args):
     """Compute s_over_sqrt_b from the smoke pipeline outputs.
 
@@ -773,8 +1144,13 @@ def cmd_harvest(args):
          ce_abs_eff = ce_seen * ce_scale
       4. Run rough_run1a_sensitivity.C -> parse 'S/sqrt(B) = X'
     """
-    for stage in ("mubeam", "run1b_mubeam", "concat", "mustops_ce"):
-        _check_stage_config_sha(stage)
+    # Check config-sha only for stages this run actually produced. The IPA
+    # chain drops run1b_mubeam (foils-calo-only) and adds mustops_pileup, so
+    # key off the stamped config_sha files rather than a hardcoded tuple.
+    for stage in ("mubeam", "run1b_mubeam", "concat", "mustops_ce",
+                  "mustops_pileup", "elebeam_flash"):
+        if (STATE / f"{stage}_config_sha.txt").exists():
+            _check_stage_config_sha(stage)
     env = sourced_env(with_muse=True)
     harvest_dir = ROOT / "harvest"
     harvest_dir.mkdir(parents=True, exist_ok=True)
@@ -816,7 +1192,7 @@ def cmd_harvest(args):
     m = _EDEP_SAW_RX.search(proc.stdout)
     if not m:
         raise SystemExit(f"EdepAna 'Saw N events' summary not found; see {edep_log}")
-    ce_seen = int(m.group(1))
+    ce_seen = int(float(m.group(1)))
 
     print(">>> Step 2: counting events in MuminusStopsCat")
     muminus_stops = sum(_count_events_art(f, env, harvest_dir) for f in muminus_files)
@@ -864,6 +1240,75 @@ def cmd_harvest(args):
     else:
         print("    calo_per_pot        = (unavailable)")
 
+    # bo-ipa second objective: tracker StrawGasStep Edep from the muon-stop
+    # pileup (capture protons etc.). Only present when the IPA chain ran the
+    # mustops_pileup stage. Fail-soft like calo.
+    print(">>> Step 6: tracker StrawGasStep Edep from mustops_pileup outputs")
+    pileup_outputs = STATE / "mustops_pileup_outputs.txt"
+    trk_edep_per_pot = None
+    trk_edep_total_MeV = None
+    trk_edep_events = None
+    trk_edep_tag = None
+    if pileup_outputs.exists():
+        pileup_files = [Path(p) for p in pileup_outputs.read_text().splitlines() if p.strip()]
+        try:
+            (trk_edep_per_pot, trk_edep_total_MeV, trk_edep_events,
+             trk_edep_tag) = _extract_trk_edep_per_pot(pileup_files, env)
+        except Exception as e:  # noqa: BLE001
+            print(f"    trk_edep extraction failed: {e}")
+    if trk_edep_per_pot is not None:
+        print(f"    trk_edep_total_MeV  = {trk_edep_total_MeV}")
+        print(f"    trk_edep_events     = {trk_edep_events}")
+        print(f"    trk_edep_tag        = {trk_edep_tag}")
+        print(f"    trk_edep_per_pot    = {trk_edep_per_pot:.6g}")
+    else:
+        print("    trk_edep_per_pot    = (unavailable)")
+
+    # Step 7: tracker StrawGasStep Edep from the ELECTRON-beam EARLY-FLASH peak
+    # (bo-foilsflash 2nd objective). Same gallery extractor as the IPA trk_edep
+    # (StrawGasStep ionizingEdep, tag compressDetStepMCs, process EleBeamResampler).
+    # Only present when the foilsflash chain ran the elebeam_flash stage.
+    # The template overrides EarlyPrescaleFilter.nPrescale=1 (NO prescale — prod
+    # default drops 999/1000; see pipeline_templates/elebeam_flash/template.fcl:19),
+    # so flash_edep_total_MeV is the FULL early-flash total. The BO objective is
+    # flash_edep_per_pot = total / (n_input_electrons * POT_PER_ELECTRON) — the
+    # geometry-sensitive lever. flash_edep_per_event (mean over the flash-event
+    # count) is BLIND to the lever and is kept only for back-compat/diagnostics.
+    # Fail-soft like calo/trk_edep.
+    print(">>> Step 7: tracker StrawGasStep Edep from elebeam_flash (early) outputs")
+    flash_outputs = STATE / "elebeam_flash_outputs.txt"
+    flash_edep_per_event = None
+    flash_edep_total_MeV = None
+    flash_edep_events = None
+    flash_edep_tag = None
+    flash_edep_per_pot = None
+    flash_n_input = None
+    if flash_outputs.exists():
+        flash_files = [Path(p) for p in flash_outputs.read_text().splitlines() if p.strip()]
+        try:
+            (flash_edep_per_event, flash_edep_total_MeV, flash_edep_events,
+             flash_edep_tag) = _extract_trk_edep_per_pot(flash_files, env)
+        except Exception as e:  # noqa: BLE001
+            print(f"    flash_edep extraction failed: {e}")
+        # POT denominator = landed files x stamped events_per_job (input electrons
+        # resampled 1:1) x POT_PER_ELECTRON. Uses the SUBMIT-stamped events_per_job
+        # so a mid-flight STAGES edit doesn't mis-scale (see events-per-job incident).
+        if flash_edep_total_MeV is not None and flash_files:
+            flash_n_input = len(flash_files) * _events_per_job("elebeam_flash")
+            if flash_n_input:
+                flash_edep_per_pot = flash_edep_total_MeV / (flash_n_input * POT_PER_ELECTRON)
+    if flash_edep_per_event is not None:
+        print(f"    flash_edep_total_MeV  = {flash_edep_total_MeV}")
+        print(f"    flash_edep_events     = {flash_edep_events}")
+        print(f"    flash_edep_tag        = {flash_edep_tag}")
+        print(f"    flash_edep_per_event  = {flash_edep_per_event:.6g}")
+        print(f"    flash_n_input (POT/e) = {flash_n_input}")
+        print(f"    flash_edep_per_pot    = "
+              f"{flash_edep_per_pot:.6g}" if flash_edep_per_pot is not None else
+              "    flash_edep_per_pot    = (unavailable)")
+    else:
+        print("    flash_edep_per_event  = (unavailable)")
+
     summary = {
         "config": CONFIG,
         "ce_seen": ce_seen,
@@ -873,6 +1318,16 @@ def cmd_harvest(args):
         "stopping_factor": stopping_factor,
         "ce_abs_eff": ce_abs_eff,
         "s_over_sqrt_b": s_over_sqrt_b,
+        "trk_edep_per_pot": trk_edep_per_pot,
+        "trk_edep_total_MeV": trk_edep_total_MeV,
+        "trk_edep_events": trk_edep_events,
+        "trk_edep_tag": trk_edep_tag,
+        "flash_edep_per_event": flash_edep_per_event,
+        "flash_edep_per_pot": flash_edep_per_pot,
+        "flash_edep_total_MeV": flash_edep_total_MeV,
+        "flash_edep_events": flash_edep_events,
+        "flash_n_input": flash_n_input,
+        "flash_edep_tag": flash_edep_tag,
         "calo_per_pot": calo_per_pot,
         "calo_total": calo_total,
         "calo_files_seen": calo_files_seen,
@@ -913,6 +1368,10 @@ def main():
 
     p_harv = sub.add_parser("harvest", help="Aggregate stage outputs into summary.json")
     p_harv.set_defaults(func=cmd_harvest)
+
+    p_hpo = sub.add_parser("harvest-pot-only",
+                           help="Aggregate pot_only outputs into mu_per_POT (uproot)")
+    p_hpo.set_defaults(func=cmd_harvest_pot_only)
 
     p_mat = sub.add_parser("materialize",
                            help="Debug: write a stage's materialized template (geom basename substituted)")

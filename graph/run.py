@@ -13,12 +13,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+
+# Stamp AUTORESEARCH_MODE BEFORE `from config import ...` — config.GRID_STAGES
+# is selected from GRID_STAGES_BY_MODE at module-load time, and build.STAGE_NODES
+# freezes it. argparse runs in main(), too late. Issue Mu2eBO #15.
+def _presniff_mode() -> None:
+    for i, a in enumerate(sys.argv[1:], start=1):
+        if a == "--mode" and i + 1 < len(sys.argv):
+            os.environ["AUTORESEARCH_MODE"] = sys.argv[i + 1]
+            return
+        if a.startswith("--mode="):
+            os.environ["AUTORESEARCH_MODE"] = a.split("=", 1)[1]
+            return
+
+
+_presniff_mode()
 
 # Load .env (LANGSMITH_*, etc.) before any langchain/langgraph import so
 # tracing client picks them up. langgraph.json's "env" field is honored only
@@ -28,7 +45,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from langgraph.checkpoint.sqlite import SqliteSaver  # noqa: E402
 
-from build import _build_graph  # noqa: E402
+from build import build_graph  # noqa: E402
 from config import (  # noqa: E402
     CHECKPOINT_DB,
     DEFAULT_ALPHA,
@@ -65,7 +82,7 @@ def main() -> int:
     conn.execute("PRAGMA journal_mode=WAL;")
     saver = SqliteSaver(conn)
 
-    graph = _build_graph().compile(checkpointer=saver)
+    graph = build_graph().compile(checkpointer=saver)
 
     thread_id = args.thread_id or f"cli-{uuid.uuid4().hex[:8]}"
     cfg = {"configurable": {"thread_id": thread_id}}

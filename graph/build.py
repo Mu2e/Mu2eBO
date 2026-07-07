@@ -38,7 +38,7 @@ from state import BOIterationState  # noqa: E402
 STAGE_NODES = {stage: f"stage_{stage}" for stage in GRID_STAGES}
 
 
-def _build_graph() -> StateGraph:
+def build_graph() -> StateGraph:
     g = StateGraph(BOIterationState)
     g.add_node("propose", node_propose)
     g.add_node("render_preflight", node_render_preflight)
@@ -83,4 +83,38 @@ def _build_graph() -> StateGraph:
     return g
 
 
-graph = _build_graph().compile()
+def is_child_terminal(thread_id: str, child_graph) -> bool:
+    """True iff the child thread has reached a real terminal state.
+
+    `CheckpointTuple` does not expose `next`; only `StateSnapshot` (returned
+    by `compiled_graph.get_state(cfg)`) does. The caller compiles the inner
+    graph once against the shared SqliteSaver and passes it in — per-tick
+    recompile costs ~O(q * ticks_per_round) wasted compiles (see
+    wiki/concepts/closed-loop-bo-design.md).
+
+    Empty `snap.next` is ambiguous: it means the graph is terminal OR the
+    thread has no checkpoint at all (freshly-spawned subprocess that
+    hasn't flushed its first state yet). Round-N children are launched
+    in parallel and the barrier polls within seconds; without
+    disambiguation, every fresh child is mis-resolved on the first
+    barrier tick — closed-loop declares premature convergence and exits.
+    See wiki/incidents/barrier-false-positive-round1.md.
+
+    Disambiguation: a real terminal state has both populated `values` AND
+    `metadata.step >= 1` (at least one super-step executed). Fresh threads
+    return empty `values` and `step == -1` from LangGraph's SqliteSaver.
+    """
+    cfg = {"configurable": {"thread_id": thread_id}}
+    try:
+        snap = child_graph.get_state(cfg)
+    except Exception:
+        return False
+    if snap is None or snap.next:
+        return False
+    if not snap.values:
+        return False
+    meta = getattr(snap, "metadata", None) or {}
+    return meta.get("step", -1) >= 1
+
+
+graph = build_graph().compile()

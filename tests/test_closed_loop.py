@@ -60,12 +60,15 @@ class TestDecideNext(unittest.TestCase):
         # completed_names intentionally persists across rounds
         self.assertNotIn("completed_names", out)
 
-    def test_zero_new_rows_sets_zero_rows_true(self):
+    def test_zero_new_rows_all_resolved_sets_zero_rows_true(self):
+        # All of this round's launched children resolved, 0 new rows →
+        # genuine all-failed round (foilsX04 shape) → exit.
         state = {
             "mode": "helical",
             "round_idx": 1,
             "children": {},
-            "completed_names": [],
+            "launched_names": ["a", "b"],
+            "completed_names": ["a", "b"],
             "history_len_before": 42,
         }
         with mock.patch.object(cl, "_leaderboard_len", return_value=42):
@@ -73,19 +76,92 @@ class TestDecideNext(unittest.TestCase):
         self.assertTrue(out["zero_rows"])
         self.assertEqual(out["round_idx"], 2)
 
-    def test_negative_delta_sets_zero_rows_true(self):
+    def test_negative_delta_all_resolved_sets_zero_rows_true(self):
         # Defensive: leaderboard shouldn't shrink, but if it does, treat
         # as zero-row (no progress) rather than continuing.
         state = {
             "mode": "helical",
             "round_idx": 1,
             "children": {},
-            "completed_names": [],
+            "launched_names": ["a"],
+            "completed_names": ["a"],
             "history_len_before": 10,
         }
         with mock.patch.object(cl, "_leaderboard_len", return_value=8):
             out = cl.node_decide_next(state)
         self.assertTrue(out["zero_rows"])
+
+    def test_barrier_timeout_pending_does_not_set_zero_rows(self):
+        # foilsg03/foilsg05 false-positive: barrier timed out with children
+        # still running on the grid. 0 new rows means "not finished yet",
+        # not "all failed" — must carry the round forward.
+        # See wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md.
+        state = {
+            "mode": "helical",
+            "round_idx": 0,
+            "children": {},
+            "launched_names": ["a", "b", "c"],
+            "completed_names": ["a"],
+            "history_len_before": 42,
+        }
+        with mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_decide_next(state)
+        self.assertFalse(out["zero_rows"])
+        self.assertEqual(out["round_idx"], 1)
+
+    def test_completed_cumulative_across_rounds_doesnt_mask_pending(self):
+        # completed_names persists across rounds; a raw count comparison
+        # (len(completed) >= len(launched)) would be trivially true here
+        # even though this round's only child is still pending.
+        state = {
+            "mode": "helical",
+            "round_idx": 1,
+            "children": {},
+            "launched_names": ["c"],
+            "completed_names": ["prev_a", "prev_b"],
+            "history_len_before": 42,
+        }
+        with mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_decide_next(state)
+        self.assertFalse(out["zero_rows"])
+
+    def test_completed_includes_this_round_failure_exits(self):
+        # Same cumulative completed set, but this round's child DID resolve
+        # (failed without a row) → all-failed semantics preserved.
+        state = {
+            "mode": "helical",
+            "round_idx": 1,
+            "children": {},
+            "launched_names": ["c"],
+            "completed_names": ["prev_a", "prev_b", "c"],
+            "history_len_before": 42,
+        }
+        with mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_decide_next(state)
+        self.assertTrue(out["zero_rows"])
+
+    def test_stop_seen_exits_even_with_pending_children(self):
+        # Barrier recorded a STOP_FLAG observation; decide_next must
+        # propagate it and route_after_decide must END even though the
+        # pending children suppressed zero_rows — without re-reading the
+        # (possibly already removed) flag file.
+        state = {
+            "mode": "helical",
+            "round_idx": 0,
+            "max_rounds": 10,
+            "children": {},
+            "launched_names": ["a", "b"],
+            "completed_names": ["a"],
+            "history_len_before": 42,
+            "stop_seen": True,
+        }
+        with mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_decide_next(state)
+        self.assertFalse(out["zero_rows"])
+        self.assertTrue(out["stop_seen"])
+        routed = dict(state, **out)
+        with mock.patch.object(cl, "_stop_requested", return_value=False):
+            self.assertEqual(cl.route_after_decide(routed), cl.END)
 
 
 class TestAssignNames(unittest.TestCase):
@@ -319,39 +395,243 @@ class TestUniqueThreadIdPerLaunch(unittest.TestCase):
                                      "resume path must reuse the prior thread_id")
 
 
-class TestTerminalCheckpointUsesThreadId(unittest.TestCase):
-    """The barrier must look up checkpoints by the per-launch thread_id, not
-    by the config_name — otherwise PR1's per-launch namespacing breaks the
-    barrier's checkpoint fallback (preflight/stage-fail children would never
-    resolve and the barrier would block until timeout)."""
+class TestIsChildTerminal(unittest.TestCase):
+    """`graph.build.is_child_terminal` — relocated from closed_loop in the
+    2026-06-06 refactor. Disambiguation of fresh threads vs real terminal
+    is load-bearing: see wiki/incidents/barrier-false-positive-round1.md."""
 
     def test_passes_thread_id_to_get_state(self):
+        from graph.build import is_child_terminal
         seen = {}
 
         class _FakeGraph:
             def get_state(self, cfg):
                 seen["cfg"] = cfg
-                # Pretend nothing in the DB → not terminal.
                 return None
 
-        cl._child_terminal_via_checkpoint(
-            "fooR00_00", _FakeGraph(), thread_id="fooR00_00_deadbeef"
-        )
+        is_child_terminal(thread_id="fooR00_00_deadbeef", child_graph=_FakeGraph())
         self.assertEqual(seen["cfg"]["configurable"]["thread_id"], "fooR00_00_deadbeef")
 
-    def test_falls_back_to_name_when_no_thread_id(self):
-        """Legacy resume path: a children record from before the decoupling
-        won't have `thread_id`; barrier must fall back to `name` so old
-        in-flight rounds don't deadlock after upgrade."""
-        seen = {}
+    def test_fresh_thread_returns_false_via_inmemory_saver(self):
+        """End-to-end fresh-thread case: build the real inner graph against an
+        in-memory checkpointer and call get_state on a never-run thread_id.
+        Asserts the load-bearing disambiguation (no checkpoint → not terminal)
+        works without any node ever executing."""
+        from langgraph.checkpoint.memory import InMemorySaver
+        from graph.build import build_graph, is_child_terminal
 
-        class _FakeGraph:
-            def get_state(self, cfg):
-                seen["cfg"] = cfg
-                return None
+        saver = InMemorySaver()
+        child_graph = build_graph().compile(checkpointer=saver)
+        self.assertFalse(is_child_terminal(thread_id="never-run", child_graph=child_graph))
 
-        cl._child_terminal_via_checkpoint("fooR00_00", _FakeGraph(), thread_id=None)
-        self.assertEqual(seen["cfg"]["configurable"]["thread_id"], "fooR00_00")
+
+class TestBarrierRefusesEmptyChildren(unittest.TestCase):
+    """Regression: barrier on empty launch set must raise, not silently exit.
+
+    History: foilsZ06 (2026-06-05) exited via the all([])==True path after
+    decide_next cleared `children`. The exit was misattributed to a LangGraph
+    replay bug for several turns. Real trigger was a stale STOP_FLAG, but
+    the latent vacuous-all() trap remains a correctness hazard if a future
+    refactor ever delivers an empty children dict to the barrier.
+    """
+
+    def test_empty_launched_names_raises(self):
+        state = {
+            "mode": "helical",
+            "round_idx": 1,
+            "children": {},
+            "launched_names": [],
+            "completed_names": ["prev_round_a", "prev_round_b"],
+            "errors": [],
+        }
+        with self.assertRaises(RuntimeError) as cm:
+            cl.node_barrier(state)
+        self.assertIn("launched_names empty", str(cm.exception))
+
+
+class TestBarrierDeadPid(unittest.TestCase):
+    """A child whose process died without writing any resolution artifact
+    (no leaderboard row, no broken.txt, non-terminal checkpoint) can never
+    resolve — the barrier must mark it completed-failed instead of waiting
+    out the timeout cap. foilsf08 crash shape; see
+    wiki/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md
+    and docs/closed-loop-barrier-fix.md change 1b.
+    """
+
+    @staticmethod
+    def _dead_pid():
+        import subprocess
+        proc = subprocess.Popen(["true"])
+        proc.wait()
+        return proc.pid
+
+    def test_dead_pid_marks_completed_failed(self):
+        dead = self._dead_pid()
+        state = {
+            "mode": "helical",
+            "round_idx": 0,
+            "barrier_poll_sec": 0,
+            "barrier_max_min": 60,
+            "children": {
+                "fooR00_00": {"pid": dead, "thread_id": "fooR00_00_x"},
+            },
+            "launched_names": ["fooR00_00"],
+            "completed_names": [],
+            "errors": [],
+        }
+        with mock.patch.object(cl, "_open_saver_conn", return_value=mock.Mock()), \
+             mock.patch.object(cl, "SqliteSaver", return_value=mock.Mock()), \
+             mock.patch("graph.build.build_graph", return_value=mock.Mock()), \
+             mock.patch("graph.build.is_child_terminal", return_value=False), \
+             mock.patch.object(cl, "_child_in_leaderboard", return_value=False), \
+             mock.patch.object(cl, "_child_is_broken", return_value=False), \
+             mock.patch.object(cl, "_stop_requested", return_value=False):
+            out = cl.node_barrier(state)
+        self.assertEqual(out["completed_names"], ["fooR00_00"])
+        self.assertTrue(
+            any("died without resolution" in e for e in out["errors"]),
+            f"expected dead-pid error, got: {out['errors']}",
+        )
+        self.assertFalse(out["stop_seen"])
+        self.assertFalse(out["timeout_seen"])
+
+    def test_live_pid_not_marked(self):
+        # Our own process is definitely alive; with a 0-min backstop cap
+        # the barrier should exit via the backstop with the child still
+        # pending, NOT via the dead-pid path.
+        import os
+        state = {
+            "mode": "helical",
+            "round_idx": 0,
+            "barrier_poll_sec": 0,
+            "barrier_max_min": 0,
+            "children": {
+                "fooR00_00": {"pid": os.getpid(), "thread_id": "fooR00_00_x"},
+            },
+            "launched_names": ["fooR00_00"],
+            "completed_names": [],
+            "errors": [],
+        }
+        with mock.patch.object(cl, "_open_saver_conn", return_value=mock.Mock()), \
+             mock.patch.object(cl, "SqliteSaver", return_value=mock.Mock()), \
+             mock.patch("graph.build.build_graph", return_value=mock.Mock()), \
+             mock.patch("graph.build.is_child_terminal", return_value=False), \
+             mock.patch.object(cl, "_child_in_leaderboard", return_value=False), \
+             mock.patch.object(cl, "_child_is_broken", return_value=False), \
+             mock.patch.object(cl, "_stop_requested", return_value=False):
+            out = cl.node_barrier(state)
+        self.assertEqual(out["completed_names"], [])
+        self.assertTrue(out["timeout_seen"])
+
+
+class TestStaleClusterSkipIsLoud(unittest.TestCase):
+    """Regression: stale `*_cluster.txt` from a crashed prior run must not
+    silently skip launch and cause the barrier to hang 240min.
+    See wiki/incidents/closed-loop-stale-cluster-silent-no-launch.md.
+    """
+
+    def _capture_cmd(self):
+        captured = []
+
+        class _FakeProc:
+            def __init__(self, cmd):
+                self.pid = 999
+                self._cmd = cmd
+
+        def _popen(cmd, **kwargs):
+            captured.append(list(cmd))
+            return _FakeProc(cmd)
+
+        return captured, _popen
+
+    def _two_child_state(self, td):
+        return {
+            "mode": "helical",
+            "alpha": 0.0,
+            "round_idx": 0,
+            "stagger_sec": 0,
+            "errors": [],
+            "completed_names": [],
+            "children": {
+                "fooR00_00": {"x_point": [1.0, 2.0, 3.0, 4.0], "log": str(td / "a.log"), "pid": None, "started_at": 0.0},
+                "fooR00_01": {"x_point": [5.0, 6.0, 7.0, 8.0], "log": str(td / "b.log"), "pid": None, "started_at": 0.0},
+            },
+        }
+
+    def test_stale_cluster_excluded_from_launched_names(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            # Stale cluster.txt for child 00 only (mimics prior crashed submit).
+            sd = tmp / "fooR00_00" / "state"
+            sd.mkdir(parents=True)
+            (sd / "mubeam_cluster.txt").write_text("70267542")
+            captured, popen = self._capture_cmd()
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
+                 mock.patch.object(cl.subprocess, "Popen", popen), \
+                 mock.patch.object(cl, "_child_in_leaderboard", return_value=False):
+                out = cl.node_launch_children(self._two_child_state(tmp))
+            self.assertEqual(len(captured), 1, "only the non-stale child should Popen")
+            self.assertEqual(out["launched_names"], ["fooR00_01"])
+            self.assertIn("fooR00_00", out["completed_names"])
+            self.assertTrue(
+                any("SKIP fooR00_00" in e and "stale" in e for e in out["errors"]),
+                f"expected loud SKIP error for fooR00_00, got: {out['errors']}",
+            )
+
+    def test_all_stale_then_barrier_refuses(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            for n in ("fooR00_00", "fooR00_01"):
+                sd = tmp / n / "state"
+                sd.mkdir(parents=True)
+                (sd / "mubeam_cluster.txt").write_text("X")
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
+                 mock.patch.object(cl, "_child_in_leaderboard", return_value=False):
+                out = cl.node_launch_children(self._two_child_state(tmp))
+            self.assertEqual(out["launched_names"], [])
+            self.assertEqual(sorted(out["completed_names"]), ["fooR00_00", "fooR00_01"])
+            # Empty launched_names now correctly trips node_barrier's guard.
+            state = {
+                "mode": "helical",
+                "round_idx": 0,
+                "children": out["children"],
+                "launched_names": out["launched_names"],
+                "completed_names": out["completed_names"],
+                "errors": out["errors"],
+            }
+            with self.assertRaises(RuntimeError) as cm:
+                cl.node_barrier(state)
+            self.assertIn("launched_names empty", str(cm.exception))
+
+    def test_leaderboard_resume_is_silent(self):
+        """If a child is already in the leaderboard (legit resume), it should
+        be skipped silently (no error) — the barrier marks it done on first
+        poll tick. Only stale-cluster-without-leaderboard is loud."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            # Stale cluster.txt AND leaderboard presence for child 00.
+            sd = tmp / "fooR00_00" / "state"
+            sd.mkdir(parents=True)
+            (sd / "mubeam_cluster.txt").write_text("X")
+            captured, popen = self._capture_cmd()
+
+            def _in_lb(name, mode):
+                return name == "fooR00_00"
+
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
+                 mock.patch.object(cl.subprocess, "Popen", popen), \
+                 mock.patch.object(cl, "_child_in_leaderboard", side_effect=_in_lb):
+                out = cl.node_launch_children(self._two_child_state(tmp))
+            self.assertEqual(out["launched_names"], ["fooR00_01"])
+            # fooR00_00 is leaderboard-present → not in completed_names, no error.
+            self.assertNotIn("fooR00_00", out["completed_names"])
+            self.assertFalse(
+                any("fooR00_00" in e for e in out["errors"]),
+                f"leaderboard resume should be silent, got: {out['errors']}",
+            )
 
 
 if __name__ == "__main__":

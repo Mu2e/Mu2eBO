@@ -14,3 +14,6 @@ pandas>=2.0
 scikit-optimize>=0.10
 scipy>=1.10
 numpy>=1.24
+# ROOT file reader for bo-prodtarget harvest-pot-only (pot_vd.root TTrees + genCountLogger TH1D).
+uproot>=5
+awkward>=2
