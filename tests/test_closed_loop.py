@@ -280,6 +280,41 @@ class TestPredictPicks(unittest.TestCase):
         self.assertEqual(sorted(out["children"]), ["_pick_00", "_pick_01"])
         self.assertEqual(out["history_len_before"], 10)
 
+    def test_qnparego_routes_to_botorch_subprocess(self):
+        # Any picker != cl_min shells into .venv-botorch; _import_gp is NOT
+        # touched. Assert routing + picker verbatim pass-through.
+        state = {"q": 3, "round_idx": 2, "errors": [], "mode": "foilsflash",
+                 "picker": "qnparego"}
+        picks = [(float(i),) * 6 for i in range(3)]
+        with mock.patch.object(cl, "_botorch_picks_subprocess",
+                               return_value=picks) as m, \
+             mock.patch.object(cl, "_import_gp") as gp, \
+             mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_predict_picks(state)
+        m.assert_called_once()
+        self.assertEqual(m.call_args.kwargs.get("picker"), "qnparego")
+        self.assertEqual(m.call_args.args[0], "foilsflash")  # mode
+        self.assertEqual(m.call_args.args[2], 2)             # round_idx
+        gp.assert_not_called()
+        self.assertEqual(out["errors"], [])
+        self.assertEqual(len(out["children"]), 3)
+        self.assertEqual(out["history_len_before"], 42)
+
+    def test_hybrid_routes_to_botorch_subprocess(self):
+        state = {"q": 5, "round_idx": 0, "errors": [], "mode": "foilsflash",
+                 "picker": "hybrid"}
+        picks = [(float(i),) * 6 for i in range(5)]
+        with mock.patch.object(cl, "_botorch_picks_subprocess",
+                               return_value=picks) as m, \
+             mock.patch.object(cl, "_import_gp") as gp, \
+             mock.patch.object(cl, "_leaderboard_len", return_value=10):
+            out = cl.node_predict_picks(state)
+        m.assert_called_once()
+        self.assertEqual(m.call_args.kwargs.get("picker"), "hybrid")
+        gp.assert_not_called()
+        self.assertEqual(out["errors"], [])
+        self.assertEqual(len(out["children"]), 5)
+
 
 class TestChildIsBroken(unittest.TestCase):
     def test_broken_present(self):

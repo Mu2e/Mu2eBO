@@ -345,6 +345,78 @@ def _qlnei_picks(model, X, bounds, q: int, round_idx: int):
     return _optimize(acq, bounds, q)
 
 
+def _qnparego_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
+    """Optimize qNParEGO for q candidates; return shape (q, d) tensor.
+
+    qNParEGO (Daulton et al. 2020) = qLogNoisyExpectedImprovement over a
+    *random augmented-Chebyshev scalarization* drawn fresh per candidate. Each
+    of the q candidates gets its own simplex weight vector, so the batch fans
+    out along the WHOLE Pareto front — including the corners qNEHVI's
+    hypervolume economics underprice near saturation (see
+    wiki/concepts/saturation-is-acquisition-relative.md). No HV box
+    decomposition either, so it degrades gracefully on big fronts where qNEHVI
+    times out.
+
+    Weights are drawn inside ONE torch.manual_seed(_seed(round_idx)) block: the
+    q scalarizations are DISTINCT per candidate (each sample_simplex call
+    advances the RNG) yet REPRODUCIBLE per round (seed is XOR, never pow — see
+    wiki/incidents/botorch-predict-seed-pow-vs-xor.md). Candidates are chosen
+    sequentially-greedy, each conditioned on the ones already picked via
+    X_pending so the batch stays diverse. NOT via the shared _optimize: its
+    single-acq sequential=True path can't take a per-candidate scalarization +
+    a growing X_pending.
+
+    x_pending: optional (k, d) tensor of already-committed picks (e.g. the
+    qnehvi half of a hybrid batch) pre-loaded into X_pending before the loop;
+    those k rows are NOT returned (only the q fresh parego candidates are).
+    """
+    from botorch.acquisition.logei import qLogNoisyExpectedImprovement
+    from botorch.acquisition.objective import GenericMCObjective
+    from botorch.utils.multi_objective.scalarization import get_chebyshev_scalarization
+    from botorch.utils.sampling import sample_simplex
+    from botorch.optim import optimize_acqf
+
+    torch.manual_seed(_seed(round_idx))
+    pending = [x_pending] if x_pending is not None else []  # feeds X_pending
+    picks = []  # only the fresh parego candidates (x_pending excluded)
+    for _ in range(q):
+        w = sample_simplex(d=Y.shape[-1], n=1, dtype=Y.dtype).squeeze(0)
+        obj = GenericMCObjective(get_chebyshev_scalarization(weights=w, Y=Y))
+        acq = qLogNoisyExpectedImprovement(
+            model=model, X_baseline=X, sampler=_sampler(round_idx),
+            objective=obj, prune_baseline=True,
+            X_pending=torch.cat(pending) if pending else None,
+        )
+        cand, _ = optimize_acqf(
+            acq_function=acq, bounds=bounds, q=1,
+            num_restarts=16, raw_samples=512,
+            options={"batch_limit": 5, "maxiter": 200},
+        )
+        pending.append(cand)
+        picks.append(cand)
+    return torch.cat(picks).detach()
+
+
+def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int):
+    """One batch = ~60% qnehvi (HV efficiency) + ~40% qnparego (tail coverage).
+
+    q_hv = max(1, round(0.6*q)) qnehvi picks first (mines the useful region);
+    the remaining q_pe = q - q_hv qnparego picks then patrol the front's tails,
+    conditioned on the qnehvi picks via X_pending so the two halves don't
+    collide. One GP fit / one subprocess call (the caller already fit `model`).
+    Recommended default for new multi-objective lines. If q_pe == 0 (small q)
+    this is pure qnehvi. Batch order: qnehvi picks first, parego picks after.
+    """
+    q_hv = max(1, round(0.6 * q))
+    q_pe = q - q_hv
+    hv_cands = _qnehvi_picks(model, X, Y, bounds, q=q_hv, round_idx=round_idx)
+    if q_pe == 0:
+        return hv_cands
+    pe_cands = _qnparego_picks(model, X, Y, bounds, q=q_pe,
+                               round_idx=round_idx, x_pending=hv_cands)
+    return torch.cat([hv_cands, pe_cands])
+
+
 def _emit_picks(cands, int_dims):
     """Cast (q, d) tensor -> list of native-typed tuples.
 
@@ -425,10 +497,14 @@ def compute_explore_picks(q: int = 5,
                           ) -> list[tuple]:
     """qNEHVI replacement matching gp_predict_{foils,helical}.compute_explore_picks.
 
-    picker = "qnehvi" (default, multi-objective Pareto-HV) or "qlnei"
+    picker = "qnehvi" (default, multi-objective Pareto-HV), "qlnei"
     (single-objective qLogNoisyExpectedImprovement on sob only — drops calo
     entirely; pair with --no-run1b-stage on the closed-loop side to actually
-    save grid time).
+    save grid time), "pareto_sob" (GP-mean sob corner), "qnparego"
+    (qLogNEI over random Chebyshev scalarizations — spreads across the whole
+    front) or "hybrid" (~60% qnehvi + ~40% qnparego; recommended for new
+    multi-objective lines). qnparego/hybrid use the same 2-objective path as
+    qnehvi.
 
     The trailing kwargs (nsteps_budget, min_spacing, pessimistic_calo) are
     accepted for shim-compatibility and ignored: qNEHVI handles its own
@@ -450,6 +526,10 @@ def compute_explore_picks(q: int = 5,
         cands = _qlnei_picks(model, X, bounds, q=q, round_idx=round_idx)
     elif picker == "pareto_sob":
         cands = _pareto_sob_picks(model, bounds, q=q, round_idx=round_idx)
+    elif picker == "qnparego":
+        cands = _qnparego_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
+    elif picker == "hybrid":
+        cands = _hybrid_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
     else:
         cands = _qnehvi_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
     return _emit_picks(cands, int_dims)
@@ -467,10 +547,16 @@ def main(argv=None):
     ap.add_argument("--alpha", type=float, default=bo.DEFAULT_ALPHA,
                     help=f"Scalarization weight passed through for shim "
                          f"compatibility (default {bo.DEFAULT_ALPHA})")
-    ap.add_argument("--picker", choices=("qnehvi", "qlnei", "pareto_sob"), default="qnehvi",
+    ap.add_argument("--picker",
+                    choices=("qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid"),
+                    default="qnehvi",
                     help="qnehvi = multi-obj Pareto-HV (default); "
                          "qlnei = single-obj qLogNoisyEI on sob only; "
-                         "pareto_sob = highest-sob points on the GP Pareto frontier")
+                         "pareto_sob = highest-sob points on the GP Pareto frontier; "
+                         "qnparego = qLogNEI over random Chebyshev scalarizations "
+                         "(spreads across the whole front); "
+                         "hybrid = ~60%% qnehvi + ~40%% qnparego "
+                         "(recommended for new multi-objective lines)")
     ap.add_argument("--emit-picks-json", type=str, default=None,
                     help="If set, write picks as JSON to this path")
     ns = ap.parse_args(argv)

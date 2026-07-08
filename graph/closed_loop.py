@@ -96,7 +96,7 @@ from config import (  # noqa: E402
 
 from sourced_bash import run_sourced_bash  # noqa: E402
 
-PICKER_CHOICES = ("cl_min", "qnehvi", "qlnei", "pareto_sob")
+PICKER_CHOICES = ("cl_min", "qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid")
 DEFAULT_PICKER = "cl_min"
 
 # gp_predict_helical lives in the sub-repo (sister of leaderboard). Import
@@ -294,7 +294,9 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, p
     --emit-picks-json.
 
     picker = any non-cl_min PICKER_CHOICES entry: "qnehvi" (multi-obj),
-    "qlnei" (single-obj sob), "pareto_sob" (GP-mean sob corner).
+    "qlnei" (single-obj sob), "pareto_sob" (GP-mean sob corner),
+    "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
+    (~60% qnehvi + ~40% qnparego; recommended for new multi-objective lines).
 
     Picks come back as JSON list-of-lists; convert to list-of-tuples to match
     the sklearn-EI path (gp.compute_explore_picks return contract).
@@ -332,17 +334,24 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, p
 
 
 def node_predict_picks(state: RoundState) -> dict:
-    """Refit GP, return q picks. Picker is one of {cl_min, qnehvi}.
+    """Refit GP, return q picks. Picker is one of PICKER_CHOICES.
 
     cl_min (default): in-process sklearn-GP + skopt EI via mode-keyed
       gp_predict_{foils,helical}.compute_explore_picks. Production default
       per LOCO honest-judge eval (CL-min wins 4/5 cohorts on foils n=177)
       — see wiki/concepts/batch-bo.md.
 
-    qnehvi: subprocess into .venv-botorch (disjoint venv) to run
-      botorch_predict.py. Multi-objective Pareto-HV picker; native
-      acquisition is qNEHVI, not the scalarized obj the leaderboard
-      reports. Exploration knob, not a recommended default.
+    Everything else subprocesses into .venv-botorch (disjoint venv) to run
+    botorch_predict.py:
+      qnehvi: multi-objective Pareto-HV picker; native acquisition is qNEHVI,
+        not the scalarized obj the leaderboard reports.
+      qlnei: single-obj qLogNoisyEI on sob only (drops the run1b_mubeam stage).
+      pareto_sob: the GP-mean highest-sob frontier points.
+      qnparego: qLogNEI over random Chebyshev scalarizations — spreads picks
+        across the whole Pareto front (patrols the tails qNEHVI underprices).
+      hybrid: ~60% qnehvi + ~40% qnparego in one batch — recommended default
+        for new multi-objective lines (HV efficiency + native tail coverage;
+        see wiki/concepts/saturation-is-acquisition-relative.md).
     """
     q = state["q"]
     mode = state["mode"]
@@ -788,8 +797,11 @@ def main() -> int:
                     help="if omitted, a fresh uuid is used; reuse to resume")
     ap.add_argument("--picker", choices=PICKER_CHOICES, default=DEFAULT_PICKER,
                     help="batch picker; cl_min = in-process skopt EI (default, "
-                         "LOCO-validated), qnehvi = subprocess into .venv-botorch "
-                         "for BoTorch Pareto-HV picks (exploration knob)")
+                         "LOCO-validated); qnehvi/qlnei/pareto_sob/qnparego/hybrid "
+                         "subprocess into .venv-botorch for BoTorch picks. "
+                         "hybrid (~60%% qnehvi + ~40%% qnparego) is the recommended "
+                         "default for new multi-objective lines; qnparego spreads "
+                         "picks across the whole front")
     ap.add_argument("--dry-run", action="store_true",
                     help="print round-0 picks + names without launching")
     args = ap.parse_args()
