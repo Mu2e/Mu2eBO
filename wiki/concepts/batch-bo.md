@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-06-01 (n=251 overlay post-foilsX08: CL-min L2=0.075 + 10/10 dominance — collapse onto `(n_up=6, n_down∈{0,1}, rOut≈128, hT≈0.23, rIn=0)`; sequence n=128→0.139, n=164→0.095, n=178→0.821, n=186→0.079, n=193→0.590, n=204→0.122, n=251→0.075)
+**Updated:** 2026-06-04 (n=251 overlay post-foilsX08: CL-min L2=0.075 + 10/10 dominance — collapse onto `(n_up=6, n_down∈{0,1}, rOut≈128, hT≈0.23, rIn=0)`; sequence n=128→0.139, n=164→0.095, n=178→0.821, n=186→0.079, n=193→0.590, n=204→0.122, n=251→0.075)
 
 ## Summary
 How to propose **q > 1 in-flight BO points** at once instead of one-at-a-time, so
@@ -104,6 +104,69 @@ diversity for those dims. If exploration restoration is wanted, the
 cheaper first move is **switch CL-min → CL-mean** (one-character config
 change, no new venv plumbing) before reaching for BoTorch.
 
+**qLogNEHVI is now LIVE on the qnehvi path (applied 2026-06-04, for `foilsZ03`).**
+`.venv-botorch` ships **botorch 0.10.0** with the Log-EI family
+(`qLogNoisyExpectedHypervolumeImprovement` / `qLogNoisyExpectedImprovement`
+in `botorch.acquisition.multi_objective.logei`). `botorch_predict.py:_qnehvi_picks`
+now imports + instantiates **`qLogNoisyExpectedHypervolumeImprovement`** (was the
+plain `qNoisyExpectedHypervolumeImprovement`). **Swap gotcha:** the Log variant
+lives in a DIFFERENT module — `…multi_objective.logei`, not `…monte_carlo` — so
+the swap changes the **import line**, not just the class name (constructor args
+are identical = drop-in). So `--picker qnehvi` now runs qLogNEHVI. The Log
+variants (Ament et al. 2023,
+"Unexpected Improvements to Expected Improvement") fix the **vanishing
+acquisition-value / flat-gradient** failure of the original MC acquisitions,
+so `optimize_acqf` finds better candidates — the gain is largest **near
+saturation**, where improvement (hence the raw acquisition value) is tiny
+(exactly where `foilsZ02` sat at round 6). Swapping qNEHVI →
+**qLogNEHVI is a drop-in** (identical constructor args). Note the deeper
+mismatch already flagged above: our objective is *scalarized*, so the truly
+matching single-objective acquisition is **qLogNEI**, not either qNEHVI
+variant — "go Log" applies to whichever acquisition you pick.
+  - **`sequential=True` is MANDATORY at large q (gotcha, 2026-06-04).**
+    `botorch_predict.py:_qnehvi_picks` called `optimize_acqf(..., q=q,
+    sequential=False)` = **joint** batch optimization, a single **q×d-dim**
+    problem (`num_restarts=16, raw_samples=512, maxiter=200`). Tractable at q=3
+    (18-D, ~20 s) but **blew past a 10-min wall at q=10** (60-D) → smoke-test
+    `rc=124` timeout, no picks. Fix: **`sequential=True`** (sequential greedy —
+    optimize the q candidates one at a time, each a cheap d-dim problem; the "N"
+    handles pending picks via fantasies). This is *also* BoTorch's recommended
+    batch mode for qNEHVI. **Confirmed: sequential q=10 qLogNEHVI = ~4.5 min**
+    (4:28, vs >10 min joint-timeout) — that's the per-round picker cost,
+    negligible vs the ~80 min grid wall/round. Launched `foilsZ03` (q=10×5) on it.
+    So the q-scaling ceiling has a **picker-side cost**
+    on top of the grid-throughput one ([[closed-loop-runner]] lever 2): joint
+    optimize_acqf is O(q·d)-dim and explodes; sequential is linear in q. Always
+    `sequential=True` for q≳5.
+  - **Acquisition-selection rule for THIS problem (2026-06-04):**
+    **noise → keep the "N"** — our `(sob, calo)` carry a real ~8% calo run-to-run
+    floor (the foilsZ02 `obj=2.017` may itself be a 1-sample noise spike), so the
+    *Noisy* variants (qLogNEHVI / qLogNParEGO) are correct and **qLogEHVI is
+    wrong** (it trusts the noisy front as exact). **≤3 objectives → NEHVI**: we
+    have exactly **2** objectives (`sob`, `−log10 calo`), the regime where NEHVI
+    is most sample-efficient and its hypervolume box-decomposition is cheap (2-D);
+    **qLogNParEGO** (random-Chebyshev-scalarization, also α-free) is a *downgrade*
+    here — its edge is **4+ objectives or very large batches**, where NEHVI's HV
+    cost explodes. **Trigger to revisit:** if a 3rd+ objective is ever added
+    (e.g. CPU/eval, a 2nd background channel, stop-efficiency), switch to
+    qLogNParEGO. Until then: **qLogNEHVI**.
+  - **Library survey CLOSED (2026-06-04) — don't re-shop.** Evaluated and
+    rejected: **GPflowOpt** (2017-era, GPflow/**TF 1.x**, unmaintained —
+    superseded by BoTorch on every axis); **BoTier** (BoTorch extension for
+    *tiered/lexicographic* objective priorities — solves a preference structure
+    we don't have; ours is a flat 2-obj trade-off); **MOBO** (not a library —
+    the general *category* of multi-objective BO that qNEHVI already IS). Net:
+    BoTorch + qLogNEHVI is the settled choice for our noisy 2-objective regime;
+    **marginal gains are now in the PROBLEM (pitch dimension [[bo-foils]],
+    confirming the 2.017, or adding a 3rd objective), not in more
+    optimizer/library shopping.**
+- **Mid-campaign edit GOTCHA:** `closed_loop` re-shells `botorch_predict.py`
+  in a **fresh subprocess every round** (`_qnehvi_picks_subprocess`), so
+  editing the acquisition does NOT need a parent restart — it takes effect on
+  the **live run's very next round**, silently changing the picker mid-campaign.
+  To keep a running campaign's picker consistent, apply acquisition swaps only
+  between campaigns (or accept the round-N+ switch deliberately).
+
 **Pareto-dominance flip at n=164 (2026-05-31, post-foilsX07 R04):** re-ran
 the same overlay on the 164-row leaderboard. Intra-batch spread:
 **BoTorch 0.833**, **CL-min 0.095** (CL collapsed even tighter than at n=128).
@@ -137,7 +200,29 @@ real picker-quality signals. **Operational implication:** do NOT swap
 closed_loop's default picker to qNEHVI on the strength of the
 diversity_overlay finding; CL-min is the better next-pick predictor on
 this surface as of 2026-05-31. Pickers should be kept in rotation, not
-crowned. **Runtime knob:** the LOCO script monkey-patches
+crowned.
+
+**Two-phase explore→exploit strategy (proposed 2026-06-04, not yet run).**
+"Keep both in rotation" concretizes as a *sequence*: (1) **qNEHVI/qLogNEHVI
+explores** (wide q ~10, α-free, batch-diverse) until its **hypervolume
+plateaus**, populating the leaderboard with a sharp ridge; (2) **cl_min
+exploits/refines** (small q ~2–3, α-targeted) seeded from that ridge. This puts
+each picker exactly where LOCO shows it wins (qNEHVI on un-sharpened boards,
+cl_min once the ridge is sharp). Non-obvious design points:
+- **Handoff is automatic** — both pickers read the same per-mode leaderboard via
+  `load_history`, so phase-2 cl_min just seeds from phase-1's rows; no transfer.
+- **Defer α to phase 2.** Phase-1 qNEHVI is α-blind (maps the whole front), so
+  you choose α *after* seeing the front, then cl_min drills that α-optimum.
+- **Hand off on HV-plateau, NOT obj-plateau.** qNEHVI doesn't optimize `obj`
+  (it's α-blind), so "obj stopped improving" is the wrong trigger; use the
+  saturation FoM's HV plateau.
+- **cl_min's boundary-collapse becomes the FEATURE in phase 2** — you *want* it
+  to stop wandering and densely sample the best region. Small q sidesteps the
+  large-q collapse pathology.
+- **Bounded upside:** phase 2 polishes (confirm/refine, few-% obj), it does not
+  leap — near a true optimum, refinement has diminishing returns. Good use right
+  now: confirm whether foilsZ02's marginal n=1 `obj=2.017` ([[bo-foils]]) is real
+  by collapsing cl_min onto the thin-annulus region. **Runtime knob:** the LOCO script monkey-patches
 `botorch.optim.optimize_acqf` with cheap settings (num_restarts=4,
 raw_samples=128, maxiter=50; vs production 16/512/200) for ~30× speedup;
 parallel-pool of 5 cohorts runs in ~3 min wall (was ~7-8 min serial).
@@ -226,7 +311,7 @@ n=193→0.590, n=204→0.122, n=251→0.075. Plot:
 ## Cross-links
 - Driver: [[autoresearch-bo-michael]]
 - Driver: [[pipeline]]
-- Concept: [[bo-modes]]
+- Concept: [[bo-modes]], [[closed-loop-bo-design]], [[gp-cloud-rendering]], [[scalarized-objective]]
 - Project: [[bo-michael]], [[bo-helical]]
 - Source files: `autoresearch_bo_michael.py:152-161` (Optimizer factory), `:423-458` (cmd_propose, batch retrofit lands here), `:132-150` (history I/O, pending-union point), `pipeline.py:36-67` (per-config paths, q-safe today)
 

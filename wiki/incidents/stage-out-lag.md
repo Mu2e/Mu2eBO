@@ -8,7 +8,21 @@ type: incident
 
 **Type:** incident
 **Status:** resolved (2026-05-20; convergence-poll gate in `pipeline.py:poll_cluster`)
-**Updated:** 2026-05-20
+**Updated:** 2026-07-09 (added downstream rc=25 signature)
+
+> **Downstream signature (2026-07-09, foilsflash10R00_01): empty captured path
+> → `mu2ejobdef` rc=25.** A DIFFERENT face of the same class — instead of
+> "outstage missing / rc=1", list-outputs concat wrote a **single BLANK line**
+> to `state/concat_outputs.txt` (path not yet resolved at read time). The
+> resampler-input hardlink farm then produced an empty
+> `mustops_ce_basenames.txt` (1 byte), and the downstream `mu2ejobdef` submit
+> died **rc=25** ("the line is empty or contains white spaces or other
+> non-printable characters"). Diagnostic: compare the failed child's
+> `concat_outputs.txt` (blank line) vs a healthy sibling's (real /pnfs path).
+> Cosmetic spack/muse "syntax error / error importing function definition"
+> lines above it are benign ([[sourced-env-stderr-swallowed]]) — the rc=25 +
+> empty-basenames is the real cause. Single-child transient, not geometry-
+> or box-related; not worth mid-round recovery on a q=8 probe.
 
 ## Summary
 `list_outputs` raised `SystemExit("[<stage>] outstage missing: /pnfs/.../<cluster>/00")`

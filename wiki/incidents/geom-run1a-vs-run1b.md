@@ -1,7 +1,7 @@
 # geom_run1_a baseline missing TT_MidInner fix
 
 **Type:** incident
-**Status:** open (task #21)
+**Status:** active (open; tracked as task #21)
 **Updated:** 2026-05-15
 
 ## Summary

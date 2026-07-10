@@ -2,7 +2,7 @@
 
 **Type:** driver
 **Status:** active
-**Updated:** 2026-06-04
+**Updated:** 2026-06-07 (BOMode.extract_metrics seam)
 
 ## Summary
 Main driver for [[bo-michael]]. Implements the four-step BO loop as
@@ -26,6 +26,16 @@ subcommands, each independently runnable.
   `load_history_row`, `print_top`). Shared concerns (history I/O, optimizer
   build, proposal write) are concrete on the base class. `MODES` is the
   registry argparse selects from.
+- **Summary-extraction seam (2026-06-07 for [[bo-prodtarget]]):**
+  `BOMode.extract_metrics(summary) -> (sob, calo)` with default that reads
+  the 4-stage harvest schema (`s_over_sqrt_b`, `calo_per_pot`). Override
+  only in modes whose pipeline writes a different schema —
+  `ProdTargetMode.extract_metrics` returns `(summary["mu_per_POT"], 0.0)`.
+  `cmd_evaluate` calls the seam and exits 1 on `KeyError`/`TypeError` (was
+  hardcoded `summary.get("s_over_sqrt_b") / summary.get("calo_per_pot")`).
+  Default-on-base pattern keeps the 4 legacy modes unchanged with no
+  boilerplate — deviates from issue #14's "explicit impl in every mode"
+  spec.
 - **Adding a closed-loop-capable mode touches 7 places — 8 if you ever run it
   with `--picker qnehvi` (checklist, 2026-06-03 from `foilsf`/v3; item 8 added
   2026-06-04):** "subclass + register" is NOT enough — a propose-only
@@ -59,6 +69,15 @@ subcommands, each independently runnable.
      spec with the last two dims `f∈[0,0.95]` instead of `rIn∈[0,50]`.
 - **Render template:** each mode's `_geom_text(x)` returns a FHiCL string;
   base-class `render_proposal(name, x)` writes it to `proposal_dir/`.
+- **`foilsf` reuses the `foils` dirs.** `FoilsFracMode` subclasses
+  `FoilsMode` and does NOT override `preflight_dir`/`proposal_dir`/
+  `leaderboard` — so foilsf preflight logs land in
+  **`bo_foils_preflight/`** and proposals in `bo_foils_proposals/`
+  (there is no `bo_foilsf_preflight/`). The leaderboard IS separate
+  (`leaderboard_bo_foils_v3.tsv`, overridden). `foilsg` does override
+  all three → `bo_foilsg_preflight/`, `bo_foilsg_proposals/`,
+  `leaderboard_bo_foilsg.tsv`. When hunting a foilsf<NN> log, look under
+  `bo_foils_preflight/`, not a foilsf-named dir.
 
 ## Cross-links
 - Projects: [[bo-michael]], [[bo-helical]], [[bo-foils]] (modes registered in `MODES`)

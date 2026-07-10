@@ -7,11 +7,11 @@ type: incident
 # Concurrent token contention on mu2ejobsub
 
 **Type:** incident
-**Status:** mitigated 2026-05-20 (host-wide `fcntl.flock` on
+**Status:** resolved (mitigated 2026-05-20: host-wide `fcntl.flock` on
 `/tmp/mu2e_submit.$USER.lock` wraps the token-refresh + `mu2ejobsub`
 critical section in `pipeline.py:_submit_lock`; serializes all submits
 across all concurrent chains)
-**Updated:** 2026-05-20
+**Updated:** 2026-06-18
 
 ## Summary
 When two or more pipeline.py chains run concurrently and both reach a
@@ -111,6 +111,22 @@ mustops_ce within a 5-minute window — three of five failed.
   since the cache dir is keyed on submit start time and only one process
   starts a submit at a time. Throughput cost: ~4 chains × 4 stages × 60s =
   ~16 min total serialized submit time over a ~2-hour run — negligible.
+
+- **Gauging submit activity before launching a 2nd concurrent campaign (2026-06-18):**
+  the closed-loop child logs (`graph_data/closed_loop_logs/<cfg>.log`) only
+  snapshot the **preflight** state (`{"preflight": "pass", "objective": null}`)
+  and never log mubeam/run1b_mubeam submit or grid-poll progress — they are
+  **useless** for telling whether a campaign is mid-submit. The reliable
+  in-flight signal is the process tree: `pgrep -f "mu2ejobsub|jobsub_submit"`
+  (live grid submit) and `pgrep -f "pipeline.py.*submit <stage>"` (which child +
+  stage). A running campaign cycles through submit bursts at **every** stage
+  boundary (per the per-stage-submit point above), so there is no single "drain"
+  moment until it nears completion. **But:** because the host-wide submit lock
+  above serializes `getToken`+`mu2ejobsub` across *all* chains on the host
+  (including a different-prefix/different-mode campaign), a 2nd concurrent
+  closed-loop is **token-safe regardless of launch timing** — the lock, not
+  launch-time quiet-window picking, is what prevents the race. Waiting for a
+  quiet `pgrep` window only avoids queueing latency, not failures.
 
 ## Open questions / TODO
 - (none — closed by the 2026-05-20 lock)

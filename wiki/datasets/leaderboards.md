@@ -2,7 +2,7 @@
 
 **Type:** dataset
 **Status:** active
-**Updated:** 2026-05-27
+**Updated:** 2026-06-18
 
 ## Summary
 One TSV per BO driver, append-only, recording every evaluated configuration
@@ -24,6 +24,15 @@ along with the metrics and scalarized objective. Used both as the BO history
   47→44 for the legacy 5D file (3 quarantined). See sidecar entries below.
 - **`leaderboard_bo_helical_v2.tsv`** — current canonical helical leaderboard
   (4D Option-A coupling). Actively appended by [[graph-runner]] iterations.
+- **`leaderboard_bo_foilsg.broken.tsv`** (created 2026-06-12) — ENTIRE
+  62-row foilsg leaderboard quarantined: every row was measured on
+  uniform-hole geometry (unpatched StoppingTargetMaker scalar fallback —
+  see [[foilsg-grid-tarball-scalar-holeradius-fallback]]); the f_g knob
+  columns describe geometry that was never built. The fresh
+  `leaderboard_bo_foilsg.tsv` starts empty for the post-fix foilsg07
+  restart. **Future loaders MUST NOT seed the per-group-hole GP with these
+  rows** (they would inject spurious f_g structure); they remain valid only
+  as samples of the uniform-hole family.
 - **`leaderboard_bo_helical_v2.broken.tsv`** + **`leaderboard_bo_helical.broken.tsv`**
   (created 2026-05-27, re-created after the 2026-05-21 deletion) — sidecar
   quarantine of all rows flagged by the [[scan-broken-codes-too-narrow]]
@@ -43,6 +52,20 @@ along with the metrics and scalarized objective. Used both as the BO history
 - **`leaderboard_bo_michael.tsv`** — [[bo-michael]] history
   - Columns: `config tsda_rin tsda_halfLength4 holeRadius col5 sob calo alpha obj`
   - Created on first append; header is locked once written
+- **Foils mode → leaderboard mapping (load-bearing; `autoresearch_bo_michael.py:685,935`):**
+  - `--mode foils` (`FoilsMode`) → **`leaderboard_bo_foils_v2.tsv`**; knob cols
+    `extra_rIn_up/dn` = **absolute** inner radius (mm). (`v1` = legacy 7D.)
+  - `--mode foilsf` (`FoilsFracMode`) → **`leaderboard_bo_foils_v3.tsv`**; knob cols
+    `extra_f_up/dn` = **fractional** hole `f = rIn/rOut`.
+  - These are **different optimization spaces**, not versions of one search.
+    The honest-hole champions (foilsf11/14, post-tarball-fix, sob≈3.83) and the
+    slide-4 cloud all live in **v3 = `--mode foilsf`**.
+  - **GOTCHA (cost a wrong-mode campaign 2026-06-18):** the closed-loop
+    `--name-prefix` does NOT set the mode. foilsf15/foilsf16 carried a
+    "foilsf" prefix but were launched `--mode foils`, so their rows landed in
+    **v2** (absolute rIn), NOT the v3 honest-hole search they were meant to
+    extend. Always pass `--mode foilsf` (and verify rows land in v3) when
+    continuing the honest-hole line; the prefix is cosmetic.
 - **Re-scalarization:** since both raw `sob` and `calo` are stored, you can
   recompute `obj` for any α post-hoc without re-running.
 

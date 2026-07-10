@@ -8,7 +8,158 @@ type: incident
 
 **Type:** incident
 **Status:** resolved 2026-05-29 (convergence-by-pareto-hash machinery deleted entirely; zero-row safety break in `node_decide_next`; rc=3 ambiguous now retriable in `route_after_preflight`)
-**Updated:** 2026-06-01 (bug #1 root cause identified — transient cvmfs env-flake in cmd_preflight, no retry; see [[sourced-env-stderr-swallowed]])
+**Updated:** 2026-06-05 (FIX BAKED IN + VERIFIED UNDER CONCURRENCY: `export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER` prepended INSIDE the bash command at `autoresearch_bo_michael.py:1188` (cmd_preflight) + `pipeline.py:289` (sourced_env). Single-config verify: foilsZ05R00_00 re-preflight rc=0, no Errno 5. **q=10 concurrent verify (foilsZ06 R00): ALL 10 preflights PASS, 0 ambiguous** — compare foilsZ05 pre-fix (26 ambiguous, 0 pass). Incident class retired.)
+
+## ACTUAL ROOT CAUSE — STALE SPACK LOCK, *NOT* CVMFS (2026-06-05, definitive)
+
+**The `[Errno 5] Input/output error` during `spack load` is NFS-flock contention
+on the spack cache lock in NFS HOME, not a cvmfs outage.** The whole "cvmfs flake
+/ partial I/O fault / needs admin" framing below (2026-06-01..04) was WRONG.
+mmackenz pointed at the spack lock; the full mechanism + permanent fix:
+
+- **Mechanism = concurrent `spack load` racing flock over NFS.** A SINGLE cold
+  setup works (5/5 OK); but **5–8 CONCURRENT setups all FAIL** and the lock
+  `~/.spack/cache/providers/.fnal_art-index.json.lock` self-corrupts. So q=10
+  closed-loop preflights (each runs `spack load muse/git`) race it → all
+  ambiguous. Explains the whole history: q=3 (foilsZ02) mostly survived; q=10
+  (foilsZ03/Z04) died. The monotonic R00-ok→R01→R02-dead pattern = the lock
+  degrading once the first overlap corrupts it.
+- **PARTIAL fix (single-process only): `rm -f
+  ~/.spack/cache/providers/.fnal_art-index.json.lock`.** Cures one cold setup,
+  but **q>1 preflights immediately re-race and re-break it** — foilsZ04 (q=10)
+  died this way *after* the rm. Not sufficient for the closed-loop.
+- **PERMANENT fix (verified 8/8 concurrent OK): put the spack cache on LOCAL
+  disk** so the locks leave flaky NFS:
+  ```
+  export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER   # locks -> /tmp (local), not nashome
+  ```
+  Launch the closed-loop with this exported (children inherit it). foilsZ05
+  (q=10×5) relaunched with it 2026-06-05. **TODO: bake `SPACK_USER_CACHE_PATH`
+  into the closed-loop launch / `pipeline.sourced_env` so every preflight gets
+  it** — that retires this entire incident class. (NB `/tmp` is node-local, fine
+  for the local preflights; grid workers set up their own env.)
+- **NEGATIVE RESULT — export-at-launch is NOT sufficient (foilsZ05, 2026-06-05):**
+  launched the q=10×5 parent with `SPACK_USER_CACHE_PATH=/tmp/spack_cache_oksuzian`
+  exported in the launching shell; R00 still produced **26 `preflight=ambiguous`
+  verdicts** with the same `[Errno 5]` in `bo_foils_preflight/foilsZ05R00_*.log`.
+  Tell that the env var DID move the parent's locks (the nashome
+  `.fnal_art-index.json.lock` was NOT recreated), but the **preflight subprocess
+  re-sources its env in a way that drops the inherited var** (one of:
+  `cmd_preflight`'s `subprocess.run(..., env=...)` filtering, the `bash -lc`
+  setup script clobbering, or env-i style scrubbing in `graph/sourced_bash.py`).
+  **So the fix MUST be in the code path that sets up the preflight env** —
+  exporting at the launching shell is a false fix. Concretely: add
+  `SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER` inside `cmd_preflight`
+  (`autoresearch_bo_michael.py:cmd_preflight`) or in `graph/sourced_bash.py`'s
+  `run_sourced_bash` BEFORE the `spack load` runs, AND verify it survives by
+  reading `bo_foils_preflight/<cfg>.log` (env dump or `printenv | grep SPACK`).
+
+- **Evidence:** after deleting that single 0-byte lock file, the cold probe
+  (`env -i HOME=$HOME bash -lc 'source setupmu2e-art.sh; command -v muse'`) went
+  from **0/many FAIL → 5/5 OK** instantly, on the same node, with no cvmfs/admin
+  action. The lock was 0 bytes, dated Jul 2025, `lsof`/`fuser` showed **no
+  holder** (stale). `~/.spack/cache/` is fully regenerable ("nothing here should
+  be required") — can `rm` the whole dir if the single lock doesn't do it.
+- **Why the cvmfs red herring held so long:** spack reads/locks its provider
+  index under `~/.spack/cache/` (NFS home); a stale/bad lock there throws `EIO`
+  (Errno 5) which *looks* like a cvmfs read error and is even printed by
+  `setupmu2e-art.sh`'s spack helper. The **tell that it's spack-local, not
+  cvmfs:** `Musings/` + `DataFiles/` (real cvmfs) read FINE while only
+  `spack load muse/git` fails. Whenever you see that pattern → it's the spack
+  lock, NOT cvmfs. Check `lsof <lock>` for a live holder first (none = stale,
+  safe to delete).
+- **Reframes all prior instances:** foilsX04, foilsY02 r0, foilsZ03 R01–R02
+  preflight=ambiguous "cvmfs flakes" were almost certainly THIS stale spack lock
+  — a 1-second fix, not an outage. The retry-with-backoff / zero-row-gate /
+  "wait for cvmfs admins" responses all treated a symptom.
+- **TODO (robustness):** `cmd_preflight` could auto-`rm` a stale provider lock
+  (verify no holder) before sourcing, to self-heal this class entirely.
+
+## RECURRENCE + EXACT CAUSE CAPTURED (2026-06-04, foilsZ03) — see correction above
+
+`foilsZ03` (qLogNEHVI, q=10×5) died the same way: **R00 all 10 children PASS,
+R01 → 2 rows, R02 → 0 rows (all preflight=ambiguous), zero-row gate exits early**
+(monotonic degradation = an env outage that worsened mid-run, NOT bad picks —
+qLogNEHVI even found `sob=3.82` in R00).
+
+- **The "swallowed" cause is NOT lost — it's in `bo_foils_preflight/<config>.log`
+  STDERR (load-bearing diagnostic pointer).** The child log + parent only show
+  `preflight=ambiguous`, but the per-config preflight log's `--- STDERR ---`
+  section had the real error:
+  ```
+  ==> Error: [Errno 5] Input/output error
+  /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh: line 47: /bin/museDefine.sh: No such file or directory
+  /cvmfs/.../Run1Bak/setup.sh: line 4: muse: command not found
+  ```
+  So **to diagnose any preflight=ambiguous, read `bo_foils_preflight/<config>.log`
+  FIRST** — no interactive re-run needed (resolves the old "needs re-run to read
+  stderr" note). A FAILED preflight log is ~6 lines; a PASSED one is ~10k.
+- **Exact cause this time = CVMFS partial I/O failure.** A cvmfs read inside
+  `setupmu2e-art.sh`'s spack/python helper threw `[Errno 5] Input/output error`
+  (the top-level cvmfs dir still `ls`'d fine — partial cache/backend fault),
+  which left a path var empty so `${MUSE}/bin/museDefine.sh` **collapsed to the
+  literal `/bin/museDefine.sh`** → `No such file` → `muse: command not found` →
+  `mu2e -n 1` never ran → ambiguous. **DON'T chase `museDefine.sh`** — it's a
+  *downstream* path-expansion symptom, not the broken file (probing
+  `/cvmfs/.../bin/museDefine.sh` directly is a red herring; that path doesn't
+  even exist normally). The upstream `[Errno 5]` is the fault. NOT our code,
+  q=10, or qLogNEHVI. **Persisted for hours**, **flapping** (the error alternated
+  `Errno 5` ↔ `ENOENT` between probes).
+- **Canonical one-liner reproducer (node-local, hand to cvmfs admins):**
+  ```
+  source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh; command -v muse
+  ```
+  → emits the `[Errno 5]` + `muse -> MISSING` when broken. Full-pipeline repro:
+  `.venv-graph/bin/python autoresearch_bo_michael.py --mode foilsf preflight <cfg>`.
+  User-space can't fix cvmfs (admin-managed `cvmfs_config wipecache`/remount);
+  wait for recovery, try a different interactive node, or file a ticket.
+- **The fault is ISOLATED to `spack load`, not broad cvmfs (2026-06-04).**
+  `bash -lxc` trace pins the `[Errno 5]` to `spack load --sh muse/<hash>` and
+  `spack load --sh git/<hash>` inside `setupmu2e-art.sh`; cold-read breadth test:
+  `setupmu2e-art.sh` OK, **`/cvmfs/.../bin/muse` FAIL**, but **`Musings/` +
+  `DataFiles/` OK** — i.e. the spack package tree (+ the muse launcher) is the
+  broken region, while the geometry/config files `mu2e -n 1` actually reads are
+  healthy. **Workaround: launch the closed-loop FROM A WARM SHELL** (muse already
+  `spack load`-ed) so preflight subprocesses inherit the loaded env and skip the
+  broken `spack load` — the rest of the run reads only the healthy tree. Validate
+  first with one preflight from the warm shell
+  (`autoresearch_bo_michael.py --mode foilsf preflight <cfg>` → expect
+  `preflight=ok`); if ok, the campaign can run during the outage without waiting
+  for cvmfs/admins. (Whether it works hinges on the preflight subprocess
+  inheriting vs scrubbing the parent env — test, don't assume.)
+- **RECOVERY-CHECK GOTCHA: a warm shell's `muse` is a FALSE-POSITIVE
+  (2026-06-04).** Checking `command -v muse` in your *existing* interactive
+  shell returns `muse` even while cvmfs is broken — because muse is already in
+  PATH from an earlier successful setup today (warm). But **preflights run in
+  fresh COLD subshells** (`bash -lc 'source setupmu2e-art.sh …'`), which redo the
+  full cvmfs read and still die. Observed: same node (`mu2esrv01`), warm shell
+  `muse` OK but **5/5 cold-subshell probes FAIL**. So the ONLY valid
+  "recovered?" test is the **cold** probe:
+  ```
+  bash -lc 'source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh >/dev/null 2>&1; command -v muse >/dev/null && echo OK || echo FAIL'
+  ```
+  Re-launch only when that prints `OK` consistently — never trust a warm-shell
+  `muse` as the green light.
+  - **DEEPER (2026-06-04): even a `bash -lc` cold probe is masked by ENV
+    INHERITANCE.** `bash -lc` inherits the parent shell's *exported* env, so a
+    warm interactive shell's `MUSE*/SPACK*` vars carry into the child and
+    short-circuit `setupmu2e-art.sh` past the broken cvmfs read → spurious `OK`.
+    Observed: user's `bash -lc` probe = OK, but the Claude Bash tool (a genuinely
+    clean env — `env | grep -i muse` empty, like the detached closed-loop) =
+    **9/9 FAIL** with the real `[Errno 5]`, even sandbox-disabled. The
+    **truly-cold** test that represents a fresh preflight scrubs the env:
+    ```
+    env -i HOME="$HOME" USER="$USER" TERM=xterm bash -lc 'source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh >/dev/null 2>&1; command -v muse >/dev/null && echo OK || echo FAIL'
+    ```
+    Closed-loop preflights run from a clean (no-muse-var) env, so the scrubbed
+    `env -i` probe — not a `bash -lc` from your working shell — is the valid
+    recovery gate. (Also the cleanest admin reproducer: Errno 5 from a pristine
+    env.)
+- **The banner-gated retry (3× / 5,15,30s ≈ 50 s window) is too SHORT for a
+  multi-minute/multi-round cvmfs outage** — it rides out sub-minute flakes but
+  not this. The zero-row gate worked as designed (caught the all-fail round,
+  exited clean) but can't save a campaign from a persistent external outage. A
+  user can't fix cvmfs (admin-managed); wait for recovery or file a ticket.
 
 ## ROOT CAUSE OF BUG #1 IDENTIFIED (2026-06-01)
 The "unknown" cause of the uniform rc=3 preflight failures is the **same

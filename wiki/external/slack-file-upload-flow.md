@@ -65,7 +65,7 @@ Documenting the working recipe so future sessions don't re-derive.
   2026-05-31 building the foilsX07 status post.
 
 ## Cross-links
-- Related: [[slack-bot-dm-channel-not-found]]
+- Related: [[slack-bot-dm-channel-not-found]], [[github-pages-publish-dir]]
 - External: [Slack Web API files.getUploadURLExternal](https://api.slack.com/methods/files.getUploadURLExternal),
   [files.completeUploadExternal](https://api.slack.com/methods/files.completeUploadExternal)
 - Token file: `~/.slack_bot_token`

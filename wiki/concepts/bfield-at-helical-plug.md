@@ -74,7 +74,7 @@ not as a pitch-resonant filter.
   shows calo varying 15× monotonically).
 
 ## Cross-links
-- Related: [[bo-helical]], [[tsda]], [[scalarized-objective]]
+- Related: [[bo-helical]], [[tsda]], [[scalarized-objective]], [[gp-cloud-rendering]]
 - Source files: `/cvmfs/mu2e.opensciencegrid.org/DataFiles/BFieldMaps/Mau13/DSMap_altDS11_helical.txt`,
   `/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v10_38_00/Offline/Mu2eG4/geom/bfgeom_reco_altDS11_helical_v01.txt`,
   `/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v10_38_00/Offline/Mu2eG4/geom/TransportSolenoid_v02.txt`

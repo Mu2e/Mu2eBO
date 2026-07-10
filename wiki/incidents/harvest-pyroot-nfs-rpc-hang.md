@@ -1,0 +1,58 @@
+# Harvest PyROOT extractor hangs in NFS RPC (D-state), no watchdog
+
+**Type:** incident
+**Status:** resolved
+**Updated:** 2026-07-08
+
+## Summary
+foilsflashSOBX01's harvest sat 5.5 h with all grid work done and no leaderboard
+row: the inner PyROOT gallery extractor (the `python3 -c "import ROOT..."`
+subprocess of `_extract_trk_edep_per_pot`) blocked forever on a single stuck
+/pnfs NFS read. Harvest has NO timeout at any layer (pipeline verb, graph
+node), so one wedged RPC stalls the whole chain indefinitely.
+
+## Key facts
+- Signature: extractor process in **state `D`** with `wchan =
+  rpc_wait_bit_killable` and **~3 s of CPU over hours** (`ps -o
+  etime,time,%cpu,stat`). CPU-vs-elapsed is the discriminator between
+  "grinding slowly" and "dead RPC" — check it BEFORE killing.
+- **ROOT CAUSE (2026-07-08): MULTIPLE poison files on a dead pnfs pool — 6 of
+  181 (00018, 00020, 00087, 00106, 00140, 00149; scattered, ~3%).** One-at-a-time
+  removal is a whack-a-mole trap: retry-2 hung on the NEXT bad file (00020)
+  after 00018 was dropped. Poison signature: `stat` instant (metadata fine),
+  data read hangs forever in wchan `nfs4_handle_exception` / read_bytes frozen;
+  `/proc/<pid>/fd | grep outstage` names the culprit mid-hang.
+- **RECIPE — probe the whole list up front, never remove one-by-one:**
+  `xargs -P 16 -I{} sh -c 'timeout 6 dd if="{}" of=/dev/null bs=64k count=2
+  2>/dev/null && echo OK {} || echo BAD {}' < elebeam_flash_outputs.txt`
+  (~30 s for 180 files); rewrite outputs.txt from the OK lines (backup first).
+  Denominator self-consistent — `flash_n_input = len(files)×EPJ`. 175/181
+  files → σ_flash ~2% → ~2.1%, negligible.
+- **Kill order matters**: kill the `pipeline.py ... harvest` parent FIRST,
+  then the extractor. Killing only the extractor lets the fail-soft
+  `_edep_from_stage_outputs` catch the nonzero rc, write a **flash-less
+  summary.json**, and the graph's evaluate then lands a degraded row.
+  Parent-first → harvest verb dies rc≠0 → `node_evaluate` diverts to
+  `scan_logs/evaluate_zero_row.tsv` (cause=harvest_exception) → leaderboard
+  stays clean (verified in this incident).
+- Recovery: re-run `AUTORESEARCH_MODE=<mode> python3 pipeline.py --config
+  <cfg> harvest` detached (EdepAna re-runs too, ~15 min total), then append
+  the row via the driver `evaluate` verb (documented stalled-chain path);
+  arm a watchdog monitor (summary-exists / pid-dead / 45-min cap) so a
+  recurrence can't eat hours silently.
+- 2 prior xrootd/pnfs flakiness incidents are cousins but distinct:
+  [[concat-xrootd-fileopen-postendjob]] (grid-side art open), 
+  [[stage-out-rename-race]] (dir renames). This one is local-harvest NFS.
+- TODO (mechanism fix): add a `timeout=` to the extractor `subprocess.run`
+  in `pipeline.py:_extract_trk_edep_per_pot` (e.g. 3600 s) so the fail-soft
+  path fires instead of an unbounded hang; per-file progress logging would
+  identify poison files.
+
+## Cross-links
+- Related: [[concat-xrootd-fileopen-postendjob]], [[stage-out-rename-race]], [[edepana-saw-events-scientific-notation-parse]]
+- Source files: `pipeline.py:_extract_trk_edep_per_pot`, `pipeline.py:_edep_from_stage_outputs`
+- Config: foilsflashSOBX01 (foils-champion transplant eval, 2026-07-08)
+
+## Open questions / TODO
+- Wire the subprocess timeout (blocked only on nothing-running; trivial).
+- Is the D-state killable RPC reliably killable? (TERM worked here.)

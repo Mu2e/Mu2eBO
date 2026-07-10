@@ -7,7 +7,7 @@ type: incident
 # TSdA disc ↔ helical plug sibling overlap
 
 **Type:** incident
-**Status:** open (mitigation in progress — Option A coupling + preflight surface-check)
+**Status:** active (open; mitigation in progress — Option A coupling + preflight surface-check)
 **Updated:** 2026-05-18
 
 ## Summary

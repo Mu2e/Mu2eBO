@@ -2,7 +2,7 @@
 
 **Type:** incident
 **Status:** resolved
-**Updated:** 2026-05-29 (suspected third variant on foilsX04: barrier exited "all 10 resolved" with 0 leaderboard rows for round 1)
+**Updated:** 2026-06-05 (CORRECTED foilsZ06 attribution: NOT a LangGraph replay bug — root cause was a stale `graph_data/STOP_CLOSED_LOOP` flag file left from a prior interrupted bash chain; barrier's STOP_FLAG exit branch did not print, so the trigger was invisible. Forensic SqliteSaver dump confirmed single linear checkpoint chain, no replay. Latent vacuous-`all([])==True` trap on empty `children` dict is fixed by adding `launched_names` field + hard guard in `node_barrier`. STOP_FLAG and timeout branches now also print before exit.)
 
 ## Summary
 First `--max-rounds 2` real closed-loop run (`helicalFT05`, q=8) silently
@@ -51,7 +51,7 @@ in logs; isn't.
 ## Cross-links
 - Source files: `graph/closed_loop.py` (node_barrier + refit_and_check),
   `graph/config.py` (CLOSED_LOOP_BARRIER_* constants)
-- Related: [[closed-loop-runner]], [[closed-loop-bo-design]]
+- Related: [[closed-loop-runner]], [[closed-loop-bo-design]], [[closed-loop-thread-id-checkpoint-collision]], [[foilsx04-all-preflight-ambiguous]]
 - Log: `graph_data/closed_loop_logs/closed_helicalFT05_r0.log`
 - Affected children: `helicalFT05R01_00` through `helicalFT05R01_07`
 
@@ -113,6 +113,73 @@ clean barrier on q=8 would show `completed: 16` at minimum (round-0
 masking it — the snapshot path resolved children before the count
 check mattered. Once snapshot was patched, the count bug surfaced
 nakedly on the next multi-round run.
+
+## 2026-06-05 foilsZ06 incident — stale STOP_FLAG (not a barrier bug)
+
+`foilsZ06` (qLogNEHVI, q=10×5) launched 2026-06-05 17:43 with the spack-cache
+fix in place. R00: ALL 10 children PASS preflight (spack fix verified, see
+[[foilsx04-all-preflight-ambiguous]]). Parent exited at 17:57 via `zero_rows=True`
+with `completed=0` — never refit, never launched R01.
+
+**Actual root cause:** `graph_data/STOP_CLOSED_LOOP` (0 bytes, mtime 14:55)
+existed at launch time. It was left over from an interrupted `touch
+graph_data/STOP_CLOSED_LOOP; pkill ...; sleep 2; rm -f graph_data/STOP_CLOSED_LOOP`
+chain run from inside a Claude bash subshell several turns earlier; the user
+interrupted before the `rm` ran. `node_barrier`'s STOP_FLAG branch
+(`closed_loop.py:500-502`) caught the flag on the first poll and broke out
+of the loop — but only appended to `errors`; it did NOT print anything to
+the parent log. Operator saw no exit reason. Then `decide_next` ran
+naturally, observed 0 new leaderboard rows (children hadn't completed yet),
+flipped `zero_rows=True`, and routed to END.
+
+**Initial mis-diagnosis (corrected here):** the duplicated `round_idx=0`
+state lines in the parent log were narrated as "LangGraph replayed the round
+from a stale checkpoint." That was wrong. They are normal
+`stream_mode="values"` emissions — LangGraph emits state after every node,
+so each super-step produces a state line. Forensic dump of
+`graph_data/checkpoints.sqlite` for thread `closed-535222e1` showed 8
+checkpoints in a single linear chain (no fork, no replay).
+
+**Latent bug exposed:** even though foilsZ06's exit was caused by the stale
+flag, the `node_barrier` loop has a vacuous-`all([])==True` trap: if
+`state["children"]` is ever the empty dict when barrier polls,
+`all(n in completed for n in [])` returns True instantly and breaks out
+silently (the `print(f"barrier: all {len(children)} children resolved")`
+would print `all 0 children resolved`, which is a meaningful but false
+"success"). The fix below removes both the silent-STOP path and the
+empty-children trap.
+
+**Orphans:** all 10 R00 children continued as detached `graph.run` processes
+after parent exit (verified via `pgrep`); they eventually landed leaderboard
+rows that nobody refits on. Same orphan pattern as FT05.
+
+**Differential vs prior variants:**
+- FT05 (v1): snapshot-step bug — fixed by `step >= 1` gate.
+- FT06 (v2): count-based exit — fixed by `all(n in completed for n in children)`.
+- foilsX04 (v3): `_child_terminal_via_checkpoint` returning True before harvest.
+- foilsZ06 (v4): **operator-induced** (stale STOP_FLAG); not a barrier bug.
+
+## Resolution (2026-06-05) — silent-exit and empty-children hardening
+
+`graph/closed_loop.py`:
+- New `RoundState` field `launched_names: List[str]` (line ~109) written by
+  `node_launch_children` (line ~457). Lets `node_barrier` validate it received
+  the launch set from upstream, independent of the `children` dict (which
+  gets cleared by `decide_next` between rounds).
+- `node_barrier` (line ~460) hard-raises `RuntimeError` if `launched_names`
+  is empty on entry — that situation is always a state-pipeline bug, not a
+  legitimate "no children to wait on."
+- STOP_FLAG branch (line ~500) and timeout branch (line ~503) now both
+  `print(...)` before breaking out, so any future operator-induced exit
+  shows in the parent log.
+- `node_decide_next` (line ~540) clears `launched_names` alongside `children`
+  so round N+1 starts clean.
+- Regression test: `tests/test_closed_loop.py::TestBarrierRefusesEmptyChildren`.
+
+**Operational note:** check for and delete `graph_data/STOP_CLOSED_LOOP`
+before every closed-loop launch. A 0-byte stale file silently aborts the run
+even with the silent-exit fix above (the message will now print, but the
+round still exits before doing useful work).
 
 ## 2026-05-29 foilsX04 regression (suspected third variant)
 

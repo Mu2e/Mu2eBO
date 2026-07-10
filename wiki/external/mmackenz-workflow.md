@@ -22,4 +22,5 @@ override files.
   `workflows/scripts/plot_table_configs.py` — `parse_table_file`, `parse_float`
 
 ## Cross-links
+- Related: [[mmackenz-table-plots-dir]]
 - Consumed by: [[mmackenz-priors]], [[autoresearch-bo-michael]]

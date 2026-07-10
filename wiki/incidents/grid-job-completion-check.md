@@ -29,4 +29,4 @@ and unreliable for simple existence checks).
 
 ## Cross-links
 - Driver: [[pipeline]]
-- Related: [[template-fcl-staleness]]
+- Related: [[template-fcl-staleness]], [[concat-xrootd-fileopen-postendjob]], [[concurrent-token-contention]], [[stage-out-rename-race]], [[stage-out-lag]], [[harvest-denominator-bug]], [[calo-constant-across-helical]], [[kerberos-mid-run-expiry]]

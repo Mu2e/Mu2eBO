@@ -2,7 +2,7 @@
 
 **Type:** incident
 **Status:** resolved
-**Updated:** 2026-05-23
+**Updated:** 2026-06-19 (recurred on bo-ipa mustops_pileup template; FHiCL-vs-SimpleConfig distinction added)
 
 ## Summary
 mu2ejobdef / the FHiCL parser hard-fails on any non-ASCII byte in a
@@ -10,6 +10,21 @@ template `.fcl`, **including inside comments**. Discovered 2026-05-23
 when 8/8 closed-loop helicalFT01 children failed at mubeam submit
 because the FTFP_BERT comment block contained a Unicode minus sign
 (`U+2212`, "−") rendered to indicate "-20% CPU savings".
+
+## CRITICAL distinction: FHiCL (strict) vs SimpleConfig (lenient) — 2026-06-19
+**This only affects `.fcl` files parsed by FHiCL. Geom `.txt` files parsed by
+SimpleConfig TOLERATE non-ASCII.** Recurred 2026-06-19 on the bo-ipa
+`pipeline_templates/mustops_pileup/template.fcl` — a Unicode arrow `→` (U+2192)
+in a comment killed `mu2ejobdef --embed` at line 6 (mubeam/concat/mustops_ce had
+already succeeded; only the new stage's FCL broke). The confusing part: the
+**geom proposal file** emitted by `FoilsMode/IPAMode._geom_text` contains the
+SAME chars (`°` U+00B0 in "120°", `→` in "TT_MidInner→DS2Vacuum") and runs fine
+on hundreds of foils configs — because geom files go through **SimpleConfig**
+(`services.GeometryService.inputFile`), a different, lenient parser, NOT FHiCL.
+So: **stage `.fcl` templates MUST be ASCII; geom `.txt` comments need not be**
+(though ASCII is still safer). When cloning a `_geom_text` comment into an
+`.fcl` template, strip the non-ASCII. `grep -nP "[^\x00-\x7F]" <file>` is the
+check.
 
 ## Failure signature
 The `submit_<stage>_TIMESTAMP.log` in `<config>/graph_logs/` contains:

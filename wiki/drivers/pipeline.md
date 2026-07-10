@@ -2,7 +2,7 @@
 
 **Type:** driver
 **Status:** active
-**Updated:** 2026-05-19 (idempotent submit + list-outputs with `--force` escape)
+**Updated:** 2026-06-07 (added `harvest-pot-only` subcommand for bo-prodtarget)
 
 ## Summary
 One canonical pipeline.py at the repo root. Pass `--config CFG`; per-config
@@ -28,9 +28,16 @@ for the failure that motivated this).
   `<stage>/` (cnf tarballs + Code.tar.bz2), `state/` (cluster IDs, output
   lists, materialized FCL), `harvest/` (summary.json, EdepAna outputs).
 - **PNFS staging:** `/pnfs/mu2e/scratch/users/$USER/autoresearch_grid/<cfg>/staged/`
-- **Subcommands:** `submit | poll | list-outputs | harvest | materialize`.
-  `materialize <stage>` is a debug helper that prints the substituted template
-  without submitting.
+- **Subcommands:** `submit | poll | list-outputs | harvest | harvest-pot-only
+  | materialize`. `materialize <stage>` is a debug helper that prints the
+  substituted template without submitting. `harvest-pot-only` (added
+  2026-06-07 for [[bo-prodtarget]]) is a separate uproot-based subcommand
+  (not a switch on `harvest`) because the objective differs (`mu_per_POT` at
+  VD sid=8 vs S/√B − α·calo/POT) and the chain is single-stage — cleaner as
+  a parallel command than rewiring `cmd_harvest`. VD branch is `sid` (not
+  `vdid`); denominator is `genCountLogger/numEvents` (1-bin TH1D, exact POT
+  per file). `harvest-pot-only` only checks the `pot_only` stage SHA — the
+  4-stage harvest checks all four.
 - **Idempotency (landed 2026-05-19 for Phase 2b LangGraph wiring):**
   `submit` no-ops with `"already submitted (cluster=NNN); skip submit"` if
   `<stage>_cluster.txt` already exists. `list-outputs` no-ops if
@@ -51,7 +58,25 @@ for the failure that motivated this).
   jobsub_lite cache-dir same-second collision is NOT addressed by this and
   still needs a per-user flock (TODO).
 - **Stages:** `mubeam` → `concat` → `mustops_ce` (Run1A) and `run1b_mubeam`
-  (Run1B), defined in module-level `STAGES` dict.
+  (Run1B), defined in module-level `STAGES` dict. Plus `pot_only`
+  (single-stage, MDC2025aq-backed) added 2026-06-07 for [[bo-prodtarget]].
+  Stage selection for a chain is owned by `GRID_STAGES_BY_MODE` in
+  `graph/config.py` (Mu2eBO issue #15, design only as of 2026-06-07);
+  invoked-by-name `pipeline.py submit <stage>` works for any STAGES entry
+  regardless of mode dispatch.
+- **Per-stage backing override (2026-06-07):** two optional STAGES keys
+  let one stage swap out from the helical-patched Run1Bak default:
+  - `"code_tarball"`: absolute path to an alternate muse-built
+    `Code_*.tar.bz2` (used by `write_code_tarball(stage_dir,
+    base_tarball=...)`). Default is module-global `MUSE_BASE_TARBALL`
+    (helical-patched Run1Bak).
+  - `"dsconf_musing"`: string substituted into DSCONF as
+    `f"{musing}_{cfg}"` (via new `_stage_dsconf(stage)` helper at
+    pipeline.py:113). Default is module-global `DSCONF = f"Run1Bak_{cfg}"`.
+    Only affects the cnf filename and the `--dsconf` arg of mu2ejobdef
+    (does NOT propagate into /pnfs paths). Without this, prodtarget
+    output files were mislabeled `…Run1Bak_pt001…` despite being built
+    against MDC2025aq.
 - **Geom overlay:** ships via `Code.tar`; geom-bearing stages
   (mubeam, run1b_mubeam, mustops_ce) reference the same
   `autoresearch_<cfg>_geom.txt` basename via the `__GEOM_FILE__` substitution.

@@ -1,7 +1,7 @@
 # autoresearch_bo.py — original 7D BO driver (removed)
 
 **Type:** driver
-**Status:** removed
+**Status:** superseded (removed 2026-05-21; replaced by [[autoresearch-bo-michael]])
 **Updated:** 2026-05-21
 
 ## Summary

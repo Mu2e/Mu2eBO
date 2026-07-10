@@ -2,7 +2,7 @@
 
 **Type:** driver
 **Status:** active
-**Updated:** 2026-06-01
+**Updated:** 2026-06-05
 
 ## Summary
 Regression tests for the Python drivers in this project. Two files today;
@@ -66,6 +66,17 @@ foils v2 6D round-trip suite and the shared env-source helper.
   `append_history`, presence of `_check_stage_config_sha` at the top of
   `cmd_poll`/`cmd_list_outputs`, and the `MAX_RETRY = 20` literal —
   WITHOUT pulling skopt/langgraph/sqlite into the test import graph.
+- **Audit-guard regex needs updating when a new `--mode` is added
+  (2026-06-05).** `tests/test_audit_fixes.py:113`
+  `test_argparse_choices_includes_three_modes` hardcodes the regex
+  `r'choices\s*=\s*\[\s*"helical"\s*,\s*"michael"\s*,\s*"foils"\s*\]'`
+  against `graph/closed_loop.py`. When `foilsf` was added as a 4th mode
+  at `graph/closed_loop.py:636` (now `choices=["helical","michael","foils","foilsf"]`),
+  the regex stopped matching — test fails with `unexpectedly None`. The
+  guard's *intent* is "reject typos like `helcial`" (covered by
+  `test_argparse_rejects_typo` below it), so the fix is to broaden the
+  regex to allow trailing modes, NOT to revert the choices list. Same
+  trap will recur for any future mode addition.
 
 ## Cross-links
 - Related: [[closed-loop-runner]], [[graph-runner]],

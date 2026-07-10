@@ -7,8 +7,8 @@ type: incident
 # Stage-out rename race on list-outputs
 
 **Type:** incident
-**Status:** resolved (2026-05-19; built-in retry now lives in `pipeline.py:list_outputs`)
-**Updated:** 2026-05-19
+**Status:** **recurring** — 10-min rename-quiesce cap exceeded under heavy grid contention (foilsg03 R0 2026-06-10 → foilsg05 R0 2026-06-11, **6/10 children lost** at higher hit rate)
+**Updated:** 2026-06-11
 
 ## Summary
 After a grid stage finishes, its outstage tree under
@@ -84,7 +84,7 @@ list-outputs sees a clean tree.
 
 ## Cross-links
 - Related: [[concurrent-token-contention]], [[grid-job-completion-check]],
-  [[bo-helical]]
+  [[concat-xrootd-fileopen-postendjob]], [[stage-out-lag]], [[bo-helical]]
 - Source: `pipeline.py:list_outputs` (function), `pipeline.py:cmd_list_outputs`,
   `pipeline.py:stage_hardlink_farm` (line 260, the `os.link` call that fails
   on stale paths during submit-concat)
@@ -120,3 +120,54 @@ Why this is better than the initial fix (a try/except + post-hoc stale
 filter): no retry gymnastics, no path filtering after the fact, no
 ambiguity about what gets persisted. The persisted state file is
 *structurally* guaranteed to contain only bare-form paths.
+
+## Recurrence 2026-06-10 (foilsg03 R0) — 10-min cap exceeded
+
+2/10 foilsg03 R0 children (`R00_03`, `R00_08`) died at submit-concat
+because the wait-for-rename guard's **20 × 30s = 10 min cap was reached
+without quiescence** under heavy contention:
+
+- `list-outputs mubeam` logged `200 job dir(s) still mid-rename (e.g.
+  00001.2cfafda0)` for all 20 attempts, then `WARN: rename pass did not
+  quiesce after 10 min; globbing bare form anyway (may undercount)`.
+- Result: `0 output file(s) -> state/mubeam_outputs.txt` (every dir was
+  still hash-form), then submit-concat fired `mu2ejobfcl --jobdef ... --
+  index 0` against an empty input list → `job_primary_inputs(): invalid
+  index 0` → rc=255 → `[graph] terminating ... stage concat failed`.
+- Grid context: user had **3758 jobs in queue concurrently** (other
+  campaigns + foilsg03), saturating jobsub_lite stage-out worker pool.
+- The OTHER 8/10 children of the same R0 batch saw their mubeam
+  outstages rename cleanly within the 10 min window — pure stage-out
+  rate-jitter under load, not a per-config issue.
+- **Triggered the foilsg03 false-positive early-exit** (see
+  [[closed-loop-barrier-timeout-zero-rows-falsepos]]): these 2 quick
+  failures plus 8 slow successes = "0 new rows by 240-min barrier" →
+  `decide_next` killed the campaign.
+- Lesson: the 10-min cap is **not enough** under heavy grid contention.
+  Either raise it (configurable env knob, e.g. `RENAME_QUIESCE_MAX_MIN`)
+  or — better — change the WARN-and-continue branch to FAIL hard so the
+  stage retries from a clean slate rather than submitting an empty
+  concat jobdef.
+
+## ~~Recurrence 2026-06-11 (foilsg05 R0)~~ — RETRACTED 2026-06-12: not this incident
+
+foilsg05 R0's 7/10 `submit concat` / `job_primary_inputs(): invalid
+index 0` failures (R00_00,01,02,03,04,07,09) were originally attributed
+here. **Wrong.** Verified 2026-06-12: foilsg05R00_00's mubeam job logs show
+`G4Tubs: Invalid values for radii in solid: Foil_00, pRMin=52.39, pRMax=50`
+→ all 200 jobs crashed at G4 init → outstage dirs stay in hash form
+*because the jobs failed*, not because the rename pass lagged. Root cause
+is [[foilsg-grid-tarball-scalar-holeradius-fallback]] (grid tarball lacks
+the holeRadii-vector patch; scalar-mean fallback exceeds group-0 rOut).
+
+**Diagnostic discriminator for next time** (the two failure modes share
+the rename-quiesce WARN + empty-jobdef rc=255 surface signature):
+- rename-LAG (this incident): poll shows `settled` *climbing* across
+  ticks; bare-form dirs appear progressively; job logs are healthy.
+- job-FAILURE (not this incident): poll shows `settled: 0/N` flat with
+  ALL dirs hash-form (`poll_mubeam` even prints "likely failed jobs");
+  check a job `.log` inside a hash dir BEFORE blaming stage-out.
+
+The grid-contention narrative (1220 queued / 1186 idle) was real but
+coincidental. foilsg03's 2/10 (genuine 10-min-cap exceedance with healthy
+jobs under a 3758-job queue) remains a true instance of this incident.

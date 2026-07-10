@@ -30,3 +30,17 @@ Run `/wiki-lint` to audit the wiki (dangling `[[wiki-links]]`, orphans, stale
 for contradictions and decaying claims). The check is pure-LLM — no helper
 script — to match the dominant Karpathy-wiki convention. Pass `--quick` to
 skip the semantic pass.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues at github.com/oksuzian/Mu2eBO via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary (needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.

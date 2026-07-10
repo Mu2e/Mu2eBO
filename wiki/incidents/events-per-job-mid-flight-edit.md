@@ -68,6 +68,19 @@ new dict value (2500), so both leaderboard rows came back at **2× the true
   re-ran `pipeline.py harvest` + `evaluate` for each, regenerated GP
   predictions + overlay plot.
 
+## Config-SHA guard fires on ANY STAGES edit, even harmless ones (2026-07-02)
+The `_stamp_stage_config_sha` guard hashes the **whole stage dict**, so editing *any*
+field mid-flight trips the "STAGES['<stage>'] changed since submit (stamp=… current=…)"
+warning for **all in-flight children's** downstream poll/list-outputs/harvest — including a
+**metric-harmless `memory_mb` change** (observed when foilsflash `memory_mb` 3500→2500 was
+applied while foilsflash06 was running: all 20 children's harvest logs printed 2 SHA warnings).
+**It is ADVISORY, not fatal** — 19/20 ff06 children harvested fine *with* the warnings; the 1
+loss (`R00_07`) was an unrelated `mustops_ce` grid failure (1/15 outputs). But the guard
+**can't distinguish a safe `memory_mb` edit from a metric-breaking `events_per_job` edit** — it
+cries wolf, and the noise can mask a real drift. Lesson: prefer to make even harmless `STAGES`
+edits **between** campaigns; if you must edit mid-flight (memory is safe — affects slot-matching
+only, not metrics/quorum), expect the warnings and verify harvests still land.
+
 ## Cross-links
 - Related: [[pipeline]], [[harvest-denominator-bug]] (sister bug — wrong
   denom from STAGES.njobs), [[autoresearch-bo-michael]]

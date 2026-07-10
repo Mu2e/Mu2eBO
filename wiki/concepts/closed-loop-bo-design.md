@@ -2,7 +2,21 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-05-21
+**Updated:** 2026-06-28
+
+> **2026-06-12 — process liveness is a sufficient barrier wait condition.**
+> Once the barrier checks child pid liveness (landed with the
+> [[closed-loop-barrier-timeout-zero-rows-falsepos]] fix), a per-round
+> wall-clock timeout is no longer load-bearing: an alive `graph.run` child
+> is always progressing toward resolution because every grid stage inside it
+> is bounded by pipeline.py's `cap_hours` (24h) poll cap — it either
+> succeeds, fails a stage (terminal checkpoint), or crashes (dead pid).
+> Wall-clock windows were only ever a proxy for "will this child resolve?",
+> and the proxy caused two orphan-storm incidents (foilsg03/05). A single
+> loud backstop cap for alive-but-hung children is sufficient; round pacing
+> by timeout is an anti-pattern here. (Implemented 2026-06-12: barrier
+> waits on liveness; `--barrier-timeout-min` deprecated/ignored;
+> `--barrier-max-min` 1440 is the lone backstop.)
 
 ## Summary
 Load-bearing architectural constraints for `graph/closed_loop.py` (multi-round
@@ -104,6 +118,75 @@ already paid to learn.
   `pipeline.py:325-333` (events-per-job stamp pattern to generalize)
 - Plan: `~/.claude/plans/zazzy-booping-ladybug.md`
 
+## Propose-path topology (2026-06-06)
+
+- **Closed-loop bypasses the propose + pending-TSV layer entirely.**
+  `node_predict_picks` (`graph/closed_loop.py`) gets q x-points directly
+  from `gp_predict_helical.compute_explore_picks` (cl_min) or
+  `botorch_predict.py` (qLogNEHVI) — both are pure picker functions, no
+  `append_pending` call, no `_flock_ex` on the pending TSV.
+  `node_launch_children` then passes the pre-computed x-point to each
+  child via `graph.run --x-point`. The pending TSV is only written by
+  the CLI propose path and by `pipeline_io.propose_one` (manual single
+  proposals); closed-loop rounds never touch it. Any refactor that
+  "unifies all propose paths" must NOT route closed-loop picks through
+  pending — that would re-introduce flock contention proportional to q
+  per round for no benefit (closed-loop's barrier already gates re-runs
+  via leaderboard presence, not pending).
+- **CLI and `propose_one` ask the optimizer DIFFERENTLY for the same
+  leaderboard.** CLI's `_cmd_propose_locked` uses
+  `opt.ask(n_points=q, strategy=args.strategy)` (skopt's native Constant-
+  Liar batched ask, strategy ∈ cl_mean/cl_min/cl_max). `propose_one`
+  uses `opt.ask()` once (q=1; the graph node is per-config). Same
+  leaderboard → different candidate sets across the two paths. Neither
+  is wrong; the divergence is structural. A future shared "BOProposer"
+  cannot collapse these without losing one feature.
+
+## Child terminal-state signatures — preflight-fail vs harvest zero-row (2026-06-28)
+A child that ends `[run] done` with **`objective: null` is NOT necessarily a bug** —
+disambiguate by the artifacts before alarming:
+- **Preflight-failed (managed overlap, infeasible geometry):** child log shows
+  `preflight: fail_managed` ×N then `[graph] terminating <cfg>: preflight=fail_managed
+  attempts=3/3` (MAX_PROPOSE_RETRIES=3) → `[run] done` objective=null. Grid dir has
+  **only `geom/`** (no stage dirs), **no summary.json**, and **no `zero_row[...]` line**.
+  Expected rejection — the geometry never reached the grid. (Seen pt6d18 R0: 5/10
+  Sobol picks fail_managed — prodtarget6d plate box has a large infeasible region.)
+- **Harvest zero-row (geometry ran, metric extraction failed):** child log HAS
+  `zero_row[<cfg>] cause=<harvest_exception|metrics_none|obj_unparseable>`, grid dir
+  has full stage outputs + a harvest/ dir. THIS is the one to investigate
+  (cf [[edepana-saw-events-scientific-notation-parse]]).
+So: "done + objective=null + no zero_row + geom-only grid dir" = preflight reject (fine);
+"done + objective=null + zero_row cause=..." = real harvest problem.
+
+## Barrier checkpoint inspection (2026-06-06)
+
+- **Terminal-check helper now lives in `graph/build.is_child_terminal`
+  (was `closed_loop._child_terminal_via_checkpoint`).** Signature is
+  `is_child_terminal(thread_id, child_graph) -> bool`. The
+  `thread_id or name` legacy fallback moved to the call site
+  (`closed_loop.py` barrier loop) — the helper itself no longer knows
+  about config names. `_build_graph` was renamed to public `build_graph`
+  in the same refactor (callers: `graph/build.py:graph`, `graph/run.py`,
+  `graph/closed_loop.py` barrier).
+- **`compile(checkpointer=saver)` is not free — must compile inner graph
+  ONCE outside the polling loop.** `build_graph().compile(...)` is pure-
+  Python topology but it re-wires the checkpointer object on every call;
+  per-tick re-compile is wasted work that scales with `q × ticks_per_round`
+  (e.g. 5 children × ~36 ticks at `CLOSED_LOOP_BARRIER_POLL_SEC=300` over
+  a 3 h round ≈ 180 needless compiles). Current pattern at
+  `graph/closed_loop.py` barrier (compile once outside `while True:`,
+  reuse across ticks) is load-bearing — preserve it in any future
+  refactor.
+- **`MemorySaver` has no snapshot-write API.** Unit-testing the
+  "real terminal" branch of the disambiguation logic (`snap.values`
+  populated AND `snap.metadata.step >= 1`) requires actually running ≥1
+  super-step through a compiled graph against the saver; you cannot
+  inject a fake snapshot. The fresh-thread branch (`step=-1` → False)
+  IS testable cheaply with `from langgraph.checkpoint.memory import
+  InMemorySaver` + compile + `get_state` on a never-run thread. So any
+  test of the terminal-check logic is a two-path design: cheap fresh-
+  thread unit + a one-node toy `StateGraph` for the terminal path.
+
 ## Open questions / TODO
 - Whether `compute_explore_picks` should grow a `--min-spacing` knob or
   the closed loop should post-filter picks. Choose before round 2.
@@ -118,7 +201,16 @@ already paid to learn.
   ~10 checkpoints per child over 2h ≈ 0.01 writes/sec) is two orders
   below the failure regime. Adopt: explicit `PRAGMA journal_mode=WAL`
   + 30s SQLite timeout in `graph/run.py` and `graph/closed_loop.py`.
+  **OVERTURNED 2026-06-09**: the smoke was 3 orders below the actual
+  load and only tested lock-acquire contention, not WAL mmap coherence
+  across processes — see [[closed-loop-sqlite-checkpoint-transient-corruption]].
 - **Driver shape: LangGraph outer graph (closed_loop.py) wins the
   deletion test.** WAL works → cross-thread checkpoint visibility
   preserved → barrier can re-poll via `SqliteSaver.list({thread_id})`
   after parent restart, justifying the LangGraph node structure.
+
+## Blast radius if CHECKPOINT_DB is deleted mid-run (2026-06-09)
+Survivable; checkpoints DB is a resume-convenience, not a source of truth. Grid jobs never touch it. Leaderboard TSV + `state/*_cluster.txt` + `state/broken.txt` + `state/scan_logs/` remain authoritative for "is this child done." Parent's currently-open conns hold fds to the unlinked inode → continue reading the stale snapshot and writing to a phantom file invisible to anyone else (parent hangs at barrier until timeout, but no data is lost). After parent kill + restart: fresh DB at the path → outer graph re-runs from scratch → `launch_children` correctly stale-skips all 10 children via the cluster-file guard (with the 2026-06-09 fix, loud SKIP per child + RuntimeError from empty-launch guard). Implication for node-local DB choice: `/scratch` wipe between sessions costs mid-round resume capability but nothing physics-critical — weakens the "LangGraph outer graph wins the deletion test" claim above.
+
+## Filesystem coherence for CHECKPOINT_DB (2026-06-09)
+`/exp/mu2e/data` is ALSO CephFS (same MDS cluster as `/exp/mu2e/app`), so moving the DB there does NOT fix WAL incoherence — only the journal-mode change (`DELETE` + `synchronous=FULL`) makes a network-FS path safe. Node-local mounts on GPVMs: `/scratch` (xfs, ~9 GB, lost on reboot), `/var/tmp` (ext3, ~16 GB, semi-persistent), `/tmp` (cleared often).
