@@ -155,7 +155,15 @@
 > path + collapses the q=10 ramp 40-90→~15 min + retires RCDS re-publish
 > (OSError-122 face) and the /exp 2 TB Code.tar.bz2 churn (data-quota
 > incident); intermediate = per-child build-once-reuse-3-stages (~half the
-> gain, zero worker-side risk); (2) fewer-BIGGER jobs (elebeam 200×110k→100×220k, same events/σ)
+> gain, zero worker-side risk). intermediate IMPLEMENTED 2026-07-10 (validating live on NC02's mustops/elebeam submits): ~10-15
+> lines in write_code_tarball (cache at ROOT/Code.<base>.tar.bz2, guard =
+> exists && newer-than-GEOM_FILE; child submits are serial so no race;
+> safe to apply mid-flight — first build identical, later calls hit cache).
+> Full variant = ~25-30 lines (write_code_tarball returns static base;
+> geom ships via jobsub `-f` through mu2ejobsub --jobsub-arg; base's
+> setup_post.sh — rebuilt ONCE offline — prepends the worker input dir to
+> MU2E_SEARCH_PATH); UNKNOWN needing one smoke: where mu2egrid's wrapper
+> exposes -f files vs the search path; (2) fewer-BIGGER jobs (elebeam 200×110k→100×220k, same events/σ)
 > → q≈40 fits the ceiling → ~2× evals/day at +15% per-eval wall; (3)
 > elebeam overlap done right (submit after mubeam lands, per-child stagger —
 > ff05's failure was the up-front FLOOD, not the concept; ~25%/eval); (4)

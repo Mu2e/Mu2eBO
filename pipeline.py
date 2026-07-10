@@ -523,6 +523,22 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
         )
     if not base_tarball.exists():
         raise SystemExit(f"muse base tarball missing: {base_tarball}")
+
+    # Per-config cache (2026-07-10): the tarball content is fully determined
+    # by (base_tarball, GEOM_FILE), both identical across a config's stages,
+    # so build ONCE per config and reuse — was ~7-12 min of unpack+rebzip2
+    # per stage per child, 2/3 of it redundant (~10 min/eval critical path +
+    # 3x disk churn; see bo-noise-budget tarball lever). Guard: cache must be
+    # newer than both inputs (a re-proposed geom or a rebuilt base
+    # invalidates). A config's submits are serial (incl. the elebeam
+    # presubmit, which runs inside the mubeam node), so no build race.
+    cache = ROOT / f"Code.{base_tarball.stem.split('.')[0]}.tar.bz2"
+    if (cache.exists()
+            and cache.stat().st_mtime > GEOM_FILE.stat().st_mtime
+            and cache.stat().st_mtime > base_tarball.stat().st_mtime):
+        print(f"[tarball] reusing cached {cache.name}", flush=True)
+        return cache
+
     code_dir = stage_dir / "Code"
     if code_dir.exists():
         shutil.rmtree(code_dir)
@@ -536,7 +552,11 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
     if tarball.exists():
         tarball.unlink()
     run(["bash", "-c", f"cd {stage_dir} && tar cf - Code/ | bzip2 > {tarball.name}"])
-    return tarball
+    tmp = cache.with_suffix(".tmp")
+    shutil.move(tarball, tmp)
+    tmp.rename(cache)  # atomic within ROOT: readers never see a partial file
+    shutil.rmtree(code_dir, ignore_errors=True)
+    return cache
 
 
 def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> tuple[Path, Path]:
