@@ -668,10 +668,15 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
   DOMINATES the 5-week champion ff05R00_04 (3.28, 6.277e-7)** — first-ever domination of
   the champion corner; also a new line flash-record (prev floor 5.999e-7 @ sob 2.03).
   Geometry: hT_up=0.002 (4 µm, the widened floor), hT_dn=0.146, from a qNParEGO pick.
-  σ-caveat: flash margin −4.8% ≈ 1.9σ at the 100-job σ=2.52% (sob +0.03 ≈ 3σ) —
-  domination is likely-real-but-soft; cleanest confirmation = one-off re-eval at
-  `AUTORESEARCH_ELEBEAM_NJOBS=400` (bigger single cluster = more independent subruns;
-  same-seed separate replicas are useless, see the baseSeed note above).
+  **CONFIRMED AT 400 JOBS (2026-07-10 17:26): flash = 6.259e-7** — the original 92-job
+  5.976e-7 was a −4.5% downward fluctuation (NC02's 6.96e-7 an upward one; run-level flash
+  σ ≈ 5% beyond subrun stats). FINAL STATUS: ties the prior champion in flash (6.259 vs
+  6.277, Δ−0.3% = noise) and WINS sob (+0.03, ~3σ) → still the top point, but by sob not
+  by a flash record; vs DEPLOYED (3.11/6.445e-7): −2.9% flash / +0.2 sob — "beats deployed
+  on both axes" survives with a thinner flash margin. Leaderboard row updated to the
+  400-job flash (backup .bak_champ400fix); summary.json sob restored to the valid
+  concat-era 3.31 (the confirm harvest ran env-concatless and miscounted mu⁻ +1.5% from
+  unfiltered TargetStops — pipeline harvest is now PRESENCE-driven on concat_outputs.txt).
   Hybrid attribution round 2: **ALL front additions came from the parego 40%** (R00_06
   3.72/8.37e-7 + R00_07 champion; parego 2/4 on front) — qNEHVI 0/6 (its high-sob corner
   picks 3.77/3.75 re-treaded known territory; corner exhausted). 15/17 new rows rail at
@@ -687,3 +692,16 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
   is likely near-FREE geometrically — needs only a mode whose extras write per-foil inner
   radii on the deployed 37-foil base. On the post-2026-07-10 eval cost (~2.5-3 h, half
   footprint) this is plausibly 5-10× more flash headroom than anything left in this box.
+
+- **foilsflash12 (2026-07-10, q=10×1 hybrid): FIRST FULL-STACK CAMPAIGN — speed stack delivered.**
+  10/10 rows (244 total; two mid-round [[harvest-pyroot-nfs-rpc-hang]] recurrences recovered
+  in-flight), 10/10 elebeam presubmits fired, tarball cache + input probe live throughout.
+  **Real eval wall: median 214 min (168 min best)** vs the 5.4 h pre-stack baseline ≈ **40%
+  faster at ~half the grid footprint** (outliers 477-496 min were the two NFS-hang recoveries
+  + one straggler). Attribution round 3: qnehvi 2/6, parego 3/4 on-front — 3-round tally
+  qnehvi 6/18 (33%) vs parego 7/12 (58%); parego keeps winning per-pick at saturation
+  (consider AUTORESEARCH_HYBRID_HV_FRAC≈0.4 next round). New front adds: R00_09
+  (3.52/6.58e-7), R00_07 (3.40/6.37e-7), R00_06 (3.10/6.22e-7 — lowest flash at deployed-sob),
+  R00_00/01 (3.72/8.30e-7, 3.66/7.15e-7 high-sob shoulder). Champion ff11R00_07 (3.31/6.259e-7
+  corrected) HOLDS. All single-run flash values carry the σ≈5% run-level caveat.
+

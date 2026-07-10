@@ -141,6 +141,12 @@ in this phase.
   (`[.]` would still match a literal `.` elsewhere, e.g. paths). Distinct from the genuine [[closed-loop-parent-signal-kill-midlaunch]]
   death (there the parent is truly gone AND children die too); here children were all `Sl`-alive
   with grid clusters running, the tell that the parent-negative was a pgrep artifact.
+- **Log-watch grep trap (2026-07-10)**: the parent's JSON heartbeat lines
+  (`{"round_idx":..., "zero_rows": null, "stop_seen": false, ...}`) contain the
+  substrings `zero_row`, `FAIL`-adjacent keys, etc. — a monitor grepping the parent log
+  with bare `zero_row|FAIL|decide_next` fires on every heartbeat. Anchor the patterns to
+  the real event forms: `zero_row\[` (child log form `zero_row[name] cause=`),
+  `decide_next\[`, `FAILED`, `barrier: all`.
 - **Code**: `graph/closed_loop.py` (one file, ~510 lines). Outer state:
   `RoundState` TypedDict (mode/alpha/q/round_idx/children/completed_names/
   pareto_hashes/converged/errors + knobs). Outer graph nodes:

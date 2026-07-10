@@ -997,37 +997,41 @@ import ROOT
 ROOT.gSystem.Load("libgallery")
 data = json.loads(sys.stdin.read())
 files, tags = data["files"], data["tags"]
-files_v = ROOT.vector("string")()
-for p in files:
-    files_v.push_back(p)
-try:
-    ev = ROOT.gallery.Event(files_v)
-    # Templated gallery method MUST use the [Type] subscript idiom in PyROOT;
-    # getValidHandle(<type-object>) fails template resolution. Validated against
-    # a real dts.MuStopPileup.art (2026-06-19): tag compressDetStepMCs, accessor
-    # ionizingEdep(), ~0.029 MeV/event. See wiki/projects/bo-ipa.md.
-    getH = ev.getValidHandle[ROOT.std.vector("mu2e::StrawGasStep")]
-except Exception as e:
-    print("TRKEDEP_RESULT " + json.dumps({"error": "gallery/StrawGasStep init: %s" % e})); sys.exit(0)
-total = 0.0; n_events = 0; used = ""
-cand = list(zip(tags, [ROOT.art.InputTag(t) for t in tags]))
-while not ev.atEnd():
-    prod = None
-    trylist = [(used, ROOT.art.InputTag(used))] if used else cand
-    for tname, it in trylist:
-        try:
-            prod = getH(it).product(); used = tname; break
-        except Exception:
-            continue
-    if prod is not None:
-        for s in prod:
+# One gallery.Event PER FILE (2026-07-10): per-file totals feed the
+# Winsorized robust flash estimate (per-job tails are 25-35% and a plain
+# mean is maximally tail-sensitive — see bo-noise-budget run-level sigma).
+# Templated gallery method MUST use the [Type] subscript idiom in PyROOT;
+# getValidHandle(<type-object>) fails template resolution (2026-06-19).
+total = 0.0; n_events = 0; used = ""; per_file = []
+for path in files:
+    fv = ROOT.vector("string")()
+    fv.push_back(path)
+    try:
+        ev = ROOT.gallery.Event(fv)
+        getH = ev.getValidHandle[ROOT.std.vector("mu2e::StrawGasStep")]
+    except Exception as e:
+        print("TRKEDEP_RESULT " + json.dumps({"error": "gallery/StrawGasStep init (%s): %s" % (path, e)})); sys.exit(0)
+    cand = list(zip(tags, [ROOT.art.InputTag(t) for t in tags]))
+    ftot = 0.0; fn = 0
+    while not ev.atEnd():
+        prod = None
+        trylist = [(used, ROOT.art.InputTag(used))] if used else cand
+        for tname, it in trylist:
             try:
-                total += s.ionizingEdep()
+                prod = getH(it).product(); used = tname; break
             except Exception:
-                pass
-    n_events += 1
-    ev.next()
-print("TRKEDEP_RESULT " + json.dumps({"total_edep_MeV": total, "n_events": n_events, "tag": used}))
+                continue
+        if prod is not None:
+            for s in prod:
+                try:
+                    ftot += s.ionizingEdep()
+                except Exception:
+                    pass
+        fn += 1
+        ev.next()
+    per_file.append(ftot)
+    total += ftot; n_events += fn
+print("TRKEDEP_RESULT " + json.dumps({"total_edep_MeV": total, "n_events": n_events, "tag": used, "per_file": per_file}))
 """
 
 
@@ -1058,9 +1062,10 @@ def _extract_trk_edep_per_pot(pileup_files, env):
         raise RuntimeError(result["error"])
     total = result["total_edep_MeV"]
     n_events = result["n_events"]
+    per_file = result.get("per_file")
     if not n_events:
-        return None, total, n_events, result.get("tag")
-    return total / n_events, total, n_events, result.get("tag")
+        return None, total, n_events, result.get("tag"), per_file
+    return total / n_events, total, n_events, result.get("tag"), per_file
 
 
 _CALO_EXTRACT_SCRIPT = r"""
@@ -1260,7 +1265,12 @@ def cmd_harvest(args):
     ce_files = [Path(p) for p in (STATE / "mustops_ce_outputs.txt").read_text().splitlines() if p.strip()]
     if not ce_files:
         raise SystemExit("No mustops_ce outputs to harvest")
-    if CONCATLESS:
+    # Presence-driven, NOT env-driven (2026-07-10): a concat-era config
+    # harvested under a concat-less env would count mu- stops from its
+    # UNFILTERED TargetStops files (+0.9% mu+ contamination, sob biased
+    # +1.5% observed on the ff11R00_07 400j confirm). If concat outputs
+    # exist, they are the truth for this config regardless of mode env.
+    if CONCATLESS and not (STATE / "concat_outputs.txt").exists():
         # mu- stop count comes straight from the mu--pure mubeam TargetStops
         # files (muminusSelector in the mubeam template guarantees purity).
         stops_list = STATE / "mubeam_outputs.txt"
@@ -1362,7 +1372,7 @@ def cmd_harvest(args):
     res = _edep_from_stage_outputs("mustops_pileup", env)
     if res is not None:
         (trk_edep_per_pot, trk_edep_total_MeV, trk_edep_events,
-         trk_edep_tag), _ = res
+         trk_edep_tag, _pileup_per_file), _ = res
     if trk_edep_per_pot is not None:
         print(f"    trk_edep_total_MeV  = {trk_edep_total_MeV}")
         print(f"    trk_edep_events     = {trk_edep_events}")
@@ -1389,10 +1399,12 @@ def cmd_harvest(args):
     flash_edep_tag = None
     flash_edep_per_pot = None
     flash_n_input = None
+    flash_edep_per_pot_winsor = None
+    flash_perfile_stats = None
     res = _edep_from_stage_outputs("elebeam_flash", env)
     if res is not None:
         (flash_edep_per_event, flash_edep_total_MeV, flash_edep_events,
-         flash_edep_tag), flash_files = res
+         flash_edep_tag, flash_per_file), flash_files = res
         # POT denominator = landed files x stamped events_per_job (input electrons
         # resampled 1:1) x POT_PER_ELECTRON. Uses the SUBMIT-stamped events_per_job
         # so a mid-flight STAGES edit doesn't mis-scale (see events-per-job incident).
@@ -1400,6 +1412,28 @@ def cmd_harvest(args):
             flash_n_input = len(flash_files) * _events_per_job("elebeam_flash")
             if flash_n_input:
                 flash_edep_per_pot = flash_edep_total_MeV / (flash_n_input * POT_PER_ELECTRON)
+        # Robust decision metric (2026-07-10): 5/95 Winsorized mean of the
+        # per-file totals — clips the heavy per-job tail (sd/mean 25-35%)
+        # that made single runs swing ±5-11% (bo-noise-budget run-level
+        # sigma). Slightly biased low vs the physical mean (the tail is
+        # real flash), so it is RECORDED alongside, not substituted; the
+        # leaderboard objective stays the plain mean.
+        if flash_per_file and len(flash_per_file) >= 10 and flash_files:
+            v = sorted(flash_per_file)
+            k = max(1, int(0.05 * len(v)))
+            lo, hi = v[k], v[-k - 1]
+            w = [min(max(x, lo), hi) for x in flash_per_file]
+            wmean = sum(w) / len(w)
+            epj = _events_per_job("elebeam_flash")
+            flash_edep_per_pot_winsor = wmean / (epj * POT_PER_ELECTRON)
+            m = sum(flash_per_file) / len(flash_per_file)
+            sd = (sum((x - m) ** 2 for x in flash_per_file) / (len(flash_per_file) - 1)) ** 0.5
+            flash_perfile_stats = {
+                "n_files": len(flash_per_file),
+                "sd_over_mean": round(sd / m, 4) if m else None,
+                "min": round(min(flash_per_file), 6),
+                "max": round(max(flash_per_file), 6),
+            }
     if flash_edep_per_event is not None:
         print(f"    flash_edep_total_MeV  = {flash_edep_total_MeV}")
         print(f"    flash_edep_events     = {flash_edep_events}")
@@ -1427,6 +1461,8 @@ def cmd_harvest(args):
         "trk_edep_tag": trk_edep_tag,
         "flash_edep_per_event": flash_edep_per_event,
         "flash_edep_per_pot": flash_edep_per_pot,
+        "flash_edep_per_pot_winsor": flash_edep_per_pot_winsor,
+        "flash_perfile_stats": flash_perfile_stats,
         "flash_edep_total_MeV": flash_edep_total_MeV,
         "flash_edep_events": flash_edep_events,
         "flash_n_input": flash_n_input,

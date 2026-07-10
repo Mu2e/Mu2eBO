@@ -2,7 +2,7 @@
 
 **Type:** incident
 **Status:** resolved
-**Updated:** 2026-07-08
+**Updated:** 2026-07-10 (recurrence #2: EdepAna face)
 
 ## Summary
 foilsflashSOBX01's harvest sat 5.5 h with all grid work done and no leaderboard
@@ -47,6 +47,20 @@ node), so one wedged RPC stalls the whole chain indefinitely.
   in `pipeline.py:_extract_trk_edep_per_pot` (e.g. 3600 s) so the fail-soft
   path fires instead of an unbounded hang; per-file progress logging would
   identify poison files.
+
+- **RECURRENCE 2026-07-10 (ff12 R00_04/R00_08): the EdepAna face.** The stuck
+  process was the harvest Step-1 `mu2e` (EdepAna over mustops_ce files), D-state
+  23-35 min on ONE dead-pool file per child (stat-instant/read-hang, probe
+  recipe confirms). EdepAna-face recipe differs from the flash face: killing
+  the stuck `mu2e` is SAFE (pipeline raises SystemExit on EdepAna rc≠0 → NO
+  degraded summary, child zero-rows cleanly) — filter the poison line from
+  `mustops_ce_outputs.txt` (keep a .bak_poison), kill the mu2e, then direct
+  re-harvest + driver evaluate lands the row. sob denominators are
+  file-count-aware so dropping 1/12-13 files stays unbiased. SEQUENCING:
+  after the kill the child's graph process still walks its failure path
+  (may emit a SECOND zero_row `metrics_none` before `[run] done`) — start
+  the manual re-harvest only after the child exits, or accept a benign
+  summary.json write race (child reads-only on its way out).
 
 ## Cross-links
 - Related: [[concat-xrootd-fileopen-postendjob]], [[stage-out-rename-race]], [[edepana-saw-events-scientific-notation-parse]]

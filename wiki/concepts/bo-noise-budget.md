@@ -110,6 +110,21 @@
 > flash events/file — broad but benign tail: top job 1.2% of total edep,
 > max/median 2.3×) → **σ_flash = 1.84% @ N=188-200, 2.52% @ N=100
 > (default), 3.57% @ N=50**; split-half realization median 2.5% confirms.
+> **CAVEAT (2026-07-10 late, NC02 finding): that 2.5% is WITHIN-run only.**
+> NC02 replayed the champion geometry (µm-identical, identical elebeam FCL,
+> same 92 subruns compared per-file) and measured flash **+15% systematic**
+> (median per-subrun ratio +11%, no outlier files, missing-8-subrun effect
+> only ~1%) ≈ 3.3σ by within-run stats. µm geometry shifts chaos-decorrelate
+> the showers (common subruns differ event-by-event, even in filter-passing
+> counts), so replays are independent samples — and TWO independent runs
+> disagreeing by 15% means an unmodeled RUN-LEVEL flash variance ~5-10%.
+> Consequences: (a) cross-config flash differences <~15% are NOT decisive
+> at 100 jobs; (b) the ff11R00_07 champion domination (−4.8% flash margin)
+> is UNCONFIRMED — 400-job re-eval running; (c) elebeam=100 remains fine
+> for BO exploration (GP absorbs noise) but CHAMPION calls need ≥400 jobs
+> or replica averaging. Mechanism unknown — candidates: heavy-tail
+> undersampling beyond the measured per-job spread, or a real run-level
+> common mode (worker mix / EleBeamCat read pattern).
 > **(a)+(3) IMPLEMENTED 2026-07-10:** memory right-size — foilsflash
 > override now 2000 MB (was 2500; matches the 2 GB/core slot; watch first
 > round for OOM-holds). elebeam OVERLAP — `PRESUBMIT_AFTER` seam in
