@@ -163,7 +163,17 @@
 > geom ships via jobsub `-f` through mu2ejobsub --jobsub-arg; base's
 > setup_post.sh — rebuilt ONCE offline — prepends the worker input dir to
 > MU2E_SEARCH_PATH); UNKNOWN needing one smoke: where mu2egrid's wrapper
-> exposes -f files vs the search path; (2) fewer-BIGGER jobs (elebeam 200×110k→100×220k, same events/σ)
+> exposes -f files vs the search path. **Full variant KILLED 2026-07-10:**
+> mu2ejobdef COPIES the code tarball INTO each per-config cnf (its help,
+> ~line 95) so RCDS re-uploads ~677 MB/config no matter how static our
+> tarball is (worker CWD IS already on MU2E_SEARCH_PATH —
+> mu2ejobsub.sh:~160 — so the geom-sidecar half is trivial but pointless
+> alone). Escape routes: (a) `--setup` with a cvmfs-resident release =
+> UPSTREAM the holeRadii-vector + helical-plug patches into
+> Offline/Production (the true deep fix: no tarball, no RCDS, submits
+> ~1-2 min); (b) mu2eprodsys-style `dropbox://` code path (different
+> toolchain, days). Variant 1 (per-config cache, live) captured all the
+> locally-capturable cost; (2) fewer-BIGGER jobs (elebeam 200×110k→100×220k, same events/σ)
 > → q≈40 fits the ceiling → ~2× evals/day at +15% per-eval wall; (3)
 > elebeam overlap done right (submit after mubeam lands, per-child stagger —
 > ff05's failure was the up-front FLOOD, not the concept; ~25%/eval); (4)
