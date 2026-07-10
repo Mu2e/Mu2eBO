@@ -70,10 +70,16 @@ TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 sys.path.insert(0, str(Path(__file__).resolve().parent / "graph"))
 from config import (  # noqa: E402
     GRID_DATA_ROOT as DATA_ROOT,
+    GRID_STAGES,
     MUSING,
     SETUPMU2E,
     STAGE_TARGETS,
 )
+
+# Concat-less chains (foilsflash since 2026-07-10): the mubeam template's
+# muminusSelector makes TargetStops mu--pure, so mustops_* resample the
+# mubeam files directly and harvest counts mu- stops from them.
+CONCATLESS = "concat" not in GRID_STAGES
 from sourced_bash import run_sourced_bash  # noqa: E402
 
 # Canonical muse-built Code.tar.bz2 produced by `muse tarball` from
@@ -226,7 +232,12 @@ STAGES = {
         "run_number": 1803,
         "ships_geom": True,
         "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'elebeam_flash' / 'EleBeamCat.txt'}",
-        "default_loc": "disk",
+        # "tape" since 2026-07-10: EleBeamCat Run1Baa migrated persistent→tape
+        # on 2026-07-09. mu2ejobfcl derives the auxinput URL from THIS flag
+        # ("disk"==persistent), NOT from SAM — a stale value kills every job
+        # with FileOpenError at beamResampler. Files are dCache-online; verify
+        # locality before campaigns (wiki: elebeamcat-tape-migration-elebeam-wipeout).
+        "default_loc": "tape",
         "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
         "memory_mb": 3000,
     },
@@ -266,12 +277,22 @@ if os.environ.get("AUTORESEARCH_MODE") == "foilsflash":
     STAGES["mubeam"]["events_per_job"] = 200000
     STAGES["mustops_ce"]["events_per_job"] = 75000
     STAGES["elebeam_flash"]["events_per_job"] = 110000
-    # Measured VmPeak is only ~1.1-1.3 GB even at 200k events/job (art streams output).
-    # 2500 MB is ≥1.5× that peak (safe margin against HOLDs) while matching MANY more grid
-    # slots than the earlier precautionary 3500 MB → better concurrency at no metric cost
-    # (memory affects slot-matching only). See wiki/concepts/bo-noise-budget.md.
+    # Measured VmHWM (2026-07-09, ff09 job logs): elebeam 1311-1313 MB
+    # (near-deterministic, 3 samples), mustops_ce 1129 MB. 2000 MB is ~1.5×
+    # the resident peak (VmPeak ~1.4-1.7 GB is virtual) and matches the
+    # standard 2 GB/core slot exactly → best matchability + smallest
+    # footprint against the ~1,250-slot ceiling. Watch the first round for
+    # OOM-holds on extreme geometries; bump back to 2500 if any appear.
+    # See wiki/concepts/bo-noise-budget.md.
     for _s in ("mubeam", "mustops_ce", "elebeam_flash"):
-        STAGES[_s]["memory_mb"] = 2500
+        STAGES[_s]["memory_mb"] = 2000
+    # Narrow 15-job stages are the erratic ones: quorum 0.9 → target 13/15
+    # still waits on stragglers and one slow node ~doubles the stage (mustops
+    # 75-175 min on identical payloads). 12/15 clips the tail; σ_sob 0.09%
+    # has huge margin for the lost ~7% stats. elebeam keeps the 0.9 default
+    # (200-wide averages stragglers; flash stats are the binding channel).
+    STAGES["mubeam"]["quorum"] = 0.8
+    STAGES["mustops_ce"]["quorum"] = 0.8
 
 
 # EleBeamCat resampler normalization: each resampled electron corresponds to
@@ -362,6 +383,15 @@ def _materialize_template(stage: str) -> Path:
     if "__PT_PLATE_NAMES__" in text:
         n = _parse_n_plates_from_geom()
         text = text.replace("__PT_PLATE_NAMES__", _render_pt_plate_names_csv(n))
+    if stage == "mustops_ce" and CONCATLESS:
+        # The shared template's MaxEventsToSkip (100720) is tuned to the
+        # merged concat file (~240k events). Concat-less jobs each read ONE
+        # mubeam file (~16k mu- stop events for the 37-foil base +- extras);
+        # the random skip must stay below the smallest plausible file.
+        text += (
+            "\n# concat-less override (see graph/config.py foilsflash chain)\n"
+            "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip: 8000\n"
+        )
     out = STATE / f"{stage}_template_materialized.fcl"
     out.write_text(text)
     return out
@@ -558,6 +588,38 @@ def _grid_setup_sh() -> str:
     return str(target / "setup.sh")
 
 
+def _probe_input_urls(stage: str, fcl_text: str) -> None:
+    """Verify job-0's resolved input files are readable BEFORE submitting.
+
+    EleBeamCat migrated persistent→tape mid-campaign (2026-07-09) and every
+    elebeam job died at FileOpenError ~30 s in: the URL comes from OUR
+    --default-location flag ('disk'==persistent), not SAM, so a stale
+    location silently kills the whole cluster. Probing the first resolved
+    URLs turns 200 dead jobs into one loud submit-time error.
+    xroot://fndcadoor.fnal.gov//pnfs/fnal.gov/usr/mu2e/X maps to /pnfs/mu2e/X
+    for a cheap NFS read probe; non-matching URLs are skipped (fail-open).
+    See wiki incident elebeamcat-tape-migration-elebeam-wipeout.
+    """
+    urls = re.findall(r'"(xroot://[^"]+\.art)"', fcl_text)
+    probes = []
+    for u in dict.fromkeys(urls):
+        m = re.match(r"xroot://fndcadoor\.fnal\.gov//pnfs/fnal\.gov/usr/mu2e/(.+)", u)
+        if m:
+            probes.append(Path("/pnfs/mu2e") / m.group(1))
+        if len(probes) >= 2:
+            break
+    for p in probes:
+        r = subprocess.run(["timeout", "10", "dd", f"if={p}", "of=/dev/null",
+                            "bs=64k", "count=1"], capture_output=True)
+        if r.returncode != 0:
+            raise SystemExit(
+                f"[{stage}] input probe FAILED: {p} not readable — dataset "
+                f"moved (persistent→tape?) or wrong default_loc; fix "
+                f"STAGES['{stage}']['default_loc'] before submitting. "
+                f"See wiki elebeamcat-tape-migration-elebeam-wipeout.")
+        print(f"[{stage}] input probe OK: {p.name}", flush=True)
+
+
 def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
                  staged_input_dir: Path | None = None, dry_run: bool = False) -> int | None:
     """Build cnf via mu2ejobdef, smoke-test with mu2ejobfcl, submit via mu2ejobsub.
@@ -608,12 +670,15 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
     print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
     subprocess.run(jobdef, cwd=stage_dir, env=env, check=True)
 
-    # smoke-test: ask mu2ejobfcl to print job-0's resolved fcl
+    # smoke-test: ask mu2ejobfcl to print job-0's resolved fcl, then probe
+    # that the resolved input URLs are actually readable (liveness gate).
     default_loc = f"dir:{staged_input_dir}" if staged_input_dir else cfg["default_loc"]
     fcl_check = ["mu2ejobfcl", "--jobdef", cnf.name, "--index", "0",
                  "--default-proto", "root", "--default-loc", default_loc]
     print(f"$ (cd {stage_dir} && {shlex.join(fcl_check)})", flush=True)
-    subprocess.run(fcl_check, cwd=stage_dir, env=env, check=True)
+    fcl_proc = subprocess.run(fcl_check, cwd=stage_dir, env=env, check=True,
+                              capture_output=True, text=True)
+    _probe_input_urls(stage, fcl_proc.stdout)
 
     if dry_run:
         print(f"[{stage}] DRY-RUN: would submit {cfg['njobs']} job(s)")
@@ -804,9 +869,13 @@ def cmd_submit(args):
         # restriction as --inputs): hard-link concat outputs into a /pnfs
         # stage dir so xrootd can resolve them when --default-location
         # dir:STAGED expands the basenames.
-        prev = STATE / "concat_outputs.txt"
+        # Concat-less chains resample the mu--pure mubeam TargetStops files
+        # directly (auxinput=1 -> one file-slice per job, same structure as
+        # mubeam<->MuBeamCat).
+        prev_stage = "mubeam" if CONCATLESS else "concat"
+        prev = STATE / f"{prev_stage}_outputs.txt"
         if not prev.exists():
-            raise SystemExit("Run 'list-outputs concat' first to populate concat_outputs.txt")
+            raise SystemExit(f"Run 'list-outputs {prev_stage}' first to populate {prev.name}")
         sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
         staged_input_dir, basenames_file = stage_hardlink_farm(args.stage, sources)
         STAGES[args.stage]["auxinput"] = (
@@ -820,7 +889,8 @@ def cmd_poll(args):
     _check_stage_config_sha(args.stage)
     cluster_file = STATE / f"{args.stage}_cluster.txt"
     cluster = int(cluster_file.read_text().strip())
-    poll_cluster(args.stage, cluster, quorum=args.quorum, cap_hours=args.cap_hours)
+    quorum = args.quorum if args.quorum is not None else STAGES[args.stage].get("quorum", 0.9)
+    poll_cluster(args.stage, cluster, quorum=quorum, cap_hours=args.cap_hours)
 
 
 def _edep_from_stage_outputs(stage, env):
@@ -1168,12 +1238,21 @@ def cmd_harvest(args):
     harvest_dir.mkdir(parents=True, exist_ok=True)
 
     ce_files = [Path(p) for p in (STATE / "mustops_ce_outputs.txt").read_text().splitlines() if p.strip()]
-    concat_files = [Path(p) for p in (STATE / "concat_outputs.txt").read_text().splitlines() if p.strip()]
     if not ce_files:
         raise SystemExit("No mustops_ce outputs to harvest")
-    muminus_files = [f for f in concat_files if "MuminusStopsCat" in f.name]
-    if not muminus_files:
-        raise SystemExit("No MuminusStopsCat in concat outputs")
+    if CONCATLESS:
+        # mu- stop count comes straight from the mu--pure mubeam TargetStops
+        # files (muminusSelector in the mubeam template guarantees purity).
+        stops_list = STATE / "mubeam_outputs.txt"
+        muminus_files = [Path(p) for p in stops_list.read_text().splitlines()
+                         if p.strip() and "TargetStops" in Path(p).name]
+        if not muminus_files:
+            raise SystemExit("No TargetStops in mubeam outputs")
+    else:
+        concat_files = [Path(p) for p in (STATE / "concat_outputs.txt").read_text().splitlines() if p.strip()]
+        muminus_files = [f for f in concat_files if "MuminusStopsCat" in f.name]
+        if not muminus_files:
+            raise SystemExit("No MuminusStopsCat in concat outputs")
 
     # Derive denominators from the actual files we'll harvest, not STAGES.njobs
     # — if any grid jobs were lost (OOM, held), STAGES.njobs over-counts and biases
@@ -1360,7 +1439,9 @@ def main():
 
     p_poll = sub.add_parser("poll", help="Poll a stage's cluster until quorum or cap")
     p_poll.add_argument("stage", choices=list(STAGES))
-    p_poll.add_argument("--quorum", type=float, default=0.9)
+    p_poll.add_argument("--quorum", type=float, default=None,
+                        help="Fraction of jobs required (default: per-stage "
+                             "STAGES['quorum'] if set, else 0.9)")
     p_poll.add_argument("--cap-hours", type=float, default=24.0)
     p_poll.set_defaults(func=cmd_poll)
 

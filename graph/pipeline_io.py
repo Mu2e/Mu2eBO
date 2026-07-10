@@ -233,6 +233,17 @@ def run_stage(config_name: str, stage: str) -> dict:
     return read_stage_status(config_name, stage)
 
 
+def presubmit_stage(config_name: str, stage: str) -> None:
+    """Early submit of a data-independent stage (see config.PRESUBMIT_AFTER).
+
+    Submit-only: the stage's own node later finds the cluster file (submit
+    no-ops), polls the already-running jobs, and lists outputs — so the
+    stage's grid time overlaps the intervening chain. Callers treat this as
+    best-effort; on failure the stage node just submits sequentially.
+    """
+    _run_pipeline_verb(config_name, "submit", stage)
+
+
 def run_harvest(config_name: str, mode: str | None = None) -> dict:
     """Run pipeline.py harvest verb for the mode; return parsed summary.json.
 
@@ -301,6 +312,11 @@ _SCAN_PATTERNS = (
     ("Warning",                r"\bWarning\b"),
     ("FATAL",                  r"FATAL"),
     ("SEGV",                   r"SEGV|segmentation fault|Segmentation fault"),
+    # Report-only (NOT in SCAN_BROKEN_CODES): a few hits = transient xrootd
+    # flakes (concat-xrootd-fileopen-postendjob); hits across ALL jobs = a
+    # moved input dataset (elebeamcat-tape-migration-elebeam-wipeout). Gating
+    # on it would false-positive the transient case — surface, don't block.
+    ("FileOpenError",          r"FileOpenError"),
 )
 
 

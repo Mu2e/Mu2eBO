@@ -22,6 +22,7 @@ from config import (  # noqa: E402
     DEFAULT_MODE,
     GRID_DATA_ROOT,
     MAX_PROPOSE_RETRIES,
+    PRESUBMIT_AFTER,
 )
 from state import BOIterationState  # noqa: E402
 
@@ -145,6 +146,18 @@ def make_stage_node(stage: str):
         stages = dict(state.get("stages", {}))
         try:
             stages[stage] = pio.run_stage(name, stage)
+            # Overlap seam: early-submit data-independent downstream stages
+            # (e.g. foilsflash elebeam_flash after mubeam) so their grid time
+            # hides behind the intervening chain. Best-effort — on failure
+            # the stage's own node submits sequentially (idempotent guards).
+            for ps in PRESUBMIT_AFTER.get(stage, ()):
+                try:
+                    pio.presubmit_stage(name, ps)
+                    print(f"[graph] presubmit[{ps}/{name}] submitted early "
+                          f"(overlaps rest of chain)", flush=True)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[graph] presubmit[{ps}/{name}] failed ({exc}); "
+                          f"will submit sequentially", flush=True)
         except Exception as exc:  # noqa: BLE001
             print(f"[graph] stage[{stage}/{name}] FAILED: {exc}", flush=True)
             errors.append(f"stage[{stage}/{name}]: {exc}")

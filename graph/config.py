@@ -75,12 +75,33 @@ GRID_STAGES_BY_MODE = {
     # foilsflash: like ipa, NO run1b_mubeam (calo dropped). 2nd objective is the
     # electron-beam early-flash tracker edep from the elebeam_flash stage (which
     # resamples the external EleBeamCat dataset, DS-on, ships the foil geom).
-    # mubeam→concat→mustops_ce gives S/√B; elebeam_flash gives flash edep.
-    "foilsflash":   ["mubeam", "concat", "mustops_ce", "elebeam_flash"],
+    # mubeam→mustops_ce gives S/√B; elebeam_flash gives flash edep.
+    # concat DROPPED 2026-07-10: the mubeam template now carries the mu-
+    # purity filter (muminusSelector in targetStopPath), so TargetStops is
+    # mu--pure and mustops_ce resamples the 15 mubeam files directly
+    # (auxinput=1, per-file slices). Saves ~40 min/eval of grid latency.
+    # See wiki bo-noise-budget "Do we need concat?".
+    "foilsflash":   ["mubeam", "mustops_ce", "elebeam_flash"],
     "prodtarget":   ["pot_only"],
     "prodtarget6d": ["pot_only"],
 }
 GRID_STAGES = GRID_STAGES_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")]
+
+# Overlap seam (2026-07-10): stages with NO internal data dependency are
+# pre-submitted as soon as an earlier stage lands, hiding their grid time
+# behind the rest of the chain. Map: after-stage -> [stages to presubmit].
+# elebeam_flash resamples the EXTERNAL EleBeamCat (reads nothing from
+# mubeam/mustops), so it is submitted right after mubeam completes — NOT at
+# preflight: q parallel children presubmitting at round start would double
+# the submit-lock ramp (the ff05 flood lesson, see bo-noise-budget).
+# elebeam wall ~90 min hides fully behind mustops_ce ~111 min → ~25%/eval.
+# Best-effort: a presubmit failure degrades to the sequential path via
+# pipeline.py's idempotent cluster-file guard.
+PRESUBMIT_AFTER_BY_MODE = {
+    "foilsflash": {"mubeam": ["elebeam_flash"]},
+}
+PRESUBMIT_AFTER = PRESUBMIT_AFTER_BY_MODE.get(
+    os.environ.get("AUTORESEARCH_MODE", "michael"), {})
 
 # Sob-only picker (qlnei) doesn't need calo → drop the DS-off run1b_mubeam
 # stage entirely. Stamped via AUTORESEARCH_NO_RUN1B env var by closed_loop.py

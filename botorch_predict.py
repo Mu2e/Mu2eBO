@@ -78,10 +78,12 @@ MODE_SPECS = {
         "int_dims": [],
     },
     "foilsflash": {
-        # Same 6D box as foilsf (FoilsFlashMode inherits build_space); only the
-        # 2nd objective differs (electron-flash tracker edep vs calo). Keep in
-        # lockstep with the foilsf entry above.
-        "lo":       [ 50.0,  50.0, 0.01, 0.01, 0.00, 0.00],
+        # Thickness-probe box (2026-07-09): hT floor WIDENED 0.01->0.002 mm
+        # (20 µm -> 4 µm full) to test whether thinner-than-20 µm upstream foils
+        # help — the optimizer rail-pinned at the old 0.01 floor. MUST stay in
+        # lockstep with FoilsFlashMode.build_space / HT_FLOOR in
+        # autoresearch_bo_michael.py (foilsflash-ONLY override; foilsf keeps 0.01).
+        "lo":       [ 50.0,  50.0, 0.002, 0.002, 0.00, 0.00],
         "hi":       [250.0, 250.0, 1.00, 1.00, 0.95, 0.95],
         "int_dims": [],
     },
@@ -406,9 +408,19 @@ def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int):
     collide. One GP fit / one subprocess call (the caller already fit `model`).
     Recommended default for new multi-objective lines. If q_pe == 0 (small q)
     this is pure qnehvi. Batch order: qnehvi picks first, parego picks after.
+
+    The hv fraction is an env seam (AUTORESEARCH_HYBRID_HV_FRAC, default
+    0.6): two rounds of live attribution (ff09+ff11, 2026-07-10) showed
+    qnehvi's front hit-rate collapsing at deep saturation (4/6 → 0/6) while
+    parego kept delivering (3/4 → 2/4 incl. the new champion) — drop toward
+    0.3-0.4 for end-of-line campaigns; 0.0 is valid (pure qnparego).
+    See wiki saturation-is-acquisition-relative.
     """
-    q_hv = max(1, round(0.6 * q))
+    hv_frac = float(os.environ.get("AUTORESEARCH_HYBRID_HV_FRAC", "0.6"))
+    q_hv = min(q, max(0, round(hv_frac * q)))
     q_pe = q - q_hv
+    if q_hv == 0:
+        return _qnparego_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
     hv_cands = _qnehvi_picks(model, X, Y, bounds, q=q_hv, round_idx=round_idx)
     if q_pe == 0:
         return hv_cands

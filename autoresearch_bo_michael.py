@@ -1046,6 +1046,26 @@ class FoilsFlashMode(FoilsFracMode):
     # Fresh line, no priors -> Sobol-seed the first skopt-fallback round.
     N_INITIAL_POINTS = 10
 
+    # Widened halfThickness floor for the thickness-probe experiment (2026-07-09).
+    # The inherited FoilsFracMode box floors hT at 0.01 mm (=20 µm full), against
+    # which the optimizer RAIL-PINS (every sob>3.5 row has hT_up=0.0100; 141/216
+    # rows at the floor — see wiki/projects/bo-foilsflash.md "SEARCH-BOX FLOOR").
+    # Drop to 0.002 mm (=4 µm full) to test whether thinner-than-20 µm upstream
+    # foils help. MUST stay in lockstep with botorch_predict.py
+    # MODE_SPECS["foilsflash"]["lo"] dims 2,3 (the qnehvi/hybrid picker's box).
+    HT_FLOOR = 0.002
+
+    def build_space(self):
+        from skopt.space import Real
+        return [
+            Real(50.0, 250.0, name="extra_rOut_up"),
+            Real(50.0, 250.0, name="extra_rOut_dn"),
+            Real(self.HT_FLOOR, 1.0, name="extra_halfThickness_up"),
+            Real(self.HT_FLOOR, 1.0, name="extra_halfThickness_dn"),
+            Real(0.0, self.F_MAX, name="extra_f_up"),
+            Real(0.0, self.F_MAX, name="extra_f_dn"),
+        ]
+
     def load_priors(self):
         return []
 
@@ -1059,7 +1079,18 @@ class FoilsFlashMode(FoilsFracMode):
         sob = summary["s_over_sqrt_b"]
         edep = summary.get("flash_edep_per_pot")
         if edep is None:
-            edep = summary.get("flash_edep_per_event", summary.get("calo_per_pot"))
+            edep = summary.get("flash_edep_per_event")
+        if edep is None or edep <= 0:
+            # Flash-less summary = the elebeam stage failed fail-soft. NEVER
+            # coerce to 0: a fake zero-flash row at good sob dominates the
+            # entire Pareto front at the next GP refit (7 poison rows landed
+            # this way 2026-07-10 via the direct-CLI evaluate path; the graph
+            # path was guarded in node_evaluate, this path was not).
+            raise SystemExit(
+                f"[foilsflash] flash edep missing/zero in summary for "
+                f"{summary.get('config', '?')} — refusing to append a row; "
+                f"recover the elebeam stage first (see wiki "
+                f"elebeamcat-tape-migration-elebeam-wipeout)")
         return sob, edep
 
     def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
