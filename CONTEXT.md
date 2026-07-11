@@ -60,6 +60,13 @@ The per-round module that owns child Resolution — including the dead-PID grace
 **Signals adapter**:
 The injected reader of the five raw child signals (leaderboard row, broken.txt, terminal checkpoint, PID liveness, cluster.txt); production adapter reads disk/SQLite, tests inject a fake.
 
+**Eval summary**:
+The explicit, typed product of harvest (`harvest.EvalSummary` → `harvest/summary.json`): the primary sob chain plus fail-soft secondary objectives, with a `degraded` record of every extraction that fail-softed. The leaderboard row is derived from it.
+_Avoid_: "the summary dict" (implicit 26-key contract)
+
+**Stage-chain stamp**:
+`state/stage_chain.txt`, written at first submit — the one owner of "which stages ran for THIS Eval" (e.g. did concat run). Harvest and template materialization read the stamp (legacy fallback: file presence), never the process env.
+
 **Preflight**:
 The local 1-event G4 feasibility check gating grid submission; verdicts are `pass` / `fail_managed` / `fail_init` / `ambiguous`.
 

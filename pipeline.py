@@ -81,6 +81,10 @@ from config import (  # noqa: E402
 # mubeam files directly and harvest counts mu- stops from them.
 CONCATLESS = "concat" not in GRID_STAGES
 from sourced_bash import run_sourced_bash  # noqa: E402
+# Eval-summary module: schema + pure harvest logic (parsers, stage-chain
+# stamp, input resolution, fail-soft secondary extraction). See wiki
+# concepts/architecture-friction-survey-2026-07 (2026-07-11 addendum).
+import harvest as hv  # noqa: E402
 
 # Canonical muse-built Code.tar.bz2 produced by `muse tarball` from
 # /exp/mu2e/app/users/oksuzian/autoresearch_muse/ (mgit Mu2eG4 sparse
@@ -300,7 +304,7 @@ if os.environ.get("AUTORESEARCH_MODE") == "foilsflash":
 # turn the elebeam_flash TOTAL edep into an absolute MeV/POT rate (the flash-per-POT
 # objective — the geometry-sensitive lever; the per-event MEAN divides out the
 # flash-event count and is blind to it). See wiki/projects/bo-foilsflash.md.
-POT_PER_ELECTRON = 25_000_000 / 2_166_994
+POT_PER_ELECTRON = hv.POT_PER_ELECTRON  # single source of truth in harvest.py
 
 
 def _stage_desc(stage: str) -> str:
@@ -383,7 +387,12 @@ def _materialize_template(stage: str) -> Path:
     if "__PT_PLATE_NAMES__" in text:
         n = _parse_n_plates_from_geom()
         text = text.replace("__PT_PLATE_NAMES__", _render_pt_plate_names_csv(n))
-    if stage == "mustops_ce" and CONCATLESS:
+    # Stamp-aware concat-less decision: the Eval's own stage-chain stamp wins
+    # (written by cmd_submit before materialization); the env-derived global
+    # is only the fallback for pre-stamp legacy configs.
+    chain = hv.stamped_stage_chain(STATE)
+    concatless = ("concat" not in chain) if chain is not None else CONCATLESS
+    if stage == "mustops_ce" and concatless:
         # The shared template's MaxEventsToSkip (100720) is tuned to the
         # merged concat file (~240k events). Concat-less jobs each read ONE
         # mubeam file (~16k mu- stop events for the 37-foil base +- extras);
@@ -872,6 +881,12 @@ def cmd_submit(args):
         print(f"[{args.stage}] already submitted (cluster={cid}); skip submit "
               f"(use --force to override)")
         return
+    # Stage-chain stamp: record THIS Eval's chain at first submit so harvest
+    # and template materialization never re-interpret an old config under the
+    # current env's chain (the ff11R00_07 +1.5% sob bias class). One owner:
+    # harvest.resolve_muminus_inputs / stamped_stage_chain.
+    if not (STATE / hv.STAGE_CHAIN_STAMP).exists():
+        hv.stamp_stage_chain(STATE, list(GRID_STAGES))
     env = sourced_env()
     inputs_file = None
     staged_input_dir = None
@@ -913,26 +928,6 @@ def cmd_poll(args):
     poll_cluster(args.stage, cluster, quorum=quorum, cap_hours=args.cap_hours)
 
 
-def _edep_from_stage_outputs(stage, env):
-    """Fail-soft StrawGasStep-Edep extraction from a stage's landed outputs.
-
-    Shared skeleton of harvest Steps 6 (mustops_pileup) and 7 (elebeam_flash):
-    read state/<stage>_outputs.txt, run _extract_trk_edep_per_pot over the
-    files, print-and-swallow failures. Returns (metrics_4tuple, files) or
-    None when the stage didn't run this chain / extraction failed — callers
-    name the tuple elements per their metric (trk_* vs flash_*).
-    """
-    outputs = STATE / f"{stage}_outputs.txt"
-    if not outputs.exists():
-        return None
-    files = [Path(p) for p in outputs.read_text().splitlines() if p.strip()]
-    try:
-        return _extract_trk_edep_per_pot(files, env), files
-    except Exception as e:  # noqa: BLE001
-        print(f"    {stage} edep extraction failed: {e}")
-        return None
-
-
 def cmd_list_outputs(args):
     _check_stage_config_sha(args.stage)
     # Idempotency guard: if outputs were already listed and every basename
@@ -962,7 +957,7 @@ def cmd_materialize(args):
 # Constant from extract_analysis_results._MUBEAM_INPUT_EFFICIENCY_BY_FCL["run1a_beam/mubeam.fcl"].
 # This is the fraction of upstream POT that survive into the MuBeamCat resampler input,
 # needed to convert per-simulated-event yields into per-POT yields.
-RUN1A_MUBEAM_INPUT_CORRECTION = 0.01278168
+RUN1A_MUBEAM_INPUT_CORRECTION = hv.RUN1A_MUBEAM_INPUT_CORRECTION  # single source in harvest.py
 
 # Path to the autoresearch repo so we can find the EdepAna fcl + ROOT macro.
 AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
@@ -974,8 +969,8 @@ SENSITIVITY_MACRO = AUTORESEARCH / "Run1BAna/workflows/scripts/rough_run1a_sensi
 # missed those → false "summary not found" → harvest_exception zero rows. float()
 # then int() handles both "2709366" and "2.70937e+06" (the ~4-event rounding from
 # %g is negligible vs 2.7M). See bo-foilsflash harvest-sci-notation fix.
-_EDEP_SAW_RX = re.compile(r"EdepAna summary:\s*Saw\s+([\d.eE+-]+)\s+events")
-_S_OVER_SQRTB_RX = re.compile(r"^Signal box.*S/sqrt\(B\)\s*=\s*([\d.eE+-]+)\s*$", re.MULTILINE)
+# EdepAna / sensitivity-macro parsers live in harvest.py (parse_edepana_saw,
+# parse_s_over_sqrt_b) — incl. the sci-notation fix, regression-tested there.
 
 # TargetMuonFinder/stopmat bin labels (mmackenz extract_analysis_results._CALO_STOP_MATERIALS)
 _CALO_STOP_MATERIALS = ("G4_CESIUM_IODIDE", "CarbonFiber", "AluminumHoneycomb")
@@ -1265,24 +1260,10 @@ def cmd_harvest(args):
     ce_files = [Path(p) for p in (STATE / "mustops_ce_outputs.txt").read_text().splitlines() if p.strip()]
     if not ce_files:
         raise SystemExit("No mustops_ce outputs to harvest")
-    # Presence-driven, NOT env-driven (2026-07-10): a concat-era config
-    # harvested under a concat-less env would count mu- stops from its
-    # UNFILTERED TargetStops files (+0.9% mu+ contamination, sob biased
-    # +1.5% observed on the ff11R00_07 400j confirm). If concat outputs
-    # exist, they are the truth for this config regardless of mode env.
-    if CONCATLESS and not (STATE / "concat_outputs.txt").exists():
-        # mu- stop count comes straight from the mu--pure mubeam TargetStops
-        # files (muminusSelector in the mubeam template guarantees purity).
-        stops_list = STATE / "mubeam_outputs.txt"
-        muminus_files = [Path(p) for p in stops_list.read_text().splitlines()
-                         if p.strip() and "TargetStops" in Path(p).name]
-        if not muminus_files:
-            raise SystemExit("No TargetStops in mubeam outputs")
-    else:
-        concat_files = [Path(p) for p in (STATE / "concat_outputs.txt").read_text().splitlines() if p.strip()]
-        muminus_files = [f for f in concat_files if "MuminusStopsCat" in f.name]
-        if not muminus_files:
-            raise SystemExit("No MuminusStopsCat in concat outputs")
+    # Stamp+presence-driven, NOT env-driven (ff11R00_07 +1.5% sob bias):
+    # harvest.resolve_muminus_inputs owns the "did concat run for THIS Eval"
+    # decision (stage-chain stamp first, file presence for legacy configs).
+    muminus_files, muminus_source = hv.resolve_muminus_inputs(STATE)
 
     # Derive denominators from the actual files we'll harvest, not STAGES.njobs
     # — if any grid jobs were lost (OOM, held), STAGES.njobs over-counts and biases
@@ -1310,10 +1291,10 @@ def cmd_harvest(args):
     edep_log.write_text(proc.stdout + "\n=== STDERR ===\n" + proc.stderr)
     if proc.returncode != 0:
         raise SystemExit(f"EdepAna failed (rc={proc.returncode}); see {edep_log}")
-    m = _EDEP_SAW_RX.search(proc.stdout)
-    if not m:
-        raise SystemExit(f"EdepAna 'Saw N events' summary not found; see {edep_log}")
-    ce_seen = int(float(m.group(1)))
+    try:
+        ce_seen = hv.parse_edepana_saw(proc.stdout)
+    except ValueError as e:
+        raise SystemExit(f"{e}; see {edep_log}")
 
     print(">>> Step 2: counting events in MuminusStopsCat")
     muminus_stops = sum(_count_events_art(f, env, harvest_dir) for f in muminus_files)
@@ -1338,11 +1319,12 @@ def cmd_harvest(args):
     macro_log.write_text(proc.stdout + "\n=== STDERR ===\n" + proc.stderr)
     if proc.returncode != 0:
         raise SystemExit(f"rough_run1a_sensitivity.C failed (rc={proc.returncode}); see {macro_log}")
-    m = _S_OVER_SQRTB_RX.search(proc.stdout)
-    if not m:
-        raise SystemExit(f"S/sqrt(B) not found in macro output; see {macro_log}")
-    s_over_sqrt_b = float(m.group(1))
+    try:
+        s_over_sqrt_b = hv.parse_s_over_sqrt_b(proc.stdout)
+    except ValueError as e:
+        raise SystemExit(f"{e}; see {macro_log}")
 
+    degraded: dict = {}  # stage -> reason, for every fail-softed extraction
     print(">>> Step 5: TargetMuonFinder/stopmat from run1b_mubeam outputs")
     run1b_outputs = STATE / "run1b_mubeam_outputs.txt"
     calo_per_pot = None
@@ -1354,6 +1336,7 @@ def cmd_harvest(args):
             calo_per_pot, calo_total, calo_files_seen = _extract_calo_per_pot(run1b_files, env)
         except Exception as e:  # noqa: BLE001
             print(f"    calo extraction failed: {e}")
+            degraded["run1b_mubeam"] = f"calo extraction failed: {e}"
     if calo_per_pot is not None:
         print(f"    calo_total          = {calo_total}")
         print(f"    calo_files_seen     = {calo_files_seen}")
@@ -1365,14 +1348,18 @@ def cmd_harvest(args):
     # pileup (capture protons etc.). Only present when the IPA chain ran the
     # mustops_pileup stage. Fail-soft like calo.
     print(">>> Step 6: tracker StrawGasStep Edep from mustops_pileup outputs")
-    trk_edep_per_pot = None
-    trk_edep_total_MeV = None
-    trk_edep_events = None
-    trk_edep_tag = None
-    res = _edep_from_stage_outputs("mustops_pileup", env)
-    if res is not None:
-        (trk_edep_per_pot, trk_edep_total_MeV, trk_edep_events,
-         trk_edep_tag, _pileup_per_file), _ = res
+    trk = hv.extract_secondary_edep(
+        STATE, "mustops_pileup",
+        runner=lambda files: _extract_trk_edep_per_pot(files, env))
+    # ipa objective is the per-EVENT mean (∝ per-POT: every IPA config
+    # resamples the same TargetStops population) — historic key name kept.
+    trk_edep_per_pot = trk.per_event if trk else None
+    trk_edep_total_MeV = trk.total_MeV if trk else None
+    trk_edep_events = trk.n_events if trk else None
+    trk_edep_tag = trk.tag if trk else None
+    if trk is not None and trk.error:
+        print(f"    {trk.error}")
+        degraded["mustops_pileup"] = trk.error
     if trk_edep_per_pot is not None:
         print(f"    trk_edep_total_MeV  = {trk_edep_total_MeV}")
         print(f"    trk_edep_events     = {trk_edep_events}")
@@ -1393,47 +1380,26 @@ def cmd_harvest(args):
     # count) is BLIND to the lever and is kept only for back-compat/diagnostics.
     # Fail-soft like calo/trk_edep.
     print(">>> Step 7: tracker StrawGasStep Edep from elebeam_flash (early) outputs")
-    flash_edep_per_event = None
-    flash_edep_total_MeV = None
-    flash_edep_events = None
-    flash_edep_tag = None
-    flash_edep_per_pot = None
-    flash_n_input = None
-    flash_edep_per_pot_winsor = None
-    flash_perfile_stats = None
-    res = _edep_from_stage_outputs("elebeam_flash", env)
-    if res is not None:
-        (flash_edep_per_event, flash_edep_total_MeV, flash_edep_events,
-         flash_edep_tag, flash_per_file), flash_files = res
-        # POT denominator = landed files x stamped events_per_job (input electrons
-        # resampled 1:1) x POT_PER_ELECTRON. Uses the SUBMIT-stamped events_per_job
-        # so a mid-flight STAGES edit doesn't mis-scale (see events-per-job incident).
-        if flash_edep_total_MeV is not None and flash_files:
-            flash_n_input = len(flash_files) * _events_per_job("elebeam_flash")
-            if flash_n_input:
-                flash_edep_per_pot = flash_edep_total_MeV / (flash_n_input * POT_PER_ELECTRON)
-        # Robust decision metric (2026-07-10): 5/95 Winsorized mean of the
-        # per-file totals — clips the heavy per-job tail (sd/mean 25-35%)
-        # that made single runs swing ±5-11% (bo-noise-budget run-level
-        # sigma). Slightly biased low vs the physical mean (the tail is
-        # real flash), so it is RECORDED alongside, not substituted; the
-        # leaderboard objective stays the plain mean.
-        if flash_per_file and len(flash_per_file) >= 10 and flash_files:
-            v = sorted(flash_per_file)
-            k = max(1, int(0.05 * len(v)))
-            lo, hi = v[k], v[-k - 1]
-            w = [min(max(x, lo), hi) for x in flash_per_file]
-            wmean = sum(w) / len(w)
-            epj = _events_per_job("elebeam_flash")
-            flash_edep_per_pot_winsor = wmean / (epj * POT_PER_ELECTRON)
-            m = sum(flash_per_file) / len(flash_per_file)
-            sd = (sum((x - m) ** 2 for x in flash_per_file) / (len(flash_per_file) - 1)) ** 0.5
-            flash_perfile_stats = {
-                "n_files": len(flash_per_file),
-                "sd_over_mean": round(sd / m, 4) if m else None,
-                "min": round(min(flash_per_file), 6),
-                "max": round(max(flash_per_file), 6),
-            }
+    flash = hv.extract_secondary_edep(
+        STATE, "elebeam_flash",
+        runner=lambda files: _extract_trk_edep_per_pot(files, env))
+    flash_edep_per_event = flash.per_event if flash else None
+    flash_edep_total_MeV = flash.total_MeV if flash else None
+    flash_edep_events = flash.n_events if flash else None
+    flash_edep_tag = flash.tag if flash else None
+    if flash is not None and flash.error:
+        print(f"    {flash.error}")
+        degraded["elebeam_flash"] = flash.error
+    # POT denominator = landed files x stamped events_per_job (input electrons
+    # resampled 1:1) x POT_PER_ELECTRON — see events-per-job incident.
+    epj_flash = _events_per_job("elebeam_flash")
+    flash_edep_per_pot, flash_n_input = hv.per_pot(
+        flash_edep_total_MeV, flash.n_files if flash else 0, epj_flash)
+    # Winsorized per-POT mean + per-file spread: run-level DIAGNOSTICS (the
+    # sigma_flash QA data), NOT the objective — the leaderboard stays on the
+    # plain mean. See harvest.winsorized_diagnostics.
+    flash_edep_per_pot_winsor, flash_perfile_stats = hv.winsorized_diagnostics(
+        flash.per_file if flash else None, epj_flash)
     if flash_edep_per_event is not None:
         print(f"    flash_edep_total_MeV  = {flash_edep_total_MeV}")
         print(f"    flash_edep_events     = {flash_edep_events}")
@@ -1446,36 +1412,38 @@ def cmd_harvest(args):
     else:
         print("    flash_edep_per_event  = (unavailable)")
 
-    summary = {
-        "config": CONFIG,
-        "ce_seen": ce_seen,
-        "muminus_stops": muminus_stops,
-        "mubeam_sim_total": mubeam_sim_total,
-        "ce_simulated_events": ce_simulated_events,
-        "stopping_factor": stopping_factor,
-        "ce_abs_eff": ce_abs_eff,
-        "s_over_sqrt_b": s_over_sqrt_b,
-        "trk_edep_per_pot": trk_edep_per_pot,
-        "trk_edep_total_MeV": trk_edep_total_MeV,
-        "trk_edep_events": trk_edep_events,
-        "trk_edep_tag": trk_edep_tag,
-        "flash_edep_per_event": flash_edep_per_event,
-        "flash_edep_per_pot": flash_edep_per_pot,
-        "flash_edep_per_pot_winsor": flash_edep_per_pot_winsor,
-        "flash_perfile_stats": flash_perfile_stats,
-        "flash_edep_total_MeV": flash_edep_total_MeV,
-        "flash_edep_events": flash_edep_events,
-        "flash_n_input": flash_n_input,
-        "flash_edep_tag": flash_edep_tag,
-        "calo_per_pot": calo_per_pot,
-        "calo_total": calo_total,
-        "calo_files_seen": calo_files_seen,
-        "nts_path": str(nts_path),
-        "edep_log": str(edep_log),
-        "macro_log": str(macro_log),
-    }
-    (harvest_dir / "summary.json").write_text(json.dumps(summary, indent=2))
-    print("\n" + json.dumps(summary, indent=2))
+    summary = hv.EvalSummary(
+        config=CONFIG,
+        ce_seen=ce_seen,
+        muminus_stops=muminus_stops,
+        mubeam_sim_total=mubeam_sim_total,
+        ce_simulated_events=ce_simulated_events,
+        stopping_factor=stopping_factor,
+        ce_abs_eff=ce_abs_eff,
+        s_over_sqrt_b=s_over_sqrt_b,
+        muminus_source=muminus_source,
+        calo_per_pot=calo_per_pot,
+        calo_total=calo_total,
+        calo_files_seen=calo_files_seen,
+        trk_edep_per_pot=trk_edep_per_pot,
+        trk_edep_total_MeV=trk_edep_total_MeV,
+        trk_edep_events=trk_edep_events,
+        trk_edep_tag=trk_edep_tag,
+        flash_edep_per_event=flash_edep_per_event,
+        flash_edep_per_pot=flash_edep_per_pot,
+        flash_edep_per_pot_winsor=flash_edep_per_pot_winsor,
+        flash_perfile_stats=flash_perfile_stats,
+        flash_edep_total_MeV=flash_edep_total_MeV,
+        flash_edep_events=flash_edep_events,
+        flash_n_input=flash_n_input,
+        flash_edep_tag=flash_edep_tag,
+        nts_path=str(nts_path),
+        edep_log=str(edep_log),
+        macro_log=str(macro_log),
+        degraded=degraded,
+    )
+    summary.write(harvest_dir)
+    print("\n" + summary.to_json())
 
 
 def main():
