@@ -1,0 +1,44 @@
+#include "Production/JobConfig/beam/POT.fcl"
+
+# Per-config geometry overlay shipped via Code.tar.bz2 (Stickman knobs).
+services.GeometryService.inputFile : "__GEOM_FILE__"
+
+# PT plate SDs + per-plate edep histogrammer. The plate-name CSV is
+# rendered by pipeline.py:_materialize_template from the geom file's
+# targetPS_numberOfPlates. The custom ProductionTargetEdepHist module
+# (autoresearch_muse_prodtarget/Offline/Analyses/src/) books two TH1Ds
+# under ptEdepHist/: edep_MeV and nielEdep_MeV, one bin per plate.
+# uproot-readable -> harvest avoids the StepPointMC memberwise wall
+# (wiki/incidents/uproot-cannot-read-steppointmc.md).
+physics.producers.g4run.SDConfig.sensitiveVolumes : [ __PT_PLATE_NAMES__ ]
+
+physics.analyzers.ptEdepHist : {
+  module_type   : "ProductionTargetEdepHist"
+  g4ModuleLabel : "g4run"
+  instanceNames : [ __PT_PLATE_NAMES__ ]
+}
+
+# In-memory ReadVirtualDetector. Restrict PDG to muons to keep
+# pot_vd.root small (saveAllPDG:true measured 2.4 MB/evt at defaults,
+# dominated by e+/e-; muons-only is much smaller).
+physics.analyzers.readVD : {
+  module_type   : "ReadVirtualDetector"
+  vdStepPoints  : "g4run:virtualdetector"
+  tvdStepPoints : "g4run:timeVD"
+  saveAllPDG    : false
+  savePDG       : [ "mu_minus", "mu_plus" ]   # mu-, mu+
+  maxPrint      : 0
+}
+physics.AnaPath : [ readVD, ptEdepHist ]
+
+# Exact per-job POT count via 1-bin TH1D genCountLogger/numEvents
+# (CommonMC/src/GenEventCountReader_module.cc:95-101). Read in harvest
+# via uproot (issue #13). Avoids the events_per_job-stamp denominator
+# proxy used by other stages.
+physics.analyzers.genCountLogger.makeHistograms : true
+
+# Drop the Beam.art + Neutrals.art outputs (downstream mubeam stages do
+# not run in this BO line). Keep LogPath; route AnaPath alongside.
+physics.end_paths : [ LogPath, AnaPath ]
+
+services.TFileService.fileName : "nts.owner.POT_vd.version.sequencer.root"
