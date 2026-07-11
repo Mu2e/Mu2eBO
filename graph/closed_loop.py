@@ -96,14 +96,11 @@ from config import (  # noqa: E402
 
 from sourced_bash import run_sourced_bash  # noqa: E402
 
-PICKER_CHOICES = ("cl_min", "qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid")
-DEFAULT_PICKER = "cl_min"
-
-# gp_predict_helical lives in the sub-repo (sister of leaderboard). Import
-# lazily so the module imports cleanly even when sub-repo is absent (e.g.,
-# unit tests on a thin checkout).
-GP_SCRIPT_DIR = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots")
-
+# cl_min retired per ADR-0001 (2026-07-06, deleted 2026-07-11): the closed
+# loop must never import code outside this repo; all pickers route through
+# in-repo botorch_predict.py in .venv-botorch.
+PICKER_CHOICES = ("qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid")
+DEFAULT_PICKER = "hybrid"
 
 # ============================================================================
 # Outer state schema
@@ -144,32 +141,6 @@ class RoundState(TypedDict, total=False):
 # ============================================================================
 # Helpers
 # ============================================================================
-
-def _import_gp(mode: str = "helical"):
-    """Import the mode-specific GP picker from the sub-repo (path-injected).
-
-    Both pickers expose compute_explore_picks(q, nsteps_budget, min_spacing,
-    pessimistic_calo); foils ignores nsteps_budget/min_spacing/pessimistic_calo
-    (skopt-EI shim, 5D Integer+Real space).
-    """
-    if str(GP_SCRIPT_DIR) not in sys.path:
-        sys.path.insert(0, str(GP_SCRIPT_DIR))
-    if mode == "helical":
-        import gp_predict_helical as gp  # noqa: WPS433
-    elif mode == "foils":
-        import gp_predict_foils as gp  # noqa: WPS433
-    elif mode == "foilsf":
-        import gp_predict_foilsf as gp  # noqa: WPS433
-    elif mode == "foilsflash":
-        import gp_predict_foilsflash as gp  # noqa: WPS433
-    elif mode == "foilsg":
-        import gp_predict_foilsg as gp  # noqa: WPS433
-    elif mode == "ipa":
-        import gp_predict_ipa as gp  # noqa: WPS433
-    else:
-        raise ValueError(f"_import_gp: no GP picker registered for mode={mode!r}")
-    return gp
-
 
 def _stop_requested() -> bool:
     return STOP_FLAG.exists()
@@ -293,7 +264,7 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, p
     picks through a temp JSON file using botorch_predict.py's
     --emit-picks-json.
 
-    picker = any non-cl_min PICKER_CHOICES entry: "qnehvi" (multi-obj),
+    picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj),
     "qlnei" (single-obj sob), "pareto_sob" (GP-mean sob corner),
     "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
     (~60% qnehvi + ~40% qnparego; recommended for new multi-objective lines).
@@ -305,7 +276,7 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, p
     if not BOTORCH_VENV_PY.exists():
         raise FileNotFoundError(
             f"[closed_loop] picker={picker} requested but {BOTORCH_VENV_PY} "
-            f"is missing; install .venv-botorch or use --picker cl_min"
+            f"is missing; install .venv-botorch (all pickers require it)"
         )
     with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tf:
         out_path = Path(tf.name)
@@ -336,13 +307,8 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, p
 def node_predict_picks(state: RoundState) -> dict:
     """Refit GP, return q picks. Picker is one of PICKER_CHOICES.
 
-    cl_min (default): in-process sklearn-GP + skopt EI via mode-keyed
-      gp_predict_{foils,helical}.compute_explore_picks. Production default
-      per LOCO honest-judge eval (CL-min wins 4/5 cohorts on foils n=177)
-      — see wiki/concepts/batch-bo.md.
-
-    Everything else subprocesses into .venv-botorch (disjoint venv) to run
-    botorch_predict.py:
+    All pickers subprocess into .venv-botorch (disjoint venv) to run
+    botorch_predict.py (cl_min retired per ADR-0001):
       qnehvi: multi-objective Pareto-HV picker; native acquisition is qNEHVI,
         not the scalarized obj the leaderboard reports.
       qlnei: single-obj qLogNoisyEI on sob only (drops the run1b_mubeam stage).
@@ -357,16 +323,7 @@ def node_predict_picks(state: RoundState) -> dict:
     mode = state["mode"]
     picker = state.get("picker", DEFAULT_PICKER)
     alpha = state.get("alpha", DEFAULT_ALPHA)
-    if picker != "cl_min":
-        picks = _botorch_picks_subprocess(mode, q, state["round_idx"], alpha, picker=picker)
-    else:
-        gp = _import_gp(mode)
-        picks = gp.compute_explore_picks(
-            q=q,
-            nsteps_budget=state.get("nsteps_budget", NSTEPS_BUDGET),
-            min_spacing=state.get("min_spacing", CLOSED_LOOP_MIN_PICK_SPACING),
-            pessimistic_calo=state.get("pessimistic_calo", False),
-        )
+    picks = _botorch_picks_subprocess(mode, q, state["round_idx"], alpha, picker=picker)
     print(f"[closed_loop] predict_picks[r{state['round_idx']}]: "
           f"picker={picker} pessimistic_calo={state.get('pessimistic_calo', False)} "
           f"q={q} got={len(picks)}", flush=True)
@@ -748,14 +705,7 @@ _DRY_RUN_KNOB_LABELS = {
 
 
 def _dry_run(args: argparse.Namespace) -> int:
-    if args.picker != "cl_min":
-        picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, alpha=args.alpha, picker=args.picker)
-    else:
-        gp = _import_gp(args.mode)
-        picks = gp.compute_explore_picks(
-            q=args.q, nsteps_budget=args.nsteps_budget, min_spacing=args.min_spacing,
-            pessimistic_calo=args.pessimistic_calo,
-        )
+    picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, alpha=args.alpha, picker=args.picker)
     print(f"[dry-run] round 0: {len(picks)} picks (mode={args.mode}, picker={args.picker})")
     labels = _DRY_RUN_KNOB_LABELS.get(args.mode, tuple(f"x{i}" for i in range(len(picks[0]) if picks else 0)))
     for j, p in enumerate(picks):
@@ -796,12 +746,12 @@ def main() -> int:
     ap.add_argument("--thread-id", default=None,
                     help="if omitted, a fresh uuid is used; reuse to resume")
     ap.add_argument("--picker", choices=PICKER_CHOICES, default=DEFAULT_PICKER,
-                    help="batch picker; cl_min = in-process skopt EI (default, "
-                         "LOCO-validated); qnehvi/qlnei/pareto_sob/qnparego/hybrid "
-                         "subprocess into .venv-botorch for BoTorch picks. "
-                         "hybrid (~60%% qnehvi + ~40%% qnparego) is the recommended "
-                         "default for new multi-objective lines; qnparego spreads "
-                         "picks across the whole front")
+                    help="batch picker (all subprocess into .venv-botorch; "
+                         "cl_min retired per ADR-0001). hybrid (~60%% qnehvi + "
+                         "~40%% qnparego, the default) is recommended for "
+                         "multi-objective lines; qnparego spreads picks across "
+                         "the whole front; pareto_sob exploits the GP-mean "
+                         "sob corner")
     ap.add_argument("--dry-run", action="store_true",
                     help="print round-0 picks + names without launching")
     args = ap.parse_args()

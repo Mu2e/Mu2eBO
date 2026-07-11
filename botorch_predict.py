@@ -243,6 +243,18 @@ def _sampler(round_idx: int):
     return SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=_seed(round_idx))
 
 
+# Acquisition-optimization budget — ONE tuning point for every picker.
+# _qnparego_picks structurally bypasses _optimize (per-candidate scalarization
+# + growing X_pending, see its docstring) but MUST share this budget; these
+# were previously copy-pasted (friction-survey FP-4, 2026-07-11).
+ACQ_NUM_RESTARTS = 16
+ACQ_RAW_SAMPLES = 512
+ACQ_OPTIONS = {"batch_limit": 5, "maxiter": 200}
+# pareto_sob front-thinning spread (normalized-space euclidean); see the
+# comment at its use site for why it differs from the closed-loop 0.05.
+PARETO_SOB_MIN_SPACING = 0.10
+
+
 def _optimize(acq, bounds, q: int) -> torch.Tensor:
     """Shared optimize_acqf call for all acquisition pickers; returns (q, d).
 
@@ -258,9 +270,9 @@ def _optimize(acq, bounds, q: int) -> torch.Tensor:
         acq_function=acq,
         bounds=bounds,
         q=q,
-        num_restarts=16,
-        raw_samples=512,
-        options={"batch_limit": 5, "maxiter": 200},
+        num_restarts=ACQ_NUM_RESTARTS,
+        raw_samples=ACQ_RAW_SAMPLES,
+        options=dict(ACQ_OPTIONS),
         sequential=True,
     )
     return candidates.detach()
@@ -391,8 +403,8 @@ def _qnparego_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None)
         )
         cand, _ = optimize_acqf(
             acq_function=acq, bounds=bounds, q=1,
-            num_restarts=16, raw_samples=512,
-            options={"batch_limit": 5, "maxiter": 200},
+            num_restarts=ACQ_NUM_RESTARTS, raw_samples=ACQ_RAW_SAMPLES,
+            options=dict(ACQ_OPTIONS),
         )
         pending.append(cand)
         picks.append(cand)
@@ -486,7 +498,11 @@ def _pareto_sob_picks(model, bounds, q: int, round_idx: int):
         if len(picks) >= q:
             break
         dmin = min(float((norm[idx] - norm[p]).pow(2).sum().sqrt()) for p in picks)
-        if dmin >= 0.10:  # keep picks at least 0.10 apart in normalized space
+        # PARETO_SOB_MIN_SPACING is deliberately looser than the closed-loop
+        # duplicate-guard (CLOSED_LOOP_MIN_PICK_SPACING=0.05): this thins the
+        # GP-MEAN front so q exploit picks don't re-measure one corner point,
+        # a different job than de-duplicating acquisition picks.
+        if dmin >= PARETO_SOB_MIN_SPACING:
             picks.append(idx)
     # if min-distance thinning didn't yield q, top up with the next-highest sob
     if len(picks) < q:

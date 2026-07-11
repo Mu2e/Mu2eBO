@@ -254,48 +254,46 @@ class TestRenewToken(unittest.TestCase):
 
 
 class TestPredictPicks(unittest.TestCase):
+    # cl_min retired per ADR-0001: every picker routes through
+    # _botorch_picks_subprocess; there is no in-process GP path to mock.
+
     def test_under_q_logs_error(self):
         state = {"q": 5, "round_idx": 0, "errors": [], "mode": "helical"}
-        fake_gp = mock.Mock()
-        fake_gp.compute_explore_picks.return_value = [
-            (1, 2, 3, 4), (5, 6, 7, 8),
-        ]
-        with mock.patch.object(cl, "_import_gp", return_value=fake_gp), \
+        picks = [(1, 2, 3, 4), (5, 6, 7, 8)]
+        with mock.patch.object(cl, "_botorch_picks_subprocess",
+                               return_value=picks), \
              mock.patch.object(cl, "_leaderboard_len", return_value=42):
             out = cl.node_predict_picks(state)
         self.assertTrue(any("only got 2/5 picks" in e for e in out["errors"]))
         self.assertEqual(len(out["children"]), 2)
         self.assertEqual(out["history_len_before"], 42)
 
-    def test_full_q_no_error(self):
+    def test_full_q_no_error_default_picker(self):
+        # No explicit picker: DEFAULT_PICKER (hybrid) must route through the
+        # subprocess like everything else.
         state = {"q": 2, "round_idx": 0, "errors": [], "mode": "helical"}
-        fake_gp = mock.Mock()
-        fake_gp.compute_explore_picks.return_value = [
-            (1, 2, 3, 4), (5, 6, 7, 8),
-        ]
-        with mock.patch.object(cl, "_import_gp", return_value=fake_gp), \
+        picks = [(1, 2, 3, 4), (5, 6, 7, 8)]
+        with mock.patch.object(cl, "_botorch_picks_subprocess",
+                               return_value=picks) as m, \
              mock.patch.object(cl, "_leaderboard_len", return_value=10):
             out = cl.node_predict_picks(state)
+        self.assertEqual(m.call_args.kwargs.get("picker"), cl.DEFAULT_PICKER)
         self.assertEqual(out["errors"], [])
         self.assertEqual(sorted(out["children"]), ["_pick_00", "_pick_01"])
         self.assertEqual(out["history_len_before"], 10)
 
     def test_qnparego_routes_to_botorch_subprocess(self):
-        # Any picker != cl_min shells into .venv-botorch; _import_gp is NOT
-        # touched. Assert routing + picker verbatim pass-through.
         state = {"q": 3, "round_idx": 2, "errors": [], "mode": "foilsflash",
                  "picker": "qnparego"}
         picks = [(float(i),) * 6 for i in range(3)]
         with mock.patch.object(cl, "_botorch_picks_subprocess",
                                return_value=picks) as m, \
-             mock.patch.object(cl, "_import_gp") as gp, \
              mock.patch.object(cl, "_leaderboard_len", return_value=42):
             out = cl.node_predict_picks(state)
         m.assert_called_once()
         self.assertEqual(m.call_args.kwargs.get("picker"), "qnparego")
         self.assertEqual(m.call_args.args[0], "foilsflash")  # mode
         self.assertEqual(m.call_args.args[2], 2)             # round_idx
-        gp.assert_not_called()
         self.assertEqual(out["errors"], [])
         self.assertEqual(len(out["children"]), 3)
         self.assertEqual(out["history_len_before"], 42)
@@ -306,12 +304,10 @@ class TestPredictPicks(unittest.TestCase):
         picks = [(float(i),) * 6 for i in range(5)]
         with mock.patch.object(cl, "_botorch_picks_subprocess",
                                return_value=picks) as m, \
-             mock.patch.object(cl, "_import_gp") as gp, \
              mock.patch.object(cl, "_leaderboard_len", return_value=10):
             out = cl.node_predict_picks(state)
         m.assert_called_once()
         self.assertEqual(m.call_args.kwargs.get("picker"), "hybrid")
-        gp.assert_not_called()
         self.assertEqual(out["errors"], [])
         self.assertEqual(len(out["children"]), 5)
 
