@@ -52,6 +52,23 @@ in this phase.
     `sum` (~4.5–5 h) to `max(sob-chain, flash)` (~3.5–4 h, ~20–25%). Requires forking the graph
     into two parallel branches feeding one harvest (a `graph/` sequencing change, NOT a config tweak);
     do NOT attempt mid-campaign.
+- **The mid-campaign edit freeze covers `botorch_predict.py` too (2026-07-11)**: it is
+  NOT only pipeline.py/templates/graph — a multi-round campaign executes
+  `botorch_predict.py` fresh at every round transition (`_botorch_picks_subprocess`
+  spawns the botorch venv), so editing it mid-campaign changes the NEXT round's picker
+  silently. Frozen while any parent with rounds remaining is alive; tests/, new
+  standalone files, wiki/docs, and git operations stay safe.
+- **Kill-verification gotcha (2026-07-11)**: launching via the Bash tool with
+  `nohup python -m graph.closed_loop ... & echo PID=$!` reports the WRAPPER
+  shell's PID, not the python's — killing that PID killed the wrapper while
+  the real parent (PID+2) survived at the barrier, invisible to `ps -p <pid>`
+  checks and to a monitor keyed on the dead PID. After any campaign kill,
+  re-verify with the PATTERN (`ps -fu $USER -ww | grep "[g]raph.closed_loop"`),
+  and key monitors on the python cmdline's PID from ps, not the $! echo.
+  Silver lining exploited: a surviving parent whose killed children later get
+  rows via recovery `evaluate` calls WILL resolve its barrier and continue to
+  the next round (in-memory old parent code + on-disk new child code is fine
+  when the child code is golden-validated).
     - **Chosen mechanism = "early-submit / late-poll", IMPLEMENTED 2026-07-01 → REVERTED 2026-07-02**
       (code removed after it BACKFIRED live — see the OVERTURNED bullet below; the graph is serial again,
       all 91 tests green; only the separate `pipeline.py` submit stderr-leak fix was KEPT). (NOT a LangGraph diamond.)

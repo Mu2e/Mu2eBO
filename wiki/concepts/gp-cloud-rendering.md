@@ -2,7 +2,34 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-01 (perpot cloud: hardcoded campaign-prefix allow-list gotcha in load(); extended to foilsflash04, n=55)
+**Updated:** 2026-07-10 (2^22 pushforward: chunked predict + O(N log N) pareto2d_idx required)
+
+## Scaling the pushforward past 2^20 needs two mechanical fixes (2026-07-10)
+Bumping `N` in `gp_predict_foilsflash_perpot_cloud.py` beyond 2^20 hits two
+walls: (1) sklearn `gp.predict()` materializes K(X*,Xtrain) in one shot —
+2^22×239 float64 ≈ 8 GB → predict in 2^19 chunks (`_pred` helper in main());
+(2) the naive O(N²) `pareto()` python loop is ~minutes at 2^20 and ~an hour at
+2^22 → `pareto2d_idx()` (sort desc by sob + `np.minimum.accumulate` running-min
+sweep, O(N log N), seconds at any N; exact same front modulo exact-duplicate
+ties). Both scripts (plot + design dump) moved to N=2^22 in lockstep 2026-07-10;
+pre-edit backup `gp_predict_foilsflash_perpot_cloud.py.bak-pre2e22` (dir is
+UNVERSIONED). Reminder: the cyan-front point count changes with N
+(render-dependent, see gotcha below) — expect n≠55 in the new legend.
+
+## The cyan "GP Pareto" dots ARE concrete designs — dump script (2026-07-10)
+Every cyan dot in `docs/foilsflash_perpot_cloud.png` is a GP *prediction at a
+specific 6D Sobol point* — the x-points exist but the plot script discards them.
+`mmackenz_table_plots/dump_gp_pareto_foilsflash_designs.py` regenerates the
+pushforward with the SAME seeds (GP random_state=42, Sobol seed=42, N=2^20,
+imports `load/make_gp/pareto/norm/BOUNDS` from the plot module so it can't
+drift) and writes the full frontier to `gp_pareto_foilsflash_designs.tsv`
+(sob_pred, flash_pred, 6 knobs). Matched the rendered n=55 exactly on first
+run. Findings (n=239 fit, 2026-07-10): best-sob end (3.88/1.07e-6 @ 114.6,
+100.2, hT 0.071/0.185, f 0.17/0.10) ≈ the SOBX01 transplant design (measured
+3.90 — that corner is VERIFIED); the **knee (~3.55-3.57 @ 6.7-6.8e-7: thin
+upstream ~30-70 µm half-thk + moderate downstream hole f_dn~0.4-0.5) predicts
+slightly better sob than the measured champion at equal flash — best
+unevaluated probe candidates**. Any row is launchable via forced `--x-point`.
 
 ## foilsflash has TWO cloud scripts — use the flash-per-POT one for the deck (2026-06-30)
 There are now two foilsflash cloud renderers; the deck (`docs/foilsflash_talk.html`) uses the SECOND:
@@ -18,7 +45,10 @@ There are now two foilsflash cloud renderers; the deck (`docs/foilsflash_talk.ht
   - **GOTCHA — the scatter set is a HARDCODED campaign-prefix allow-list in `load()` (~line 44):**
     `if not (cfg.startswith("foilsflash02") or ...03 or ...04): continue`. New rounds do NOT appear
     until you add their prefix there — silently missing rows, not an error. Extended to ff04
-    2026-07-01 (n=45→55), then ff05+ff06 2026-07-03 (n=121, filter now ff02–06 at lines ~44–46). The deployed-default gold star is added separately via `_one("foilsflashHOLEDhi")`
+    2026-07-01 (n=45→55), then ff05+ff06 2026-07-03 (n=121, filter now ff02–06 at lines ~44–46).
+    Now a `range()` form: `tuple(f"foilsflash{i:02d}" for i in range(2, N+1))` at line ~44 —
+    still needs the upper bound bumped per round (range(2,14) for ff13, 2026-07-11); SOBX01 is
+    a separate explicit `or`. The deployed-default gold star is added separately via `_one("foilsflashHOLEDhi")`
     and is NOT in the allow-list (it's a one-off n=0-extras A/B point, deliberately excluded from the
     BO scatter). Convergence warnings ("length_scale close to upper bound 0.5") are EXPECTED (the
     intentional cap), not a fit failure.

@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-06
+**Updated:** 2026-07-11 (re-survey: harvest god-function, CONCATLESS smear, dead Winsor, picker divergence, probe split-brain)
 
 ## Summary
 Codebase-wide friction map produced by the 2026-07-06 `/improve-codebase-architecture`
@@ -72,3 +72,88 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
   plain ModeSpec data need no JSON snapshot.
 - Candidates 3-5 (leaderboard schema, typed subprocess protocol, unified
   harvest) remain unpicked.
+
+## 2026-07-11 re-survey (post speed-stack) — new friction, Explore-agent verified
+
+Context: ModeSpec registry (ADR-0002), ChildTracker, and ADR-0001's
+`_import_gp` deletion all STILL unimplemented (closed_loop.py:148-171 keeps
+_import_gp; mode-scatter widened by foilsflash entries in `_DRY_RUN_KNOB_LABELS`
+:734-747). New ranked findings:
+
+1. **cmd_harvest god-function** (pipeline.py:1244-1478): ~11 responsibilities,
+   235 lines, implicit 24-key summary dict as the real interface; Steps 5/6/7
+   (calo/trk/flash extract) near-copies with 3 fail-soft swallow copies
+   (:1355, :932, :1219); 3 of last 4 feature commits landed here; ZERO tests.
+2. **CONCATLESS smear** (pipeline.py:82, :386-394 vs :1268-1285): submit half
+   keys MaxEventsToSkip=8000 off ENV, harvest half off FILE PRESENCE — the
+   env-keyed version already biased ff11R00_07 sob +1.5%; magic 8000 is
+   geometry-coupled with no assertion. Fix pattern = stamp stage chain at
+   submit (events_per_job precedent).
+3. **Winsor flash estimator is DEAD OUTPUT** (pipeline.py:1415-1436 computes +
+   :1464 writes; zero readers repo-wide — FoilsFlashMode.extract_metrics
+   :1078-1094 still reads the plain mean). Wire-or-delete decision pending.
+4. **Picker optimize-budget divergence** (botorch_predict.py): _qnparego_picks
+   :392-396 inlines optimize_acqf with copy-pasted budget (num_restarts=16,
+   raw_samples=512) — tuning _optimize:246-266 misses qnparego+hybrid; THREE
+   min-spacing implementations (0.10 @:484-490 vs CLOSED_LOOP_MIN_PICK_SPACING
+   =0.05). Seed/fit/bounds ARE properly shared (_seed/_fit_gp).
+5. **Auxinput-liveness split-brain** (pipeline.py:611-640 probe = fail-open,
+   ≤2 files, fndcadoor-regex-only, GATES; pipeline_io.py:305-319 scan = sees
+   all, does NOT gate). A door rename recreates the tape-wipeout with both
+   defenses green.
+6. **Test gap multiplier**: the 2 new picker tests mock _botorch_picks_subprocess
+   and assert only the picker STRING forwards; picker math / harvest / tarball
+   cache / probe have zero coverage (botorch venv disjoint from test venv).
+
+## 2026-07-11 PROCEEDING on FP-1+FP-2: the Eval-summary module
+
+Decision (user: "review and proceed"): deepen cmd_harvest first, fold the
+CONCATLESS stamp in; ModeSpec registry second; ChildTracker third. Winsor
+verdict = demote-to-diagnostic (its body comment already said
+recorded-not-substituted; only the "Robust decision metric" headline misled —
+per-file stats stay, they are the sigma_flash QA data).
+
+Landed NOW (safe mid-campaign — new files only, nothing in flight imports
+them): root `harvest.py` (stdlib-only, subprocess-free; parsers incl.
+sci-notation, stage-chain stamp owner `stamp_stage_chain`/`stamped_stage_chain`,
+presence+stamp `resolve_muminus_inputs`, ONE fail-soft wrapper
+`extract_secondary_edep` with injected runner, `per_pot`, winsor diagnostics,
+typed `EvalSummary` with additive keys `muminus_source` + `degraded`) +
+`tests/test_harvest.py` (26 tests: both incident regressions — sci-notation
+parse, concat-presence-beats-env — plus blank-outputs-is-error,
+winsor bit-parity with the inline pipeline.py:1421-1436 math, legacy-key
+schema pin). All pass.
+
+UPDATE 2026-07-11 ~13:30: user authorized stopping ff14 early ("we can
+restart jobs later") — 6/10 R0 rows had already landed (incl. R00_00 3.81 @
+8.97e-7 and R00_03 3.76 @ 8.27e-7, both new front points); 4 in-flight
+children killed by PID, their clusters left flying, recovery driver walking
+them through idempotent verbs + NEW harvest + evaluate. SWITCHOVER APPLIED:
+cmd_harvest now delegates to harvest.py (resolve_muminus_inputs, parsers,
+extract_secondary_edep for Steps 6/7, per_pot, winsorized_diagnostics,
+EvalSummary + degraded record); cmd_submit stamps the stage chain (AFTER the
+idempotency guard — no-op submits don't stamp legacy configs);
+_materialize_template is stamp-aware. _edep_from_stage_outputs + inline winsor
++ regex defs deleted; constants single-sourced from harvest.py. ADR-0001
+EXECUTED (cl_min/_import_gp/GP_SCRIPT_DIR deleted; DEFAULT_PICKER=hybrid; 4
+tests rewritten). FP-4 done as budget-constant concentration
+(ACQ_NUM_RESTARTS/ACQ_RAW_SAMPLES/ACQ_OPTIONS shared by _optimize +
+_qnparego inline; PARETO_SOB_MIN_SPACING named with intent comment —
+structural unification rejected: qnparego's per-candidate scalarization +
+growing X_pending can't ride _optimize, per its docstring). 119/119 tests;
+live --dry-run hybrid q=2 on 254 rows OK. Golden re-harvest of
+foilsflash13R00_02: **GOLDEN MATCH — all 26 legacy keys bit-identical**,
+additive keys correct (muminus_source="mubeam", degraded={}). The
+Eval-summary refactor is fully validated (unit + live dry-run + bit-identical
+production re-harvest).
+
+The original gated plan for reference: the pipeline.py
+switchover diff — cmd_harvest delegates to harvest.py (Steps 5/6/7 through
+extract_secondary_edep; parsers + winsor replaced; summary via EvalSummary),
+cmd_submit stamps the stage chain on first submit, _materialize_template
+consults the stamp instead of module-global CONCATLESS. Validation = re-run
+`pipeline.py --config foilsflash13R00_02 harvest` post-switchover and diff
+summary.json against the frozen golden
+`<GRID>/foilsflash13R00_02/harvest/summary.json.pre-evalsummary-refactor`
+(expect identical except additive keys muminus_source/degraded). EdepAna/sensitivity subprocess steps stay in pipeline.py this pass
+(phase 2 candidate: runner-seam them too).

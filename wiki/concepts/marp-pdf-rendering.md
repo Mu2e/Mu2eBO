@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-07
+**Updated:** 2026-07-11 (concurrent-npx cache race + stale-verification-PNG trap)
 
 ## Summary
 Two non-obvious failures when rendering `docs/*_talk.md` decks to PDF via
@@ -10,6 +10,20 @@ Two non-obvious failures when rendering `docs/*_talk.md` decks to PDF via
 [[bo-prodtarget]] methodology deck and cost ~30 min each.
 
 ## Key facts
+
+- **NEVER run two `npx @marp-team/marp-cli` invocations concurrently** (2026-07-11):
+  they race on the shared npx cache (`~/.npm/_npx/<hash>/node_modules`) and one dies
+  at npm level with `ENOTEMPTY: directory not empty, rename ... accepts` before marp
+  even starts. Compounding trap: `npx marp ... | tail -2` REPORTS rc=0 (pipeline exit
+  = tail's), so the render looks successful with zero outputs written. Serialize
+  renders; check `ls | wc` of the output dir, or echo `${PIPESTATUS[0]}`/`marp rc=$?`
+  without a pipe.
+- **Stale-verification-PNG trap** (2026-07-11): session scratchpad dirs persist across
+  compaction — a failed PNG render + `Read` of the output dir served WEEK-OLD slide
+  PNGs from an earlier verification pass, which looked exactly like a "marp rendered
+  stale content" bug (it hadn't rendered anything). Before reading verification PNGs,
+  `rm` the old ones (named paths) or render into a fresh dir, and sanity-check the
+  PNG mtimes against the render timestamp.
 
 - **Slide-overflow proofing recipe**: render per-slide PNGs and READ them —
   `CHROME_PATH=<chrome> marp deck.md --allow-local-files --images png -o out/slide.png`.

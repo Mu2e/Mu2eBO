@@ -704,4 +704,17 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
   (3.52/6.58e-7), R00_07 (3.40/6.37e-7), R00_06 (3.10/6.22e-7 — lowest flash at deployed-sob),
   R00_00/01 (3.72/8.30e-7, 3.66/7.15e-7 high-sob shoulder). Champion ff11R00_07 (3.31/6.259e-7
   corrected) HOLDS. All single-run flash values carry the σ≈5% run-level caveat.
+- **foilsflash13 (2026-07-11, q=10×1 pareto_sob): SOB-CORNER EXPLOIT ROUND — cyan-dot testing
+  works.** First live `pareto_sob` round (pure GP-mean-front picks, user-directed "focus on best
+  sob region"). 10/10 rows (244→254), zero failures, barrier clean. **3 new Pareto points in the
+  previously-empty 9-10e-7 band: R00_02 sob=3.80 @ 8.97e-7 (round best), R00_00 3.79 @ 9.35e-7,
+  R00_04 3.76 @ 9.47e-7** — 3.80-class sob previously cost ≥1.04e-6 flash (ff09R00_00 3.81 @
+  1.04e-6; transplant 3.90 @ 1.081e-6). 8/10 rows sob≥3.62: the picker maps the corner densely,
+  validating mean-front exploitation at a data-adjacent corner (complements the ff09 lesson that
+  acquisition ≠ mean-exploit elsewhere). **Winning upstream thickness is 34-52 µm full**
+  (hT_up 0.017-0.026 across the top-4) — between the old 20 µm rail and the 105.6 µm base foil,
+  confirming ff10's sub-20µm-doesn't-help-sob and localizing the optimum. Ops: first round at
+  the elebeam=100 default (σ_flash 2.5%); eval wall 187-247 min (mean ~225) consistent with
+  ff12's post-stack median 214; submit ramp 00:03→00:41 (~4 min/child, tarball cache working);
+  ~75 min launch→first-submit cold-start remains the ChildTracker/shared-fit target.
 
