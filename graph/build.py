@@ -19,14 +19,12 @@ from langgraph.graph import END, START, StateGraph  # noqa: E402
 from config import GRID_STAGES  # noqa: E402
 from nodes import (  # noqa: E402
     make_stage_node,
-    node_decide_next,
     node_evaluate,
     node_harvest,
     node_mock_grid,
     node_propose,
     node_render_preflight,
     node_scan_logs,
-    route_after_decide,
     route_after_preflight,
     route_after_stage,
 )
@@ -48,7 +46,6 @@ def build_graph() -> StateGraph:
     g.add_node("scan_logs", node_scan_logs)
     g.add_node("mock_grid", node_mock_grid)
     g.add_node("evaluate", node_evaluate)
-    g.add_node("decide_next", node_decide_next)
 
     g.add_edge(START, "propose")
     g.add_edge("propose", "render_preflight")
@@ -74,12 +71,11 @@ def build_graph() -> StateGraph:
     g.add_edge("harvest", "scan_logs")
     g.add_edge("scan_logs", "evaluate")
     g.add_edge("mock_grid", "evaluate")
-    g.add_edge("evaluate", "decide_next")
-    g.add_conditional_edges(
-        "decide_next",
-        route_after_decide,
-        {"propose": "propose", END: END},
-    )
+    # evaluate is terminal for a single iteration; the OUTER round loop
+    # (graph/closed_loop.py) drives multi-round BO. The inner graph never
+    # loops back — the old auto_continue/decide_next path had no writer and
+    # was removed 2026-07-12.
+    g.add_edge("evaluate", END)
     return g
 
 

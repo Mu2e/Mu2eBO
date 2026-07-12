@@ -258,31 +258,6 @@ def node_evaluate(state: BOIterationState) -> dict:
     return {"objective": obj, "errors": errors}
 
 
-def node_decide_next(state: BOIterationState) -> dict:
-    """Bump iteration counter; if auto_continue and iter+1<max_iter, prep next.
-
-    When looping, we clear `config_name` so `propose` auto-generates a fresh
-    name from the leaderboard, and reset per-iter scratch (attempts, errors,
-    preflight, metrics, objective).
-    """
-    cur_iter = state.get("iter", 0)
-    next_iter = cur_iter + 1
-    auto = state.get("auto_continue", False)
-    max_iter = state.get("max_iter", 1)
-    if auto and next_iter < max_iter:
-        return {
-            "iter": next_iter,
-            "config_name": None,
-            "x_point": None,
-            "attempts": {},
-            "preflight": "pending",
-            "scan_logs_broken": False,
-            "metrics": None,
-            "objective": None,
-        }
-    return {"iter": next_iter}
-
-
 # --- conditional edges ---
 
 
@@ -327,10 +302,3 @@ def route_after_stage(state: BOIterationState) -> Literal["next", "__end__"]:
         )
         return END
     return "next"
-
-
-def route_after_decide(state: BOIterationState) -> Literal["propose", "__end__"]:
-    """Loop back to propose when auto_continue is on and we haven't hit max_iter."""
-    if state.get("auto_continue") and state.get("iter", 0) < state.get("max_iter", 1):
-        return "propose"
-    return END
