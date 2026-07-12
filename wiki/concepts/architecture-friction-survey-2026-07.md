@@ -90,6 +90,19 @@ What landed (commit → win):
   `KNOB_FMTS` + `CALO_COL`; foils/foilsf/foilsflash share one pair).
 - `3ac797e` `cmd_harvest` `_note_degraded` fold + `EvalSummary.write()`.
 
+A second independent survey (2026-07-12) confirmed the **cross-file / tools/ /
+pipeline_templates/ angle is exhausted (~0 further low-risk lines)**: every
+shared helper is already single-homed (to_py_scalars, read_outputs,
+parse_edepana_saw, _seed, run_sourced_bash, open_saver_conn, load_history),
+the two flock helpers are correctly distinct (per-leaderboard SH/EX vs
+host-wide submit-token lock), the two inline PyROOT extractor scripts share
+only trivial imports, and no template pair is a sed-variant. Don't re-run that
+angle. The one non-size follow-up it found: `tools/refresh_foils_*` (3 scripts,
+last touched `90f3e7f` "foils v2") still hardcode `leaderboard_bo_foils_v1.tsv`
++ `docs/foils_talk.md` while the live foils line is v3 and the active deck is
+foilsflash — a staleness bug already logged at [[refresh-foils-slides]]:77;
+KEEP (skill + wiki reference them), fix only if the foils deck is still built.
+
 Candidates 3-5 (leaderboard schema, typed subprocess protocol, unified harvest)
 still unpicked. Two deferred **user decisions** (surfaced 2026-07-12, not done):
 - **Dormant-mode retirement** (`MichaelMode`+`HelicalMode`, ~300 lines) — policy
