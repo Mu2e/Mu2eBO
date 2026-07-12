@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-06
+**Updated:** 2026-07-11 (ChildTracker IMPLEMENTED — commit 2 done; only modes.py remains)
 
 ## Summary
 Crystallized design (2026-07-06 grilling session) for the two refactors picked
@@ -64,6 +64,21 @@ or the driver mid-campaign changes running code.
   write_code_tarball / pot_only stage config) before declaring the
   grid_tarball field for prodtarget*; the registry field type may need to be
   `path | build-from-workdir`.
+
+## Implementation status (2026-07-11)
+- **Commit 3 (cl_min retirement): DONE** — c72498b, plus shared acquisition
+  budget constants. DEFAULT_PICKER=hybrid.
+- **Commit 2 (ChildTracker): DONE** — 421b1fc. `graph/child_tracker.py`
+  (sticky Resolution, tick() returns transitions, dead-PID grace inside) +
+  `_DiskSignals` production adapter (late-binds to module helpers so existing
+  mock.patch tests keep working — deliberate compat choice) + 14 injected-fake
+  tests. First cut scope: BARRIER only; launch/assign still use their own
+  presence checks (they are one-shot, not stateful) — full-cut rewiring +
+  moving decide_next's zero-rows guard remain optional follow-ups. Live
+  validation = next campaign (unit tests exercise the real node_barrier
+  through dead-pid/timeout/stale paths).
+- **Commit 1 (modes.py registry): REMAINS** — the prodtarget tarball-selection
+  question (below) still needs resolving first.
 
 ## Cross-links
 - Related: [[architecture-friction-survey-2026-07]], [[closed-loop-bo-design]]
