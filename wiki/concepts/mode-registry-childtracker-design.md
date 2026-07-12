@@ -1,8 +1,8 @@
 # Mode registry + ChildTracker — refactor design
 
 **Type:** concept
-**Status:** active
-**Updated:** 2026-07-11 (ChildTracker IMPLEMENTED — commit 2 done; only modes.py remains)
+**Status:** resolved
+**Updated:** 2026-07-11 (ALL THREE COMMITS DONE — design fully implemented)
 
 ## Summary
 Crystallized design (2026-07-06 grilling session) for the two refactors picked
@@ -77,8 +77,21 @@ or the driver mid-campaign changes running code.
   moving decide_next's zero-rows guard remain optional follow-ups. Live
   validation = next campaign (unit tests exercise the real node_barrier
   through dead-pid/timeout/stale paths).
-- **Commit 1 (modes.py registry): REMAINS** — the prodtarget tarball-selection
-  question (below) still needs resolving first.
+- **Commit 1 (modes.py registry): DONE** — af985c9. Root modes.py (frozen
+  ModeSpec, all fields explicit incl. presubmit_after which post-dated the
+  design); config.py dicts + botorch MODE_SPECS + pipeline tarball map are
+  registry VIEWS (silent .get(...,michael) fallback deleted — ipa's
+  Code_helical_base now explicit); 6 preflight tuples → 5 flags (prodtarget6d
+  banner drift fixed by construction); state Literal → 9 modes.
+  **Prodtarget tarball question RESOLVED**: ships per-STAGE via
+  STAGES["pot_only"]["code_tarball"] (pipeline.py:263-ish); spec records the
+  same file, test pins equality — no path|build-from-workdir union needed.
+  michael's Categorical (COL5) space carries EXPLICIT None bounds (the one
+  field where "required" means "explicitly None"). Validation: one-time
+  parity sweep vs all live dicts (zero diffs) BEFORE rewiring, byte-parity
+  of botorch MODE_SPECS after, tests/test_modes.py (13: keys==driver
+  MODES==state Literal + build_space↔spec bounds lockstep + spot facts),
+  graph builds under all 9 modes, 146/146 suite, live dry-run.
 
 ## Cross-links
 - Related: [[architecture-friction-survey-2026-07]], [[closed-loop-bo-design]]
