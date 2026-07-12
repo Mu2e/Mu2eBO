@@ -879,29 +879,26 @@ class FoilsMode(BOMode):
 
         return [radii[0], radii[-1], halfth[0], halfth[-1], rIn_up, rIn_dn]
 
+    # Leaderboard row shape shared by the whole Foils family: knob columns =
+    # KNOB_NAMES, per-position precision = KNOB_FMTS, second-objective column =
+    # CALO_COL. Subclasses that change the knob names (FoilsFracMode: rIn->f) or
+    # the objective column (FoilsFlashMode: calo->flash_edep) only reset those
+    # class attrs — the format/parse code is identical.
+    KNOB_FMTS = ("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}")
+    CALO_COL = "calo"
+
     def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config"
-                  "\textra_rOut_up\textra_rOut_dn"
-                  "\textra_halfThickness_up\textra_halfThickness_dn"
-                  "\textra_rIn_up\textra_rIn_dn"
-                  "\tsob\tcalo\talpha\tobj\n")
-        rOut_up, rOut_dn, hT_up, hT_dn, rIn_up, rIn_dn = p.x
-        line = (f"{p.cfg}"
-                f"\t{rOut_up:.4f}\t{rOut_dn:.4f}"
-                f"\t{hT_up:.6f}\t{hT_dn:.6f}"
-                f"\t{rIn_up:.4f}\t{rIn_dn:.4f}"
+        header = ("config\t" + "\t".join(self.KNOB_NAMES)
+                  + f"\tsob\t{self.CALO_COL}\talpha\tobj\n")
+        knobs = "\t".join(fmt.format(v) for fmt, v in zip(self.KNOB_FMTS, p.x))
+        line = (f"{p.cfg}\t{knobs}"
                 f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
         return header, line
 
     def load_history_row(self, row: dict) -> Point:
         return Point(cfg=row["config"],
-                     x=[float(row["extra_rOut_up"]),
-                        float(row["extra_rOut_dn"]),
-                        float(row["extra_halfThickness_up"]),
-                        float(row["extra_halfThickness_dn"]),
-                        float(row["extra_rIn_up"]),
-                        float(row["extra_rIn_dn"])],
-                     sob=float(row["sob"]), calo=float(row["calo"]))
+                     x=[float(row[c]) for c in self.KNOB_NAMES],
+                     sob=float(row["sob"]), calo=float(row[self.CALO_COL]))
 
 
 
@@ -963,30 +960,6 @@ class FoilsFracMode(FoilsMode):
         fit). Accepted 2026-06-05 per operator direction."""
         return []
 
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config"
-                  "\textra_rOut_up\textra_rOut_dn"
-                  "\textra_halfThickness_up\textra_halfThickness_dn"
-                  "\textra_f_up\textra_f_dn"
-                  "\tsob\tcalo\talpha\tobj\n")
-        rOut_up, rOut_dn, hT_up, hT_dn, f_up, f_dn = p.x
-        line = (f"{p.cfg}"
-                f"\t{rOut_up:.4f}\t{rOut_dn:.4f}"
-                f"\t{hT_up:.6f}\t{hT_dn:.6f}"
-                f"\t{f_up:.4f}\t{f_dn:.4f}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        return Point(cfg=row["config"],
-                     x=[float(row["extra_rOut_up"]),
-                        float(row["extra_rOut_dn"]),
-                        float(row["extra_halfThickness_up"]),
-                        float(row["extra_halfThickness_dn"]),
-                        float(row["extra_f_up"]),
-                        float(row["extra_f_dn"])],
-                     sob=float(row["sob"]), calo=float(row["calo"]))
-
 
 
 class FoilsFlashMode(FoilsFracMode):
@@ -1041,29 +1014,10 @@ class FoilsFlashMode(FoilsFracMode):
                 f"elebeamcat-tape-migration-elebeam-wipeout)")
         return sob, edep
 
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config"
-                  "\textra_rOut_up\textra_rOut_dn"
-                  "\textra_halfThickness_up\textra_halfThickness_dn"
-                  "\textra_f_up\textra_f_dn"
-                  "\tsob\tflash_edep\talpha\tobj\n")
-        rOut_up, rOut_dn, hT_up, hT_dn, f_up, f_dn = p.x
-        line = (f"{p.cfg}"
-                f"\t{rOut_up:.4f}\t{rOut_dn:.4f}"
-                f"\t{hT_up:.6f}\t{hT_dn:.6f}"
-                f"\t{f_up:.4f}\t{f_dn:.4f}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        return Point(cfg=row["config"],
-                     x=[float(row["extra_rOut_up"]),
-                        float(row["extra_rOut_dn"]),
-                        float(row["extra_halfThickness_up"]),
-                        float(row["extra_halfThickness_dn"]),
-                        float(row["extra_f_up"]),
-                        float(row["extra_f_dn"])],
-                     sob=float(row["sob"]), calo=float(row["flash_edep"]))
+    # Only the objective column name differs from FoilsFracMode: the flash
+    # edep-per-POT lands under "flash_edep" (Point.calo carries it). Row shape,
+    # knob names, and parse all inherit unchanged.
+    CALO_COL = "flash_edep"
 
 
 class FoilsGroupMode(BOMode):
