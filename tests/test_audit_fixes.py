@@ -105,15 +105,15 @@ class TestIsBrokenParseException(unittest.TestCase):
 class TestModeArgChoices(unittest.TestCase):
     """Issue #2: argparse must reject unknown --mode values up-front.
     """
-    def test_argparse_choices_includes_three_modes(self):
+    def test_argparse_choices_derive_from_registry(self):
         # Pull the source line directly — no graph.closed_loop import needed
         # (avoid pulling in sqlite/langgraph deps for a string check).
         src = (PROJECT_ROOT / "graph" / "closed_loop.py").read_text()
-        # The choices line is colocated with the --mode argument.
-        # Three load-bearing modes must appear in order; trailing modes
-        # (e.g. "foilsf") may be added later without re-pinning this test.
-        m = re.search(r'choices\s*=\s*\[\s*"helical"\s*,\s*"michael"\s*,\s*"foils"', src)
-        self.assertIsNotNone(m, "--mode choices guard missing or reordered")
+        # 2026-07-12: choices are registry-derived (drift-proof — a mode
+        # added to modes.py is accepted without touching closed_loop), which
+        # still rejects unknown --mode values up-front via argparse.
+        m = re.search(r'choices\s*=\s*sorted\(\s*_modes\.SPECS\s*\)', src)
+        self.assertIsNotNone(m, "--mode choices guard missing or no longer registry-derived")
 
     def test_argparse_rejects_typo(self):
         # End-to-end: argparse fail-fast on unknown choice.

@@ -102,7 +102,7 @@ GEOM_TSV = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_
 MMACKENZ_WORKFLOWS = Path("/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/workflows")
 
 sys.path.insert(0, str(ROOT / "graph"))
-from config import MUSING_BY_MODE, PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
+from config import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
 from sourced_bash import run_sourced_bash  # noqa: E402
 
 DEFAULT_ALPHA = 1.0e5  # mmackenz calo range 4e-8..2.5e-5; alpha=1e5 makes
@@ -2226,7 +2226,7 @@ def cmd_preflight(args):
     # Per-mode Musing dispatch: prodtarget sources the patched MDC2025aq/p101
     # workdir; CE/calo modes source Run1Bak. Resolved per-call (not import-time)
     # because the BO driver is invoked with --mode as a CLI arg.
-    musing = MUSING_BY_MODE[mode.name]
+    musing = _modes.SPECS[mode.name].musing
     bash_cmd = (
         f"export SPACK_USER_CACHE_PATH={spack_cache} && "
         f"source {SETUPMU2E} >/dev/null && "
@@ -2295,7 +2295,7 @@ def cmd_preflight(args):
         print(f"[preflight/{mode.name}] FAIL  geom requests "
               f"stoppingTarget.holeRadii but the env never printed "
               f"'holeRadii vector active' — unpatched StoppingTargetMaker "
-              f"(scalar fallback). Check MUSING_BY_MODE / grid tarball.")
+              f"(scalar fallback). Check modes.py musing / grid tarball.")
         return 1
 
     # As-built geometry assertion: compare the G4-constructed foil stack

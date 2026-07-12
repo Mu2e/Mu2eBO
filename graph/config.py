@@ -32,13 +32,14 @@ SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 # carries the % 02d plate-LV rename, NIEL SD, and spacer-shrink overlap fix.
 # Sourcing the workdir's setup.sh runs `muse setup <workdir>` so the local
 # build/al9-prof-e29-p101/Offline/lib libs win over the backing by link order.
-# Per-mode facts live in root modes.py (ADR-0002); these dicts are DERIVED
-# views kept for their many consumers — complete by construction, loud
-# KeyError on an unknown mode, nothing hand-maintained here anymore.
+# Per-mode facts live in root modes.py (ADR-0002). This module derives the
+# session's view once from the AUTORESEARCH_MODE env var — loud KeyError on
+# an unknown mode, nothing hand-maintained here anymore.
 import modes as _modes  # noqa: E402
 
-MUSING_BY_MODE = {m: s.musing for m, s in _modes.SPECS.items()}
-MUSING = MUSING_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")]
+_SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "michael")]
+
+MUSING = _SPEC.musing
 
 # Stage chain (Phase 2b). Each entry is the stage name; per-stage `run_stage`
 # calls submit → poll → list-outputs internally. Harvest runs once after the
@@ -49,8 +50,7 @@ MUSING = MUSING_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")]
 # stamp BEFORE importing this module (load-order matters — `GRID_STAGES` is
 # frozen at import time and `build.STAGE_NODES`/`build.build_graph` read it
 # once).
-GRID_STAGES = list(
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "michael")].grid_stages)
+GRID_STAGES = list(_SPEC.grid_stages)
 
 # Overlap seam (2026-07-10): stages with NO internal data dependency are
 # pre-submitted as soon as an earlier stage lands, hiding their grid time
@@ -62,20 +62,13 @@ GRID_STAGES = list(
 # elebeam wall ~90 min hides fully behind mustops_ce ~111 min → ~25%/eval.
 # Best-effort: a presubmit failure degrades to the sequential path via
 # pipeline.py's idempotent cluster-file guard.
-PRESUBMIT_AFTER = {
-    k: list(v) for k, v in _modes.SPECS[
-        os.environ.get("AUTORESEARCH_MODE", "michael")].presubmit_after.items()}
+PRESUBMIT_AFTER = {k: list(v) for k, v in _SPEC.presubmit_after.items()}
 
 # Sob-only picker (qlnei) doesn't need calo → drop the DS-off run1b_mubeam
 # stage entirely. Stamped via AUTORESEARCH_NO_RUN1B env var by closed_loop.py
 # when --picker qlnei is set. Saves ~40% of per-point grid time.
 if os.environ.get("AUTORESEARCH_NO_RUN1B") == "1":
     GRID_STAGES = [s for s in GRID_STAGES if s != "run1b_mubeam"]
-
-# Per-mode harvest verb. `cmd_harvest` (4-stage S/√B − α·calo/POT) vs
-# `cmd_harvest_pot_only` (uproot-based mu_per_POT at VD sid=8). Dispatched in
-# graph/pipeline_io.run_harvest.
-HARVEST_VERB_BY_MODE = {m: s.harvest_verb for m, s in _modes.SPECS.items()}
 
 # Per-stage njobs targets — canonical source of truth for both
 # pipeline.STAGES (consumed as njobs at submit) and read_stage_status
@@ -116,8 +109,7 @@ STAGE_TARGETS = {
 # a bigger SINGLE cluster is the correct way to cut σ_flash because the
 # elebeam template pins baseSeed:1; separate same-seed clusters re-sample
 # identical EleBeamCat events. See bo-foilsflash A/B).
-STAGE_TARGETS.update(
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "michael")].stage_target_overrides)
+STAGE_TARGETS.update(_SPEC.stage_target_overrides)
 if "AUTORESEARCH_ELEBEAM_NJOBS" in os.environ:
     STAGE_TARGETS["elebeam_flash"] = int(os.environ["AUTORESEARCH_ELEBEAM_NJOBS"])
 

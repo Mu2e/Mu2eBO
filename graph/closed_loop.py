@@ -64,6 +64,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Shared sniffers: graph/presniff.py. Issue Mu2eBO #15.
 from presniff import presniff_mode, presniff_picker  # noqa: E402
 from graph.child_tracker import ChildTracker, Resolution  # noqa: E402
+import modes as _modes  # noqa: E402  (env-independent; safe pre-stamp)
 
 presniff_mode()
 presniff_picker()
@@ -721,7 +722,7 @@ def _dry_run(args: argparse.Namespace) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default=DEFAULT_MODE,
-                    choices=["helical", "michael", "foils", "foilsf", "foilsflash", "foilsg", "ipa", "prodtarget", "prodtarget6d"])
+                    choices=sorted(_modes.SPECS))
     ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
     ap.add_argument("--q", type=int, default=CLOSED_LOOP_Q)
     ap.add_argument("--max-rounds", type=int, default=CLOSED_LOOP_MAX_ROUNDS)

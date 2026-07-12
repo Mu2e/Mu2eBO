@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch")
 
 import autoresearch_bo_michael as bo  # noqa: E402
+import modes as _modes  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (  # noqa: E402
@@ -33,7 +34,6 @@ from config import (  # noqa: E402
     DEFAULT_MODE,
     GRID_DATA_ROOT,
     GRID_STAGES,
-    HARVEST_VERB_BY_MODE,
     PIPELINE_DRIVER,
     PREFLIGHT_TIMEOUT_S,
     STAGE_TARGETS,
@@ -249,12 +249,12 @@ def run_harvest(config_name: str, mode: str | None = None) -> dict:
 
     Mode dispatch (2026-06-07): prodtarget chains a single `pot_only` stage
     whose summary schema differs (`mu_per_POT`) from the 4-stage S/√B+calo
-    schema. Verb selection comes from HARVEST_VERB_BY_MODE; defaults to the
+    schema. Verb selection comes from the ModeSpec registry; defaults to the
     legacy 4-stage `harvest` for backward compat when no mode is passed.
     """
     if mode is None:
         mode = os.environ.get("AUTORESEARCH_MODE", DEFAULT_MODE)
-    verb = HARVEST_VERB_BY_MODE[mode]  # loud KeyError on unknown mode (ADR-0002)
+    verb = _modes.SPECS[mode].harvest_verb  # loud KeyError on unknown mode (ADR-0002)
     _run_pipeline_verb(config_name, verb, None)
     summary_path = GRID_DATA_ROOT / config_name / "harvest" / "summary.json"
     if not summary_path.exists():
