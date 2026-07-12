@@ -2,7 +2,7 @@
 
 **Type:** driver
 **Status:** active
-**Updated:** 2026-06-07 (BOMode.extract_metrics seam)
+**Updated:** 2026-07-12 (live-verb map from size-reduction survey)
 
 ## Summary
 Main driver for [[bo-michael]]. Implements the four-step BO loop as
@@ -10,6 +10,17 @@ subcommands, each independently runnable.
 
 ## Key facts
 - **Path:** `autoresearch_bo_michael.py`
+- **Live-verb map (2026-07-12 survey):** only `preflight` and `evaluate` have
+  code callers (both subprocess calls from `graph/pipeline_io.py`). `propose`
+  has zero code callers but is the documented operator-recovery verb
+  (pipeline.py prints it as the recovery hint); `show-priors` and
+  `list-pending` have zero callers anywhere. The skopt kernel
+  (`build_optimizer`/`seed_optimizer`/`ask_buildable`) is live ONLY via
+  `graph/pipeline_io.propose_one` (standalone `graph.run` without
+  `--x-point`); closed-loop rounds never touch it — all pickers go through
+  `botorch_predict.py`, which has its own Sobol cold-start. There are now
+  9 BOMode subclasses (one per [[mode-registry-childtracker-design]] mode),
+  not the original two.
 - **Subcommands:**
   - `show-priors --top K` — print top-K mmackenz priors by current α (no GP fit)
   - `propose <config_name>` — seed GP from priors+history, ask one candidate,
@@ -20,12 +31,22 @@ subcommands, each independently runnable.
 - **GP config:** `Optimizer(GP, EI, n_initial_points=0, random_state=42)`
 - **α flag:** `--alpha 1e5` default ([[scalarized-objective]])
 - **Search space:** see [[bo-michael]] / [[bo-helical]] (per mode)
-- **Architecture:** `BOMode(ABC)` with two adapters (`MichaelMode`, `HelicalMode`).
-  Each subclass owns its pinned constants + 7 mode-specific methods
-  (`load_priors`, `build_space`, `_geom_text`, `parse_geom`, `format_row`,
-  `load_history_row`, `print_top`). Shared concerns (history I/O, optimizer
-  build, proposal write) are concrete on the base class. `MODES` is the
-  registry argparse selects from.
+- **Architecture:** `BOMode(ABC)` with 9 adapters. Each subclass owns its
+  pinned constants + 4 abstract methods (`load_priors`, `_geom_text`,
+  `parse_geom`, `format_row`/`load_history_row` — the last two are also
+  concrete-shared for the Foils family, see below). Shared concerns (history
+  I/O, optimizer build, proposal write) are concrete on the base. `MODES` is
+  the registry argparse selects from.
+- **`build_space` is now data-driven (2026-07-12):** one concrete base method
+  reads `modes.SPECS[name].bounds_lo/hi/int_dims` + a per-mode `KNOB_NAMES`
+  tuple → skopt `Real`/`Integer` dims. A `KNOB_NAMES`/bounds length mismatch
+  is a loud `ValueError`. Only `MichaelMode` (Categorical COL5 space) overrides
+  it. The Foils family (`foils`/`foilsf`/`foilsflash`) also shares one concrete
+  `format_row`/`load_history_row` on `FoilsMode`, parameterized by `KNOB_NAMES`
+  + `KNOB_FMTS` (per-position precision) + `CALO_COL` (`calo` vs `flash_edep`).
+- **Deleted 2026-07-12:** `show-priors` verb + all `print_top` display methods
+  (zero callers); the `--strategy` cl_min/mean/max flag (ADR-0001); `F_MAX`/
+  `HT_FLOOR` class attrs (their 0.95/0.002 caps live in `modes.SPECS`).
 - **Summary-extraction seam (2026-06-07 for [[bo-prodtarget]]):**
   `BOMode.extract_metrics(summary) -> (sob, calo)` with default that reads
   the 4-stage harvest schema (`s_over_sqrt_b`, `calo_per_pot`). Override

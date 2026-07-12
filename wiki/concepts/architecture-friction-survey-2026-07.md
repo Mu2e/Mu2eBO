@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-11 (re-survey: harvest god-function, CONCATLESS smear, dead Winsor, picker divergence, probe split-brain)
+**Updated:** 2026-07-12 (size-reduction sweep executed: −348 production lines, 10 commits)
 
 ## Summary
 Codebase-wide friction map produced by the 2026-07-06 `/improve-codebase-architecture`
@@ -58,6 +58,47 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
   JSON result protocol across the subprocess seam, (5) unified mode-parameterized
   harvest. Implementation deferred until foilsflash08 completes (no `graph/*.py` /
   `pipeline.py` edits mid-campaign).
+
+## 2026-07-12 size-reduction sweep (executed) — −348 production lines
+
+A 4-agent read-only survey (driver, pipeline/graph, small modules, cross-file
+dup) fed a batched deletion pass, each batch suite-green (152/152) + committed
+separately. Net **−348 production-python lines** (536 deleted, 188 added-back
+as explanatory comments + `KNOB_NAMES` data), zero behavior change. Method: a
+**golden parity harness** (`format_row`/`load_history_row`/`build_space`/
+`_geom_text` for all 9 modes, diffed byte-for-byte before/after) guarded the
+driver rewrites; every leaderboard round-tripped with zero dropped rows.
+
+What landed (commit → win):
+- `e16ad80` dead code: `materialize` verb, `run_grid_real` shim, `list-pending`
+  verb, `leaderboard_v2` vestige, `MOCK_SOB_PEAK/FLOOR`, unused imports/params.
+- `c247d4a` **registry directness**: `graph/config.py` resolves `_SPEC` once;
+  `MUSING_BY_MODE`/`HARVEST_VERB_BY_MODE` pass-through dicts deleted (consumers
+  read `_modes.SPECS[m].musing`/`.harvest_verb`); `--mode` choices = `sorted(SPECS)`.
+- `8378f28` dead `alpha` plumbing removed across the botorch picker subprocess seam.
+- `51d47a1` single homes: `config.open_saver_conn`, `closed_loop._history`,
+  `hv.read_outputs` (was 3 hand-rolled outputs.txt parsers).
+- `4ab04c8` **dead `auto_continue` inner-graph loop deleted** (`node_decide_next`/
+  `route_after_decide`/`iter`/`max_iter` — no writer; closed_loop owns rounds).
+- `da14690` `mock_metrics` dimension-generic from `SPECS` bounds (was 4D/5D-only,
+  raised ValueError for every higher-D mode — `--mock` smoke silently broken).
+- `fe7d83f` **`show-priors` verb + 8 `print_top` methods deleted** (~110 lines,
+  display-only, zero callers) + dead `--strategy` cl flag.
+- `3b626d1` **`build_space` from `SPECS` bounds + `KNOB_NAMES`** (8 overrides → 1
+  base method; deletes dead `F_MAX`/`HT_FLOOR`).
+- `52165d8` Foils-family `format_row`/`load_history_row` collapse (`KNOB_NAMES` +
+  `KNOB_FMTS` + `CALO_COL`; foils/foilsf/foilsflash share one pair).
+- `3ac797e` `cmd_harvest` `_note_degraded` fold + `EvalSummary.write()`.
+
+Candidates 3-5 (leaderboard schema, typed subprocess protocol, unified harvest)
+still unpicked. Two deferred **user decisions** (surfaced 2026-07-12, not done):
+- **Dormant-mode retirement** (`MichaelMode`+`HelicalMode`, ~300 lines) — policy
+  call, not mechanical: test fixtures use `helical`, off-repo `mmackenz_table_plots`
+  imports `bo.HelicalMode`, and `modes.SPECS`/`state.py` Literal/`test_modes`
+  lockstep all key on their presence. Needs a coordinated removal + fixture
+  migration, so left for explicit direction.
+- **A14** (`cmd_propose` vs `pipeline_io.propose_one` ~25-line shared kernel) —
+  skipped: pinned by `test_audit_fixes.py:268-284` source-regex ordering.
 
 ## Cross-links
 - Related: [[closed-loop-bo-design]], [[bo-modes]], [[mode-registry-childtracker-design]]

@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-11 (concurrent-npx cache race + stale-verification-PNG trap)
+**Updated:** 2026-07-12 (no-input-file stdin hang)
 
 ## Summary
 Two non-obvious failures when rendering `docs/*_talk.md` decks to PDF via
@@ -11,6 +11,11 @@ Two non-obvious failures when rendering `docs/*_talk.md` decks to PDF via
 
 ## Key facts
 
+- **A marp invocation that loses its input-file argument hangs forever on stdin**
+  (2026-07-12): it prints `Currently waiting data from stdin stream` and blocks — as a
+  background task it looks "running" indefinitely with rc never returned. There is no
+  timeout. Always pass the `.md` path explicitly and check the task log for the stdin
+  banner if a render produces no output within ~2 min.
 - **NEVER run two `npx @marp-team/marp-cli` invocations concurrently** (2026-07-11):
   they race on the shared npx cache (`~/.npm/_npx/<hash>/node_modules`) and one dies
   at npm level with `ENOTEMPTY: directory not empty, rename ... accepts` before marp
