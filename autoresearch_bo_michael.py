@@ -150,10 +150,10 @@ def to_py_scalars(x) -> list:
 class BOMode(ABC):
     """A BO mode = search space + render + prior loader + leaderboard format.
 
-    Each subclass owns its pinned constants and its 5 mode-specific methods
+    Each subclass owns its pinned constants and its 6 mode-specific methods
     (load_priors, build_space, _geom_text, parse_geom, format_row,
-    load_history_row, print_top). Shared concerns (history I/O, optimizer
-    construction, proposal file write) are concrete on this base class.
+    load_history_row). Shared concerns (history I/O, optimizer construction,
+    proposal file write) are concrete on this base class.
     """
     name: str
     leaderboard: Path
@@ -185,9 +185,6 @@ class BOMode(ABC):
 
     @abstractmethod
     def load_history_row(self, row: dict) -> Point: ...
-
-    @abstractmethod
-    def print_top(self, pts, alpha, top): ...
 
     # Constraint hook: override to reject infeasible regions of search space.
     # propose() calls this on every ask() output and tells the GP a penalty
@@ -450,14 +447,6 @@ class MichaelMode(BOMode):
                         float(row["holeRadius"]), row["col5"]],
                      sob=float(row["sob"]), calo=float(row["calo"]))
 
-    def print_top(self, pts, alpha, top):
-        print(f"{'cfg':>6}  {'rin':>7}  {'hL4':>5}  {'hole':>6}  {'col5':>5}"
-              f"  {'sob':>6}  {'calo':>10}  {'obj':>7}")
-        for p in pts[:top]:
-            rin, hL4, hole, col5 = p.x
-            print(f"{p.cfg:>6}  {rin:7.2f}  {hL4:5.2f}"
-                  f"  {hole:6.2f}  {col5:>5}"
-                  f"  {p.sob:6.3f}  {p.calo:10.3e}  {p.obj(alpha):7.3f}")
 
 
 # ============================================================================
@@ -656,17 +645,6 @@ class HelicalMode(BOMode):
                         float(row["halflength"]), float(row["angle"])],
                      sob=float(row["sob"]), calo=float(row["calo"]))
 
-    def print_top(self, pts, alpha, top):
-        print(f"{'cfg':>6}  {'dx':>5}  {'dy':>6}  {'hLen':>6}  {'angle':>6}"
-              f"  {'z0~':>7}  {'rin~':>5}"
-              f"  {'sob':>6}  {'calo':>10}  {'obj':>7}")
-        for p in pts[:top]:
-            dx, dy, hl, angle = p.x
-            z0 = self.derive_z0(hl)
-            rin = self.derive_rin(dx, dy)
-            print(f"{p.cfg:>6}  {dx:5.2f}  {dy:6.2f}  {hl:6.2f}  {angle:6.2f}"
-                  f"  {z0:7.2f}  {rin:5.1f}"
-                  f"  {p.sob:6.3f}  {p.calo:10.3e}  {p.obj(alpha):7.3f}")
 
 
 # ============================================================================
@@ -919,16 +897,6 @@ class FoilsMode(BOMode):
                         float(row["extra_rIn_dn"])],
                      sob=float(row["sob"]), calo=float(row["calo"]))
 
-    def print_top(self, pts, alpha, top):
-        print(f"{'cfg':>12}  {'rOut_up':>7}  {'rOut_dn':>7}  {'hT_up':>6}  {'hT_dn':>6}"
-              f"  {'rIn_up':>6}  {'rIn_dn':>6}  {'sob':>6}  {'calo':>10}  {'obj':>7}")
-        for p in pts[:top]:
-            rOut_up, rOut_dn, hT_up, hT_dn, rIn_up, rIn_dn = p.x
-            print(f"{p.cfg:>12}"
-                  f"  {rOut_up:7.2f}  {rOut_dn:7.2f}"
-                  f"  {hT_up:6.4f}  {hT_dn:6.4f}"
-                  f"  {rIn_up:6.2f}  {rIn_dn:6.2f}"
-                  f"  {p.sob:6.3f}  {p.calo:10.3e}  {p.obj(alpha):7.3f}")
 
 
 class FoilsFracMode(FoilsMode):
@@ -1019,16 +987,6 @@ class FoilsFracMode(FoilsMode):
                         float(row["extra_f_dn"])],
                      sob=float(row["sob"]), calo=float(row["calo"]))
 
-    def print_top(self, pts, alpha, top):
-        print(f"{'cfg':>12}  {'rOut_up':>7}  {'rOut_dn':>7}  {'hT_up':>6}  {'hT_dn':>6}"
-              f"  {'f_up':>5}  {'f_dn':>5}  {'sob':>6}  {'calo':>10}  {'obj':>7}")
-        for p in pts[:top]:
-            rOut_up, rOut_dn, hT_up, hT_dn, f_up, f_dn = p.x
-            print(f"{p.cfg:>12}"
-                  f"  {rOut_up:7.2f}  {rOut_dn:7.2f}"
-                  f"  {hT_up:6.4f}  {hT_dn:6.4f}"
-                  f"  {f_up:5.3f}  {f_dn:5.3f}"
-                  f"  {p.sob:6.3f}  {p.calo:10.3e}  {p.obj(alpha):7.3f}")
 
 
 class FoilsFlashMode(FoilsFracMode):
@@ -1295,18 +1253,6 @@ class FoilsGroupMode(BOMode):
         return Point(cfg=row["config"], x=x,
                      sob=float(row["sob"]), calo=float(row["calo"]))
 
-    def print_top(self, pts, alpha, top):
-        cols = ("cfg",) + tuple(f"r{g}/h{g}/f{g}" for g in range(len(self.GROUP_SIZES)))
-        header = f"{'cfg':>12}  " + "  ".join(f"{c:>16}" for c in cols[1:])
-        header += f"  {'sob':>6}  {'calo':>10}  {'obj':>7}"
-        print(header)
-        for p in pts[:top]:
-            cells = []
-            for g in range(len(self.GROUP_SIZES)):
-                rOut, hT, f = p.x[3*g], p.x[3*g+1], p.x[3*g+2]
-                cells.append(f"{rOut:5.1f}/{hT:5.3f}/{f:4.2f}")
-            print(f"{p.cfg:>12}  " + "  ".join(f"{c:>16}" for c in cells)
-                  + f"  {p.sob:6.3f}  {p.calo:10.3e}  {p.obj(alpha):7.3f}")
 
 
 class IPAMode(BOMode):
@@ -1430,14 +1376,6 @@ class IPAMode(BOMode):
                      sob=float(row["sob"]),
                      calo=float(row["trk_edep"]))
 
-    def print_top(self, pts, alpha, top):
-        print(f"{'cfg':>14}  {'thick':>6}  {'halfLen':>7}  {'rOut0':>6}  {'rOut1':>6}"
-              f"  {'dist':>6}  {'sob':>6}  {'trk_edep':>10}  {'obj':>7}")
-        for p in pts[:top]:
-            thickness, halfLength, rOut0, rOut1, dist = p.x
-            print(f"{p.cfg:>14}"
-                  f"  {thickness:6.3f}  {halfLength:7.1f}  {rOut0:6.1f}  {rOut1:6.1f}"
-                  f"  {dist:6.1f}  {p.sob:6.3f}  {p.calo:10.3e}  {p.obj(alpha):7.3f}")
 
 
 class ProdTargetMode(BOMode):
@@ -1714,21 +1652,6 @@ class ProdTargetMode(BOMode):
                      calo=0.0,
                      extras=extras or None)
 
-    def print_top(self, pts, alpha, top):
-        print(f"{'cfg':>14}  {'r0':>5}  {'r1':>5}  {'r2':>5}"
-              f"  {'t0':>5}  {'t1':>5}  {'t2':>5}"
-              f"  {'l0':>5}  {'l1':>5}  {'l2':>5}  {'N':>3}"
-              f"  {'mu/POT':>10}  {'edep/POT[MeV]':>14}  {'peak[Gy/POT]':>14}")
-        for p in pts[:top]:
-            r0, r1, r2, t0, t1, t2, l0, l1, l2, N = p.x
-            ex = p.extras or {}
-            edep = ex.get("edep_per_POT_MeV", float("nan"))
-            peak = ex.get("peak_dose_Gy_per_POT", float("nan"))
-            print(f"{p.cfg:>14}"
-                  f"  {r0:5.2f}  {r1:5.2f}  {r2:5.2f}"
-                  f"  {t0:5.2f}  {t1:5.2f}  {t2:5.2f}"
-                  f"  {l0:5.2f}  {l1:5.2f}  {l2:5.2f}  {int(N):>3}"
-                  f"  {p.sob:10.3e}  {edep:14.3e}  {peak:14.3e}")
 
 
 class ProdTarget6DMode(ProdTargetMode):
@@ -1857,19 +1780,6 @@ class ProdTarget6DMode(ProdTargetMode):
                      calo=0.0,
                      extras=extras or None)
 
-    def print_top(self, pts, alpha, top):
-        print(f"{'cfg':>14}  {'r0':>5}  {'r1':>5}  {'r2':>5}"
-              f"  {'t0':>5}  {'t1':>5}  {'t2':>5}"
-              f"  {'mu/POT':>10}  {'edep/POT[MeV]':>14}  {'peak[Gy/POT]':>14}")
-        for p in pts[:top]:
-            r0, r1, r2, t0, t1, t2 = p.x
-            ex = p.extras or {}
-            edep = ex.get("edep_per_POT_MeV", float("nan"))
-            peak = ex.get("peak_dose_Gy_per_POT", float("nan"))
-            print(f"{p.cfg:>14}"
-                  f"  {r0:5.2f}  {r1:5.2f}  {r2:5.2f}"
-                  f"  {t0:5.2f}  {t1:5.2f}  {t2:5.2f}"
-                  f"  {p.sob:10.3e}  {edep:14.3e}  {peak:14.3e}")
 
 
 MODES: dict[str, BOMode] = {
@@ -1888,16 +1798,6 @@ MODES: dict[str, BOMode] = {
 # ============================================================================
 # Subcommands
 # ============================================================================
-
-def cmd_show_priors(args):
-    mode = MODES[args.mode]
-    priors = mode.load_priors()
-    print(f"[{mode.name}] loaded {len(priors)} priors with both sob+calo")
-    priors.sort(key=lambda p: -p.obj(args.alpha))
-    print(f"\nTop-{args.top} by obj = sob - {args.alpha} * calo:")
-    mode.print_top(priors, args.alpha, args.top)
-    return 0
-
 
 def cmd_propose(args):
     mode = MODES[args.mode]
@@ -1932,7 +1832,7 @@ def _cmd_propose_locked(args, mode, names):
         print(f"  CL-suppressed {suppressed}/{len(pending)} pending points "
               f"(fake y = {fake_y:+.3f})")
 
-    xs, n_rejected = mode.ask_buildable(opt, real_ys, q=q, strategy=args.strategy)
+    xs, n_rejected = mode.ask_buildable(opt, real_ys, q=q, strategy="cl_mean")
     n_unbuildable = sum(1 for x in xs if not mode.is_buildable(x))
     if n_unbuildable:
         print(f"WARN: {mode.PROPOSE_MAX_RETRY} retries hit; returning batch with "
@@ -1942,7 +1842,7 @@ def _cmd_propose_locked(args, mode, names):
         penalty_y = max(real_ys) + 1.0 if real_ys else 1e6
         print(f"  N_crit guard: rejected {n_rejected} unbuildable proposal(s), "
               f"told GP penalty y={penalty_y:+.3f}")
-    print(f"\nProposed batch of {q} (strategy={args.strategy if q > 1 else 'sequential'}):")
+    print(f"\nProposed batch of {q} (strategy={'cl_mean' if q > 1 else 'sequential'}):")
 
     for name, x in zip(names, xs):
         print(f"\n  '{name}':")
@@ -2406,20 +2306,12 @@ def main():
                     help=f"Scalarization weight (default {DEFAULT_ALPHA})")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p_show = sub.add_parser("show-priors", help="Print top-K priors")
-    p_show.add_argument("--top", type=int, default=10)
-    p_show.set_defaults(func=cmd_show_priors)
-
     p_prop = sub.add_parser("propose",
                             help="Propose q≥1 candidate(s) + render geom(s). "
                                  "Pass multiple names for batch BO (CL-mean by default).")
     p_prop.add_argument("config_names", nargs="+",
                         help="One or more proposal names, e.g. `helical003 helical004 helical005`")
-    p_prop.add_argument("--strategy", choices=["cl_min", "cl_mean", "cl_max"],
-                        default="cl_mean",
-                        help="Constant-Liar variant for batches (ignored when q=1)")
     p_prop.set_defaults(func=cmd_propose)
-
 
     p_eval = sub.add_parser("evaluate", help="Record completed run in leaderboard")
     p_eval.add_argument("config_name")
