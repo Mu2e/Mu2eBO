@@ -23,5 +23,6 @@ All grid jobs and [[preflight]] runs source these.
   - `Production/JobConfig/common/prolog.fcl`
 
 ## Cross-links
+- Related: [[mu2e-offline-radiation-damage]], [[pyutils-analysis-env]]
 - Bug it caused: [[geom-run1a-vs-run1b]]
 - Driver that exercises it: [[preflight]]

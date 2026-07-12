@@ -254,7 +254,7 @@ Two distinct bugs collided to produce the silent failure:
   pattern in scan_logs),
   [[bo-foils]] (the project line affected),
   [[closed-loop-runner]] (where the convergence-on-no-new-evals fix
-  belongs)
+  belongs), [[preflight-fcl-genparticle-missing]], [[preflight-past-init-false-pass]]
 - Source files:
   - `graph/pipeline_io.py:140` — `{3: "ambiguous"}` rc mapping
   - `graph/closed_loop.py` — convergence-check site (needs gate)

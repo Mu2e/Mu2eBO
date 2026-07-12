@@ -805,7 +805,7 @@ title:
   the v2 box) — intended, shows where v3 reached beyond the envelope.
 
 ## Cross-links
-- Related: [[bfield-at-helical-plug]], [[bo-helical]], [[batch-bo]], [[refresh-foils-slides]], [[bo-foils]]
+- Related: [[bfield-at-helical-plug]], [[bo-helical]], [[batch-bo]], [[refresh-foils-slides]], [[bo-foils]], [[bo-noise-budget]], [[botorch-tiny-output-log-training]], [[pareto-sob-picker]]
 - Source files: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/overlay_gp_predictions_helical_mpl.py`,
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_helical.py`,
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/cloud_plot.py`,

@@ -60,7 +60,7 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
   `pipeline.py` edits mid-campaign).
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]], [[bo-modes]]
+- Related: [[closed-loop-bo-design]], [[bo-modes]], [[mode-registry-childtracker-design]]
 - Incident evidence: [[foilsflash-tarball-mode-key-omission]], [[preflight-mode-tuple-prodtarget6d-omission]], [[foilsg-grid-tarball-scalar-holeradius-fallback]], [[barrier-false-positive-round1]], [[closed-loop-barrier-timeout-zero-rows-falsepos]], [[closed-loop-final-round-orphan-children]], [[foilsx04-all-preflight-ambiguous]], [[closed-loop-stale-cluster-silent-no-launch]], [[preflight-past-init-false-pass]], [[events-per-job-mid-flight-edit]]
 - Source files: `pipeline.py:98`, `autoresearch_bo_michael.py:1854`, `graph/config.py:35`, `graph/closed_loop.py:168`, `botorch_predict.py:63`
 
@@ -97,7 +97,7 @@ _import_gp; mode-scatter widened by foilsflash entries in `_DRY_RUN_KNOB_LABELS`
    raw_samples=512) — tuning _optimize:246-266 misses qnparego+hybrid; THREE
    min-spacing implementations (0.10 @:484-490 vs CLOSED_LOOP_MIN_PICK_SPACING
    =0.05). Seed/fit/bounds ARE properly shared (_seed/_fit_gp).
-5. **Auxinput-liveness split-brain** (pipeline.py:611-640 probe = fail-open,
+5. **[FIXED e7c3e60 2026-07-11] Auxinput-liveness split-brain** (pipeline.py:611-640 probe = fail-open,
    ≤2 files, fndcadoor-regex-only, GATES; pipeline_io.py:305-319 scan = sees
    all, does NOT gate). A door rename recreates the tape-wipeout with both
    defenses green.

@@ -227,6 +227,6 @@ but invisible to this analyzer module.
   iterations (this entry's blocker is now lifted).
 
 ## Cross-links
-- Related: [[bo-helical]] (calo penalty is dead in this project), [[scalarized-objective]] (α derivation doesn't apply for helical), [[harvest-denominator-bug]] (different bug, same harvest module)
+- Related: [[bo-helical]] (calo penalty is dead in this project), [[scalarized-objective]] (α derivation doesn't apply for helical), [[harvest-denominator-bug]] (different bug, same harvest module), [[grid-job-completion-check]], [[scan-broken-codes-too-narrow]], [[stickman-sd-unwired]]
 - Source files: `pipeline.py:437` (_CALO_EXTRACT_SCRIPT), `pipeline.py:462` (_extract_calo_per_pot), `pipeline_templates/run1b_mubeam/template.fcl:9,17` (deterministic resampler seeds)
 - Raw evidence: `helical001/harvest/summary.json`, `helical002/harvest/summary.json`

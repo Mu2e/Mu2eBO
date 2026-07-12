@@ -53,7 +53,7 @@ knew it.
 
 ## Cross-links
 - Related: [[batch-bo]], [[closed-loop-bo-design]], [[bo-modes]],
-  [[qlnei-sob-only-picker]], [[pareto-sob-picker]]
+  [[qlnei-sob-only-picker]], [[pareto-sob-picker]], [[fast-sim-options-for-bo]]
 - Evidence: [[bo-foilsflash]] (foilsflashSOBX01), [[bo-foils]] (foilsf17R01_07)
 - Source files: `botorch_predict.py` (qNEHVI ref-point/HV construction;
   `_qnparego_picks` at :348, `_hybrid_picks` at :400, dispatch at :529-532),

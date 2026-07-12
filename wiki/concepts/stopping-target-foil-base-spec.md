@@ -74,7 +74,7 @@ overrides (e.g. [[bo-foils]] adds extras around this base) or interpreting
 
 ## Cross-links
 - Related: [[bo-foils]] (consumes this spec), [[bo-helical]] (re-emits foil
-  vector at rOut=125 to block calo stops), [[tsda]]
+  vector at rOut=125 to block calo stops), [[tsda]], [[production-target-stickman]]
 - Source files:
   `/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/CaloCalibc/Offline/GeometryService/src/StoppingTargetMaker.cc:33-127`,
   `Offline/Mu2eG4/geom/stoppingTargetHoles_v02.txt`,

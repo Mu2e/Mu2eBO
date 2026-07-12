@@ -67,7 +67,7 @@ in the chain script — same surface as token contention, different root cause).
 ## Cross-links
 - Related: [[concurrent-token-contention]] (shares failure surface),
   [[stage-out-rename-race]] (also shares surface), [[bo-helical]]
-  (dx-widening probe), [[grid-job-completion-check]]
+  (dx-widening probe), [[grid-job-completion-check]], [[closed-loop-barrier-timeout-zero-rows-falsepos]], [[elebeamcat-tape-migration-elebeam-wipeout]], [[harvest-pyroot-nfs-rpc-hang]]
 - Source: `pipeline.py:submit_stage` (submits), `pipeline.py:list_outputs`
   (silently emits empty file when no .art present)
 - Recovery script: `/tmp/helical_resume_concat_full.sh`

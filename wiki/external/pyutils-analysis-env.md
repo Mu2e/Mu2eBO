@@ -149,7 +149,7 @@ wall: **the ntuples are reconstruction-filtered and carry no generated-event cou
 
 ## Cross-links
 - External: [Mu2e/pyutils](https://github.com/Mu2e/pyutils); Slack `#analysis-tools`.
-- Related: [[mu2e-offline]], [[run1bana-repo]] (EdepAna lives elsewhere), building-with-muse skill.
+- Related: [[mu2e-offline]], `reference_run1bana_repo` (user-memory note) (EdepAna lives elsewhere), building-with-muse skill.
 - This project's own harvest path uses uproot/PyROOT directly, not pyutils — pyutils
   is for EventNtuple-style downstream analysis.
 

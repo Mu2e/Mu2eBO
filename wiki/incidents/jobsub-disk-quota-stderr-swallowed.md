@@ -176,7 +176,7 @@ raises before lines 421-423 print `out.stderr`.
 ## Cross-links
 
 - Related: [[concurrent-token-contention]] (other mu2ejobsub failure
-  mode — also under submit-lock, but token-races, not quota).
+  mode — also under submit-lock, but token-races, not quota), [[data-quota-exhausted-grid-accumulation]], [[sourced-env-stderr-swallowed]], [[venv-relocated-to-data-volume]].
 - Source files: `pipeline.py:413-432` (`submit_stage` jobsub call +
   swallowed stderr), `pipeline.py:265-274` (env construction —
   `setup mu2egrid` requirement).

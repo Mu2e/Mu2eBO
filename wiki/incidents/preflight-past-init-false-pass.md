@@ -53,7 +53,7 @@ aborted before any overlap check ran.
 - Related: [[foilsg-grid-tarball-scalar-holeradius-fallback]] (the failure
   this masked), [[scan-broken-codes-too-narrow]] (same pattern-too-narrow
   class), [[foilsx04-all-preflight-ambiguous]] (prior preflight
-  classification gap), [[preflight]]
+  classification gap), [[preflight]], [[foilsflash-tarball-mode-key-omission]], [[preflight-mode-tuple-prodtarget6d-omission]]
 - Source files: `autoresearch_bo_michael.py:1938-1990` (classifier),
   `:1815` (`G4_GEOM_FAIL_RX`)
 

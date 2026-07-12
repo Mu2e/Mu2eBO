@@ -50,7 +50,7 @@ how much input you actually fed it.
 ## Cross-links
 - Driver: [[pipeline]]
 - Related: [[grid-job-completion-check]] (the `.art:.log` ratio diagnostic that
-  tells you how many jobs were actually used)
+  tells you how many jobs were actually used), [[calo-constant-across-helical]], [[events-per-job-mid-flight-edit]]
 - Source: `pipeline.py:cmd_harvest`, `pipeline.py:_extract_calo_per_pot`
 
 ## Open questions / TODO

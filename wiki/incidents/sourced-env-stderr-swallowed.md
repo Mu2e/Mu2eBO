@@ -184,7 +184,7 @@ DIFFERENT code path (line 278, not 420).
 ## Cross-links
 - Related: [[jobsub-disk-quota-stderr-swallowed]] (sibling: pipeline.py
   swallows mu2ejobsub stderr at line 420 — same anti-pattern, different
-  line)
+  line), [[edepana-saw-events-scientific-notation-parse]], [[mmackenz-edepana-lib-qualifier-bump]]
 - Related: [[closed-loop-thread-id-checkpoint-collision]] (PR2/#6/#8
   surfaced these — closed-loop fix told us WHERE to look)
 - Source files: `pipeline.py:278` (sourced_env), `pipeline.py:559`

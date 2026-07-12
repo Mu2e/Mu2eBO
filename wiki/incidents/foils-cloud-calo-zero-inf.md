@@ -33,7 +33,7 @@ measured" → `log10(0) = -inf` → sklearn rejects the training target.
 ## Cross-links
 - Source: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_foils_v2v3_cloud.py:82-98`
 - Related: [[qlnei-sob-only-picker]] (writes calo=0), [[refresh-foils-slides]],
-  [[refresh-foils-talk]] (the skill — also STALE vs the live deck, see below)
+  `refresh-foils-talk` (skill; see [[refresh-foils-slides]]) (the skill — also STALE vs the live deck, see below)
 
 ## Open questions / TODO
 - **`refresh-foils-talk` skill is out of date vs the live deck (2026-06-20).** The

@@ -20,5 +20,6 @@ what [[bo-michael]] now optimizes.
   analyzers and the data-side overlay scripts).
 
 ## Cross-links
+- Related: [[bo-foilsg]]
 - Successor: [[bo-michael]]
 - Driver page: [[autoresearch-bo]]

@@ -54,7 +54,7 @@ required `kinit` + `mu2einit` + `getToken` then driving `pipeline.py
 
 ## Cross-links
 - Related: [[closed-loop-runner]], [[concurrent-token-contention]],
-  [[grid-job-completion-check]]
+  [[grid-job-completion-check]], [[closed-loop-parent-signal-kill-midlaunch]], [[sqlite-wal-corrupt-after-kill]]
 - Source files: `pipeline.py` (`submit_stage` calls `getToken`),
   `graph/closed_loop.py` (no token renewal)
 

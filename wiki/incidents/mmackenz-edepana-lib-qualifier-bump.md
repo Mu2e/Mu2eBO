@@ -80,7 +80,7 @@ mmlib prepend (or point it at our own build).
 
 ## Cross-links
 - Related: [[muse-backing-pattern]], [[sourced-env-stderr-swallowed]],
-  [[mmackenz-table-plots-dir]] (other off-repo mmackenz dependencies)
+  [[mmackenz-table-plots-dir]] (other off-repo mmackenz dependencies), [[edepana-saw-events-scientific-notation-parse]], [[elebeamcat-tape-migration-elebeam-wipeout]]
 - Reference: `reference_run1bana_repo` (EdepAna is in github.com/michaelmackenzie/Run1BAna)
 - Source: `pipeline.py:350-365` (mmlib + CET_PLUGIN_PATH prepend), `:1110-1127`
   (EdepAna invocation, rc check)

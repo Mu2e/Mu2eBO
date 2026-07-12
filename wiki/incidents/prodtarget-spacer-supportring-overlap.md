@@ -1,7 +1,7 @@
 # Patched ProductionTargetMaker — spacer + support-ring overlaps with downstream plate
 
 **Type:** incident
-**Status:** partial — shrinks + lug-cap cover 8/10 of ptX05R00 picks; **third failure mode discovered 2026-06-10**: thick-plate regime re-triggers; **fourth failure mode** had a wrong magnitude claim (250–500 µm) — **CORRECTED 2026-06-17 via pt6d07 evidence**: end-plate clamp `lPlate[{0,-1}]=tPlate` (shipped autoresearch_bo_michael.py:1527-1534) DID eliminate the macro overhang (pt6d07 R0 = 10/10 clean, R1 = 7/10 with 3 fails reporting only **50–100 nm** = magic-offset class), so the original 4-OOM physical-overhang diagnosis was incorrect. Residual `SpacerNegZ_0 ⟷ Plate00` at precision tolerance is the same class as the documented `SpacerPosZ × Plate_last` mode and needs the mirror-side spacer shrink in `constructTargetPS.cc:1730`.
+**Status:** active — shrinks + lug-cap cover 8/10 of ptX05R00 picks; **third failure mode discovered 2026-06-10**: thick-plate regime re-triggers; **fourth failure mode** had a wrong magnitude claim (250–500 µm) — **CORRECTED 2026-06-17 via pt6d07 evidence**: end-plate clamp `lPlate[{0,-1}]=tPlate` (shipped autoresearch_bo_michael.py:1527-1534) DID eliminate the macro overhang (pt6d07 R0 = 10/10 clean, R1 = 7/10 with 3 fails reporting only **50–100 nm** = magic-offset class), so the original 4-OOM physical-overhang diagnosis was incorrect. Residual `SpacerNegZ_0 ⟷ Plate00` at precision tolerance is the same class as the documented `SpacerPosZ × Plate_last` mode and needs the mirror-side spacer shrink in `constructTargetPS.cc:1730`.
 **Updated:** 2026-06-17 (pt6d07 evidence: clamp works, residual is precision-tolerance class)
 
 ## Summary
@@ -102,7 +102,7 @@ lookup. Worth verifying that:
   `autoresearch_muse_prodtarget` muse)
 - Related: [[preflight-fcl-genparticle-missing]] (surface-check is
   what surfaced this — without it, the overlap would have silently
-  reached the grid)
+  reached the grid), [[pipeline-poll-rc120-atexit-death]]
 - Related: [[prodtarget-env-divergence]] (without env wiring the
   fixed libs never reach preflight or grid)
 - Related: [[art-instance-name-no-underscore]] (the prior patch that

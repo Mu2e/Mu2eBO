@@ -25,5 +25,6 @@ small perturbations, so flipping this changes which prior cluster is relevant.
   `rin∈[130,135], hL4∈[7.5,10], hole=21.5`, leaving room for BO to interpolate.
 
 ## Cross-links
+- Related: [[tsda]]
 - Used in: [[bo-michael]]
 - Best degrader-ON candidate: mmackenz v39 (see [[mmackenz-priors]])

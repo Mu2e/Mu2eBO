@@ -36,7 +36,7 @@ foils/ipa/smoke ran mustops_ce at ≤5e5 events (<1M), but foilsflash02's big
 
 ## Cross-links
 - Related: [[bo-foilsflash]], [[bo-noise-budget]], [[mmackenz-edepana-lib-qualifier-bump]],
-  [[sourced-env-stderr-swallowed]]
+  [[sourced-env-stderr-swallowed]], [[harvest-pyroot-nfs-rpc-hang]]
 - Source files: `pipeline.py` (`_EDEP_SAW_RX` ~852, `ce_seen` parse ~1172)
 
 ## Harvest race with the fix (2026-06-28)

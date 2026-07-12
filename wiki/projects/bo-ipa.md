@@ -252,7 +252,7 @@ No commit/push (operator reviews, like foils). Refresh both PNGs as rounds land.
 ## Cross-links
 - Related: [[bo-foils]] (predecessor mode pattern + qNEHVI machinery),
   [[scalarized-objective]], [[uproot-cannot-read-steppointmc]] (StrawGasStep
-  needs PyROOT under muse, not uproot)
+  needs PyROOT under muse, not uproot), [[bo-foilsflash]]
 - Source files: `autoresearch_bo_michael.py` (IPAMode),
   `mmackenz_table_plots/gp_predict_ipa.py`,
   `Production/JobConfig/pileup/MuStopPileup.fcl`,

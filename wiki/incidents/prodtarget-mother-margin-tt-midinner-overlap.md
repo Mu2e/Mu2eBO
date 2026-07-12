@@ -1,7 +1,7 @@
 # ProdTargetMode MOTHER_MARGIN_MM=20 → TT_MidInner overlap (RETRACTED)
 
 **Type:** incident
-**Status:** **RETRACTED 2026-06-07** — original hypothesis refuted by diagnostic; no fix needed; source reverted to `MOTHER_MARGIN_MM=20.0`.
+**Status:** superseded (RETRACTED 2026-06-07 — cause story wrong; see Summary)
 **Updated:** 2026-06-07
 
 ## Summary

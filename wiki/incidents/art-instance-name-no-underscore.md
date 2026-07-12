@@ -44,7 +44,7 @@ rc=9 at module construction — never reaches G4 init.
 
 ## Cross-links
 - Related: [[dpa-scoring]], [[stickman-sd-unwired]],
-  [[steppointmcdumper-no-edep]]
+  [[steppointmcdumper-no-edep]], [[prodtarget-spacer-supportring-overlap]], [[uproot-cannot-read-steppointmc]]
 - Source files: `autoresearch_muse_prodtarget/Offline/Mu2eG4/src/constructTargetPS.cc:1667`
 - External: [art ProductRegistryHelper](https://github.com/art-framework-suite/art/blob/develop/art/Framework/Core/ProductRegistryHelper.h)
 

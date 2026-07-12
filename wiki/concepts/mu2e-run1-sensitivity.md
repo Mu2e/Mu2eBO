@@ -207,4 +207,4 @@ worse SES.
 - External: arXiv:2210.11380. Signal/bkg MC = MDC2025ar EventNtuple datasets
   (CeMLeadingLog* = signal, DIOtail95, Cosmic*, RPC*, RMC*, etc.), readable via
   [[pyutils-analysis-env]] (CE |p| peak at ~105 MeV verified 2026-06-26).
-- Related: [[production-target-stickman]] (the PT the BO lines optimize feeds N_stop).
+- Related: [[production-target-stickman]] (the PT the BO lines optimize feeds N_stop), [[fast-sim-options-for-bo]].

@@ -111,7 +111,7 @@ already paid to learn.
 ## Cross-links
 - Related: [[batch-bo]], [[events-per-job-mid-flight-edit]],
   [[tessellated-solid-facet-orientation]],
-  [[orchestrator-evaluation-2026-05]], [[bo-helical]]
+  [[orchestrator-evaluation-2026-05]], [[bo-helical]], [[architecture-friction-survey-2026-07]], [[mode-registry-childtracker-design]], [[qlnei-sob-only-picker]], [[saturation-is-acquisition-relative]]
 - Source: `graph/run.py:51` (sqlite connect, no WAL today),
   `autoresearch_bo_michael.py:150-156` (append_history, no lock),
   `autoresearch_bo_michael.py:186-206` (pending TSV r-w-t cycle, no lock),

@@ -418,7 +418,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
   gotcha),
   [[batch-bo]] (cl_min strategy choice),
   [[closed-loop-bo-design]] (mode-generic barrier/leaderboard plumbing),
-  [[closed-loop-runner]] (driver this rides on)
+  [[closed-loop-runner]] (driver this rides on), [[bo-foilsflash]], [[bo-foilsg]], [[bo-ipa]], [[bo-prodtarget]]
 - Source files:
   `autoresearch_bo_michael.py` `FoilsMode` class (~L547),
   `autoresearch_bo_michael.py:379` (HelicalMode.FOIL_COUNT side-fix),

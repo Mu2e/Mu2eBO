@@ -39,7 +39,7 @@ ptX02R01_03 cluster still running at parent-exit time.
   finish harvest. Or accept the loss for the campaign.
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]], [[barrier-false-positive-round1]]
+- Related: [[closed-loop-bo-design]], [[barrier-false-positive-round1]], [[closed-loop-barrier-timeout-zero-rows-falsepos]], [[closed-loop-parent-signal-kill-midlaunch]]
 - Source files: `graph/closed_loop.py` (the round loop + barrier-poll
   + final return path)
 

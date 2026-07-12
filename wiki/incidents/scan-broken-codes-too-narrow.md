@@ -251,7 +251,7 @@ the same as no report at all.
 
 ## Cross-links
 - Related: [[tessellated-solid-facet-orientation]], [[tsda-disc-helical-sibling-overlap]],
-  [[bo-helical]], [[gp-cloud-rendering]], [[calo-constant-across-helical]]
+  [[bo-helical]], [[gp-cloud-rendering]], [[calo-constant-across-helical]], [[elebeamcat-tape-migration-elebeam-wipeout]], [[foilsx04-all-preflight-ambiguous]], [[preflight-past-init-false-pass]]
 - Source files: `graph/pipeline_io.py:336` (SCAN_BROKEN_CODES),
   `graph/pipeline_io.py:264` (_SCAN_PATTERNS), `graph/nodes.py:115`
   (node_scan_logs)

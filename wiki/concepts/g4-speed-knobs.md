@@ -573,7 +573,7 @@ out to be unsafe (`Minimal` physics list breaks the workflow; `bfieldMaxStep`
   with exit 90 "Can't find file".
 
 ## Cross-links
-- Related: [[scalarized-objective]], [[bo-helical]], [[mmackenz-workflow]]
+- Related: [[scalarized-objective]], [[bo-helical]], [[mmackenz-workflow]], [[production-target-stickman]]
 - Source files: `/tmp/g4_mubeam_bench/run_bench.sh`,
   `/tmp/g4_mubeam_bench/bench_*.fcl`
 - External: [Geant4 production cuts](https://geant4-userdoc.web.cern.ch/UsersGuides/ForApplicationDeveloper/html/TrackingAndPhysics/cuts.html)

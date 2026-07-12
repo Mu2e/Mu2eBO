@@ -92,7 +92,7 @@ wrapper FCL (see [[mu2e-overlap-check]]) and run `mu2e -n 1` in
 new Option-A render to bridge old/new leaderboards before resuming BO.
 
 ## Cross-links
-- Related: [[bo-helical]], [[tsda]], [[mu2e-overlap-check]], [[preflight]]
+- Related: [[bo-helical]], [[tsda]], [[mu2e-overlap-check]], [[preflight]], [[scan-broken-codes-too-narrow]], [[tessellated-solid-facet-orientation]]
 - Source: `/exp/mu2e/app/users/oksuzian/autoresearch_muse/Offline/Mu2eG4/src/constructTSdA.cc:240,322,350`
 - BO driver: `autoresearch_bo_michael.py` (HelicalMode render_geom, BOUNDS, search space)
 

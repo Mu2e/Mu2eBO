@@ -309,6 +309,7 @@ n=193→0.590, n=204→0.122, n=251→0.075. Plot:
 `diversity_overlay_foils.png`.
 
 ## Cross-links
+- Related: [[bo-noise-budget]], [[fast-sim-options-for-bo]], [[orchestrator-evaluation-2026-05]], [[pareto-sob-picker]], [[qlnei-sob-only-picker]], [[saturation-is-acquisition-relative]]
 - Driver: [[autoresearch-bo-michael]]
 - Driver: [[pipeline]]
 - Concept: [[bo-modes]], [[closed-loop-bo-design]], [[gp-cloud-rendering]], [[scalarized-objective]]

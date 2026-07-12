@@ -85,7 +85,7 @@ file layout.
 
 ## Cross-links
 - Related: [[g4-speed-knobs]], [[stopping-target-foil-base-spec]],
-  [[fixed-geometry-constraint]]
+  [[fixed-geometry-constraint]], [[dpa-scoring]], [[mu2e-run1-sensitivity]]
 - Source files:
   `backing/Offline/Mu2eG4/geom/ProductionTarget_Stickman_v1_0.txt`,
   `backing/Offline/Mu2eG4/geom/geom_run1_a_stickman.txt:69`,

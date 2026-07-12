@@ -37,7 +37,7 @@ SqliteSaver tries to msgpack-encode the state and dies.
 ## Cross-links
 - Related: [[prodtarget-propose-skopt-empty-init]] (sibling np.int64 fix
   in the propose JSON-write path, NOT the LangGraph checkpoint path),
-  [[bo-prodtarget]]
+  [[bo-prodtarget]], [[sqlite-wal-corrupt-after-kill]]
 - Source files:
   - `graph/nodes.py` (propose / evaluate nodes that write to state)
   - `graph/state.py` (state dataclass)

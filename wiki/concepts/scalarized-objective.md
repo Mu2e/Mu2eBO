@@ -113,7 +113,7 @@ Don't re-propose removal as a quick edit.
   front + a champion *band* over α, don't oversell a single `obj`.
 
 ## Cross-links
-- Related: [[g4-speed-knobs]]
+- Related: [[g4-speed-knobs]], [[bfield-at-helical-plug]], [[bo-noise-budget]], [[qlnei-sob-only-picker]]
 - Driver: [[autoresearch-bo-michael]]
 - See also: [[bo-modes]] (which `sob` value the optimizer reads vs the report),
   [[batch-bo]] (qNEHVI explores the front α-free; defer-α two-phase strategy)

@@ -43,7 +43,7 @@ sentinel. No more rsync+sed; the failure mode no longer reachable.
 ## Cross-links
 - Driver: [[pipeline]]
 - Related: [[grid-job-completion-check]] (the `.log`-without-`.art` signature
-  is exactly what an init failure looks like)
+  is exactly what an init failure looks like), [[fcl-unicode-parse-error]]
 - Source: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/smoke_helical001/`
   (the failing tree, as of 2026-05-15)
 

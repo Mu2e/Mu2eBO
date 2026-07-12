@@ -83,7 +83,7 @@ check would catch this. Not yet wired.
 
 ## Cross-links
 - Related: [[template-fcl-staleness]] (different failure but same
-  blast surface — silent on the grid until G4 init), [[pipeline]]
+  blast surface — silent on the grid until G4 init), [[pipeline]], [[readvd-savepdg-string-not-int]]
 - Driver: [[graph-runner]], [[closed-loop-runner]]
 - Source files: `pipeline_templates/<stage>/template.fcl`,
   `pipeline.py:390` (the `subprocess.run(jobdef, ..., check=True)` call)

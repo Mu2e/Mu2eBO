@@ -394,7 +394,7 @@ retro-scan-broken champions in the same regime).
 
 ## Cross-links
 - Related: [[graph-runner]], [[tsda]], [[tsda-disc-helical-sibling-overlap]],
-  [[mu2e-overlap-check]], [[preflight]]
+  [[mu2e-overlap-check]], [[preflight]], [[prodtarget-spacer-supportring-overlap]], [[scan-broken-codes-too-narrow]]
 - Source: `/exp/mu2e/app/users/oksuzian/autoresearch_muse/Offline/Mu2eG4/src/constructTSdA.cc:58-128`
 - Detection: `graph/pipeline_io.py:scan_worker_logs`, `graph/nodes.py:node_scan_logs`
 - Sample report: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/helical050a/scan_logs/report.tsv`

@@ -95,7 +95,7 @@ Pre-fix, the obvious bandaid was to bolt a `base.exists()` retry loop onto
 ## Cross-links
 - Related: [[stage-out-rename-race]] (sibling race once `00/` exists),
   [[concurrent-token-contention]] (separate race at submit time),
-  [[grid-job-completion-check]] (broader playbook on jobsub_q vs /pnfs)
+  [[grid-job-completion-check]] (broader playbook on jobsub_q vs /pnfs), [[elebeamcat-tape-migration-elebeam-wipeout]], [[poll-deadlock-missing-outstage-dirs]]
 - Source: `pipeline.py:poll_cluster` (convergence gate),
   `pipeline.py:list_outputs` (precondition assert)
 - Consumer: `graph/pipeline_io.py:run_stage` (calls submit→poll→list-outputs

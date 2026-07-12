@@ -112,7 +112,7 @@ spacer-shrink fix in the patched workdir is now actually reached.
 ## Cross-links
 
 - Related: [[prodtarget-spacer-supportring-overlap]] (the bug whose
-  fix was being silently bypassed)
+  fix was being silently bypassed), [[foilsflash-tarball-mode-key-omission]], [[foilsg-grid-tarball-scalar-holeradius-fallback]]
 - Related: [[muse-backing-pattern]] (general muse layering pattern)
 - Related: [[venv-relocated-to-data-volume]] (sister env-source
   surprise)

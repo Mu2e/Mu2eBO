@@ -39,7 +39,7 @@ sob corner.
 
 ## Cross-links
 - Related: [[qlnei-sob-only-picker]], [[batch-bo]], [[gp-cloud-rendering]],
-  [[bo-noise-budget]], [[bo-foils]]
+  [[bo-noise-budget]], [[bo-foils]], [[saturation-is-acquisition-relative]]
 - Source: `botorch_predict.py` (`_pareto_sob_picks`, `compute_explore_picks`),
   `graph/closed_loop.py` (`PICKER_CHOICES`, picker-route guards)
 

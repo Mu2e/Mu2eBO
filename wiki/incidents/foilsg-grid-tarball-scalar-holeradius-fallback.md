@@ -135,7 +135,7 @@ cousin of [[closed-loop-stale-cluster-silent-no-launch]]).
   leaderboard + original hazard warning),
   [[closed-loop-barrier-timeout-zero-rows-falsepos]] (foilsg05's 3
   survivors were orphaned by that bug *and* silently wrong from this one),
-  [[muse-backing-pattern]] (how the patched lib is built)
+  [[muse-backing-pattern]] (how the patched lib is built), [[foilsflash-tarball-mode-key-omission]], [[preflight-past-init-false-pass]]
 - Source files: `autoresearch_bo_michael.py` `FoilsGroupMode._geom_text`
   (dual scalar+vector emission), `pipeline.py:506 submit_stage` (where the
   empty-jobdef rc=255 surfaces)

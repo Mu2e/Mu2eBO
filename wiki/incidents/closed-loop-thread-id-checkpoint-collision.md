@@ -72,7 +72,7 @@ is the one persisted to the leaderboard, not foilsX05R01_07.
 
 ## Cross-links
 - Related: [[barrier-false-positive-round1]], [[closed-loop-bo-design]],
-  [[closed-loop-runner]]
+  [[closed-loop-runner]], [[closed-loop-stale-cluster-silent-no-launch]], [[sourced-env-stderr-swallowed]]
 - Source files: `graph/closed_loop.py`, `graph/state.py`
 - Detection log: `graph_data/closed_loop_logs/foilsX05R01_07.log`
 

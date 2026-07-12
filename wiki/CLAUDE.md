@@ -41,7 +41,7 @@ Every entity page is a markdown file with this skeleton:
 # <Title>
 
 **Type:** project | concept | dataset | driver | incident | external
-**Status:** active | dormant | resolved | superseded
+**Status:** active | dormant | resolved | superseded | open | recurring
 **Updated:** YYYY-MM-DD
 
 ## Summary

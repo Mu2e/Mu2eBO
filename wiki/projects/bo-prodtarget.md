@@ -470,7 +470,7 @@ def profile(c, N):                 # c = (c0, c1, c2); knots at u=0,0.5,1
 Ran `mu2e -c Production/JobConfig/beam/POT.fcl -n {1,100}` after
 `muse setup /cvmfs/.../Musings/SimJob/MDC2025aq`:
 - Init cost (1-evt): 67 s wall, 43 s CPU, **VmPeak 2.27 GB** — needs ≥2.5 GB
-  request (see [[mu2e-memory-request-norm]] community default).
+  request (see `mu2e-memory-request-norm` (user-memory note) community default).
 - Steady-state (100-evt minus init): **~1.8 s CPU/event**, VmPeak unchanged
   at 2.28 GB.
 - **BeamFilter pass = 10/100 (10%)** at defaults — events where ≥1 charged

@@ -146,7 +146,7 @@ fast geometric check without re-running G4.
   3 R1 spacer↔plate-00 failures were *other* picks.
 
 ## Cross-links
-- Related: [[bo-helical]] (preflight integration), [[tsda-disc-helical-sibling-overlap]] (the bug class this catches), [[preflight]], [[production-target-stickman]], [[prodtarget-spacer-supportring-overlap]]
+- Related: [[bo-helical]] (preflight integration), [[tsda-disc-helical-sibling-overlap]] (the bug class this catches), [[preflight]], [[production-target-stickman]], [[prodtarget-spacer-supportring-overlap]], [[mu2e-offline-radiation-damage]]
 - Source files: `/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v13_12_10/Offline/Mu2eG4/fcl/surfaceCheck.fcl`, `Offline/Mu2eG4/geom/geom_SurfaceCheck.txt`
 - External: [G4 CheckOverlaps docs](https://geant4-userdoc.web.cern.ch/UsersGuides/ForApplicationDeveloper/html/Detector/Geometry/geomChecking.html)
 

@@ -125,7 +125,7 @@ linearly extrapolate from small-venv timing.
 
 - Related: [[jobsub-disk-quota-stderr-swallowed]] (the /nashome 94%
   side of the same 2026-05-22 quota episode; /app was also at 94%
-  which is why these venvs got moved).
+  which is why these venvs got moved), [[closed-loop-sqlite-checkpoint-transient-corruption]], [[data-quota-exhausted-grid-accumulation]], [[prodtarget-env-divergence]].
 - Source files: none — relocation is filesystem-level only.
 - External: [[mu2e-offline]] for /cvmfs paths (unaffected).
 

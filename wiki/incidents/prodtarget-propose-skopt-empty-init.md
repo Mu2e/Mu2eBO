@@ -141,7 +141,7 @@ Implementation site: `autoresearch_bo_michael.py:268-279`
 in `ProdTargetMode`, so any future zero-prior mode benefits.
 
 ## Cross-links
-- Related: [[bo-prodtarget]] (cold-start decision section), [[batch-bo]]
+- Related: [[bo-prodtarget]] (cold-start decision section), [[batch-bo]], [[langgraph-checkpoint-numpy-int64]]
 - Source: `autoresearch_bo_michael.py:269` (ask_buildable),
   `.venv-graph/.../skopt/optimizer/optimizer.py:490`
 

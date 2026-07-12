@@ -91,7 +91,7 @@ it, which pushes STMUpstream past the DS2 envelope.
 
 ## Cross-links
 - Related: [[geom-run1a-vs-run1b]], [[bo-prodtarget]],
-  [[production-target-stickman]], [[dpa-scoring]]
+  [[production-target-stickman]], [[dpa-scoring]], [[prodtarget-mother-margin-tt-midinner-overlap]]
 - Source files:
   `/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v13_18_00/Offline/GeometryService/src/VirtualDetectorMaker.cc:195`
 - Work-around geom: `/exp/mu2e/app/users/oksuzian/dpa_smoke/g.txt`

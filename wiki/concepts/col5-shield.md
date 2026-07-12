@@ -22,5 +22,6 @@ order.
 - **Knob:** `ts.coll5.material1Name`
 
 ## Cross-links
+- Related: [[tsda]]
 - Used in: [[bo-michael]]
 - Bug history: [[col5-projection-bug]]

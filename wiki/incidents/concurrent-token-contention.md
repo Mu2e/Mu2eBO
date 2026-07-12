@@ -91,7 +91,7 @@ mustops_ce within a 5-minute window — three of five failed.
 
 ## Cross-links
 - Related: [[stage-out-rename-race]], [[grid-job-completion-check]],
-  [[bo-helical]], [[concat-xrootd-fileopen-postendjob]]
+  [[bo-helical]], [[concat-xrootd-fileopen-postendjob]], [[jobsub-disk-quota-stderr-swallowed]], [[kerberos-mid-run-expiry]], [[stage-out-lag]]
 - Source: `pipeline.py:submit_stage` (preemptive `getToken` landed
   2026-05-18; still no flock for cache-dir race)
 - Resume scripts (ad-hoc, /tmp): `helical_resume_run1b.sh`,

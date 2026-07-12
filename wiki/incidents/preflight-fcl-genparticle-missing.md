@@ -80,7 +80,7 @@ managed-volume overlaps.
 
 - Related: [[prodtarget-mother-margin-tt-midinner-overlap]] (retracted
   margin "fix" was triggered by misreading this preflight failure as a
-  geometry problem)
+  geometry problem), [[prodtarget-spacer-supportring-overlap]]
 - Related: [[foilsx04-all-preflight-ambiguous]] (different cause, same
   symptom shape: silent preflight=ambiguous burns a round)
 - Source: `autoresearch_bo_michael.py` ProdTargetMode preflight FCL

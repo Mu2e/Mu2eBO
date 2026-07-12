@@ -56,6 +56,7 @@ literal-string tuple membership. Subclasses inherit Python methods,
 not driver mode-dispatch.
 
 ## Cross-links
+- Related: [[foilsflash-tarball-mode-key-omission]], [[pipeline-poll-rc120-atexit-death]]
 - Caused by: my 2026-06-13 GDML-emission wiring (see [[preflight]]
   driver page, "GDML emission tier")
 - Related rc=1 overload: [[preflight-past-init-false-pass]] (different

@@ -17,5 +17,5 @@ value, *not* the headline number from the report. This is a known sharp edge.
 - Memory pointer: `~/.claude/.../memory/project_bo_modes.md`
 
 ## Cross-links
-- Related: [[batch-bo]]
+- Related: [[batch-bo]], [[architecture-friction-survey-2026-07]], [[saturation-is-acquisition-relative]]
 - Used in: [[scalarized-objective]], [[bo-michael]]

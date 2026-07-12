@@ -44,6 +44,7 @@ substantially below v39's reported obj=3.459.
   apply identically to both stages.
 
 ## Cross-links
+- Related: [[production-target-stickman]]
 - Constrains: [[bo-michael]], [[bo-helical]]
 - Excluded best: discussed in [[mmackenz-priors]]
 - Source: project design choice (no formal spec — recorded here)

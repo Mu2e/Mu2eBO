@@ -23,5 +23,5 @@ decreasing it kills calo stops but starts swallowing signal-side acceptance.
 
 ## Cross-links
 - Used in: [[bo-michael]]
-- Related: [[col5-shield]], [[degrader]]
+- Related: [[col5-shield]], [[degrader]], [[bfield-at-helical-plug]], [[stopping-target-foil-base-spec]]
 - Source params: `Offline/Mu2eG4/geom/geom_run1_*.txt`

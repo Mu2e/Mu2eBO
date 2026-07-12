@@ -63,5 +63,5 @@ claudeai-proxy DM `D738B2DRV`). The user sees the bot upload in a
   directly. No multi-hop relay needed.
 
 ## Cross-links
-- Related: [[slack-file-upload-flow]]
+- Related: [[slack-file-upload-flow]], [[claude-bash-no-ssh-agent]]
 - External: [conversations.open](https://api.slack.com/methods/conversations.open)

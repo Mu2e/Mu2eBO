@@ -41,6 +41,7 @@ TT_MidInner virtual detector to overlap DS2Vacuum, surfacing as a
   Separate concern from baseline fix; track in [[bo-michael]] open questions.
 
 ## Cross-links
+- Related: [[stickman-inds2vacuum-stmupstream-overlap]]
 - Driver: [[autoresearch-bo-michael]]
 - Helper that surfaced it: [[preflight]]
 - Helical sibling: [[bo-helical]]

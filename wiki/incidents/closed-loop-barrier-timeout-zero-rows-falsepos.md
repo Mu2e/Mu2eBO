@@ -99,7 +99,7 @@ recommendation). **Same outcome at the higher cap**:
   here at start), [[closed-loop-stale-cluster-silent-no-launch]]
   (why reusing the prefix doesn't work),
   [[concat-xrootd-fileopen-postendjob]] (likely cause of the 2 quick
-  failures that triggered the misread)
+  failures that triggered the misread), [[closed-loop-parent-signal-kill-midlaunch]], [[foilsg-grid-tarball-scalar-holeradius-fallback]], [[pipeline-poll-rc120-atexit-death]]
 - Source files: `graph/closed_loop.py` `barrier_round`,
   `graph/closed_loop.py` `decide_next` zero-rows branch
 - Project: [[bo-foilsg]] (foilsg03 launch that hit this)

@@ -58,7 +58,7 @@ The existing empty-guard at `:474-479` then fires correctly within seconds when 
 - **All Popens raise** (e.g. log_path permission denied): today, barrier hangs full 240 min; fix correctly empties `launched_names` and the guard fires.
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]] (scan_logs gating + cluster-file idempotency design), [[closed-loop-sqlite-checkpoint-transient-corruption]] (the crash that triggered the recovery scenario), [[closed-loop-thread-id-checkpoint-collision]] (separate but adjacent collision-on-resume hazard), [[barrier-false-positive-round1]] (other barrier silent-failure mode)
+- Related: [[closed-loop-bo-design]] (scan_logs gating + cluster-file idempotency design), [[closed-loop-sqlite-checkpoint-transient-corruption]] (the crash that triggered the recovery scenario), [[closed-loop-thread-id-checkpoint-collision]] (separate but adjacent collision-on-resume hazard), [[barrier-false-positive-round1]] (other barrier silent-failure mode), [[closed-loop-barrier-timeout-zero-rows-falsepos]]
 - Source files: `graph/closed_loop.py:401-410` (`_already_running`), `graph/closed_loop.py:407-410` (`pending` filter), `graph/closed_loop.py:454-457` (returns `launched_names` from `children.keys()` even when `pending` was empty)
 
 ## Resolution (2026-06-09)

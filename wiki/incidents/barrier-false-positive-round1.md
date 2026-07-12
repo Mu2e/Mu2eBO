@@ -51,7 +51,7 @@ in logs; isn't.
 ## Cross-links
 - Source files: `graph/closed_loop.py` (node_barrier + refit_and_check),
   `graph/config.py` (CLOSED_LOOP_BARRIER_* constants)
-- Related: [[closed-loop-runner]], [[closed-loop-bo-design]], [[closed-loop-thread-id-checkpoint-collision]], [[foilsx04-all-preflight-ambiguous]]
+- Related: [[closed-loop-runner]], [[closed-loop-bo-design]], [[closed-loop-thread-id-checkpoint-collision]], [[foilsx04-all-preflight-ambiguous]], [[closed-loop-final-round-orphan-children]], [[closed-loop-stale-cluster-silent-no-launch]]
 - Log: `graph_data/closed_loop_logs/closed_helicalFT05_r0.log`
 - Affected children: `helicalFT05R01_00` through `helicalFT05R01_07`
 

@@ -53,7 +53,7 @@ not by trusting `SDConfig.enableSD`.
 
 ## Cross-links
 - Related: [[bo-prodtarget]], [[production-target-stickman]],
-  [[muse-backing-pattern]], [[calo-constant-across-helical]]
+  [[muse-backing-pattern]], [[calo-constant-across-helical]], [[art-instance-name-no-underscore]], [[g4nielcalculator-ctor-segfault]], [[prodtarget-spacer-supportring-overlap]], [[steppointmcdumper-no-edep]]
 - Source files (read-only refs): `backing/Offline/Mu2eG4/src/constructTargetPS.cc:32`
   (commented include), `:90` (dispatch), `:800` (Hayman SD wiring),
   `:1278-2305` (Stickman builder), `:1705-1713` (plate finishNesting,
