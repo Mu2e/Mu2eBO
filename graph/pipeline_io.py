@@ -137,46 +137,29 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
 
 # --- mock grid (Phase 1) ---
 
-_HELICAL_KNOB_RANGES = {
-    "dx":         (0.01, 5.0),
-    "dy":         (40.0, 400.0),
-    "halflength": (25.0, 500.0),
-    "angle":      (60.0, 720.0),
-}
 
-# Matches FoilsMode.build_space in autoresearch_bo_michael.py.
-_FOILS_KNOB_RANGES = {
-    "n_up":                (0.0, 6.0),
-    "n_down":              (0.0, 6.0),
-    "extra_rOut":          (50.0, 250.0),
-    "extra_halfThickness": (0.05, 1.0),
-    "extra_rIn":           (0.0, 50.0),
-}
-
-
-def mock_metrics(x_point: list[float]) -> dict:
+def mock_metrics(x_point: list[float], mode: str = DEFAULT_MODE) -> dict:
     """Synthesize a (s_over_sqrt_b, calo_per_pot) pair from x via a smooth surface.
 
-    Mode-agnostic: 4D = helical (dx, dy, halflen, angle), 5D = foils
-    (n_up, n_down, extra_rOut, extra_halfThickness, extra_rIn). Peak sob at
-    mid-range of each knob; calo grows with the last two normalized knobs
-    (helical: halflength·angle = "more plug"; foils: halfThickness·rIn-ish =
-    "more downstream material" — same intent).
+    Dimension-generic: normalizes each knob against the mode's registry
+    bounds (modes.SPECS[mode].bounds_lo/hi), so every numeric mode works
+    (4D helical … 12D foilsg — the old 4D/5D-only version raised ValueError
+    for all the higher-D lines). sob peaks at mid-range of each knob; calo
+    grows with the last two normalized knobs ("more material"). michael's
+    Categorical space has no numeric bounds — falls back to a neutral 0.5
+    per knob (a smoke test only needs *a* number).
     """
-    if len(x_point) == 4:
-        keys = ("dx", "dy", "halflength", "angle")
-        ranges = _HELICAL_KNOB_RANGES
-    elif len(x_point) == 5:
-        keys = ("n_up", "n_down", "extra_rOut", "extra_halfThickness", "extra_rIn")
-        ranges = _FOILS_KNOB_RANGES
-    else:
-        raise ValueError(f"mock_metrics: expected 4D helical or 5D foils x, got {len(x_point)}")
-    u = [(v - ranges[k][0]) / (ranges[k][1] - ranges[k][0]) for k, v in zip(keys, x_point)]
-    # sob: gaussian bump centered at 0.5 in each dim.
     import math
+    spec = _modes.SPECS[mode]
+    lo, hi = spec.bounds_lo, spec.bounds_hi
+    if lo is not None and hi is not None and len(lo) == len(x_point):
+        u = [(v - lo[i]) / (hi[i] - lo[i]) for i, v in enumerate(x_point)]
+    else:
+        u = [0.5] * max(len(x_point), 2)
+    # sob: gaussian bump centered at 0.5 in each dim.
     r2 = sum((ui - 0.5) ** 2 for ui in u)
     sob = 0.9 * math.exp(-2.5 * r2) + 0.05
-    # calo: grows with the last two normalized knobs (mode-agnostic "more material" dir).
+    # calo: grows with the last two normalized knobs ("more material" dir).
     calo = 1e-7 + 6e-7 * u[-2] * u[-1]
     return {
         "config": "mock",

@@ -191,7 +191,7 @@ def node_harvest(state: BOIterationState) -> dict:
 
 def node_mock_grid(state: BOIterationState) -> dict:
     """Mock substitute for the real grid chain: synthesizes metrics from x."""
-    return {"metrics": pio.mock_metrics(state["x_point"])}
+    return {"metrics": pio.mock_metrics(state["x_point"], state["mode"])}
 
 
 def node_scan_logs(state: BOIterationState) -> dict:
