@@ -277,7 +277,7 @@ def node_renew_token(state: RoundState) -> dict:
     return {"errors": errors}
 
 
-def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, picker: str = "qnehvi") -> list[tuple]:
+def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "qnehvi") -> list[tuple]:
     """Shell into .venv-botorch to run botorch_predict.py; return picks.
 
     Disjoint-venv: closed_loop.py runs under .venv-graph (no botorch); the
@@ -306,7 +306,6 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, alpha: float, p
             str(BOTORCH_VENV_PY), str(BOTORCH_PREDICT),
             "--mode", mode, "--q", str(q),
             "--round-idx", str(round_idx),
-            "--alpha", str(alpha),
             "--picker", picker,
             "--emit-picks-json", str(out_path),
         ]
@@ -343,8 +342,7 @@ def node_predict_picks(state: RoundState) -> dict:
     q = state["q"]
     mode = state["mode"]
     picker = state.get("picker", DEFAULT_PICKER)
-    alpha = state.get("alpha", DEFAULT_ALPHA)
-    picks = _botorch_picks_subprocess(mode, q, state["round_idx"], alpha, picker=picker)
+    picks = _botorch_picks_subprocess(mode, q, state["round_idx"], picker=picker)
     print(f"[closed_loop] predict_picks[r{state['round_idx']}]: "
           f"picker={picker} "
           f"q={q} got={len(picks)}", flush=True)
@@ -709,7 +707,7 @@ _DRY_RUN_KNOB_LABELS = {
 
 
 def _dry_run(args: argparse.Namespace) -> int:
-    picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, alpha=args.alpha, picker=args.picker)
+    picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, picker=args.picker)
     print(f"[dry-run] round 0: {len(picks)} picks (mode={args.mode}, picker={args.picker})")
     labels = _DRY_RUN_KNOB_LABELS.get(args.mode, tuple(f"x{i}" for i in range(len(picks[0]) if picks else 0)))
     for j, p in enumerate(picks):

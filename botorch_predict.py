@@ -1,32 +1,14 @@
 #!/usr/bin/env python3
-"""BoTorch qNEHVI re-derivation for any pure-numeric BOMode.
+"""BoTorch pickers for any pure-numeric BOMode (bounds from modes.SPECS).
 
-Standalone CLI; not wired into graph/closed_loop.py. Companion to the
-skopt-EI shims at
-`/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_{foils,helical}.py`
-— same `compute_explore_picks(q, ...)` return contract (list of native-
-int/float n-tuples), so a future closed_loop swap-in is straightforward.
+THE production picker: graph/closed_loop.py shells into this CLI every
+round (disjoint venvs — this runs under .venv-botorch, the graph under
+.venv-graph; picks round-trip via --emit-picks-json). Pickers: qnehvi,
+qlnei, pareto_sob, qnparego, hybrid — details in compute_explore_picks.
+`michael` is unsupported (mixed Real+Categorical space needs a different
+model). Acquisition budget + seeding: see ACQ_* constants and _seed().
 
-Why this exists: the original `botorch_predict_helical.py` was deleted
-before the 2026-05-18 .snap/ window opened (see wiki/projects/bo-helical
-.md note); the qNEHVI recipe survived in the wiki and is reapplied here.
-
-Modes supported: `foils` (5D), `helical` (4D). `michael` is NOT supported
-— its space mixes Real + Categorical, which needs a separate model (mixed
-single-task GP w/ one-hot or qParEGO over Tchebycheff scalarization);
-out of scope for this shim.
-
-Recipe (wiki/projects/bo-helical.md:837-851):
-  - acquisition: qLogNoisyExpectedHypervolumeImprovement
-  - objectives: maximize (sob, -log10(calo))
-  - ref point: per-round nadir(feasible front) - 0.1*span (NOT hardcoded)
-  - MC sampler seed: 42 ^ round_idx (NOT fixed 42 — fixed seed reuses the
-    same Sobol draw every round -> subtle diversity bias)
-  - num_restarts: 16
-  - sample_shape: 128
-  - prune_baseline: True
-
-CLI:
+CLI (used by _botorch_picks_subprocess; keep argparse-compatible):
   .venv-botorch/bin/python botorch_predict.py \\
       --mode foils --q 5 --round-idx 0 --emit-picks-json picks.json
 """
@@ -454,7 +436,6 @@ def _pareto_sob_picks(model, bounds, q: int, round_idx: int):
 def compute_explore_picks(q: int = 5,
                           mode: str = "foils",
                           round_idx: int = 0,
-                          alpha: float = bo.DEFAULT_ALPHA,
                           picker: str = "qnehvi",
                           ) -> list[tuple]:
     """qNEHVI replacement matching gp_predict_{foils,helical}.compute_explore_picks.
@@ -502,9 +483,6 @@ def main(argv=None):
                     help="Batch size (default 5)")
     ap.add_argument("--round-idx", type=int, default=0,
                     help="Round index; seeds MC sampler (default 0)")
-    ap.add_argument("--alpha", type=float, default=bo.DEFAULT_ALPHA,
-                    help=f"Scalarization weight passed through for shim "
-                         f"compatibility (default {bo.DEFAULT_ALPHA})")
     ap.add_argument("--picker",
                     choices=("qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid"),
                     default="qnehvi",
@@ -520,8 +498,7 @@ def main(argv=None):
     ns = ap.parse_args(argv)
 
     picks = compute_explore_picks(q=ns.q, mode=ns.mode,
-                                  round_idx=ns.round_idx, alpha=ns.alpha,
-                                  picker=ns.picker)
+                                  round_idx=ns.round_idx, picker=ns.picker)
 
     if ns.emit_picks_json:
         Path(ns.emit_picks_json).write_text(json.dumps(picks, indent=2))
