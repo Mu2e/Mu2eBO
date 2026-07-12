@@ -29,7 +29,10 @@ class BOIterationState(TypedDict, total=False):
     """Per-iteration state. Persisted by SqliteSaver between node transitions."""
 
     config_name: str
-    mode: Literal["helical", "michael", "foils", "foilsf", "foilsflash", "foilsg", "ipa"]
+    # Pinned against modes.SPECS by tests/test_modes.py — a new mode must
+    # land in BOTH places or the completeness test fails.
+    mode: Literal["helical", "michael", "foils", "foilsf", "foilsflash",
+                  "foilsg", "ipa", "prodtarget", "prodtarget6d"]
     alpha: float
 
     x_point: List[float]

@@ -53,81 +53,18 @@ torch.set_default_dtype(torch.float64)
 DEVICE = torch.device("cpu")
 
 
-# Per-mode bounds + integer-dim mask, inlined here so .venv-botorch (no
-# skopt) doesn't have to import BOMode.build_space(). Order MUST match the
-# Point.x layout (= build_space order) in autoresearch_bo_michael.py:
-#   foils   (v2 6D): [rOut_up, rOut_dn, hT_up, hT_dn, rIn_up, rIn_dn]
-#                    -> FoilsMode.build_space
-#   helical (4D):    [tsda_helical_dx, dy, halflength, angle]
-#                    -> HelicalMode.build_space
+# Per-mode bounds + integer-dim mask come from the ModeSpec registry
+# (root modes.py, ADR-0002) — stdlib-only, so .venv-botorch (no skopt) can
+# import it. Order matches the Point.x layout (= build_space order); the
+# lockstep is ENFORCED by tests/test_modes.py (driver build_space bounds ==
+# spec bounds per mode), retiring the "MUST mirror build_space" comments.
+# Modes without a numeric box (michael's Categorical COL5 space) are absent.
+import modes as _modes  # noqa: E402
+
 MODE_SPECS = {
-    "foils": {
-        # v2 6D: (rOut_up, rOut_dn, hT_up, hT_dn, rIn_up, rIn_dn). All Real.
-        # MUST mirror autoresearch_bo_michael.py:FoilsMode.build_space (lines 729-730).
-        "lo":       [ 50.0,  50.0, 0.01, 0.01,  0.0,  0.0],
-        "hi":       [250.0, 250.0, 1.00, 1.00, 50.0, 50.0],
-        "int_dims": [],
-    },
-    "foilsf": {
-        # v3 6D: (rOut_up, rOut_dn, hT_up, hT_dn, f_up, f_dn). All Real.
-        # Identical to "foils" except the last two dims are the fractional
-        # hole f = rIn/rOut in [0, F_MAX=0.95] (FoilsFracMode.build_space,
-        # autoresearch_bo_michael.py:913). Keep F_MAX + hT floor in sync.
-        "lo":       [ 50.0,  50.0, 0.01, 0.01, 0.00, 0.00],
-        "hi":       [250.0, 250.0, 1.00, 1.00, 0.95, 0.95],
-        "int_dims": [],
-    },
-    "foilsflash": {
-        # Thickness-probe box (2026-07-09): hT floor WIDENED 0.01->0.002 mm
-        # (20 µm -> 4 µm full) to test whether thinner-than-20 µm upstream foils
-        # help — the optimizer rail-pinned at the old 0.01 floor. MUST stay in
-        # lockstep with FoilsFlashMode.build_space / HT_FLOOR in
-        # autoresearch_bo_michael.py (foilsflash-ONLY override; foilsf keeps 0.01).
-        "lo":       [ 50.0,  50.0, 0.002, 0.002, 0.00, 0.00],
-        "hi":       [250.0, 250.0, 1.00, 1.00, 0.95, 0.95],
-        "int_dims": [],
-    },
-    "foilsg": {
-        # 12D Real: 4 groups × (rOut, hT, f). Replaces the deployed 37-foil
-        # baseline (no pinned base). MUST mirror FoilsGroupMode.build_space.
-        "lo":       [ 50.0, 0.01, 0.00] * 4,
-        "hi":       [250.0, 1.00, 0.95] * 4,
-        "int_dims": [],
-    },
-    "ipa": {
-        # 5D Real IPA geometry: (thickness, halfLength, OutRadius0, OutRadius1,
-        # distFromTargetEnd) mm. MUST mirror IPAMode.build_space
-        # (autoresearch_bo_michael.py). Second objective = tracker Edep.
-        "lo":       [0.1, 200.0, 250.0, 250.0, 400.0],
-        "hi":       [3.0, 700.0, 400.0, 400.0, 800.0],
-        "int_dims": [],
-    },
-    "helical": {
-        "lo":       [0.01,  40.0,  25.0,  60.0],
-        "hi":       [5.00, 400.0, 500.0, 720.0],
-        "int_dims": [],
-    },
-    "prodtarget": {
-        # 10D Stickman PT profile: (r0,r1,r2, t0,t1,t2, l0,l1,l2, N).
-        # Mirrors ProdTargetMode.build_space. N (numberOfPlates) is Integer.
-        # Lug overhang past the plate face is clipped post-hoc in
-        # ProdTargetMode._expand to [tPlate[i]+0.5, tPlate[i]+1.0];
-        # see wiki/incidents/prodtarget-spacer-supportring-overlap.md.
-        "lo":       [2.0, 2.0, 2.0, 3.0, 3.0, 3.0,  4.0,  4.0,  4.0, 25.0],
-        "hi":       [4.5, 4.5, 4.5, 8.0, 8.0, 8.0, 12.0, 12.0, 12.0, 45.0],
-        "int_dims": [9],
-    },
-    "prodtarget6d": {
-        # 6D Stickman PT profile: (r0,r1,r2, t0,t1,t2). Mirrors
-        # ProdTarget6DMode.build_space. N=35 fixed; lug = tPlate + 0.75
-        # derived in _expand. t-upper raised 7.0→8.0 (2026-06-15) after
-        # end-plate lug clamp (lPlate[0]=lPlate[-1]=tPlate) shipped in
-        # _expand — kills the spacer↔Plate00/Plate_last overhang that
-        # had forced the earlier 7.0 cap.
-        "lo":       [2.0, 2.0, 2.0, 3.0, 3.0, 3.0],
-        "hi":       [4.5, 4.5, 4.5, 8.0, 8.0, 8.0],
-        "int_dims": [],
-    },
+    name: {"lo": list(s.bounds_lo), "hi": list(s.bounds_hi),
+           "int_dims": list(s.int_dims)}
+    for name, s in _modes.SPECS.items() if s.bounds_lo is not None
 }
 
 

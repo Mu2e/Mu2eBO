@@ -53,6 +53,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+# ModeSpec registry (ADR-0002): preflight policy flags replace the six
+# hand-listed mode tuples that bred the preflight-mode-tuple-omission
+# incident class. Stdlib-only import.
+import modes as _modes  # noqa: E402
+
 
 @contextmanager
 def _flock_ex(target: Path):
@@ -2202,7 +2207,7 @@ def cmd_preflight(args):
     # as preflight.fcl — the prior two-pass design (init, then surface-check)
     # paid for G4 geometry construction twice. Non-helical modes use the
     # lighter preflight.fcl since they don't need overlap diagnostics.
-    if mode.name in ("helical", "foils", "foilsf", "foilsflash", "foilsg", "ipa", "prodtarget", "prodtarget6d"):
+    if _modes.SPECS[mode.name].preflight_fcl == "surfacecheck":
         overlay_basename = f"autoresearch_{name}_surfacecheck_geom.txt"
         (workdir / overlay_basename).write_text(
             SURFACE_CHECK_GEOM_OVERLAY.format(base_geom_basename=geom_basename))
@@ -2210,9 +2215,7 @@ def cmd_preflight(args):
         # foils family: also dump the as-built geometry to GDML so the
         # per-foil assertion below can verify it against the geom file.
         gdml_lines = (PREFLIGHT_GDML_FCL_LINES
-                      if mode.name in ("foils", "foilsf", "foilsflash", "foilsg",
-                                       "prodtarget", "prodtarget6d")
-                      else "")
+                      if _modes.SPECS[mode.name].dumps_gdml else "")
         (workdir / fcl_basename).write_text(
             SURFACE_CHECK_FCL.format(geom_basename=overlay_basename,
                                      gdml_lines=gdml_lines))
@@ -2314,7 +2317,7 @@ def cmd_preflight(args):
     # Catches value-level divergence the canary can't: indexing bugs, unit
     # errors, repeat-last mistakes, silent clipping. Hard gate — a foils
     # run whose built geometry differs from x must never reach the grid.
-    if mode.name in ("foils", "foilsf", "foilsflash", "foilsg"):
+    if _modes.SPECS[mode.name].verifies_foil_gdml:
         gdml_path = workdir / PREFLIGHT_GDML_NAME
         if not gdml_path.exists():
             print(f"[preflight/{mode.name}] FAIL  GDML dump "
@@ -2347,7 +2350,7 @@ def cmd_preflight(args):
     # The GDML is a parseable artifact for offline inspection / debugging
     # — surfaces silent geometry divergence that the rc/past_init/canary
     # path can't see. Preserved alongside grid artifacts.
-    if mode.name in ("prodtarget", "prodtarget6d"):
+    if _modes.SPECS[mode.name].preserves_gdml:
         gdml_path = workdir / PREFLIGHT_GDML_NAME
         if not gdml_path.exists():
             print(f"[preflight/{mode.name}] FAIL  GDML dump "
@@ -2366,7 +2369,7 @@ def cmd_preflight(args):
     # WWWW warnings on every baseline overlap (~117 hits in stock geometry).
     # These are advisory, not init failures, so the geom_fail regex must only
     # be consulted when geometry construction actually aborted (past_init=False).
-    if mode.name in ("helical", "foils", "foilsf", "foilsflash", "foilsg", "prodtarget", "prodtarget6d"):
+    if _modes.SPECS[mode.name].checks_managed_overlap:
         all_hits = SURFACE_OVERLAP_RX.findall(out)
         unique_all = sorted(set(all_hits))
         managed_hits = [v for v in all_hits if SURFACE_OVERLAP_MANAGED.match(v)]
@@ -2400,7 +2403,7 @@ def cmd_preflight(args):
     if timed_out or rc == 0 or past_init:
         print(f"[preflight/{mode.name}] PASS  init=True; "
               f"no geom-fail signature"
-              f"{' and no managed-volume overlap' if mode.name in ('helical', 'foils', 'foilsf', 'foilsflash', 'foilsg', 'prodtarget') else ''}.")
+              f"{' and no managed-volume overlap' if _modes.SPECS[mode.name].checks_managed_overlap else ''}.")
         return 0
 
     print(f"[preflight/{mode.name}] AMBIGUOUS  rc={rc}, no geom-fail signature. See {log}")

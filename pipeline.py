@@ -85,6 +85,8 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 # stamp, input resolution, fail-soft secondary extraction). See wiki
 # concepts/architecture-friction-survey-2026-07 (2026-07-11 addendum).
 import harvest as hv  # noqa: E402
+# ModeSpec registry (ADR-0002): per-mode grid-tarball facts.
+import modes as _modes  # noqa: E402
 
 # Canonical muse-built Code.tar.bz2 produced by `muse tarball` from
 # /exp/mu2e/app/users/oksuzian/autoresearch_muse/ (mgit Mu2eG4 sparse
@@ -102,21 +104,13 @@ import harvest as hv  # noqa: E402
 # on Code_helical_base because Offline_helical's Mu2eG4 lib (May 16)
 # predates the twistedbox facet fix (May 26).
 # See wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md.
-_HOLERADII_TARBALL = (
-    "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
-)
-MUSE_TARBALL_BY_MODE = {
-    "michael": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_base.tar.bz2",
-    "helical": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_base.tar.bz2",
-    "foils":   _HOLERADII_TARBALL,
-    "foilsf":  _HOLERADII_TARBALL,
-    "foilsflash": _HOLERADII_TARBALL,  # varies foil holeRadii vector — needs the patched StoppingTargetMaker
-    "foilsg":  _HOLERADII_TARBALL,
-}
-MUSE_BASE_TARBALL = Path(MUSE_TARBALL_BY_MODE.get(
-    os.environ.get("AUTORESEARCH_MODE", "michael"),
-    MUSE_TARBALL_BY_MODE["michael"],
-))
+# Per-mode tarball facts live in root modes.py (ADR-0002). The old
+# MUSE_TARBALL_BY_MODE dict's silent `.get(..., michael)` fallback — the
+# mechanism behind the foilsflash-tarball-mode-key-omission incident — is
+# gone: an unknown mode is now a loud KeyError at import.
+MUSE_TARBALL_BY_MODE = {m: s.grid_tarball for m, s in _modes.SPECS.items()}
+MUSE_BASE_TARBALL = Path(
+    MUSE_TARBALL_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")])
 USER = os.environ["USER"]
 OUTSTAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/workflow/default/outstage")
 

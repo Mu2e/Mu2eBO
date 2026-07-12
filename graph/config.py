@@ -32,24 +32,12 @@ SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 # carries the % 02d plate-LV rename, NIEL SD, and spacer-shrink overlap fix.
 # Sourcing the workdir's setup.sh runs `muse setup <workdir>` so the local
 # build/al9-prof-e29-p101/Offline/lib libs win over the backing by link order.
-MUSING_BY_MODE = {
-    "michael":      "/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bak/setup.sh",
-    "helical":      "/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bak/setup.sh",
-    # foils/foilsf/foilsg preflight MUST see the patched StoppingTargetMaker
-    # (stoppingTarget.holeRadii vector) or it diverges from the grid tarball
-    # and silently validates the wrong geometry. See
-    # wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md.
-    "foils":        "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
-    "foilsf":       "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
-    # foilsflash varies foil geometry (holeRadii vector) → same patched musing as foilsf.
-    "foilsflash":   "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
-    "foilsg":       "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
-    # ipa overrides only protonabsorber.* (no holeRadii vector) → stock Run1Bak
-    # Musing is sufficient; it does NOT need the patched StoppingTargetMaker.
-    "ipa":          "/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bak/setup.sh",
-    "prodtarget":   "/exp/mu2e/app/users/oksuzian/autoresearch_muse_prodtarget/setup_local.sh",
-    "prodtarget6d": "/exp/mu2e/app/users/oksuzian/autoresearch_muse_prodtarget/setup_local.sh",
-}
+# Per-mode facts live in root modes.py (ADR-0002); these dicts are DERIVED
+# views kept for their many consumers — complete by construction, loud
+# KeyError on an unknown mode, nothing hand-maintained here anymore.
+import modes as _modes  # noqa: E402
+
+MUSING_BY_MODE = {m: s.musing for m, s in _modes.SPECS.items()}
 MUSING = MUSING_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")]
 
 # Stage chain (Phase 2b). Each entry is the stage name; per-stage `run_stage`
@@ -61,30 +49,7 @@ MUSING = MUSING_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")]
 # stamp BEFORE importing this module (load-order matters — `GRID_STAGES` is
 # frozen at import time and `build.STAGE_NODES`/`build.build_graph` read it
 # once).
-GRID_STAGES_BY_MODE = {
-    "michael":      ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
-    "helical":      ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
-    "foils":        ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
-    "foilsf":       ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
-    "foilsg":       ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
-    # ipa: NO run1b_mubeam — that DS-off stage only feeds the foils calo
-    # channel, which IPA replaces with mustops_pileup tracker Edep. So:
-    # mubeam (→TargetStops) → concat → mustops_ce (S/√B) + mustops_pileup (Edep).
-    # Both mustops_* resample concat. Saves a full beam-sim stage.
-    "ipa":          ["mubeam", "concat", "mustops_ce", "mustops_pileup"],
-    # foilsflash: like ipa, NO run1b_mubeam (calo dropped). 2nd objective is the
-    # electron-beam early-flash tracker edep from the elebeam_flash stage (which
-    # resamples the external EleBeamCat dataset, DS-on, ships the foil geom).
-    # mubeam→mustops_ce gives S/√B; elebeam_flash gives flash edep.
-    # concat DROPPED 2026-07-10: the mubeam template now carries the mu-
-    # purity filter (muminusSelector in targetStopPath), so TargetStops is
-    # mu--pure and mustops_ce resamples the 15 mubeam files directly
-    # (auxinput=1, per-file slices). Saves ~40 min/eval of grid latency.
-    # See wiki bo-noise-budget "Do we need concat?".
-    "foilsflash":   ["mubeam", "mustops_ce", "elebeam_flash"],
-    "prodtarget":   ["pot_only"],
-    "prodtarget6d": ["pot_only"],
-}
+GRID_STAGES_BY_MODE = {m: list(s.grid_stages) for m, s in _modes.SPECS.items()}
 GRID_STAGES = GRID_STAGES_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")]
 
 # Overlap seam (2026-07-10): stages with NO internal data dependency are
@@ -98,10 +63,10 @@ GRID_STAGES = GRID_STAGES_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")
 # Best-effort: a presubmit failure degrades to the sequential path via
 # pipeline.py's idempotent cluster-file guard.
 PRESUBMIT_AFTER_BY_MODE = {
-    "foilsflash": {"mubeam": ["elebeam_flash"]},
-}
-PRESUBMIT_AFTER = PRESUBMIT_AFTER_BY_MODE.get(
-    os.environ.get("AUTORESEARCH_MODE", "michael"), {})
+    m: {k: list(v) for k, v in s.presubmit_after.items()}
+    for m, s in _modes.SPECS.items()}
+PRESUBMIT_AFTER = PRESUBMIT_AFTER_BY_MODE[
+    os.environ.get("AUTORESEARCH_MODE", "michael")]
 
 # Sob-only picker (qlnei) doesn't need calo → drop the DS-off run1b_mubeam
 # stage entirely. Stamped via AUTORESEARCH_NO_RUN1B env var by closed_loop.py
@@ -112,17 +77,7 @@ if os.environ.get("AUTORESEARCH_NO_RUN1B") == "1":
 # Per-mode harvest verb. `cmd_harvest` (4-stage S/√B − α·calo/POT) vs
 # `cmd_harvest_pot_only` (uproot-based mu_per_POT at VD sid=8). Dispatched in
 # graph/pipeline_io.run_harvest.
-HARVEST_VERB_BY_MODE = {
-    "michael":      "harvest",
-    "helical":      "harvest",
-    "foils":        "harvest",
-    "foilsf":       "harvest",
-    "foilsflash":   "harvest",
-    "foilsg":       "harvest",
-    "ipa":          "harvest",
-    "prodtarget":   "harvest-pot-only",
-    "prodtarget6d": "harvest-pot-only",
-}
+HARVEST_VERB_BY_MODE = {m: s.harvest_verb for m, s in _modes.SPECS.items()}
 
 # Per-stage njobs targets — canonical source of truth for both
 # pipeline.STAGES (consumed as njobs at submit) and read_stage_status
@@ -158,17 +113,14 @@ STAGE_TARGETS = {
 # with michael/helical/foils/ipa (tuned at 200), so override them ONLY for foilsflash
 # here rather than changing the shared base. elebeam_flash is foilsflash-only (100
 # in the base above). Keyed on AUTORESEARCH_MODE, stamped before import by closed_loop.
+# Per-mode njobs overrides come from the ModeSpec; the env seam stays env
+# and applies ON TOP (AUTORESEARCH_ELEBEAM_NJOBS: one-off high-stats runs —
+# a bigger SINGLE cluster is the correct way to cut σ_flash because the
+# elebeam template pins baseSeed:1; separate same-seed clusters re-sample
+# identical EleBeamCat events. See bo-foilsflash A/B).
+STAGE_TARGETS.update(
+    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "michael")].stage_target_overrides)
 if os.environ.get("AUTORESEARCH_MODE") == "foilsflash":
-    # Lever-1 (fast) config from foilsflash03 on: trim the sob stages (sob σ~0.3%,
-    # plenty) so the local EdepAna harvest is ~10 min not ~60 — more trials/time →
-    # denser slide-3 cloud. elebeam_flash stays 100 (full flash stats per trial).
-    STAGE_TARGETS["mubeam"] = 15
-    STAGE_TARGETS["mustops_ce"] = 15
-    # Env seam (default 100, preserving) to raise flash statistics for one-off
-    # high-stats / replica runs. More jobs in ONE cluster = more INDEPENDENT
-    # subruns (the elebeam_flash template pins baseSeed:1, so SEPARATE same-seed
-    # clusters would re-sample identical EleBeamCat events — useless; a bigger
-    # single cluster is the correct way to cut σ_flash). See bo-foilsflash A/B.
     STAGE_TARGETS["elebeam_flash"] = int(os.environ.get("AUTORESEARCH_ELEBEAM_NJOBS", "100"))
 
 # Phase 1: helical only. michael wiring follows in Phase 2.
