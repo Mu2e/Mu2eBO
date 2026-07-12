@@ -436,7 +436,7 @@ def _pareto_sob_picks(model, bounds, q: int, round_idx: int):
             break
         dmin = min(float((norm[idx] - norm[p]).pow(2).sum().sqrt()) for p in picks)
         # PARETO_SOB_MIN_SPACING is deliberately looser than the closed-loop
-        # duplicate-guard (CLOSED_LOOP_MIN_PICK_SPACING=0.05): this thins the
+        # duplicate-guard (0.05, retired with cl_min): this thins the
         # GP-MEAN front so q exploit picks don't re-measure one corner point,
         # a different job than de-duplicating acquisition picks.
         if dmin >= PARETO_SOB_MIN_SPACING:
@@ -454,9 +454,6 @@ def _pareto_sob_picks(model, bounds, q: int, round_idx: int):
 def compute_explore_picks(q: int = 5,
                           mode: str = "foils",
                           round_idx: int = 0,
-                          nsteps_budget=None,
-                          min_spacing=None,
-                          pessimistic_calo: bool = False,
                           alpha: float = bo.DEFAULT_ALPHA,
                           picker: str = "qnehvi",
                           ) -> list[tuple]:
@@ -471,10 +468,6 @@ def compute_explore_picks(q: int = 5,
     multi-objective lines). qnparego/hybrid use the same 2-objective path as
     qnehvi.
 
-    The trailing kwargs (nsteps_budget, min_spacing, pessimistic_calo) are
-    accepted for shim-compatibility and ignored: qNEHVI handles its own
-    geometry-feasibility via the GP posterior on calo, and there is no
-    helical-style N_crit gate baked into this picker.
     """
     X, Y, bounds, int_dims = _load_history_tensor(mode, sob_only=(picker == "qlnei"))
     # Cold-start guard: SingleTaskGP needs >= 2 points to fit; <2 makes

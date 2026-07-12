@@ -77,7 +77,7 @@ def stamped_stage_chain(state_dir: Path) -> Optional[list[str]]:
     return [ln.strip() for ln in p.read_text().splitlines() if ln.strip()]
 
 
-def _read_outputs(state_dir: Path, stage: str) -> Optional[list[Path]]:
+def read_outputs(state_dir: Path, stage: str) -> Optional[list[Path]]:
     """Non-blank lines of state/<stage>_outputs.txt, or None if absent.
 
     A present-but-blank file (stage-out-lag face) returns [] — callers must
@@ -87,6 +87,17 @@ def _read_outputs(state_dir: Path, stage: str) -> Optional[list[Path]]:
     if not p.exists():
         return None
     return [Path(ln) for ln in p.read_text().splitlines() if ln.strip()]
+
+
+def concatless(state_dir: Path, fallback: bool) -> bool:
+    """Did THIS Eval's chain skip concat? Stamp-first; `fallback` (the
+    env-derived mode default) only applies to pre-stamp legacy configs.
+    The one accessor for every submit-side consumer — never key this off
+    the env directly (ff11R00_07 +1.5% sob bias class)."""
+    chain = stamped_stage_chain(state_dir)
+    if chain is not None:
+        return "concat" not in chain
+    return fallback
 
 
 def resolve_muminus_inputs(state_dir: Path) -> tuple[list[Path], str]:
@@ -102,10 +113,13 @@ def resolve_muminus_inputs(state_dir: Path) -> tuple[list[Path], str]:
     Raises SystemExit with a diagnosable message when inputs are missing.
     """
     chain = stamped_stage_chain(state_dir)
-    concat_files = _read_outputs(state_dir, "concat")
-    use_concat = ("concat" in chain) if chain is not None else (concat_files is not None)
+    if chain is not None:
+        use_concat = "concat" in chain
+    else:
+        use_concat = (state_dir / "concat_outputs.txt").exists()
 
     if use_concat:
+        concat_files = read_outputs(state_dir, "concat")
         if not concat_files:
             raise SystemExit("No concat outputs to count mu- stops from "
                              "(blank or missing concat_outputs.txt)")
@@ -114,7 +128,7 @@ def resolve_muminus_inputs(state_dir: Path) -> tuple[list[Path], str]:
             raise SystemExit("No MuminusStopsCat in concat outputs")
         return files, "concat"
 
-    mubeam_files = _read_outputs(state_dir, "mubeam")
+    mubeam_files = read_outputs(state_dir, "mubeam")
     if not mubeam_files:
         raise SystemExit("No mubeam outputs to count mu- stops from")
     files = [f for f in mubeam_files if "TargetStops" in f.name]
@@ -158,7 +172,7 @@ def extract_secondary_edep(state_dir: Path, stage: str,
     `runner(files)` is pipeline.py's gallery extractor (subprocess); tests
     inject a fake.
     """
-    files = _read_outputs(state_dir, stage)
+    files = read_outputs(state_dir, stage)
     if files is None:
         return None
     if not files:
@@ -172,6 +186,33 @@ def extract_secondary_edep(state_dir: Path, stage: str,
                          n_events=n_events, tag=tag,
                          per_file=list(per_file) if per_file else None,
                          n_files=len(files))
+
+
+@dataclass
+class SecondaryCalo:
+    """The calo secondary objective (run1b_mubeam stopmat histogram sum)."""
+    per_pot: Optional[float] = None
+    total: Optional[float] = None
+    files_seen: Optional[int] = None
+    error: Optional[str] = None
+
+
+def extract_secondary_calo(state_dir: Path,
+                           runner: Callable[[list[Path]], tuple],
+                           ) -> Optional[SecondaryCalo]:
+    """Calo twin of extract_secondary_edep — same fail-soft policy, 3-tuple
+    runner shape. None = stage absent from this Eval's chain."""
+    files = read_outputs(state_dir, "run1b_mubeam")
+    if files is None:
+        return None
+    if not files:
+        return SecondaryCalo(error="run1b_mubeam_outputs.txt is blank "
+                                   "(stage-out-lag face?)")
+    try:
+        per_pot_v, total, files_seen = runner(files)
+    except Exception as e:  # noqa: BLE001 — fail-soft by contract
+        return SecondaryCalo(error=f"calo extraction failed: {e}")
+    return SecondaryCalo(per_pot=per_pot_v, total=total, files_seen=files_seen)
 
 
 def per_pot(total_MeV: Optional[float], n_files: int, epj: int) -> tuple[Optional[float], Optional[int]]:

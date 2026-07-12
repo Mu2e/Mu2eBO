@@ -49,8 +49,8 @@ MUSING = MUSING_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")]
 # stamp BEFORE importing this module (load-order matters — `GRID_STAGES` is
 # frozen at import time and `build.STAGE_NODES`/`build.build_graph` read it
 # once).
-GRID_STAGES_BY_MODE = {m: list(s.grid_stages) for m, s in _modes.SPECS.items()}
-GRID_STAGES = GRID_STAGES_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")]
+GRID_STAGES = list(
+    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "michael")].grid_stages)
 
 # Overlap seam (2026-07-10): stages with NO internal data dependency are
 # pre-submitted as soon as an earlier stage lands, hiding their grid time
@@ -62,11 +62,9 @@ GRID_STAGES = GRID_STAGES_BY_MODE[os.environ.get("AUTORESEARCH_MODE", "michael")
 # elebeam wall ~90 min hides fully behind mustops_ce ~111 min → ~25%/eval.
 # Best-effort: a presubmit failure degrades to the sequential path via
 # pipeline.py's idempotent cluster-file guard.
-PRESUBMIT_AFTER_BY_MODE = {
-    m: {k: list(v) for k, v in s.presubmit_after.items()}
-    for m, s in _modes.SPECS.items()}
-PRESUBMIT_AFTER = PRESUBMIT_AFTER_BY_MODE[
-    os.environ.get("AUTORESEARCH_MODE", "michael")]
+PRESUBMIT_AFTER = {
+    k: list(v) for k, v in _modes.SPECS[
+        os.environ.get("AUTORESEARCH_MODE", "michael")].presubmit_after.items()}
 
 # Sob-only picker (qlnei) doesn't need calo → drop the DS-off run1b_mubeam
 # stage entirely. Stamped via AUTORESEARCH_NO_RUN1B env var by closed_loop.py
@@ -120,8 +118,8 @@ STAGE_TARGETS = {
 # identical EleBeamCat events. See bo-foilsflash A/B).
 STAGE_TARGETS.update(
     _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "michael")].stage_target_overrides)
-if os.environ.get("AUTORESEARCH_MODE") == "foilsflash":
-    STAGE_TARGETS["elebeam_flash"] = int(os.environ.get("AUTORESEARCH_ELEBEAM_NJOBS", "100"))
+if "AUTORESEARCH_ELEBEAM_NJOBS" in os.environ:
+    STAGE_TARGETS["elebeam_flash"] = int(os.environ["AUTORESEARCH_ELEBEAM_NJOBS"])
 
 # Phase 1: helical only. michael wiring follows in Phase 2.
 DEFAULT_MODE = "helical"
@@ -162,21 +160,10 @@ CLOSED_LOOP_BARRIER_POLL_SEC = 300
 # pipeline.py's per-stage cap_hours). 1440 = 24h. Tripping this is rare
 # and always worth investigating.
 CLOSED_LOOP_BARRIER_MAX_MIN = 1440
-# Budget knob passed to gp_predict_helical.compute_explore_picks — the
-# N_crit Sobol gate for the GP-pick acquisition search. 2000 matches the
-# empirically-validated value used by gp_predict_helical.DEFAULT_NSTEPS_BUDGET
-# and botorch_predict_helical.NSTEPS_BUDGET; decoupled from HELICAL_NSTEPS
-# (FCL render resolution) 2026-05-27 — see wiki/projects/bo-helical.md
-# "Update 2026-05-27".
-NSTEPS_BUDGET = 2000
 # Operator stop file. `touch graph_data/STOP_CLOSED_LOOP` and the next
 # barrier-poll iteration or decide_next will exit cleanly without affecting
 # in-flight children.
 STOP_FLAG = GRAPH_DATA / "STOP_CLOSED_LOOP"
-# Minimum normalized-L2 distance between picks returned by
-# compute_explore_picks (revision #7). Guards against the degenerate case
-# where a short Pareto frontier yields near-duplicate q-picks.
-CLOSED_LOOP_MIN_PICK_SPACING = 0.05
 
 # SqliteSaver connection timeout — closed-loop adds outer parent + q children
 # all writing to checkpoints.sqlite. WAL is on by default (see

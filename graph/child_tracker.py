@@ -27,10 +27,14 @@ un-resolve a child):
                        one full tick of grace (guards the race where the
                        process dies while its final leaderboard append is
                        landing — foilsf08 crash shape)
-  STALE_CLUSTER        never launched: a prior aborted run left *_cluster.txt
-                       (assigned by the launch path via resolve_stale())
+
   RUNNING              none of the above; an alive child always progresses
                        (every stage inside it is bounded by pipeline.py caps)
+
+Stale-cluster children (never launched; a prior aborted run left
+*_cluster.txt) are resolved by node_launch_children BEFORE the tracker sees
+them (routed into already_done) — moving that under a STALE_CLUSTER
+Resolution is the launch/assign full-cut follow-up, not implemented yet.
 """
 from __future__ import annotations
 
@@ -44,7 +48,6 @@ class Resolution(str, enum.Enum):
     DONE_BROKEN = "done_broken"
     DONE_TERMINAL_NO_ROW = "done_terminal_no_row"
     DEAD_UNRESOLVED = "dead_unresolved"
-    STALE_CLUSTER = "stale_cluster"
 
     @property
     def is_done(self) -> bool:
@@ -64,8 +67,6 @@ class Signals(Protocol):
     def is_terminal(self, thread_id: str) -> bool: ...
 
     def pid_alive(self, pid: int) -> bool: ...
-
-    def has_cluster(self, name: str) -> bool: ...
 
 
 class ChildTracker:
@@ -103,13 +104,6 @@ class ChildTracker:
         return sum(1 for r in self._resolutions.values() if not r.is_done)
 
     # -- transitions ---------------------------------------------------------
-
-    def resolve_stale(self, name: str) -> None:
-        """Launch path found only a stale *_cluster.txt: the child was never
-        launched and can never produce an artifact — terminal by fiat."""
-        if name in self._resolutions:
-            self._resolutions[name] = Resolution.STALE_CLUSTER
-            self._dead_suspect.discard(name)
 
     def tick(self) -> Dict[str, Resolution]:
         """One reconciliation pass. Returns ONLY the resolutions that changed

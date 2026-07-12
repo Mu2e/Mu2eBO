@@ -254,7 +254,7 @@ def run_harvest(config_name: str, mode: str | None = None) -> dict:
     """
     if mode is None:
         mode = os.environ.get("AUTORESEARCH_MODE", DEFAULT_MODE)
-    verb = HARVEST_VERB_BY_MODE.get(mode, "harvest")
+    verb = HARVEST_VERB_BY_MODE[mode]  # loud KeyError on unknown mode (ADR-0002)
     _run_pipeline_verb(config_name, verb, None)
     summary_path = GRID_DATA_ROOT / config_name / "harvest" / "summary.json"
     if not summary_path.exists():

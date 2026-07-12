@@ -1056,8 +1056,9 @@ class FoilsFlashMode(FoilsFracMode):
     # which the optimizer RAIL-PINS (every sob>3.5 row has hT_up=0.0100; 141/216
     # rows at the floor — see wiki/projects/bo-foilsflash.md "SEARCH-BOX FLOOR").
     # Drop to 0.002 mm (=4 µm full) to test whether thinner-than-20 µm upstream
-    # foils help. MUST stay in lockstep with botorch_predict.py
-    # MODE_SPECS["foilsflash"]["lo"] dims 2,3 (the qnehvi/hybrid picker's box).
+    # foils help. Lockstep with the picker box is ENFORCED by
+    # tests/test_modes.py (build_space bounds == modes.SPECS bounds; the
+    # picker reads modes.SPECS["foilsflash"], not a hand-copied table).
     HT_FLOOR = 0.002
 
     def build_space(self):

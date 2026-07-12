@@ -15,27 +15,27 @@ import pipeline
 
 def _ok():
     m = mock.Mock()
-    m.returncode = 0
+    m.wait.return_value = 0
     return m
 
 
 def _fail():
     m = mock.Mock()
-    m.returncode = 1
+    m.wait.return_value = 1
     return m
 
 
 class TestProbeInputUrls(unittest.TestCase):
     def test_no_urls_is_a_noop(self):
         # Stages without auxinput (e.g. pot_only) have nothing to probe.
-        with mock.patch.object(pipeline.subprocess, "run") as r:
+        with mock.patch.object(pipeline.subprocess, "Popen") as r:
             pipeline._probe_input_urls("pot_only", "physics: {}")
         r.assert_not_called()
 
     def test_mapped_readable_passes(self):
         fcl = ('fileNames: ["xroot://fndcadoor.fnal.gov//pnfs/fnal.gov/usr/'
                'mu2e/tape/phy-sim/sim/mu2e/EleBeamCat/x.art"]')
-        with mock.patch.object(pipeline.subprocess, "run", return_value=_ok()) as r:
+        with mock.patch.object(pipeline.subprocess, "Popen", return_value=_ok()) as r:
             pipeline._probe_input_urls("elebeam_flash", fcl)
         self.assertEqual(r.call_count, 1)
         probed = r.call_args.args[0][3]
@@ -44,7 +44,7 @@ class TestProbeInputUrls(unittest.TestCase):
     def test_mapped_unreadable_gates(self):
         fcl = ('"xroot://fndcadoor.fnal.gov//pnfs/fnal.gov/usr/mu2e/'
                'persistent/datasets/x.art"')
-        with mock.patch.object(pipeline.subprocess, "run", return_value=_fail()):
+        with mock.patch.object(pipeline.subprocess, "Popen", return_value=_fail()):
             with self.assertRaises(SystemExit) as cm:
                 pipeline._probe_input_urls("elebeam_flash", fcl)
         self.assertIn("not readable", str(cm.exception))
@@ -52,7 +52,7 @@ class TestProbeInputUrls(unittest.TestCase):
     def test_renamed_door_still_maps(self):
         # Door-agnostic mapping: a renamed dCache door must not bypass the gate.
         fcl = '"root://newdoor.fnal.gov//pnfs/fnal.gov/usr/mu2e/tape/y.art"'
-        with mock.patch.object(pipeline.subprocess, "run", return_value=_ok()) as r:
+        with mock.patch.object(pipeline.subprocess, "Popen", return_value=_ok()) as r:
             pipeline._probe_input_urls("mubeam", fcl)
         self.assertEqual(r.call_count, 1)
 
@@ -60,7 +60,7 @@ class TestProbeInputUrls(unittest.TestCase):
         # THE FP-5 regression: URLs present but none probeable used to pass
         # silently; now it refuses to submit blind.
         fcl = '"xroot://door.example.org//store/other/experiment/z.art"'
-        with mock.patch.object(pipeline.subprocess, "run") as r:
+        with mock.patch.object(pipeline.subprocess, "Popen") as r:
             with self.assertRaises(SystemExit) as cm:
                 pipeline._probe_input_urls("elebeam_flash", fcl)
         self.assertIn("cannot map", str(cm.exception))
@@ -75,7 +75,7 @@ class TestProbeInputUrls(unittest.TestCase):
         urls = "".join(
             f'"xroot://d.fnal.gov//pnfs/fnal.gov/usr/mu2e/tape/f{i}.art" '
             for i in range(9))
-        with mock.patch.object(pipeline.subprocess, "run", return_value=_ok()) as r:
+        with mock.patch.object(pipeline.subprocess, "Popen", return_value=_ok()) as r:
             pipeline._probe_input_urls("elebeam_flash", urls)
         self.assertEqual(r.call_count, 4)
 

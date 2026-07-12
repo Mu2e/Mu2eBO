@@ -82,14 +82,12 @@ from config import (  # noqa: E402
     CLOSED_LOOP_BARRIER_MAX_MIN,
     CLOSED_LOOP_BARRIER_POLL_SEC,
     CLOSED_LOOP_MAX_ROUNDS,
-    CLOSED_LOOP_MIN_PICK_SPACING,
     CLOSED_LOOP_Q,
     CLOSED_LOOP_STAGGER_SEC,
     DEFAULT_ALPHA,
     DEFAULT_MODE,
     GRAPH_DATA,
     GRID_DATA_ROOT,
-    NSTEPS_BUDGET,
     PROJECT_ROOT,
     SQLITE_TIMEOUT_S,
     STOP_FLAG,
@@ -119,7 +117,6 @@ class RoundState(TypedDict, total=False):
     mode: str
     alpha: float
     q: int
-    nsteps_budget: int
     max_rounds: int
     round_idx: int
     name_prefix: str
@@ -134,8 +131,6 @@ class RoundState(TypedDict, total=False):
     barrier_max_min: int
     stop_seen: bool
     timeout_seen: bool
-    min_spacing: float
-    pessimistic_calo: bool
     picker: str
 
 
@@ -177,7 +172,7 @@ def _child_state_dir(name: str) -> Path:
 
 class _DiskSignals:
     """Production Signals adapter (CONTEXT.md: 'Signals adapter'): reads the
-    five raw child signals from disk/SQLite. Late-binds to the module-level
+    raw child signals from disk/SQLite. Late-binds to the module-level
     helpers so tests that patch them (mock.patch.object(cl, ...)) keep
     intercepting; unit tests of the tracker itself inject a fake instead."""
 
@@ -197,9 +192,6 @@ class _DiskSignals:
 
     def pid_alive(self, pid: int) -> bool:
         return _pid_alive(pid)
-
-    def has_cluster(self, name: str) -> bool:
-        return any(_child_state_dir(name).glob("*_cluster.txt"))
 
 
 def _child_is_broken(name: str) -> bool:
@@ -353,7 +345,7 @@ def node_predict_picks(state: RoundState) -> dict:
     alpha = state.get("alpha", DEFAULT_ALPHA)
     picks = _botorch_picks_subprocess(mode, q, state["round_idx"], alpha, picker=picker)
     print(f"[closed_loop] predict_picks[r{state['round_idx']}]: "
-          f"picker={picker} pessimistic_calo={state.get('pessimistic_calo', False)} "
+          f"picker={picker} "
           f"q={q} got={len(picks)}", flush=True)
     errors = list(state.get("errors", []))
     if len(picks) < q:
@@ -570,7 +562,6 @@ def node_barrier(state: RoundState) -> dict:
                     )
                     print(f"[closed_loop] {msg}", flush=True)
                     errors.append(msg)
-            completed = set(state.get("completed_names", [])) | tracker.done_names()
             if tracker.all_resolved():
                 print(f"[closed_loop] barrier: all {len(children)} children resolved", flush=True)
                 break
@@ -598,6 +589,7 @@ def node_barrier(state: RoundState) -> dict:
             time.sleep(poll)
     finally:
         conn.close()
+    completed = set(state.get("completed_names", [])) | tracker.done_names()
     return {
         "completed_names": sorted(completed),
         "errors": errors,
@@ -736,7 +728,6 @@ def main() -> int:
     ap.add_argument("--name-prefix", default="helical",
                     help="child names will be {prefix}R{round:02d}_{j:02d} "
                          "(R is the round marker, not part of the prefix)")
-    ap.add_argument("--nsteps-budget", type=int, default=NSTEPS_BUDGET)
     ap.add_argument("--stagger", type=int, default=CLOSED_LOOP_STAGGER_SEC,
                     help="seconds between successive child launches")
     ap.add_argument("--barrier-poll-sec", type=int, default=CLOSED_LOOP_BARRIER_POLL_SEC)
@@ -748,12 +739,6 @@ def main() -> int:
                     help="loud backstop cap on one round's barrier for "
                          "alive-but-hung children; NOT round pacing — "
                          "tripping it is always worth investigating")
-    ap.add_argument("--min-spacing", type=float, default=CLOSED_LOOP_MIN_PICK_SPACING,
-                    help="normalized-L2 minimum distance between picks")
-    ap.add_argument("--pessimistic-calo", action="store_true", default=False,
-                    help="shift log-calo GP fallback to log(max y_calo); "
-                         "biases picks away from ~3.82e-6 ridge regime "
-                         "(see wiki bo-helical pessimistic-prior bullet)")
     ap.add_argument("--thread-id", default=None,
                     help="if omitted, a fresh uuid is used; reuse to resume")
     ap.add_argument("--picker", choices=PICKER_CHOICES, default=DEFAULT_PICKER,
@@ -781,7 +766,6 @@ def main() -> int:
         "mode": args.mode,
         "alpha": args.alpha,
         "q": args.q,
-        "nsteps_budget": args.nsteps_budget,
         "max_rounds": args.max_rounds,
         "round_idx": 0,
         "name_prefix": args.name_prefix,
@@ -791,8 +775,6 @@ def main() -> int:
         "stagger_sec": args.stagger,
         "barrier_poll_sec": args.barrier_poll_sec,
         "barrier_max_min": args.barrier_max_min,
-        "min_spacing": args.min_spacing,
-        "pessimistic_calo": args.pessimistic_calo,
         "picker": args.picker,
     }
 

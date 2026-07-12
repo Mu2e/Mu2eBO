@@ -14,7 +14,6 @@ class FakeSignals:
         self.broken = set()
         self.terminal = set()
         self.dead_pids = set()
-        self.clusters = set()
         self.leaderboard_reads = 0
 
     def leaderboard_names(self):
@@ -29,9 +28,6 @@ class FakeSignals:
 
     def pid_alive(self, pid):
         return pid not in self.dead_pids
-
-    def has_cluster(self, name):
-        return name in self.clusters
 
 
 def _children(*names, pid=1000):
@@ -137,13 +133,6 @@ class TestStickinessAndPreseed(unittest.TestCase):
         t.tick()
         self.assertTrue(t.all_resolved())
         self.assertEqual(t.done_names(), {"a", "b"})
-
-    def test_resolve_stale(self):
-        sig = FakeSignals()
-        t = ChildTracker({"a": {"pid": None}}, sig)
-        t.resolve_stale("a")
-        self.assertTrue(t.all_resolved())
-        self.assertEqual(t.resolutions()["a"], Resolution.STALE_CLUSTER)
 
 
 class TestEfficiencyContract(unittest.TestCase):
