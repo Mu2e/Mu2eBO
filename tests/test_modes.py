@@ -55,6 +55,40 @@ class TestBoundsLockstep(unittest.TestCase):
             self.assertEqual(spec.bounds_hi, hi, name)
             self.assertEqual(spec.int_dims, intd, name)
 
+    def test_leaderboard_row_roundtrips(self):
+        # format_row writes the leaderboard header + line; load_history_row
+        # must read exactly those columns back. This pins the KNOB_NAMES /
+        # header / CALO_COL contract the 2026-07-12 driver collapse introduced:
+        # a renamed knob column silently breaks reading EXISTING rows (dropped
+        # via load_history's except-continue). Round-trips build_space midpoints
+        # through format_row and back for every mode.
+        import csv
+        import io
+        import autoresearch_bo_michael as bo
+        extras = {"edep_per_POT_MeV": 1.2e-9, "peak_dose_Gy_per_POT": 3.4e-12,
+                  "peak_dose_plate_idx": 5}
+        for name, mode in bo.MODES.items():
+            x0 = []
+            for d in mode.build_space():
+                t = type(d).__name__
+                if t == "Categorical":
+                    x0.append(d.categories[0])
+                elif t == "Integer":
+                    x0.append(int(round((d.low + d.high) / 2)))
+                else:
+                    x0.append((d.low + d.high) / 2.0)
+            p = bo.Point(cfg="RT01", x=x0, sob=3.21, calo=6.5e-7, extras=extras)
+            header, line = mode.format_row(p, alpha=1.0e5)
+            row = next(csv.DictReader(io.StringIO(header + line), delimiter="\t"))
+            back = mode.load_history_row(row)
+            self.assertEqual(back.cfg, "RT01", name)
+            self.assertEqual(len(back.x), len(x0), name)
+            for got, want in zip(back.x, x0):
+                if isinstance(want, str):
+                    self.assertEqual(got, want, name)
+                else:
+                    self.assertAlmostEqual(float(got), float(want), places=3, msg=name)
+
     def test_prodtarget_tarball_matches_stage_config(self):
         import pipeline
         self.assertEqual(modes.SPECS["prodtarget"].grid_tarball,
