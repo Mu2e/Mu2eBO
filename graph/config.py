@@ -159,6 +159,24 @@ STOP_FLAG = GRAPH_DATA / "STOP_CLOSED_LOOP"
 # under bursty multi-writer load.
 SQLITE_TIMEOUT_S = 30.0
 
+
+def open_saver_conn():
+    """Open the shared checkpoints.sqlite with WAL + bumped timeout.
+
+    Single home for the SqliteSaver connection recipe (run.py + closed_loop).
+    WAL is persistent per-DB, but set it explicitly so a fresh
+    checkpoints.sqlite (deleted/recreated) doesn't fall back to the default
+    DELETE journal, which serializes all writers.
+    """
+    import sqlite3
+    conn = sqlite3.connect(
+        str(CHECKPOINT_DB),
+        check_same_thread=False,
+        timeout=SQLITE_TIMEOUT_S,
+    )
+    conn.execute("PRAGMA journal_mode=WAL;")
+    return conn
+
 # Disjoint-venv plumbing: closed_loop.py runs under .venv-graph (langgraph,
 # sklearn, skopt) but the botorch_predict.py qNEHVI picker needs .venv-botorch
 # (gpytorch + botorch). When --picker qnehvi is requested, node_predict_picks

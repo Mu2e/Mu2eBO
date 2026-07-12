@@ -79,7 +79,6 @@ from typing_extensions import TypedDict  # noqa: E402
 from config import (  # noqa: E402
     BOTORCH_PREDICT,
     BOTORCH_VENV_PY,
-    CHECKPOINT_DB,
     CLOSED_LOOP_BARRIER_MAX_MIN,
     CLOSED_LOOP_BARRIER_POLL_SEC,
     CLOSED_LOOP_MAX_ROUNDS,
@@ -90,8 +89,8 @@ from config import (  # noqa: E402
     GRAPH_DATA,
     GRID_DATA_ROOT,
     PROJECT_ROOT,
-    SQLITE_TIMEOUT_S,
     STOP_FLAG,
+    open_saver_conn,
 )
 
 from sourced_bash import run_sourced_bash  # noqa: E402
@@ -157,14 +156,8 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _open_saver_conn() -> sqlite3.Connection:
-    """Open the shared checkpoints.sqlite with WAL + bumped timeout."""
-    conn = sqlite3.connect(
-        str(CHECKPOINT_DB),
-        check_same_thread=False,
-        timeout=SQLITE_TIMEOUT_S,
-    )
-    conn.execute("PRAGMA journal_mode=WAL;")
-    return conn
+    """Patchable seam (tests mock this name); recipe lives in config."""
+    return open_saver_conn()
 
 
 def _child_state_dir(name: str) -> Path:
@@ -199,27 +192,27 @@ def _child_is_broken(name: str) -> bool:
     return (_child_state_dir(name) / "broken.txt").exists()
 
 
-def _leaderboard_names(mode: str) -> set:
-    """One flock-aware leaderboard read -> set of config names.
+def _history(mode: str):
+    """One flock-aware leaderboard read via the BO driver (which flocks).
 
     The barrier consumes this once per poll tick; per-child reads would
     re-parse the full (growing) TSV q times per tick, thousands of times
     per round at q=20 under the 24h backstop cap."""
     sys.path.insert(0, str(PROJECT_ROOT))
     import autoresearch_bo_michael as bo  # noqa: WPS433
-    return {p.cfg for p in bo.MODES[mode].load_history()}
+    return bo.MODES[mode].load_history()
+
+
+def _leaderboard_names(mode: str) -> set:
+    return {p.cfg for p in _history(mode)}
 
 
 def _child_in_leaderboard(name: str, mode: str) -> bool:
-    """Read leaderboard via the BO driver (which already flocks)."""
     return name in _leaderboard_names(mode)
 
 
 def _leaderboard_len(mode: str) -> int:
-    """Count leaderboard rows for the given mode (flock-aware via load_history)."""
-    sys.path.insert(0, str(PROJECT_ROOT))
-    import autoresearch_bo_michael as bo  # noqa: WPS433
-    return len(bo.MODES[mode].load_history())
+    return len(_history(mode))
 
 
 # ============================================================================

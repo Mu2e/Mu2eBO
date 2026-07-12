@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch")
 
 import autoresearch_bo_michael as bo  # noqa: E402
+import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -271,10 +272,8 @@ def read_stage_status(config_name: str, stage: str) -> dict:
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
     cluster_file = state_dir / f"{stage}_cluster.txt"
-    outputs_file = state_dir / f"{stage}_outputs.txt"
     cid = cluster_file.read_text().strip() if cluster_file.exists() else None
-    outputs = ([ln for ln in outputs_file.read_text().splitlines() if ln.strip()]
-               if outputs_file.exists() else [])
+    outputs = hv.read_outputs(state_dir, stage) or []
     target = STAGE_TARGETS.get(stage, 0)
     n_done = len(outputs)
     status = "done" if (cid and outputs) else ("in_flight" if cid else "pending")
@@ -317,17 +316,13 @@ def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
     didn't reach list-outputs yet).
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
-    outputs_file = state_dir / f"{stage}_outputs.txt"
-    if not outputs_file.exists():
+    outputs = hv.read_outputs(state_dir, stage)
+    if not outputs:
         return []
     logs: list[Path] = []
-    for line in outputs_file.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        worker_dir = Path(line).parent
+    for art_path in outputs:
         try:
-            logs.extend(sorted(worker_dir.glob("*.log")))
+            logs.extend(sorted(art_path.parent.glob("*.log")))
         except OSError:
             continue
     return logs

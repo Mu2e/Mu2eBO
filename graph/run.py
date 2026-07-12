@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 import uuid
 from pathlib import Path
@@ -38,11 +37,10 @@ from langgraph.checkpoint.sqlite import SqliteSaver  # noqa: E402
 
 from build import build_graph  # noqa: E402
 from config import (  # noqa: E402
-    CHECKPOINT_DB,
     DEFAULT_ALPHA,
     DEFAULT_MODE,
     GRAPH_DATA,
-    SQLITE_TIMEOUT_S,
+    open_saver_conn,
 )
 
 
@@ -62,16 +60,7 @@ def main() -> int:
     args = ap.parse_args()
 
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(
-        str(CHECKPOINT_DB),
-        check_same_thread=False,
-        timeout=SQLITE_TIMEOUT_S,
-    )
-    # WAL is persistent per-DB, but set it explicitly so a fresh
-    # checkpoints.sqlite (deleted/recreated) doesn't fall back to the
-    # default DELETE journal which serializes all writers.
-    conn.execute("PRAGMA journal_mode=WAL;")
-    saver = SqliteSaver(conn)
+    saver = SqliteSaver(open_saver_conn())
 
     graph = build_graph().compile(checkpointer=saver)
 
