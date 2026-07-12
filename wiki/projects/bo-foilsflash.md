@@ -722,7 +722,10 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
   after the mid-campaign stop for the Eval-summary refactor — parent survived a wrapper-PID
   kill and self-ran R1 once recovery rows landed): R00_00 3.81@8.97e-7, R00_03 3.76@8.27e-7,
   R00_07 3.66@8.09e-7. R1 (refit on 264 rows, 10/10, ALL sob≥3.66): **R01_00 sob=3.84 @
-  8.16e-7 — best self-found sob ever at 25% less flash than the transplant** (rOut 121/118,
+  8.14e-7 — best self-found sob ever at 25% less flash than the transplant;
+  CONFIRMED at 400 jobs 2026-07-12 (8.141e-7 vs 8.162e-7 @92j, −0.3%; row
+  updated, .bak_r01_00_400jfix; that harvest = first production run of the
+  simplified Eval-summary path)** (rOut 121/118,
   hT 110/278 µm full, f 0.25/0.31 — NOTE: ~110 µm upstream, a THICKER recipe than ff13's
   34-52 µm winners; the corner has multiple designs); R01_07 3.84@1.02e-6 (dominated by
   R01_00); R01_05 3.69@7.78e-7 (new low-flash mark at high sob). Campaign total 20/20 evals
