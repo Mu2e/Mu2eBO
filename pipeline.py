@@ -617,21 +617,41 @@ def _probe_input_urls(stage: str, fcl_text: str) -> None:
     EleBeamCat migrated persistent→tape mid-campaign (2026-07-09) and every
     elebeam job died at FileOpenError ~30 s in: the URL comes from OUR
     --default-location flag ('disk'==persistent), not SAM, so a stale
-    location silently kills the whole cluster. Probing the first resolved
-    URLs turns 200 dead jobs into one loud submit-time error.
-    xroot://fndcadoor.fnal.gov//pnfs/fnal.gov/usr/mu2e/X maps to /pnfs/mu2e/X
-    for a cheap NFS read probe; non-matching URLs are skipped (fail-open).
-    See wiki incident elebeamcat-tape-migration-elebeam-wipeout.
+    location silently kills the whole cluster. Probing the resolved URLs
+    turns 2,000 dead jobs into one loud submit-time error.
+
+    This is the AUTHORITATIVE gate for the incident class (the scan patterns
+    in graph/pipeline_io.py stay report-only). FAIL-CLOSED (2026-07-11,
+    friction-survey FP-5): the original version skipped any URL that didn't
+    match one hardcoded door name — a door rename would have recreated the
+    wipeout with the probe green on zero probes. Now any xrootd URL whose
+    path can't be mapped to a /pnfs NFS probe is a submit-time error, not a
+    skip. Emergency bypass: AUTORESEARCH_SKIP_INPUT_PROBE=1.
+    A stage whose FCL has NO xrootd inputs (no auxinput) probes nothing.
     """
-    urls = re.findall(r'"(xroot://[^"]+\.art)"', fcl_text)
+    if os.environ.get("AUTORESEARCH_SKIP_INPUT_PROBE") == "1":
+        print(f"[{stage}] input probe SKIPPED (AUTORESEARCH_SKIP_INPUT_PROBE=1)",
+              flush=True)
+        return
+    urls = list(dict.fromkeys(re.findall(r'"(x?root://[^"]+\.art)"', fcl_text)))
+    if not urls:
+        return
     probes = []
-    for u in dict.fromkeys(urls):
-        m = re.match(r"xroot://fndcadoor\.fnal\.gov//pnfs/fnal\.gov/usr/mu2e/(.+)", u)
+    unmapped = []
+    for u in urls:
+        m = re.match(r"x?root://[^/]+//pnfs/fnal\.gov/usr/mu2e/(.+)", u)
         if m:
             probes.append(Path("/pnfs/mu2e") / m.group(1))
-        if len(probes) >= 2:
-            break
-    for p in probes:
+        else:
+            unmapped.append(u)
+    if unmapped:
+        raise SystemExit(
+            f"[{stage}] input probe cannot map {len(unmapped)} xrootd URL(s) "
+            f"to /pnfs for a liveness check (first: {unmapped[0]}). "
+            f"Refusing to submit blind — this fail-open path is how the "
+            f"EleBeamCat tape-wipeout recurs. Extend _probe_input_urls's "
+            f"mapping or set AUTORESEARCH_SKIP_INPUT_PROBE=1 to override.")
+    for p in probes[:4]:
         r = subprocess.run(["timeout", "10", "dd", f"if={p}", "of=/dev/null",
                             "bs=64k", "count=1"], capture_output=True)
         if r.returncode != 0:
