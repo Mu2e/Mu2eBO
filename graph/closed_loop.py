@@ -63,6 +63,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 # and build.STAGE_NODES freezes it. argparse runs much later (in main()).
 # Shared sniffers: graph/presniff.py. Issue Mu2eBO #15.
 from presniff import presniff_mode, presniff_picker  # noqa: E402
+from graph.child_tracker import ChildTracker, Resolution  # noqa: E402
 
 presniff_mode()
 presniff_picker()
@@ -172,6 +173,33 @@ def _open_saver_conn() -> sqlite3.Connection:
 
 def _child_state_dir(name: str) -> Path:
     return GRID_DATA_ROOT / name / "state"
+
+
+class _DiskSignals:
+    """Production Signals adapter (CONTEXT.md: 'Signals adapter'): reads the
+    five raw child signals from disk/SQLite. Late-binds to the module-level
+    helpers so tests that patch them (mock.patch.object(cl, ...)) keep
+    intercepting; unit tests of the tracker itself inject a fake instead."""
+
+    def __init__(self, mode: str, child_graph):
+        self._mode = mode
+        self._graph = child_graph
+
+    def leaderboard_names(self) -> set:
+        return _leaderboard_names(self._mode)
+
+    def is_broken(self, name: str) -> bool:
+        return _child_is_broken(name)
+
+    def is_terminal(self, thread_id: str) -> bool:
+        from graph.build import is_child_terminal  # noqa: WPS433 — patchable
+        return is_child_terminal(thread_id=thread_id, child_graph=self._graph)
+
+    def pid_alive(self, pid: int) -> bool:
+        return _pid_alive(pid)
+
+    def has_cluster(self, name: str) -> bool:
+        return any(_child_state_dir(name).glob("*_cluster.txt"))
 
 
 def _child_is_broken(name: str) -> bool:
@@ -515,59 +543,42 @@ def node_barrier(state: RoundState) -> dict:
     # only StateSnapshot does, and StateSnapshot only comes from a compiled
     # graph attached to the saver.
     sys.path.insert(0, str(PROJECT_ROOT))
-    from graph.build import build_graph, is_child_terminal  # noqa: WPS433
+    from graph.build import build_graph  # noqa: WPS433
     child_graph = build_graph().compile(checkpointer=saver)
-    # Children seen with a dead pid once; confirmed-failed on the NEXT poll
-    # tick (grace against racing the child's final leaderboard append).
-    dead_suspect: set = set()
+    # All resolution state (sticky per-child Resolution + the dead-PID grace
+    # set) lives in the ChildTracker; the barrier consumes transitions and
+    # maps them to log/error lines. See graph/child_tracker.py.
+    tracker = ChildTracker(children, _DiskSignals(mode, child_graph),
+                           already_done=completed)
     try:
         while True:
-            pending = [n for n in children if n not in completed]
-            lb_names = _leaderboard_names(mode) if pending else set()
-            for name in list(pending):
-                if name in lb_names or _child_is_broken(name):
-                    completed.add(name)
-                    dead_suspect.discard(name)
-                elif is_child_terminal(
-                    thread_id=(children.get(name) or {}).get("thread_id") or name,
-                    child_graph=child_graph,
-                ):
-                    # Terminal checkpoint but no leaderboard row + no broken.txt
-                    # → graph ended via preflight-fail / stage-fail. Count as done.
-                    completed.add(name)
-                    dead_suspect.discard(name)
+            for name, res in sorted(tracker.tick().items()):
+                if res is Resolution.DONE_TERMINAL_NO_ROW:
+                    # Graph ended via preflight-fail / stage-fail. Count as done.
                     errors.append(
                         f"barrier[{name}]: terminal checkpoint but no leaderboard "
                         f"row (likely preflight/stage failure)"
                     )
-                else:
-                    # No resolution artifact. If the child PROCESS is gone it
-                    # can never produce one — crashed mid-write (foilsf08
-                    # SqliteSaver shape). Without this, such children stay
-                    # "pending" until the timeout cap.
+                elif res is Resolution.DEAD_UNRESOLVED:
+                    # Crashed mid-write (foilsf08 SqliteSaver shape) — the
+                    # process can never produce a resolution artifact.
                     pid = (children.get(name) or {}).get("pid")
-                    if pid and not _pid_alive(pid):
-                        if name in dead_suspect:
-                            completed.add(name)
-                            msg = (
-                                f"barrier[{name}]: child process {pid} died "
-                                f"without resolution (no leaderboard row / "
-                                f"broken.txt / terminal checkpoint)"
-                            )
-                            print(f"[closed_loop] {msg}", flush=True)
-                            errors.append(msg)
-                        else:
-                            dead_suspect.add(name)
-                    else:
-                        dead_suspect.discard(name)
-            if all(n in completed for n in children):
+                    msg = (
+                        f"barrier[{name}]: child process {pid} died "
+                        f"without resolution (no leaderboard row / "
+                        f"broken.txt / terminal checkpoint)"
+                    )
+                    print(f"[closed_loop] {msg}", flush=True)
+                    errors.append(msg)
+            completed = set(state.get("completed_names", [])) | tracker.done_names()
+            if tracker.all_resolved():
                 print(f"[closed_loop] barrier: all {len(children)} children resolved", flush=True)
                 break
             if _stop_requested():
                 stop_seen = True
                 msg = (
                     f"barrier[r{state['round_idx']}]: STOP_FLAG seen, exiting "
-                    f"({len(completed)}/{len(children)} children resolved)"
+                    f"({len(tracker.done_names())}/{len(children)} children resolved)"
                 )
                 print(f"[closed_loop] {msg}", flush=True)
                 errors.append(msg)
@@ -577,7 +588,7 @@ def node_barrier(state: RoundState) -> dict:
                 msg = (
                     f"barrier[r{state['round_idx']}]: backstop cap "
                     f"{max_min}min reached with "
-                    f"{len(children) - len(completed)} children still pending "
+                    f"{tracker.pending_count()} children still pending "
                     f"AND alive — investigate (alive children should always "
                     f"resolve via their internal stage caps)"
                 )
