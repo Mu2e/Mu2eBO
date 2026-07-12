@@ -970,13 +970,8 @@ AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
 EDEP_FCL = AUTORESEARCH / "Run1BAna/workflows/fcl/edep.fcl"
 SENSITIVITY_MACRO = AUTORESEARCH / "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C"
 
-# Accept scientific notation: EdepAna prints the count via %g, so >1M events come
-# out as e.g. "Saw 2.70937e+06 events" (foilsflash's big mustops_ce). \d+ alone
-# missed those → false "summary not found" → harvest_exception zero rows. float()
-# then int() handles both "2709366" and "2.70937e+06" (the ~4-event rounding from
-# %g is negligible vs 2.7M). See bo-foilsflash harvest-sci-notation fix.
-# EdepAna / sensitivity-macro parsers live in harvest.py (parse_edepana_saw,
-# parse_s_over_sqrt_b) — incl. the sci-notation fix, regression-tested there.
+# EdepAna / sensitivity-macro parsers (incl. the sci-notation count fix) live in
+# harvest.py: parse_edepana_saw, parse_s_over_sqrt_b — regression-tested there.
 
 # TargetMuonFinder/stopmat bin labels (mmackenz extract_analysis_results._CALO_STOP_MATERIALS)
 _CALO_STOP_MATERIALS = ("G4_CESIUM_IODIDE", "CarbonFiber", "AluminumHoneycomb")
@@ -1239,6 +1234,14 @@ def cmd_harvest_pot_only(args):
     print("\n" + json.dumps(summary, indent=2))
 
 
+def _note_degraded(sec, stage, degraded):
+    """Record a fail-softed secondary-metric extraction (identical across the
+    calo/trk/flash steps): echo the error and stamp degraded[stage]."""
+    if sec.error:
+        print(f"    {sec.error}")
+        degraded[stage] = sec.error
+
+
 def cmd_harvest(args):
     """Compute s_over_sqrt_b from the smoke pipeline outputs.
 
@@ -1333,9 +1336,7 @@ def cmd_harvest(args):
         STATE, runner=lambda files: _extract_calo_per_pot(files, env)) \
         or hv.SecondaryCalo()
     calo_per_pot, calo_total, calo_files_seen = calo.per_pot, calo.total, calo.files_seen
-    if calo.error:
-        print(f"    {calo.error}")
-        degraded["run1b_mubeam"] = calo.error
+    _note_degraded(calo, "run1b_mubeam", degraded)
     if calo_per_pot is not None:
         print(f"    calo_total          = {calo_total}")
         print(f"    calo_files_seen     = {calo_files_seen}")
@@ -1357,9 +1358,7 @@ def cmd_harvest(args):
     trk_edep_total_MeV = trk.total_MeV
     trk_edep_events = trk.n_events
     trk_edep_tag = trk.tag
-    if trk.error:
-        print(f"    {trk.error}")
-        degraded["mustops_pileup"] = trk.error
+    _note_degraded(trk, "mustops_pileup", degraded)
     if trk_edep_per_pot is not None:
         print(f"    trk_edep_total_MeV  = {trk_edep_total_MeV}")
         print(f"    trk_edep_events     = {trk_edep_events}")
@@ -1388,9 +1387,7 @@ def cmd_harvest(args):
     flash_edep_total_MeV = flash.total_MeV
     flash_edep_events = flash.n_events
     flash_edep_tag = flash.tag
-    if flash.error:
-        print(f"    {flash.error}")
-        degraded["elebeam_flash"] = flash.error
+    _note_degraded(flash, "elebeam_flash", degraded)
     # POT denominator = landed files x stamped events_per_job (input electrons
     # resampled 1:1) x POT_PER_ELECTRON — see events-per-job incident.
     epj_flash = _events_per_job("elebeam_flash")
@@ -1443,9 +1440,8 @@ def cmd_harvest(args):
         macro_log=str(macro_log),
         degraded=degraded,
     )
-    text = summary.to_json()
-    (harvest_dir / "summary.json").write_text(text)
-    print("\n" + text)
+    summary.write(harvest_dir)
+    print("\n" + summary.to_json())
 
 
 def main():
