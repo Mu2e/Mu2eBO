@@ -215,13 +215,13 @@ def _optimize(acq, bounds, q: int) -> torch.Tensor:
     return candidates.detach()
 
 
-def _sobol_cold_start(bounds: torch.Tensor, int_dims, q: int, round_idx: int) -> torch.Tensor:
+def _sobol_cold_start(bounds: torch.Tensor, q: int, round_idx: int) -> torch.Tensor:
     """Draw q Sobol points over `bounds` for the very-first batch.
 
     Used when load_priors()+load_history() is empty: there's nothing for the
     GP to fit on. Sobol is the standard cold-start for BO and matches what
     skopt does internally via N_INITIAL_POINTS. Seed via the shared _seed().
-    int_dims are rounded post-draw to mirror _emit_picks.
+    (int rounding happens in the caller's _emit_picks.)
     """
     from botorch.utils.sampling import draw_sobol_samples
     seed = _seed(round_idx)
@@ -477,7 +477,7 @@ def compute_explore_picks(q: int = 5,
     if X.shape[0] < 2:
         print(f"[botorch_predict] mode={mode} cold-start: history={X.shape[0]} rows "
               f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)
-        cands = _sobol_cold_start(bounds, int_dims, q=q, round_idx=round_idx)
+        cands = _sobol_cold_start(bounds, q=q, round_idx=round_idx)
         return _emit_picks(cands, int_dims)
     model = _fit_gp(X, Y, bounds)
     if picker == "qlnei":

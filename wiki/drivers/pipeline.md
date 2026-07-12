@@ -28,9 +28,9 @@ for the failure that motivated this).
   `<stage>/` (cnf tarballs + Code.tar.bz2), `state/` (cluster IDs, output
   lists, materialized FCL), `harvest/` (summary.json, EdepAna outputs).
 - **PNFS staging:** `/pnfs/mu2e/scratch/users/$USER/autoresearch_grid/<cfg>/staged/`
-- **Subcommands:** `submit | poll | list-outputs | harvest | harvest-pot-only
-  | materialize`. `materialize <stage>` is a debug helper that prints the
-  substituted template without submitting. `harvest-pot-only` (added
+- **Subcommands:** `submit | poll | list-outputs | harvest | harvest-pot-only`
+  (a `materialize` debug verb was removed 2026-07-12 — zero callers;
+  `_materialize_template` itself lives on inside `submit`). `harvest-pot-only` (added
   2026-06-07 for [[bo-prodtarget]]) is a separate uproot-based subcommand
   (not a switch on `harvest`) because the objective differs (`mu_per_POT` at
   VD sid=8 vs S/√B − α·calo/POT) and the chain is single-stage — cleaner as

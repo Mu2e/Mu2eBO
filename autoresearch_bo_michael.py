@@ -44,7 +44,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -951,7 +950,6 @@ class FoilsFracMode(FoilsMode):
     """
     name = "foilsf"
     leaderboard = ROOT / "leaderboard_bo_foils_v3.tsv"
-    leaderboard_v2 = ROOT / "leaderboard_bo_foils_v2.tsv"
 
     F_MAX = 0.95  # hole <= 95% of rOut -> always buildable
 
@@ -1970,19 +1968,6 @@ def _cmd_propose_locked(args, mode, names):
     return 0
 
 
-def cmd_list_pending(args):
-    mode = MODES[args.mode]
-    pending = mode.load_pending()
-    print(f"[{mode.name}] pending file: {mode.pending_path()}")
-    if not pending:
-        print("  (none in flight)")
-        return 0
-    print(f"  {len(pending)} in flight:")
-    for cfg, x in pending:
-        print(f"    {cfg:24s}  x = {x}")
-    return 0
-
-
 def cmd_evaluate(args):
     mode = MODES[args.mode]
     summary = json.loads(Path(args.summary).read_text())
@@ -2435,9 +2420,6 @@ def main():
                         help="Constant-Liar variant for batches (ignored when q=1)")
     p_prop.set_defaults(func=cmd_propose)
 
-    p_pend = sub.add_parser("list-pending",
-                            help="List in-flight proposals (rows in pending_bo_<mode>.tsv)")
-    p_pend.set_defaults(func=cmd_list_pending)
 
     p_eval = sub.add_parser("evaluate", help="Record completed run in leaderboard")
     p_eval.add_argument("config_name")

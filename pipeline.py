@@ -960,16 +960,6 @@ def cmd_list_outputs(args):
     list_outputs(args.stage, cluster)
 
 
-def cmd_materialize(args):
-    """Debug helper: write the materialized template to --out (or stdout)."""
-    out = _materialize_template(args.stage)
-    if args.out:
-        Path(args.out).write_text(out.read_text())
-        print(f"[{args.stage}] materialized -> {args.out}")
-    else:
-        sys.stdout.write(out.read_text())
-
-
 # Constant from extract_analysis_results._MUBEAM_INPUT_EFFICIENCY_BY_FCL["run1a_beam/mubeam.fcl"].
 # This is the fraction of upstream POT that survive into the MuBeamCat resampler input,
 # needed to convert per-simulated-event yields into per-POT yields.
@@ -1493,12 +1483,6 @@ def main():
     p_hpo = sub.add_parser("harvest-pot-only",
                            help="Aggregate pot_only outputs into mu_per_POT (uproot)")
     p_hpo.set_defaults(func=cmd_harvest_pot_only)
-
-    p_mat = sub.add_parser("materialize",
-                           help="Debug: write a stage's materialized template (geom basename substituted)")
-    p_mat.add_argument("stage", choices=list(STAGES))
-    p_mat.add_argument("--out", help="Output path (default stdout)")
-    p_mat.set_defaults(func=cmd_materialize)
 
     args = p.parse_args()
     _bind_config(args.config)

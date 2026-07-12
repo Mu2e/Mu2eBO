@@ -287,17 +287,6 @@ def read_stage_status(config_name: str, stage: str) -> dict:
     }
 
 
-def run_grid_real(mode_name: str, config_name: str) -> dict:
-    """Deprecated shim. Prefer per-stage nodes (graph.build) for live runs.
-
-    Kept for ad-hoc scripted use that wants to drive the full chain in one
-    process. Loops `run_stage` over GRID_STAGES then harvest.
-    """
-    for stage in GRID_STAGES:
-        run_stage(config_name, stage)
-    return run_harvest(config_name)
-
-
 # --- end-of-workflow log scanner (report-only) ---
 
 

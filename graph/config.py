@@ -135,11 +135,6 @@ MAX_PROPOSE_RETRIES = 3
 # preflight timeouts on cold-cache CVMFS hits.
 PREFLIGHT_TIMEOUT_S = 1200
 
-# Mock metrics knobs (Phase 1 only) — smooth analytic surface over the
-# 4D helical search space so the graph has something to optimize.
-MOCK_SOB_PEAK = 1.0
-MOCK_CALO_FLOOR = 1.0e-7
-
 # ============================================================================
 # Closed-loop (graph/closed_loop.py) constants
 # ============================================================================
