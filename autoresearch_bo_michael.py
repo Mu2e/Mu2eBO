@@ -172,9 +172,6 @@ class BOMode(ABC):
     def load_priors(self) -> list[Point]: ...
 
     @abstractmethod
-    def build_space(self): ...
-
-    @abstractmethod
     def _geom_text(self, x) -> str: ...
 
     @abstractmethod
@@ -185,6 +182,28 @@ class BOMode(ABC):
 
     @abstractmethod
     def load_history_row(self, row: dict) -> Point: ...
+
+    # Search space. The numeric modes share this: skopt dims built from the
+    # ModeSpec registry box (modes.SPECS[name].bounds_lo/hi/int_dims) paired
+    # with a per-mode KNOB_NAMES tuple. michael's Categorical (COL5) space
+    # overrides it. KNOB_NAMES must line up 1:1 with the registry bounds — a
+    # mismatch is a loud error, never a silently-truncated space.
+    KNOB_NAMES: tuple = ()
+
+    def build_space(self):
+        from skopt.space import Real, Integer
+        spec = _modes.SPECS[self.name]
+        if len(self.KNOB_NAMES) != len(spec.bounds_lo):
+            raise ValueError(
+                f"{self.name}: KNOB_NAMES ({len(self.KNOB_NAMES)}) != registry "
+                f"bounds ({len(spec.bounds_lo)})")
+        int_dims = set(spec.int_dims or ())
+        return [
+            (Integer(int(lo), int(hi), name=nm) if i in int_dims
+             else Real(lo, hi, name=nm))
+            for i, (lo, hi, nm) in enumerate(
+                zip(spec.bounds_lo, spec.bounds_hi, self.KNOB_NAMES))
+        ]
 
     # Constraint hook: override to reject infeasible regions of search space.
     # propose() calls this on every ask() output and tells the GP a penalty
@@ -557,14 +576,8 @@ class HelicalMode(BOMode):
             pts.append(Point(cfg=cfg, x=x, sob=sob, calo=calo))
         return pts
 
-    def build_space(self):
-        from skopt.space import Real
-        return [
-            Real(0.01, 5.0,    name="tsda_helical_dx"),
-            Real(40.0, 400.0,  name="tsda_helical_dy"),
-            Real(25.0, 500.0,  name="tsda_helical_halflength"),
-            Real(60.0, 720.0,  name="tsda_helical_angle"),
-        ]
+    KNOB_NAMES = ("tsda_helical_dx", "tsda_helical_dy",
+                  "tsda_helical_halflength", "tsda_helical_angle")
 
     def is_buildable(self, x) -> bool:
         # N_crit gate: dy·rad(angle)/(8·dx) ≤ N_CRIT_BUDGET (2000) — same
@@ -742,16 +755,9 @@ class FoilsMode(BOMode):
                     continue
         return out
 
-    def build_space(self):
-        from skopt.space import Real
-        return [
-            Real(50.0, 250.0, name="extra_rOut_up"),
-            Real(50.0, 250.0, name="extra_rOut_dn"),
-            Real(0.01, 1.0,   name="extra_halfThickness_up"),
-            Real(0.01, 1.0,   name="extra_halfThickness_dn"),
-            Real(0.0,  50.0,  name="extra_rIn_up"),
-            Real(0.0,  50.0,  name="extra_rIn_dn"),
-        ]
+    KNOB_NAMES = ("extra_rOut_up", "extra_rOut_dn",
+                  "extra_halfThickness_up", "extra_halfThickness_dn",
+                  "extra_rIn_up", "extra_rIn_dn")
 
     def is_buildable(self, x) -> bool:
         rOut_up, rOut_dn, _, _, rIn_up, rIn_dn = x
@@ -919,21 +925,15 @@ class FoilsFracMode(FoilsMode):
     name = "foilsf"
     leaderboard = ROOT / "leaderboard_bo_foils_v3.tsv"
 
-    F_MAX = 0.95  # hole <= 95% of rOut -> always buildable
-
-    def build_space(self):
-        from skopt.space import Real
-        return [
-            Real(50.0, 250.0, name="extra_rOut_up"),
-            Real(50.0, 250.0, name="extra_rOut_dn"),
-            Real(0.01, 1.0,   name="extra_halfThickness_up"),
-            Real(0.01, 1.0,   name="extra_halfThickness_dn"),
-            Real(0.0,  self.F_MAX, name="extra_f_up"),
-            Real(0.0,  self.F_MAX, name="extra_f_dn"),
-        ]
+    # hole = FRACTION of rOut (rIn = f*rOut); registry caps f at 0.95 so
+    # rIn < rOut always. Same geometry as FoilsMode, so only the last two
+    # knob NAMES change (rIn -> f); bounds come from modes.SPECS["foilsf"].
+    KNOB_NAMES = ("extra_rOut_up", "extra_rOut_dn",
+                  "extra_halfThickness_up", "extra_halfThickness_dn",
+                  "extra_f_up", "extra_f_dn")
 
     def is_buildable(self, x) -> bool:
-        return True  # f in [0, F_MAX<1] => rIn = f*rOut < rOut, always buildable
+        return True  # f in [0, 0.95] => rIn = f*rOut < rOut, always buildable
 
     @staticmethod
     def _frac_to_abs(x):
@@ -1007,26 +1007,12 @@ class FoilsFlashMode(FoilsFracMode):
     # Fresh line, no priors -> Sobol-seed the first skopt-fallback round.
     N_INITIAL_POINTS = 10
 
-    # Widened halfThickness floor for the thickness-probe experiment (2026-07-09).
-    # The inherited FoilsFracMode box floors hT at 0.01 mm (=20 µm full), against
-    # which the optimizer RAIL-PINS (every sob>3.5 row has hT_up=0.0100; 141/216
-    # rows at the floor — see wiki/projects/bo-foilsflash.md "SEARCH-BOX FLOOR").
-    # Drop to 0.002 mm (=4 µm full) to test whether thinner-than-20 µm upstream
-    # foils help. Lockstep with the picker box is ENFORCED by
-    # tests/test_modes.py (build_space bounds == modes.SPECS bounds; the
-    # picker reads modes.SPECS["foilsflash"], not a hand-copied table).
-    HT_FLOOR = 0.002
-
-    def build_space(self):
-        from skopt.space import Real
-        return [
-            Real(50.0, 250.0, name="extra_rOut_up"),
-            Real(50.0, 250.0, name="extra_rOut_dn"),
-            Real(self.HT_FLOOR, 1.0, name="extra_halfThickness_up"),
-            Real(self.HT_FLOOR, 1.0, name="extra_halfThickness_dn"),
-            Real(0.0, self.F_MAX, name="extra_f_up"),
-            Real(0.0, self.F_MAX, name="extra_f_dn"),
-        ]
+    # Search space = FoilsFracMode's (inherited KNOB_NAMES) but with a widened
+    # halfThickness floor of 0.002 mm (=4 µm full, vs the 0.01 mm=20 µm the
+    # optimizer rail-pinned against) for the thickness-probe experiment
+    # (2026-07-09). That floor lives in modes.SPECS["foilsflash"].bounds_lo,
+    # which the picker reads too — see wiki/projects/bo-foilsflash.md
+    # "SEARCH-BOX FLOOR" and tests/test_modes.py (bounds lockstep enforced).
 
     def load_priors(self):
         return []
@@ -1112,7 +1098,11 @@ class FoilsGroupMode(BOMode):
     BASE_EXTENT_MM = DEPLOYED_DELTA_Z * DEPLOYED_GAPS
     DELTA_Z_MM = BASE_EXTENT_MM / (N_FOILS - 1)
 
-    F_MAX = 0.95  # hole <= 95% of rOut -> always buildable
+    # (rOut, hT, f) per z-group; hole f in [0, 0.95] of rOut. 12 dims from
+    # modes.SPECS["foilsg"] bounds (registry stores (50,0.01,0)*4 / (250,1,0.95)*4).
+    KNOB_NAMES = tuple(
+        nm for g in range(len(GROUP_SIZES))
+        for nm in (f"rOut_g{g}", f"hT_g{g}", f"f_g{g}"))
 
     # 0 priors -> need a Sobol init batch before any GP fit (mirrors
     # ProdTargetMode pattern; see prodtarget-propose-skopt-empty-init incident).
@@ -1120,15 +1110,6 @@ class FoilsGroupMode(BOMode):
 
     def load_priors(self):
         return []  # fresh 12D space — no upstream rows to project
-
-    def build_space(self):
-        from skopt.space import Real
-        dims = []
-        for g in range(len(self.GROUP_SIZES)):
-            dims.append(Real(50.0, 250.0, name=f"rOut_g{g}"))
-            dims.append(Real(0.01, 1.0,   name=f"hT_g{g}"))
-            dims.append(Real(0.0, self.F_MAX, name=f"f_g{g}"))
-        return dims
 
     def is_buildable(self, x) -> bool:
         return True  # f<1 ⇒ rIn = f*rOut < rOut, always buildable
@@ -1283,15 +1264,8 @@ class IPAMode(BOMode):
     def load_priors(self):
         return []
 
-    def build_space(self):
-        from skopt.space import Real
-        return [
-            Real(0.1,   3.0,   name="thickness"),
-            Real(200.0, 700.0, name="halfLength"),
-            Real(250.0, 400.0, name="OutRadius0"),
-            Real(250.0, 400.0, name="OutRadius1"),
-            Real(400.0, 800.0, name="distFromTargetEnd"),
-        ]
+    KNOB_NAMES = ("thickness", "halfLength", "OutRadius0", "OutRadius1",
+                  "distFromTargetEnd")
 
     def is_buildable(self, x) -> bool:
         thickness, halfLength, rOut0, rOut1, _dist = x
@@ -1500,26 +1474,12 @@ class ProdTargetMode(BOMode):
         # No external priors in v0; baseline lands via the first evaluation.
         return []
 
-    def build_space(self):
-        from skopt.space import Real, Integer
-        # Bounds: roughly +/- 30-60% around defaults at each control knot.
-        # See wiki/projects/bo-prodtarget.md for justification.
-        return [
-            Real(2.0,  4.5,  name="r0"),    # rOut upstream     [mm]
-            Real(2.0,  4.5,  name="r1"),    # rOut center
-            Real(2.0,  4.5,  name="r2"),    # rOut downstream
-            Real(3.0,  8.0,  name="t0"),    # thickness up      [mm]
-            Real(3.0,  8.0,  name="t1"),
-            Real(3.0,  8.0,  name="t2"),
-            # Lug bounds (4, 12) — _expand clips lPlate[i] to
-            # [tPlate[i] + 0.5, tPlate[i] + 1.0] so silent spacer overlaps
-            # from lug overhang past the plate face are pre-projected away.
-            # See wiki/incidents/prodtarget-spacer-supportring-overlap.md.
-            Real(4.0, 12.0, name="l0"),     # lugThickness up   [mm]
-            Real(4.0, 12.0, name="l1"),
-            Real(4.0, 12.0, name="l2"),
-            Integer(25, 45,  name="N"),     # numberOfPlates
-        ]
+    # r{0,1,2}=rOut / t{0,1,2}=thickness / l{0,1,2}=lugThickness quadratic
+    # profile control knots [mm] + N=numberOfPlates (Integer). Bounds (roughly
+    # ±30-60% around defaults) live in modes.SPECS["prodtarget"]; the lug range
+    # (4,12) pairs with _expand's per-plate lPlate clip that pre-projects silent
+    # spacer overlaps away (wiki/incidents/prodtarget-spacer-supportring-overlap).
+    KNOB_NAMES = ("r0", "r1", "r2", "t0", "t1", "t2", "l0", "l1", "l2", "N")
 
     @staticmethod
     def _profile(c, N):
@@ -1675,16 +1635,10 @@ class ProdTarget6DMode(ProdTargetMode):
     LUG_MID_OFFSET_MM = 0.75
     FIXED_N = 35  # Stickman v1.0 default; well-tested at this plate count.
 
-    def build_space(self):
-        from skopt.space import Real
-        return [
-            Real(2.0, 4.5, name="r0"),
-            Real(2.0, 4.5, name="r1"),
-            Real(2.0, 4.5, name="r2"),
-            Real(3.0, 8.0, name="t0"),  # 7→8 (2026-06-15) after end-plate lug clamp shipped
-            Real(3.0, 8.0, name="t1"),
-            Real(3.0, 8.0, name="t2"),
-        ]
+    # 6D rOut+thickness profile only (N fixed at 35, lug derived). Bounds in
+    # modes.SPECS["prodtarget6d"]; t upper was 7→8 (2026-06-15) after the
+    # end-plate lug clamp shipped.
+    KNOB_NAMES = ("r0", "r1", "r2", "t0", "t1", "t2")
 
     def _expand(self, x):
         import numpy as np
