@@ -228,6 +228,14 @@ def _fit_gp(X, Y, bounds):
     )
     mll = ExactMarginalLogLikelihood(model.likelihood, model)
     fit_gpytorch_mll(mll)
+    # Noise audit: likelihood.noise is in Standardize'd units; × stdvs
+    # recovers raw-output σ, comparable to the measured budget in
+    # wiki/concepts/bo-noise-budget.md (σ_sob≈0.4% rel, σ_calo≈8%).
+    noise_std = model.likelihood.noise.detach().sqrt().reshape(-1)
+    stdvs = model.outcome_transform.stdvs.detach().reshape(-1)
+    raw = [f"{v:.3e}" for v in (noise_std * stdvs).tolist()]
+    print(f"[botorch_predict] fitted GP noise sigma per output: raw={raw} "
+          f"standardized={[f'{v:.3f}' for v in noise_std.tolist()]}", flush=True)
     return model
 
 
