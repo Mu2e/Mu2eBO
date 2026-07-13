@@ -132,6 +132,16 @@ class RoundState(TypedDict, total=False):
     stop_seen: bool
     timeout_seen: bool
     picker: str
+    # Rolling mode (--rolling): q = pool WIDTH; the barrier exits on the
+    # first resolution and decide_next replenishes the free slots until
+    # max_evals total launches. round_idx counts replenish WAVES (feeds the
+    # R{NN} name segment). no_row_streak generalizes the zero-rows guard:
+    # q consecutive rowless resolutions = the foilsX04 all-failing shape.
+    rolling: bool
+    max_evals: int
+    no_row_streak: int
+    prev_completed_count: int
+    rolling_done: bool
 
 
 # ============================================================================
@@ -270,7 +280,8 @@ def node_renew_token(state: RoundState) -> dict:
     return {"errors": errors}
 
 
-def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "qnehvi") -> list[tuple]:
+def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "qnehvi",
+                              pending: list | None = None) -> list[tuple]:
     """Shell into .venv-botorch to run botorch_predict.py; return picks.
 
     Disjoint-venv: closed_loop.py runs under .venv-graph (no botorch); the
@@ -294,6 +305,7 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
         )
     with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tf:
         out_path = Path(tf.name)
+    pend_path: Optional[Path] = None
     try:
         cmd = [
             str(BOTORCH_VENV_PY), str(BOTORCH_PREDICT),
@@ -302,6 +314,15 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
             "--picker", picker,
             "--emit-picks-json", str(out_path),
         ]
+        if pending:
+            # Rolling mode: in-flight x_points ride to the picker via a tmp
+            # JSON so replacements fantasize over them (X_pending) instead of
+            # re-picking a point that's already being measured.
+            with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", delete=False) as pf:
+                json.dump([list(x) for x in pending], pf)
+                pend_path = Path(pf.name)
+            cmd += ["--pending-json", str(pend_path)]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=14400)
         if r.returncode != 0:
             raise RuntimeError(
@@ -310,10 +331,12 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
             )
         raw = json.loads(out_path.read_text())
     finally:
-        try:
-            out_path.unlink()
-        except FileNotFoundError:
-            pass
+        for p in (out_path, pend_path):
+            if p is not None:
+                try:
+                    p.unlink()
+                except FileNotFoundError:
+                    pass
     return [tuple(p) for p in raw]
 
 
@@ -335,11 +358,49 @@ def node_predict_picks(state: RoundState) -> dict:
     q = state["q"]
     mode = state["mode"]
     picker = state.get("picker", DEFAULT_PICKER)
+    errors = list(state.get("errors", []))
+
+    if state.get("rolling"):
+        # Rolling: q is the pool WIDTH. Ask only for the free slots, capped by
+        # the remaining eval budget, and hand the picker the in-flight
+        # x_points so replacements fantasize over them (X_pending).
+        children = dict(state.get("children", {}))
+        completed = set(state.get("completed_names", []))
+        in_flight = {n: rec for n, rec in children.items() if n not in completed}
+        launched_total = len(set(children) | completed)
+        q_next = max(0, min(q - len(in_flight),
+                            state["max_evals"] - launched_total))
+        if q_next == 0:
+            # Drain wave: pool full or budget exhausted — the barrier just
+            # waits for the next resolution; nothing to pick or launch.
+            print(f"[closed_loop] predict_picks[w{state['round_idx']}]: "
+                  f"rolling drain (in_flight={len(in_flight)} "
+                  f"launched={launched_total}/{state['max_evals']})", flush=True)
+            return {"history_len_before": _leaderboard_len(mode)}
+        pending_x = [list(rec["x_point"]) for _, rec in sorted(in_flight.items())]
+        picks = _botorch_picks_subprocess(mode, q_next, state["round_idx"],
+                                          picker=picker, pending=pending_x)
+        print(f"[closed_loop] predict_picks[w{state['round_idx']}]: rolling "
+              f"picker={picker} q_next={q_next} got={len(picks)} "
+              f"(pending={len(pending_x)} launched={launched_total}/"
+              f"{state['max_evals']})", flush=True)
+        if len(picks) < q_next:
+            errors.append(
+                f"predict_picks[w{state['round_idx']}]: only got "
+                f"{len(picks)}/{q_next} rolling picks")
+        transient = {**children,
+                     **{f"_pick_{j:02d}": {"x_point": list(p)}
+                        for j, p in enumerate(picks)}}
+        return {
+            "children": transient,
+            "errors": errors,
+            "history_len_before": _leaderboard_len(mode),
+        }
+
     picks = _botorch_picks_subprocess(mode, q, state["round_idx"], picker=picker)
     print(f"[closed_loop] predict_picks[r{state['round_idx']}]: "
           f"picker={picker} "
           f"q={q} got={len(picks)}", flush=True)
-    errors = list(state.get("errors", []))
     if len(picks) < q:
         errors.append(
             f"predict_picks[r{state['round_idx']}]: only got {len(picks)}/{q} "
@@ -534,9 +595,13 @@ def node_barrier(state: RoundState) -> dict:
     # maps them to log/error lines. See graph/child_tracker.py.
     tracker = ChildTracker(children, _DiskSignals(mode, child_graph),
                            already_done=completed)
+    rolling = state.get("rolling", False)
+    resolved_since_entry = 0
     try:
         while True:
-            for name, res in sorted(tracker.tick().items()):
+            transitions = tracker.tick()
+            resolved_since_entry += len(transitions)
+            for name, res in sorted(transitions.items()):
                 if res is Resolution.DONE_TERMINAL_NO_ROW:
                     # Graph ended via preflight-fail / stage-fail. Count as done.
                     errors.append(
@@ -556,6 +621,15 @@ def node_barrier(state: RoundState) -> dict:
                     errors.append(msg)
             if tracker.all_resolved():
                 print(f"[closed_loop] barrier: all {len(children)} children resolved", flush=True)
+                break
+            if rolling and resolved_since_entry >= 1:
+                # Rolling: don't wait for the slowest-of-q tail — hand the
+                # freed slot(s) back to decide_next/predict_picks for
+                # replenishment while the rest keep running.
+                print(f"[closed_loop] barrier[w{state.get('round_idx')}]: "
+                      f"rolling — {resolved_since_entry} resolved, "
+                      f"{tracker.pending_count()} still in flight; replenishing",
+                      flush=True)
                 break
             if _stop_requested():
                 stop_seen = True
@@ -612,6 +686,43 @@ def node_decide_next(state: RoundState) -> dict:
     before = state.get("history_len_before", 0)
     after = _leaderboard_len(mode)
     new_rows = after - before
+
+    if state.get("rolling"):
+        # Rolling: no per-round clear — resolved children stay in the dict
+        # (tracker pre-seeds them done via already_done) and the pool
+        # replenishes. The zero-rows guard generalizes to a STREAK: q
+        # consecutive rowless resolutions == a full pool's worth all failed
+        # (the foilsX04 shape) -> abort.
+        completed = set(state.get("completed_names", []))
+        children = state.get("children", {})
+        prev = state.get("prev_completed_count", 0)
+        resolved_this_wave = max(0, len(completed) - prev)
+        streak = (0 if new_rows > 0
+                  else state.get("no_row_streak", 0) + resolved_this_wave)
+        launched_total = len(set(children) | completed)
+        n_pending = sum(1 for n in children if n not in completed)
+        rolling_done = (launched_total >= state["max_evals"]) and n_pending == 0
+        abort = streak >= state["q"]
+        print(f"[closed_loop] decide_next[w{state['round_idx']}]: rolling "
+              f"+{new_rows} rows, resolved_wave={resolved_this_wave}, "
+              f"no_row_streak={streak}/{state['q']}, "
+              f"launched={launched_total}/{state['max_evals']}, "
+              f"in_flight={n_pending}"
+              + (" — ABORT (streak = full pool of rowless resolutions)"
+                 if abort else "")
+              + (" — DONE (budget spent, pool drained)" if rolling_done else ""),
+              flush=True)
+        return {
+            "round_idx": state["round_idx"] + 1,
+            "zero_rows": abort,
+            "no_row_streak": streak,
+            "prev_completed_count": len(completed),
+            "rolling_done": rolling_done,
+            "stop_seen": state.get("stop_seen", False),
+            "timeout_seen": state.get("timeout_seen", False),
+            # children/launched_names intentionally NOT cleared in rolling.
+        }
+
     launched = state.get("launched_names", []) or []
     completed = set(state.get("completed_names", []))
     this_round_done = sum(1 for n in launched if n in completed)
@@ -644,13 +755,23 @@ def node_decide_next(state: RoundState) -> dict:
 def route_after_decide(state: RoundState):
     if state.get("zero_rows"):
         return END
-    if state["round_idx"] >= state["max_rounds"]:
-        return END
-    # stop_seen is the barrier's recorded observation; the live re-check is
-    # belt-and-suspenders for a flag raised after the barrier exited. Keying
-    # on stop_seen alone would race an operator who rm's the flag between
-    # barrier exit and this edge (~ms window).
     if state.get("stop_seen") or _stop_requested():
+        # stop_seen is the barrier's recorded observation; the live re-check is
+        # belt-and-suspenders for a flag raised after the barrier exited. Keying
+        # on stop_seen alone would race an operator who rm's the flag between
+        # barrier exit and this edge (~ms window).
+        return END
+    if state.get("rolling"):
+        if state.get("rolling_done"):
+            return END
+        if state.get("timeout_seen"):
+            # 24h backstop tripped with a hung-but-alive child pinning a pool
+            # slot; the budget can never advance. Loud END beats a 24h-per-wave
+            # infinite loop (barrier-mode semantics differ: rounds there end
+            # via max_rounds).
+            return END
+        return "renew_token"
+    if state["round_idx"] >= state["max_rounds"]:
         return END
     return "renew_token"
 
@@ -739,6 +860,15 @@ def main() -> int:
                          "multi-objective lines; qnparego spreads picks across "
                          "the whole front; pareto_sob exploits the GP-mean "
                          "sob corner")
+    ap.add_argument("--rolling", action="store_true",
+                    help="rolling replenishment: keep q children in flight, "
+                         "launching a pending-aware replacement as each one "
+                         "resolves (kills the slowest-of-q round tail, "
+                         "~+30-50%% evals/day). Budget = --max-evals; "
+                         "--max-rounds is ignored")
+    ap.add_argument("--max-evals", type=int, default=None,
+                    help="rolling only: total evals to launch "
+                         "(default q * max-rounds)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print round-0 picks + names without launching")
     args = ap.parse_args()
@@ -767,6 +897,10 @@ def main() -> int:
         "barrier_poll_sec": args.barrier_poll_sec,
         "barrier_max_min": args.barrier_max_min,
         "picker": args.picker,
+        "rolling": args.rolling,
+        "max_evals": args.max_evals or args.q * args.max_rounds,
+        "no_row_streak": 0,
+        "prev_completed_count": 0,
     }
 
     # Resolve the target leaderboard so the banner is self-incriminating: a
@@ -778,7 +912,9 @@ def main() -> int:
         _lb = str(_bo.MODES[args.mode].leaderboard)
     except Exception as _e:  # pragma: no cover - banner is best-effort
         _lb = f"<unresolved: {_e}>"
-    print(f"[closed_loop] thread_id={thread_id} q={args.q} max_rounds={args.max_rounds} "
+    budget = (f"rolling max_evals={init['max_evals']}" if args.rolling
+              else f"max_rounds={args.max_rounds}")
+    print(f"[closed_loop] thread_id={thread_id} q={args.q} {budget} "
           f"prefix={args.name_prefix} mode={args.mode} leaderboard={_lb} "
           f"picker={args.picker}", flush=True)
     if args.name_prefix.startswith("foilsf") and args.mode == "foils":

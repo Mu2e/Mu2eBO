@@ -3,6 +3,7 @@
 Run from project root:
   python -m unittest tests.test_closed_loop -v
 """
+import os
 import sys
 import tempfile
 import unittest
@@ -663,6 +664,141 @@ class TestStaleClusterSkipIsLoud(unittest.TestCase):
                 any("fooR00_00" in e for e in out["errors"]),
                 f"leaderboard resume should be silent, got: {out['errors']}",
             )
+
+
+class TestRolling(unittest.TestCase):
+    """--rolling pool-replenishment semantics (predict / barrier / decide /
+    route). The barrier path (rolling=False) is pinned by every other class
+    in this file — these tests only cover the rolling branches."""
+
+    def _state(self, **kw):
+        base = {
+            "mode": "foils", "q": 3, "max_evals": 6, "rolling": True,
+            "round_idx": 1, "errors": [], "picker": "hybrid",
+            "children": {
+                "foilsR00_00": {"x_point": [1.0] * 6, "pid": 11},
+                "foilsR00_01": {"x_point": [2.0] * 6, "pid": 12},
+                "foilsR00_02": {"x_point": [3.0] * 6, "pid": 13},
+            },
+            "completed_names": ["foilsR00_01"],
+            "no_row_streak": 0,
+            "prev_completed_count": 0,
+            "history_len_before": 42,
+        }
+        base.update(kw)
+        return base
+
+    def test_predict_replenishes_free_slots_with_pending(self):
+        # 3-wide pool, 2 in flight -> 1 replacement; picker gets the 2
+        # running x_points as pending (X_pending fantasies).
+        state = self._state()
+        picks = [(9.0,) * 6]
+        with mock.patch.object(cl, "_botorch_picks_subprocess",
+                               return_value=picks) as m, \
+             mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_predict_picks(state)
+        self.assertEqual(m.call_args.args[1], 1)  # q_next
+        pend = m.call_args.kwargs["pending"]
+        self.assertEqual(sorted(p[0] for p in pend), [1.0, 3.0])
+        self.assertIn("foilsR00_00", out["children"])  # carried forward
+        self.assertIn("_pick_00", out["children"])     # replacement added
+
+    def test_predict_budget_caps_replenishment(self):
+        # launched_total=3, max_evals=4 -> only 1 slot despite 1 free + ...
+        state = self._state(max_evals=4, completed_names=["foilsR00_00",
+                                                          "foilsR00_01"])
+        picks = [(9.0,) * 6]
+        with mock.patch.object(cl, "_botorch_picks_subprocess",
+                               return_value=picks) as m, \
+             mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            cl.node_predict_picks(state)
+        # pool has 2 free slots but budget allows only 4-3=1
+        self.assertEqual(m.call_args.args[1], 1)
+
+    def test_predict_drain_skips_subprocess(self):
+        # Budget exhausted: no subprocess call, children untouched.
+        state = self._state(max_evals=3)
+        with mock.patch.object(cl, "_botorch_picks_subprocess") as m, \
+             mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_predict_picks(state)
+        m.assert_not_called()
+        self.assertNotIn("children", out)
+        self.assertEqual(out["history_len_before"], 42)
+
+    def test_barrier_exits_on_first_resolution(self):
+        # One child lands a row on the first tick, one is alive: rolling
+        # barrier must hand the freed slot back instead of waiting.
+        state = {
+            "mode": "foils", "round_idx": 1, "rolling": True,
+            "barrier_poll_sec": 0, "barrier_max_min": 60,
+            "children": {
+                "fooR00_00": {"pid": os.getpid(), "thread_id": "a"},
+                "fooR00_01": {"pid": os.getpid(), "thread_id": "b"},
+            },
+            "launched_names": ["fooR00_00", "fooR00_01"],
+            "completed_names": [], "errors": [],
+        }
+        with mock.patch.object(cl, "_open_saver_conn", return_value=mock.Mock()), \
+             mock.patch.object(cl, "SqliteSaver", return_value=mock.Mock()), \
+             mock.patch("graph.build.build_graph", return_value=mock.Mock()), \
+             mock.patch("graph.build.is_child_terminal", return_value=False), \
+             mock.patch.object(cl, "_leaderboard_names",
+                               return_value={"fooR00_00"}), \
+             mock.patch.object(cl, "_child_is_broken", return_value=False), \
+             mock.patch.object(cl, "_stop_requested", return_value=False):
+            out = cl.node_barrier(state)
+        self.assertEqual(out["completed_names"], ["fooR00_00"])
+        self.assertFalse(out["stop_seen"])
+        self.assertFalse(out["timeout_seen"])
+
+    def test_decide_streak_accumulates_and_resets(self):
+        # 1 rowless resolution -> streak 1, children NOT cleared.
+        state = self._state()
+        with mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_decide_next(state)
+        self.assertEqual(out["no_row_streak"], 1)
+        self.assertFalse(out["zero_rows"])
+        self.assertFalse(out["rolling_done"])
+        self.assertNotIn("children", out)
+        self.assertNotIn("launched_names", out)
+        # a new row resets the streak
+        state2 = self._state(no_row_streak=2)
+        with mock.patch.object(cl, "_leaderboard_len", return_value=43):
+            out2 = cl.node_decide_next(state2)
+        self.assertEqual(out2["no_row_streak"], 0)
+
+    def test_decide_aborts_on_full_pool_streak(self):
+        # q consecutive rowless resolutions == foilsX04 shape -> abort.
+        state = self._state(no_row_streak=2)
+        with mock.patch.object(cl, "_leaderboard_len", return_value=42):
+            out = cl.node_decide_next(state)
+        self.assertEqual(out["no_row_streak"], 3)
+        self.assertTrue(out["zero_rows"])
+
+    def test_decide_rolling_done_when_budget_drained(self):
+        state = self._state(
+            max_evals=3,
+            completed_names=["foilsR00_00", "foilsR00_01", "foilsR00_02"])
+        with mock.patch.object(cl, "_leaderboard_len", return_value=44):
+            out = cl.node_decide_next(state)
+        self.assertTrue(out["rolling_done"])
+
+    def test_route_rolling(self):
+        with mock.patch.object(cl, "_stop_requested", return_value=False):
+            self.assertEqual(
+                cl.route_after_decide({"rolling": True, "rolling_done": True}),
+                cl.END)
+            self.assertEqual(
+                cl.route_after_decide({"rolling": True, "zero_rows": True}),
+                cl.END)
+            self.assertEqual(
+                cl.route_after_decide({"rolling": True, "timeout_seen": True}),
+                cl.END)
+            # max_rounds is IGNORED under rolling — budget governs.
+            self.assertEqual(
+                cl.route_after_decide(
+                    {"rolling": True, "round_idx": 99, "max_rounds": 1}),
+                "renew_token")
 
 
 if __name__ == "__main__":

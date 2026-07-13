@@ -231,13 +231,16 @@ def _fit_gp(X, Y, bounds):
     return model
 
 
-def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int):
+def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
     """Optimize qLogNEHVI for q candidates; return shape (q, d) tensor.
 
     qLogNEHVI = log-stabilized qNEHVI (Ament et al. 2023): same Pareto-HV
     objective, fixes the vanishing acquisition-value / flat-gradient failure of
     the plain MC version so optimize_acqf finds better candidates near
     saturation. Drop-in: identical constructor args.
+
+    x_pending: optional (k, d) tensor of in-flight evals (rolling closed-loop);
+    the acqf fantasizes over them so replacements don't re-pick a running point.
     """
     from botorch.acquisition.multi_objective.logei import (
         qLogNoisyExpectedHypervolumeImprovement,
@@ -256,16 +259,18 @@ def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int):
         X_baseline=X,
         sampler=_sampler(round_idx),
         prune_baseline=True,
+        X_pending=x_pending,
     )
     return _optimize(acq, bounds, q)
 
 
-def _qlnei_picks(model, X, bounds, q: int, round_idx: int):
+def _qlnei_picks(model, X, bounds, q: int, round_idx: int, x_pending=None):
     """Optimize qLogNoisyExpectedImprovement for q candidates over 1D Y (sob).
 
     Single-objective picker — use when you want to push sob ceiling and
     don't care about calo trade-off. Drops the entire run1b_mubeam stage
     (calo measurement is unused) and converges much faster on the plateau.
+    x_pending: as in _qnehvi_picks.
     """
     from botorch.acquisition.logei import qLogNoisyExpectedImprovement
 
@@ -274,6 +279,7 @@ def _qlnei_picks(model, X, bounds, q: int, round_idx: int):
         X_baseline=X,
         sampler=_sampler(round_idx),
         prune_baseline=True,
+        X_pending=x_pending,
     )
     return _optimize(acq, bounds, q)
 
@@ -330,7 +336,7 @@ def _qnparego_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None)
     return torch.cat(picks).detach()
 
 
-def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int):
+def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
     """One batch = ~60% qnehvi (HV efficiency) + ~40% qnparego (tail coverage).
 
     q_hv = max(1, round(0.6*q)) qnehvi picks first (mines the useful region);
@@ -351,12 +357,18 @@ def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int):
     q_hv = min(q, max(0, round(hv_frac * q)))
     q_pe = q - q_hv
     if q_hv == 0:
-        return _qnparego_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
-    hv_cands = _qnehvi_picks(model, X, Y, bounds, q=q_hv, round_idx=round_idx)
+        return _qnparego_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
+                               x_pending=x_pending)
+    hv_cands = _qnehvi_picks(model, X, Y, bounds, q=q_hv, round_idx=round_idx,
+                             x_pending=x_pending)
+    # parego half conditions on BOTH the external pending set and the fresh
+    # qnehvi half, so no part of the batch collides with anything in flight.
+    pe_pending = (torch.cat([x_pending, hv_cands])
+                  if x_pending is not None else hv_cands)
     if q_pe == 0:
         return hv_cands
     pe_cands = _qnparego_picks(model, X, Y, bounds, q=q_pe,
-                               round_idx=round_idx, x_pending=hv_cands)
+                               round_idx=round_idx, x_pending=pe_pending)
     return torch.cat([hv_cands, pe_cands])
 
 
@@ -376,8 +388,12 @@ def _emit_picks(cands, int_dims):
     return out
 
 
-def _pareto_sob_picks(model, bounds, q: int, round_idx: int):
+def _pareto_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None):
     """Return the q highest-sob points on the GP-predicted Pareto frontier.
+
+    x_pending (k, d): in-flight evals; they seed the min-distance filter so
+    exploit picks don't re-measure a corner already being measured (they are
+    NOT returned).
 
     Mirrors the cloud renderer's pushforward (gp_predict_foils_v2v3_cloud.py):
     Sobol-sample the input box, evaluate the GP posterior MEAN for both
@@ -411,18 +427,27 @@ def _pareto_sob_picks(model, bounds, q: int, round_idx: int):
     # correct and simpler. Spread: take top candidates and thin to q by a
     # min-distance filter so the batch isn't all one near-duplicate cluster.
     order = torch.argsort(sob, descending=True)
-    picks = [order[0].item()]
     norm = (Xs - bounds[0]) / (bounds[1] - bounds[0])  # (N,d) in [0,1]
-    for idx in order[1:].tolist():
+    # The min-distance "avoid" set starts with the normalized in-flight
+    # pending points (rolling mode), so the batch spreads away from them
+    # exactly as it spreads away from its own accepted picks. With no
+    # pending this reduces to the original behavior (first pick = top sob).
+    avoid = []
+    if x_pending is not None and len(x_pending):
+        avoid = list((x_pending - bounds[0]) / (bounds[1] - bounds[0]))
+    picks: list[int] = []
+    for idx in order.tolist():
         if len(picks) >= q:
             break
-        dmin = min(float((norm[idx] - norm[p]).pow(2).sum().sqrt()) for p in picks)
+        dmin = min((float((norm[idx] - a).pow(2).sum().sqrt()) for a in avoid),
+                   default=float("inf"))
         # PARETO_SOB_MIN_SPACING is deliberately looser than the closed-loop
         # duplicate-guard (0.05, retired with cl_min): this thins the
         # GP-MEAN front so q exploit picks don't re-measure one corner point,
         # a different job than de-duplicating acquisition picks.
         if dmin >= PARETO_SOB_MIN_SPACING:
             picks.append(idx)
+            avoid.append(norm[idx])
     # if min-distance thinning didn't yield q, top up with the next-highest sob
     if len(picks) < q:
         for idx in order.tolist():
@@ -437,6 +462,7 @@ def compute_explore_picks(q: int = 5,
                           mode: str = "foils",
                           round_idx: int = 0,
                           picker: str = "qnehvi",
+                          x_pending: list | None = None,
                           ) -> list[tuple]:
     """qNEHVI replacement matching gp_predict_{foils,helical}.compute_explore_picks.
 
@@ -449,8 +475,19 @@ def compute_explore_picks(q: int = 5,
     multi-objective lines). qnparego/hybrid use the same 2-objective path as
     qnehvi.
 
+    x_pending: optional list of x-lists for evals currently IN FLIGHT (rolling
+    closed-loop). Acquisition pickers fantasize over them (X_pending); the
+    pareto_sob exploit spreads away from them. Cold-start Sobol ignores it.
     """
     X, Y, bounds, int_dims = _load_history_tensor(mode, sob_only=(picker == "qlnei"))
+    pend = None
+    if x_pending:
+        pend = torch.tensor([[float(v) for v in row] for row in x_pending],
+                            dtype=X.dtype)
+        if pend.shape[-1] != bounds.shape[-1]:
+            raise SystemExit(
+                f"[botorch_predict] x_pending dim {pend.shape[-1]} != "
+                f"search-space dim {bounds.shape[-1]} for mode={mode}")
     # Cold-start guard: SingleTaskGP needs >= 2 points to fit; <2 makes
     # fit_gpytorch_mll either crash or fit to a degenerate posterior that
     # collapses the acquisition. Fall back to Sobol so a brand-new mode
@@ -462,15 +499,20 @@ def compute_explore_picks(q: int = 5,
         return _emit_picks(cands, int_dims)
     model = _fit_gp(X, Y, bounds)
     if picker == "qlnei":
-        cands = _qlnei_picks(model, X, bounds, q=q, round_idx=round_idx)
+        cands = _qlnei_picks(model, X, bounds, q=q, round_idx=round_idx,
+                             x_pending=pend)
     elif picker == "pareto_sob":
-        cands = _pareto_sob_picks(model, bounds, q=q, round_idx=round_idx)
+        cands = _pareto_sob_picks(model, bounds, q=q, round_idx=round_idx,
+                                  x_pending=pend)
     elif picker == "qnparego":
-        cands = _qnparego_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
+        cands = _qnparego_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
+                                x_pending=pend)
     elif picker == "hybrid":
-        cands = _hybrid_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
+        cands = _hybrid_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
+                              x_pending=pend)
     else:
-        cands = _qnehvi_picks(model, X, Y, bounds, q=q, round_idx=round_idx)
+        cands = _qnehvi_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
+                              x_pending=pend)
     return _emit_picks(cands, int_dims)
 
 
@@ -495,10 +537,21 @@ def main(argv=None):
                          "(recommended for new multi-objective lines)")
     ap.add_argument("--emit-picks-json", type=str, default=None,
                     help="If set, write picks as JSON to this path")
+    ap.add_argument("--pending-json", type=str, default=None,
+                    help="JSON file: list of x-lists for in-flight evals "
+                         "(rolling closed-loop); pickers fantasize over them "
+                         "via X_pending")
     ns = ap.parse_args(argv)
 
+    x_pending = None
+    if ns.pending_json:
+        x_pending = json.loads(Path(ns.pending_json).read_text())
+        print(f"[botorch_predict] pending-aware: {len(x_pending)} in-flight "
+              f"evals loaded from {ns.pending_json}", flush=True)
+
     picks = compute_explore_picks(q=ns.q, mode=ns.mode,
-                                  round_idx=ns.round_idx, picker=ns.picker)
+                                  round_idx=ns.round_idx, picker=ns.picker,
+                                  x_pending=x_pending)
 
     if ns.emit_picks_json:
         Path(ns.emit_picks_json).write_text(json.dumps(picks, indent=2))
