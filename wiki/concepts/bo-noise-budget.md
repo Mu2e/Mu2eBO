@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-09 (concat verdict: needed for physics, not needed on the grid)
+**Updated:** 2026-07-12 (speed-stack lever #4 rolling BO implemented)
 
 > **Per-stage wall MEASURED, full n=10 (foilsflash09 all children, 2026-07-09;
 > state-file timeline = submit→outputs):** mubeam(15j) mean 87 (34-115),
@@ -193,7 +193,9 @@
 > elebeam overlap done right (submit after mubeam lands, per-child stagger —
 > ff05's failure was the up-front FLOOD, not the concept; ~25%/eval); (4)
 > async rolling BO (kill the barrier's slowest-of-q tail, +30-50%; X_pending
-> fantasies already support pending-aware picks; natural after ChildTracker);
+> fantasies already support pending-aware picks; natural after ChildTracker)
+> — **IMPLEMENTED 2026-07-12** as `closed_loop --rolling` (c47cd90; see
+> [[closed-loop-runner]]; awaiting first live A/B);
 > (5) early-stop dominated evals (skip the flash stage, 40% of wall, when
 > sob stages show deep domination).
 > **Quantified stack (2026-07-08, vs measured ~60 evals/day @q=20)**:

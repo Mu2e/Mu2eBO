@@ -2,7 +2,7 @@
 
 **Type:** driver
 **Status:** active
-**Updated:** 2026-07-09 (picker-validation sizing lesson)
+**Updated:** 2026-07-12 (--rolling pool replenishment wired)
 
 > **Validate a NEW picker with a SMALL round, not full-stats q=10** (lesson
 > from foilsflash09, 2026-07-08). A picker only changes the PROPOSAL step; the
@@ -22,6 +22,20 @@ loop (human computes 5 Pareto picks → launches 5 chains by hand → waits 2 h
 in this phase.
 
 ## Key facts
+- **`--rolling` (wired 2026-07-12, commit c47cd90; NOT yet live-validated):**
+  pool replenishment — barrier exits on the FIRST resolution, predict_picks
+  refills only the free slots and passes in-flight x_points to
+  botorch_predict `--pending-json` (X_pending fantasies; pareto_sob spreads
+  via its avoid set). Budget = `--max-evals` (default q·max_rounds);
+  `--max-rounds` is ignored; `round_idx` counts replenish WAVES (still feeds
+  `R{NN}` names, so rolling children are `prefixR03_00`-style with mostly
+  one pick per wave). Zero-rows guard generalizes to a streak: q consecutive
+  rowless resolutions aborts (foilsX04 shape). 24h barrier backstop ENDs the
+  run loudly under rolling (a hung-alive child would pin a slot forever).
+  Default (no flag) is byte-identical to barrier mode. Expected +30-50%
+  evals/day (kills the slowest-of-q tail — see [[bo-noise-budget]] lever #4).
+  First live campaign should A/B a small `--max-evals` run before betting a
+  full line on it.
 - **Round wall-clock (measured 2026-06-18/19, q=10):** foils **~3 h/round** (foilsf18 R0 2h50m).
   prodtarget6d was **~5 h/round** at the old pot_only **100×5000** (pt6d08 R0 5h43m / R1 4h48m;
   pt6d09 R0 4h53m / R1 4h43m) → **dropped to ~3.1 h/round** after switching pot_only to
