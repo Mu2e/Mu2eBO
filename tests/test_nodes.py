@@ -129,7 +129,7 @@ class TestEvaluateZeroRowClassifier(unittest.TestCase):
             with mock.patch.object(nd, "GRID_DATA_ROOT", tmp):
                 out = nd.node_evaluate({
                     "config_name": "fooR00_00",
-                    "mode": "helical",
+                    "mode": "foils",
                     "errors": [],
                     "scan_logs_broken": True,
                     "scan_report_path": "/some/report.tsv",
@@ -147,7 +147,7 @@ class TestEvaluateZeroRowClassifier(unittest.TestCase):
             with mock.patch.object(nd, "GRID_DATA_ROOT", tmp):
                 out = nd.node_evaluate({
                     "config_name": "fooR00_01",
-                    "mode": "helical",
+                    "mode": "foils",
                     "errors": [],
                     "scan_logs_broken": False,
                     "metrics": None,
@@ -165,7 +165,7 @@ class TestEvaluateZeroRowClassifier(unittest.TestCase):
                                     return_value=(None, "bad tail")):
                 out = nd.node_evaluate({
                     "config_name": "fooR00_02",
-                    "mode": "helical",
+                    "mode": "foils",
                     "errors": [],
                     "scan_logs_broken": False,
                     "metrics": {"a": 1},
@@ -200,7 +200,7 @@ class TestEvaluateZeroRowClassifier(unittest.TestCase):
                                     return_value=(1.23, "")):
                 out = nd.node_evaluate({
                     "config_name": "fooR00_04",
-                    "mode": "helical",
+                    "mode": "foils",
                     "errors": [],
                     "scan_logs_broken": False,
                     "metrics": {"a": 1},

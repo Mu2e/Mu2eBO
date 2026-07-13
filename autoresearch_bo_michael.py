@@ -31,9 +31,10 @@ Subcommands (both modes):
   evaluate     : after pipeline run, parse summary.json + append to leaderboard
   preflight    : run mu2e -n 1 locally on a proposal to catch G4 init failures
 
-Architecture: BOMode is an ABC; MichaelMode and HelicalMode are the two
-adapters. MODES = {name: instance} is the registry argparse selects from.
-Adding a third mode = subclass BOMode + add to MODES.
+Architecture: BOMode is an ABC; each concrete mode is an adapter. MODES =
+{name: instance} is the registry argparse selects from, keyed 1:1 with
+modes.SPECS (ADR-0002). Adding a mode = subclass BOMode + add to MODES +
+modes.SPECS + graph/state.py Literal (the lockstep is pinned by test_modes).
 """
 from __future__ import annotations
 
@@ -98,8 +99,6 @@ def _flock_sh(target: Path):
             fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
 
 ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
-GEOM_TSV = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/geom_params.tsv")
-MMACKENZ_WORKFLOWS = Path("/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/workflows")
 
 sys.path.insert(0, str(ROOT / "graph"))
 from config import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
@@ -122,17 +121,6 @@ class Point:
         return self.sob - alpha * self.calo
 
 
-def _parse_float(s):
-    if s is None or s == "" or str(s).lower() in ("none", "nan"):
-        return None
-    try:
-        return float(s)
-    except ValueError:
-        return None
-
-
-def _parse_bool(s) -> bool:
-    return (s or "").strip().lower() == "true"
 
 
 def to_py_scalars(x) -> list:
@@ -144,7 +132,7 @@ def to_py_scalars(x) -> list:
 
 
 # ============================================================================
-# BOMode: the seam. Two adapters below (MichaelMode, HelicalMode).
+# BOMode: the seam. One concrete adapter per mode below (see MODES).
 # ============================================================================
 
 class BOMode(ABC):
@@ -377,290 +365,6 @@ class BOMode(ABC):
 
 
 # ============================================================================
-# MichaelMode: 4D foil-stack search
-# ============================================================================
-
-class MichaelMode(BOMode):
-    name = "michael"
-    leaderboard = ROOT / "leaderboard_bo_michael.tsv"
-    proposal_dir = ROOT / "bo_michael_proposals"
-    preflight_dir = ROOT / "bo_michael_preflight"
-
-    # Pinned constants (matches v22-v50 mmackenz convention)
-    TSDA_R4 = 600.0
-    TSDA_Z0 = 4195.0
-    TSDA_MATERIAL = "StoppingTarget_Al"
-
-    def load_priors(self):
-        pts = []
-        with GEOM_TSV.open() as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                if _parse_bool(row.get("degrader_in_beam")):
-                    continue
-                sob = _parse_float(row.get("run_1a_ce_s_sqrt_b"))
-                calo = _parse_float(row.get("calo_stop_per_pot"))
-                rin = _parse_float(row.get("tsda_rin"))
-                hL4 = _parse_float(row.get("tsda_halfLength4"))
-                hole = _parse_float(row.get("holeRadius"))
-                if None in (sob, calo, rin, hL4, hole):
-                    continue
-                mat = (row.get("coll5_material1") or "").strip()
-                col5 = "poly" if mat in ("COL5Poly", "G4_POLYETHYLENE") else "air"
-                pts.append(Point(cfg=row["version"], x=[rin, hL4, hole, col5],
-                                 sob=sob, calo=calo))
-        return pts
-
-    def build_space(self):
-        from skopt.space import Real, Categorical
-        return [
-            Real(0.001, 130.0, name="tsda_rin"),
-            Real(7.5,   12.5,  name="tsda_halfLength4"),
-            Real(0.0,   50.0,  name="holeRadius"),
-            Categorical(["air", "poly"], name="col5"),
-        ]
-
-    def _geom_text(self, x) -> str:
-        rin, hL4, hole, col5 = x
-        col5_mat = "COL5Poly" if col5 == "poly" else "DSVacuum"
-        return (
-            '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            '\n// === autoresearch_bo_michael (michael mode) proposal ===\n'
-            f'bool hasTSdA = true;\n'
-            f'double tsda.r4         = {self.TSDA_R4:.1f};\n'
-            f'double tsda.rin        = {rin:.4f};\n'
-            f'double tsda.halfLength4 = {hL4:.4f};\n'
-            f'double tsda.z0         = {self.TSDA_Z0:.1f};\n'
-            f'string tsda.materialName = "{self.TSDA_MATERIAL}";\n'
-            '\n// stopping-target hole\n'
-            f'double stoppingTarget.holeRadius = {hole:.4f};\n'
-            '\n// degrader: pinned out of beam (120° = mmackenz parked detent)\n'
-            f'bool degrader.build      = false;\n'
-            f'double degrader.rotation = 120.0;\n'
-            '\n// COL5 shield\n'
-            f'string ts.coll5.material1Name = "{col5_mat}";\n'
-        )
-
-    def parse_geom(self, text: str):
-        def _grab(pat, default=None):
-            m = re.search(pat, text)
-            return m.group(1) if m else default
-        mat = _grab(r'ts\.coll5\.material1Name\s*=\s*"(\w+)"')
-        return [
-            float(_grab(r"tsda\.rin\s*=\s*([\d.eE+-]+)", "0")),
-            float(_grab(r"tsda\.halfLength4\s*=\s*([\d.eE+-]+)", "0")),
-            float(_grab(r"stoppingTarget\.holeRadius\s*=\s*([\d.eE+-]+)", "0")),
-            "poly" if mat in ("COL5Poly", "G4_POLYETHYLENE") else "air",
-        ]
-
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config\ttsda_rin\ttsda_halfLength4\tholeRadius\tcol5"
-                  "\tsob\tcalo\talpha\tobj\n")
-        rin, hL4, hole, col5 = p.x
-        line = (f"{p.cfg}\t{rin:.4f}\t{hL4:.4f}\t{hole:.4f}\t{col5}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        return Point(cfg=row["config"],
-                     x=[float(row["tsda_rin"]), float(row["tsda_halfLength4"]),
-                        float(row["holeRadius"]), row["col5"]],
-                     sob=float(row["sob"]), calo=float(row["calo"]))
-
-
-
-# ============================================================================
-# HelicalMode: 5D inner-namespace, all else pinned at v111
-# ============================================================================
-
-class HelicalMode(BOMode):
-    name = "helical"
-    # New 4D leaderboard (Option A coupling). Old 5D leaderboard
-    # `leaderboard_bo_helical.tsv` is kept as historical; entries there are
-    # contaminated by silent disc/plug sibling overlap (see wiki
-    # tsda-disc-helical-sibling-overlap).
-    leaderboard = ROOT / "leaderboard_bo_helical_v2.tsv"
-    proposal_dir = ROOT / "bo_helical_proposals"
-    preflight_dir = ROOT / "bo_helical_preflight"
-
-    # Pinned constants (matches v111 exactly except rin, now derived from dx/dy)
-    TSDA_R4 = 600.0
-    TSDA_HL4 = 12.5
-    TSDA_Z0 = 4195.0
-    TSDA_MATERIAL = "StoppingTarget_Al"
-    # HELICAL_NSTEPS = FCL geometry-mesh resolution emitted as
-    # tsda.helical.nsteps; raised 5000 → 10000 with twisted-box default so the
-    # analytic solid renders at fine resolution. NOT the BO search-space gate —
-    # see N_CRIT_BUDGET below.
-    HELICAL_NSTEPS = 10000
-    # N_CRIT_BUDGET = bare-propose-path N_crit Sobol gate; kept at the
-    # empirically-validated 2000 (matches gp_predict_helical.DEFAULT_NSTEPS_BUDGET
-    # and botorch_predict_helical.NSTEPS_BUDGET). Decoupled from HELICAL_NSTEPS
-    # 2026-05-27 — render resolution and search-space gate moved independently.
-    # See wiki/projects/bo-helical.md "Update 2026-05-27".
-    N_CRIT_BUDGET = 2000
-    HELICAL_MATERIAL = "StoppingTarget_Al"
-    # Selects helical-plug solid impl in constructTSdA.cc dispatcher.
-    # True  → makeHelicalPlugTwistedBox (analytic G4TwistedBox, deployed default)
-    # False → makeHelicalPlugTessellated (legacy chord approx; for reproducing
-    #         pre-2026-05-21 leaderboard entries or A/B testing solids).
-    # Pinned in emitted FCL so geom.txt grep recovers the branch per-config.
-    # Env-var override for one-off A/B without source flip:
-    # USE_TWISTED_BOX=0 → tessellated; unset/=1 → twisted-box (default).
-    HELICAL_USE_TWISTED_BOX = os.getenv("USE_TWISTED_BOX", "1") != "0"
-    FOIL_RADIUS = 125.0
-    FOIL_COUNT = 37
-    HOLE_RADIUS = 0.0
-    RIN_CLEARANCE_MM = 2.0  # extra radial gap between plug bounding circle and disc hole
-
-    KNOB_PATTERNS = {
-        "dx":         r"tsda\.helical\.dx\s*=\s*([\d.eE+-]+)",
-        "dy":         r"tsda\.helical\.dy\s*=\s*([\d.eE+-]+)",
-        "halflength": r"tsda\.helical\.halflength\s*=\s*([\d.eE+-]+)",
-        "angle":      r"tsda\.helical\.angle\s*=\s*([\d.eE+-]+)",
-    }
-
-    @classmethod
-    def _parse_helical_from_text(cls, text: str):
-        """Return [dx, dy, halflength, angle] (4D) or None if any missing.
-
-        Ignores tsda.helical.z0 in source — that knob is derived in render_geom
-        as of Option A coupling (2026-05-18)."""
-        out = []
-        for key in ("dx", "dy", "halflength", "angle"):
-            m = re.search(cls.KNOB_PATTERNS[key], text)
-            if not m:
-                return None
-            out.append(float(m.group(1)))
-        return out
-
-    @classmethod
-    def derive_z0(cls, halflength: float) -> float:
-        """Touching-disc-face placement: plug upstream face at disc downstream face."""
-        return cls.TSDA_Z0 + cls.TSDA_HL4 + halflength
-
-    @classmethod
-    def derive_rin(cls, dx: float, dy: float) -> float:
-        """Disc hole = ceil(plug bounding circle) + clearance."""
-        import math
-        return math.ceil(math.sqrt(dx * dx + dy * dy)) + cls.RIN_CLEARANCE_MM
-
-    def load_priors(self):
-        """Cross-reference TSV (for sob/calo) with mmackenz geom files (for knobs).
-
-        Note: mmackenz priors used z0 ∈ {4270, 4345, 4470}, NOT the Option-A
-        derived z0. The (sob, calo) measurements therefore reflect a different
-        physical placement than the current 4D search space would render. We
-        keep them as orientation seeds anyway — the bias is acceptable for
-        sparse seeding."""
-        metrics = {}  # cfg → (sob, calo)
-        with GEOM_TSV.open() as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                if not _parse_bool(row.get("tsda_helical_build")):
-                    continue
-                sob = _parse_float(row.get("run_1a_ce_s_sqrt_b"))
-                calo = _parse_float(row.get("calo_stop_per_pot"))
-                if sob is None or calo is None:
-                    continue
-                metrics[row["version"]] = (sob, calo)
-
-        pts = []
-        for cfg, (sob, calo) in metrics.items():
-            geom = MMACKENZ_WORKFLOWS / f"config_{cfg}/run1b_beam/geom.txt"
-            if not geom.exists():
-                print(f"  warn: missing geom {geom}", file=sys.stderr)
-                continue
-            x = self._parse_helical_from_text(geom.read_text())
-            if x is None:
-                print(f"  warn: {cfg} flagged tsda_helical_build but geom missing helical knobs", file=sys.stderr)
-                continue
-            pts.append(Point(cfg=cfg, x=x, sob=sob, calo=calo))
-        return pts
-
-    KNOB_NAMES = ("tsda_helical_dx", "tsda_helical_dy",
-                  "tsda_helical_halflength", "tsda_helical_angle")
-
-    def is_buildable(self, x) -> bool:
-        # N_crit gate: dy·rad(angle)/(8·dx) ≤ N_CRIT_BUDGET (2000) — same
-        # predicate as gp_predict_helical._ncrit (the GP-pick path); applied
-        # here on the bare propose path so skopt can't slip an unbuildable
-        # point past us. Gated against N_CRIT_BUDGET (BO search-space gate),
-        # NOT HELICAL_NSTEPS (FCL render resolution).
-        # See [[tessellated-solid-facet-orientation]].
-        import math
-        dx, dy, _, angle = x
-        return (dy * math.radians(angle) / (8.0 * dx)) <= self.N_CRIT_BUDGET
-
-    def _geom_text(self, x) -> str:
-        dx, dy, hl, angle = x
-        z0 = self.derive_z0(hl)
-        rin = self.derive_rin(dx, dy)
-        foils = ", ".join(f"{self.FOIL_RADIUS:.1f}" for _ in range(self.FOIL_COUNT))
-        return (
-            '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            '\n// === autoresearch_bo_michael (helical mode, Option A coupling) proposal ===\n'
-            '// TSdA core pinned at v111 except rin, coupled to plug bounding radius.\n'
-            'bool hasTSdA = true;\n'
-            f'double tsda.r4           = {self.TSDA_R4:.1f};\n'
-            f'double tsda.rin          = {rin:.4f};   // derived: ceil(sqrt(dx^2+dy^2)) + {self.RIN_CLEARANCE_MM:g} mm\n'
-            f'double tsda.halfLength4  = {self.TSDA_HL4:.4f};\n'
-            f'double tsda.z0           = {self.TSDA_Z0:.1f};\n'
-            f'string tsda.materialName = "{self.TSDA_MATERIAL}";\n'
-            '\n// Helical plug (4D BO knobs; z0 derived to touch disc downstream face)\n'
-            f'bool   tsda.helical.build      = true;\n'
-            f'double tsda.helical.dx         = {dx:.4f};\n'
-            f'double tsda.helical.dy         = {dy:.4f};\n'
-            f'double tsda.helical.halflength = {hl:.4f};\n'
-            f'double tsda.helical.z0         = {z0:.4f};   // derived: tsda.z0 + halfLength4 + halflength\n'
-            f'double tsda.helical.angle      = {angle:.4f};\n'
-            f'int    tsda.helical.nsteps     = {self.HELICAL_NSTEPS};\n'
-            f'string tsda.helical.material   = "{self.HELICAL_MATERIAL}";\n'
-            f'bool   tsda.helical.useTwistedBox = '
-            f'{"true" if self.HELICAL_USE_TWISTED_BOX else "false"};\n'
-            '\n// Foil stack (matches v111: 37 × r=125 to block calo stops)\n'
-            f'double stoppingTarget.holeRadius = {self.HOLE_RADIUS:.4f};\n'
-            f'vector<double> stoppingTarget.radii = {{ {foils} }};\n'
-            '\n// TT_MidInner→DS2Vacuum fix (manually patched, mirrors v111)\n'
-            '// geom_run1_a.txt baseline lacks these; needed for run1b_mubeam.\n'
-            'bool tracker.inDS2Vacuum = true;\n'
-            'double ds2.halfLength = 3825;\n'
-            'bool ds.hasServicePipes = false;\n'
-            '\n// Other pins (degrader parked at 120° = mmackenz hardware detent)\n'
-            'bool degrader.build = false;\n'
-            'double degrader.rotation = 120.0;\n'
-            'string ts.coll5.material1Name = "COL5Poly";\n'
-            '\n// Overlap-suppression (v01 flags; drops 117 surface-check baseline\n'
-            '// hits → 1; physics-irrelevant — disables foil support structures\n'
-            '// and DS3 rails that have known stock-geometry self-overlaps).\n'
-            'bool stoppingTarget.foilTarget_supportStructure = false;\n'
-            'double ds.lengthRail2 = 0.1;\n'
-            'double ds.lengthRail3 = 0.1;\n'
-        )
-
-    def parse_geom(self, text: str):
-        return self._parse_helical_from_text(text)
-
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config\tdx\tdy\thalflength\tangle\tz0_derived\trin_derived"
-                  "\tsob\tcalo\talpha\tobj\n")
-        dx, dy, hl, angle = p.x
-        z0 = self.derive_z0(hl)
-        rin = self.derive_rin(dx, dy)
-        line = (f"{p.cfg}\t{dx:.4f}\t{dy:.4f}\t{hl:.4f}\t{angle:.4f}"
-                f"\t{z0:.4f}\t{rin:.4f}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        # 4D leaderboard (Option A). z0_derived/rin_derived columns are
-        # human-readable derived values, ignored when reconstructing x.
-        return Point(cfg=row["config"],
-                     x=[float(row["dx"]), float(row["dy"]),
-                        float(row["halflength"]), float(row["angle"])],
-                     sob=float(row["sob"]), calo=float(row["calo"]))
-
-
-
-# ============================================================================
 # FoilsMode: 5D extras-only stopping-target foil-stack search
 # ============================================================================
 
@@ -815,7 +519,7 @@ class FoilsMode(BOMode):
               'bool tracker.inDS2Vacuum = true;\n'
               'double ds2.halfLength = 3825;\n'
               'bool ds.hasServicePipes = false;\n'
-              '\n// Overlap-suppression (mirrors HelicalMode lines 507-509)\n'
+              '\n// Overlap-suppression (foil-support off + rail shrink)\n'
               'bool stoppingTarget.foilTarget_supportStructure = false;\n'
               'double ds.lengthRail2 = 0.1;\n'
               'double ds.lengthRail3 = 0.1;\n'
@@ -1691,8 +1395,6 @@ class ProdTarget6DMode(ProdTargetMode):
 
 
 MODES: dict[str, BOMode] = {
-    "michael":      MichaelMode(),
-    "helical":      HelicalMode(),
     "foils":        FoilsMode(),
     "foilsf":       FoilsFracMode(),
     "foilsflash":   FoilsFlashMode(),
@@ -2208,8 +1910,8 @@ def cmd_preflight(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=list(MODES.keys()), default="michael",
-                    help="Search-space mode (default: michael)")
+    ap.add_argument("--mode", choices=list(MODES.keys()), default="foils",
+                    help="Search-space mode (default: foils)")
     ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA,
                     help=f"Scalarization weight (default {DEFAULT_ALPHA})")
     sub = ap.add_subparsers(dest="cmd", required=True)

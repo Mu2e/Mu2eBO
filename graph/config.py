@@ -37,7 +37,7 @@ SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 # an unknown mode, nothing hand-maintained here anymore.
 import modes as _modes  # noqa: E402
 
-_SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "michael")]
+_SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")]
 
 MUSING = _SPEC.musing
 
@@ -113,8 +113,10 @@ STAGE_TARGETS.update(_SPEC.stage_target_overrides)
 if "AUTORESEARCH_ELEBEAM_NJOBS" in os.environ:
     STAGE_TARGETS["elebeam_flash"] = int(os.environ["AUTORESEARCH_ELEBEAM_NJOBS"])
 
-# Phase 1: helical only. michael wiring follows in Phase 2.
-DEFAULT_MODE = "helical"
+# Fallback mode when --mode/AUTORESEARCH_MODE is unset (real launches always
+# set it explicitly). foils = the stable base foil line (michael/helical retired
+# 2026-07-12).
+DEFAULT_MODE = "foils"
 DEFAULT_ALPHA = 1.0e5
 
 # Retry policy for preflight-failed proposals (managed-volume overlap).

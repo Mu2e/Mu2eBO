@@ -31,7 +31,7 @@ class BOIterationState(TypedDict, total=False):
     config_name: str
     # Pinned against modes.SPECS by tests/test_modes.py — a new mode must
     # land in BOTH places or the completeness test fails.
-    mode: Literal["helical", "michael", "foils", "foilsf", "foilsflash",
+    mode: Literal["foils", "foilsf", "foilsflash",
                   "foilsg", "ipa", "prodtarget", "prodtarget6d"]
     alpha: float
 

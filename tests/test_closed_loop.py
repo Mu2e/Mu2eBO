@@ -46,7 +46,7 @@ class TestRouteAfterDecide(unittest.TestCase):
 class TestDecideNext(unittest.TestCase):
     def test_bumps_round_and_clears_children_only(self):
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 2,
             "children": {"foo": {"pid": 1}},
             "completed_names": ["a", "b"],
@@ -64,7 +64,7 @@ class TestDecideNext(unittest.TestCase):
         # All of this round's launched children resolved, 0 new rows →
         # genuine all-failed round (foilsX04 shape) → exit.
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 1,
             "children": {},
             "launched_names": ["a", "b"],
@@ -80,7 +80,7 @@ class TestDecideNext(unittest.TestCase):
         # Defensive: leaderboard shouldn't shrink, but if it does, treat
         # as zero-row (no progress) rather than continuing.
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 1,
             "children": {},
             "launched_names": ["a"],
@@ -97,7 +97,7 @@ class TestDecideNext(unittest.TestCase):
         # not "all failed" — must carry the round forward.
         # See wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md.
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 0,
             "children": {},
             "launched_names": ["a", "b", "c"],
@@ -114,7 +114,7 @@ class TestDecideNext(unittest.TestCase):
         # (len(completed) >= len(launched)) would be trivially true here
         # even though this round's only child is still pending.
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 1,
             "children": {},
             "launched_names": ["c"],
@@ -129,7 +129,7 @@ class TestDecideNext(unittest.TestCase):
         # Same cumulative completed set, but this round's child DID resolve
         # (failed without a row) → all-failed semantics preserved.
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 1,
             "children": {},
             "launched_names": ["c"],
@@ -146,7 +146,7 @@ class TestDecideNext(unittest.TestCase):
         # pending children suppressed zero_rows — without re-reading the
         # (possibly already removed) flag file.
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 0,
             "max_rounds": 10,
             "children": {},
@@ -167,9 +167,9 @@ class TestDecideNext(unittest.TestCase):
 class TestAssignNames(unittest.TestCase):
     def _state(self):
         return {
-            "name_prefix": "helical",
+            "name_prefix": "foils",
             "round_idx": 0,
-            "mode": "helical",
+            "mode": "foils",
             "children": {
                 "_pick_00": {"x_point": [1, 2, 3, 4]},
                 "_pick_01": {"x_point": [5, 6, 7, 8]},
@@ -182,31 +182,31 @@ class TestAssignNames(unittest.TestCase):
              mock.patch.object(cl, "_child_is_broken", return_value=False):
             out = cl.node_assign_names(self._state())
         self.assertEqual(
-            sorted(out["children"]), ["helicalR00_00", "helicalR00_01"]
+            sorted(out["children"]), ["foilsR00_00", "foilsR00_01"]
         )
         self.assertEqual(
-            out["children"]["helicalR00_00"]["x_point"], [1, 2, 3, 4]
+            out["children"]["foilsR00_00"]["x_point"], [1, 2, 3, 4]
         )
         self.assertEqual(out["completed_names"], [])
 
     def test_already_in_leaderboard_skipped(self):
-        in_lb = {"helicalR00_00"}
+        in_lb = {"foilsR00_00"}
         with mock.patch.object(cl, "_child_in_leaderboard",
                                 lambda n, m: n in in_lb), \
              mock.patch.object(cl, "_child_is_broken", return_value=False):
             out = cl.node_assign_names(self._state())
-        self.assertNotIn("helicalR00_00", out["children"])
-        self.assertIn("helicalR00_01", out["children"])
-        self.assertIn("helicalR00_00", out["completed_names"])
+        self.assertNotIn("foilsR00_00", out["children"])
+        self.assertIn("foilsR00_01", out["children"])
+        self.assertIn("foilsR00_00", out["completed_names"])
 
     def test_broken_skipped(self):
         with mock.patch.object(cl, "_child_in_leaderboard", return_value=False), \
              mock.patch.object(cl, "_child_is_broken",
-                                lambda n: n == "helicalR00_01"):
+                                lambda n: n == "foilsR00_01"):
             out = cl.node_assign_names(self._state())
-        self.assertIn("helicalR00_00", out["children"])
-        self.assertNotIn("helicalR00_01", out["children"])
-        self.assertIn("helicalR00_01", out["completed_names"])
+        self.assertIn("foilsR00_00", out["children"])
+        self.assertNotIn("foilsR00_01", out["children"])
+        self.assertIn("foilsR00_01", out["completed_names"])
 
 
 class TestRenewToken(unittest.TestCase):
@@ -258,7 +258,7 @@ class TestPredictPicks(unittest.TestCase):
     # _botorch_picks_subprocess; there is no in-process GP path to mock.
 
     def test_under_q_logs_error(self):
-        state = {"q": 5, "round_idx": 0, "errors": [], "mode": "helical"}
+        state = {"q": 5, "round_idx": 0, "errors": [], "mode": "foils"}
         picks = [(1, 2, 3, 4), (5, 6, 7, 8)]
         with mock.patch.object(cl, "_botorch_picks_subprocess",
                                return_value=picks), \
@@ -271,7 +271,7 @@ class TestPredictPicks(unittest.TestCase):
     def test_full_q_no_error_default_picker(self):
         # No explicit picker: DEFAULT_PICKER (hybrid) must route through the
         # subprocess like everything else.
-        state = {"q": 2, "round_idx": 0, "errors": [], "mode": "helical"}
+        state = {"q": 2, "round_idx": 0, "errors": [], "mode": "foils"}
         picks = [(1, 2, 3, 4), (5, 6, 7, 8)]
         with mock.patch.object(cl, "_botorch_picks_subprocess",
                                return_value=picks) as m, \
@@ -368,7 +368,7 @@ class TestUniqueThreadIdPerLaunch(unittest.TestCase):
     def _state(self, td):
         # Two children sharing identical x_point shapes but different names.
         return {
-            "mode": "helical",
+            "mode": "foils",
             "alpha": 0.0,
             "stagger_sec": 0,
             "errors": [],
@@ -468,7 +468,7 @@ class TestBarrierRefusesEmptyChildren(unittest.TestCase):
 
     def test_empty_launched_names_raises(self):
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 1,
             "children": {},
             "launched_names": [],
@@ -499,7 +499,7 @@ class TestBarrierDeadPid(unittest.TestCase):
     def test_dead_pid_marks_completed_failed(self):
         dead = self._dead_pid()
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 0,
             "barrier_poll_sec": 0,
             "barrier_max_min": 60,
@@ -532,7 +532,7 @@ class TestBarrierDeadPid(unittest.TestCase):
         # pending, NOT via the dead-pid path.
         import os
         state = {
-            "mode": "helical",
+            "mode": "foils",
             "round_idx": 0,
             "barrier_poll_sec": 0,
             "barrier_max_min": 0,
@@ -577,7 +577,7 @@ class TestStaleClusterSkipIsLoud(unittest.TestCase):
 
     def _two_child_state(self, td):
         return {
-            "mode": "helical",
+            "mode": "foils",
             "alpha": 0.0,
             "round_idx": 0,
             "stagger_sec": 0,
@@ -625,7 +625,7 @@ class TestStaleClusterSkipIsLoud(unittest.TestCase):
             self.assertEqual(sorted(out["completed_names"]), ["fooR00_00", "fooR00_01"])
             # Empty launched_names now correctly trips node_barrier's guard.
             state = {
-                "mode": "helical",
+                "mode": "foils",
                 "round_idx": 0,
                 "children": out["children"],
                 "launched_names": out["launched_names"],

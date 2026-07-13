@@ -2,7 +2,7 @@
 
 These are the tests that turn "MUST stay in lockstep" comments into failures:
 a new mode, a moved bound, or a renamed stage now breaks HERE instead of
-silently falling back to michael's tarball on the grid.
+silently building the wrong geometry on the grid.
 """
 import typing
 import unittest
@@ -111,27 +111,30 @@ class TestSpotFacts(unittest.TestCase):
         self.assertEqual(modes.SPECS["foilsflash"].presubmit_after,
                          {"mubeam": ("elebeam_flash",)})
 
-    def test_ipa_tarball_explicit_not_fallback(self):
-        # ipa used to reach Code_helical_base via the silent .get(...,
-        # michael) fallback; now it is an explicit fact.
-        self.assertEqual(modes.SPECS["ipa"].grid_tarball,
-                         modes.SPECS["michael"].grid_tarball)
+    def test_ipa_tarball_is_base_not_holeradii(self):
+        # ipa used to reach Code_helical_base via the silent .get(..., michael)
+        # fallback; now it is an explicit fact. It uses the base tarball (patched
+        # Mu2eG4 only, no holeRadii) — the last non-holeradii CE/calo mode after
+        # michael/helical retired (2026-07-12).
+        self.assertEqual(modes.SPECS["ipa"].grid_tarball, modes._BASE_TARBALL)
+        self.assertNotIn("holeradii", modes.SPECS["ipa"].grid_tarball)
 
     def test_foils_family_needs_holeradii_tarball(self):
         for m in ("foils", "foilsf", "foilsflash", "foilsg"):
             self.assertIn("holeradii", modes.SPECS[m].grid_tarball, m)
-        for m in ("michael", "helical", "ipa"):
-            self.assertNotIn("holeradii", modes.SPECS[m].grid_tarball, m)
+        self.assertNotIn("holeradii", modes.SPECS["ipa"].grid_tarball)
 
     def test_prodtarget6d_banner_drift_retired(self):
         # The old :2403 banner tuple omitted prodtarget6d; the flag is the
         # single source now and must include it.
         self.assertTrue(modes.SPECS["prodtarget6d"].checks_managed_overlap)
 
-    def test_michael_is_the_only_plain_preflight(self):
-        plain = [m for m, s in modes.SPECS.items()
-                 if s.preflight_fcl == "preflight"]
-        self.assertEqual(plain, ["michael"])
+    def test_all_modes_use_surfacecheck_preflight(self):
+        # michael was the only "preflight" (non-surfacecheck) mode; with it
+        # retired (2026-07-12), every surviving mode uses the surface-check
+        # preflight path.
+        self.assertTrue(all(s.preflight_fcl == "surfacecheck"
+                            for s in modes.SPECS.values()))
 
 
 if __name__ == "__main__":

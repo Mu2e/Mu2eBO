@@ -118,17 +118,17 @@ class TestModeArgChoices(unittest.TestCase):
     def test_argparse_rejects_typo(self):
         # End-to-end: argparse fail-fast on unknown choice.
         ap = argparse.ArgumentParser()
-        ap.add_argument("--mode", default="helical",
-                        choices=["helical", "michael", "foils"])
+        ap.add_argument("--mode", default="foils",
+                        choices=["foils", "foilsf", "ipa"])
         with self.assertRaises(SystemExit):
             with mock.patch.object(sys, "stderr", io.StringIO()):
-                ap.parse_args(["--mode", "helcial"])  # typo
+                ap.parse_args(["--mode", "foills"])  # typo
 
-    def test_argparse_accepts_all_three(self):
+    def test_argparse_accepts_valid_modes(self):
         ap = argparse.ArgumentParser()
-        ap.add_argument("--mode", default="helical",
-                        choices=["helical", "michael", "foils"])
-        for m in ("helical", "michael", "foils"):
+        ap.add_argument("--mode", default="foils",
+                        choices=["foils", "foilsf", "ipa"])
+        for m in ("foils", "foilsf", "ipa"):
             ns = ap.parse_args(["--mode", m])
             self.assertEqual(ns.mode, m)
 

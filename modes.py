@@ -72,34 +72,6 @@ class ModeSpec:
 
 
 SPECS: Dict[str, ModeSpec] = {
-    "michael": ModeSpec(
-        name="michael",
-        musing=_RUN1BAK,
-        grid_tarball=_BASE_TARBALL,
-        grid_stages=_CE_CALO_CHAIN,
-        harvest_verb="harvest",
-        stage_target_overrides={},
-        presubmit_after={},
-        bounds_lo=None, bounds_hi=None, int_dims=None,  # Categorical (COL5) space
-        preflight_fcl="preflight",
-        dumps_gdml=False, verifies_foil_gdml=False, preserves_gdml=False,
-        checks_managed_overlap=False,
-    ),
-    "helical": ModeSpec(
-        name="helical",
-        musing=_RUN1BAK,
-        grid_tarball=_BASE_TARBALL,
-        grid_stages=_CE_CALO_CHAIN,
-        harvest_verb="harvest",
-        stage_target_overrides={},
-        presubmit_after={},
-        bounds_lo=(0.01, 40.0, 25.0, 60.0),
-        bounds_hi=(5.0, 400.0, 500.0, 720.0),
-        int_dims=(),
-        preflight_fcl="surfacecheck",
-        dumps_gdml=False, verifies_foil_gdml=False, preserves_gdml=False,
-        checks_managed_overlap=True,
-    ),
     "foils": ModeSpec(
         name="foils",
         musing=_HELICAL_LOCAL,

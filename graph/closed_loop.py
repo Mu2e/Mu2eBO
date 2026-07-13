@@ -684,7 +684,6 @@ def _build_outer_graph():
 # ============================================================================
 
 _DRY_RUN_KNOB_LABELS = {
-    "helical": ("dx", "dy", "halflen", "angle"),
     # foils v2 is 6D per-side decoupled; must match FoilsMode.build_space order.
     "foils":   ("rOut_up", "rOut_dn", "hT_up", "hT_dn", "rIn_up", "rIn_dn"),
     # foilsf (v3) swaps the rIn dims for hole-fractions f = rIn/rOut.
@@ -717,7 +716,7 @@ def main() -> int:
     ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
     ap.add_argument("--q", type=int, default=CLOSED_LOOP_Q)
     ap.add_argument("--max-rounds", type=int, default=CLOSED_LOOP_MAX_ROUNDS)
-    ap.add_argument("--name-prefix", default="helical",
+    ap.add_argument("--name-prefix", default="bo",
                     help="child names will be {prefix}R{round:02d}_{j:02d} "
                          "(R is the round marker, not part of the prefix)")
     ap.add_argument("--stagger", type=int, default=CLOSED_LOOP_STAGGER_SEC,

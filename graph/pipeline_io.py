@@ -1,10 +1,10 @@
 """Thin wrappers around autoresearch_bo_michael.py + pipeline.py.
 
 Phase 1 — only the BO seam (propose / preflight / evaluate) is wired.
-BO ops go in-process via `import autoresearch_bo_michael as bo` (HelicalMode
-is already a clean adapter — no need to fork a subprocess for those).
-Preflight and evaluate use subprocess to keep their I/O side-effects
-firewalled from the long-lived LangGraph server process.
+BO ops go in-process via `import autoresearch_bo_michael as bo` (the BOMode
+adapters are clean — no need to fork a subprocess for those). Preflight and
+evaluate use subprocess to keep their I/O side-effects firewalled from the
+long-lived LangGraph server process.
 
 Phase 2 will add submit_stage / poll_stage / harvest wrappers that shell out
 to pipeline.py.
@@ -21,7 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 
-# Ensure the project root is importable so we can pull HelicalMode in-process.
+# Ensure the project root is importable so we can pull the BO modes in-process.
 sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch")
 
 import autoresearch_bo_michael as bo  # noqa: E402

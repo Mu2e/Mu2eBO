@@ -109,7 +109,7 @@ import modes as _modes  # noqa: E402
 # mechanism behind the foilsflash-tarball-mode-key-omission incident — is
 # gone: an unknown mode is now a loud KeyError at import.
 MUSE_BASE_TARBALL = Path(
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "michael")].grid_tarball)
+    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")].grid_tarball)
 USER = os.environ["USER"]
 OUTSTAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/workflow/default/outstage")
 
