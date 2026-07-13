@@ -40,6 +40,7 @@ See [[CLAUDE]] for the schema and maintenance contract.
 - [saturation-is-acquisition-relative](concepts/saturation-is-acquisition-relative.md) — "saturated" = flat acquisition signal, NOT fully-mapped front (foilsflash tail sat ~9σ beyond evals while the GP knew); end-of-campaign checklist: corner-picker round + sibling-champion transplant probes
 - [architecture-friction-survey-2026-07](concepts/architecture-friction-survey-2026-07.md) — friction map: mode dispatched at ~20 sites/6 files (silent `.get` defaults), 5 barrier truth-sources, leaderboard schema in ~9 string literals, pipeline.py/botorch_predict.py zero tests; candidates 1+2 picked → design page
 - [mode-registry-childtracker-design](concepts/mode-registry-childtracker-design.md) — crystallized refactor design: ModeSpec registry in root modes.py (all fields required, no silent defaults) + stateful ChildTracker with injected signals adapter; cl_min picker retired (ADR-0001/0002); GATED on foilsflash08 completion
+- [ml-stack-review-2026-07](concepts/ml-stack-review-2026-07.md) — ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measured σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, skopt EI on the preflight-retry path, high-sob-corner misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected
 
 ## Datasets
 - [mmackenz-priors](datasets/mmackenz-priors.md) — 104 hand-designed configs; 96 with both metrics
