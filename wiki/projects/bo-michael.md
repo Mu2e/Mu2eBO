@@ -1,8 +1,8 @@
 # bo-michael — joint S/√B and calo/POT optimization
 
 **Type:** project
-**Status:** active
-**Updated:** 2026-05-15
+**Status:** superseded — `MichaelMode` class DELETED from code 2026-07-12 (was the last non-holeRadii Categorical-COL5 mode; superseded by [[bo-foils]] family long before). Leaderboard TSVs remain on disk as frozen artifacts; the mode is no longer in `MODES`/`modes.SPECS` and `--mode michael` is rejected.
+**Updated:** 2026-07-12 (code retired)
 
 ## Summary
 Bayesian Optimization of Mu2e detector geometry to jointly maximize Run1A CE

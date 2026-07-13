@@ -31,7 +31,8 @@ subcommands, each independently runnable.
 - **GP config:** `Optimizer(GP, EI, n_initial_points=0, random_state=42)`
 - **α flag:** `--alpha 1e5` default ([[scalarized-objective]])
 - **Search space:** see [[bo-michael]] / [[bo-helical]] (per mode)
-- **Architecture:** `BOMode(ABC)` with 9 adapters. Each subclass owns its
+- **Architecture:** `BOMode(ABC)` with 7 adapters (michael + helical retired
+  2026-07-12; the file keeps its historical name). Each subclass owns its
   pinned constants + 4 abstract methods (`load_priors`, `_geom_text`,
   `parse_geom`, `format_row`/`load_history_row` — the last two are also
   concrete-shared for the Foils family, see below). Shared concerns (history

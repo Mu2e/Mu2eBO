@@ -4,8 +4,8 @@ Catalog of every entity page. Keep entries one line each.
 See [[CLAUDE]] for the schema and maintenance contract.
 
 ## Projects (active research lines)
-- [bo-michael](projects/bo-michael.md) — 4D BO maximizing `S/√B − α·calo/POT` over TSdA + holeRadius + COL5
-- [bo-helical](projects/bo-helical.md) — (dormant 2026-05-29) 4D BO over `tsda.helical.*` (Option A coupling); retired after Pareto saturation; superseded as active line by [[bo-foils]]
+- [bo-michael](projects/bo-michael.md) — (**code retired 2026-07-12**) 4D BO maximizing `S/√B − α·calo/POT` over TSdA + holeRadius + COL5; `MichaelMode` deleted, leaderboard frozen
+- [bo-helical](projects/bo-helical.md) — (**code retired 2026-07-12**, dormant since 2026-05-29) 4D BO over `tsda.helical.*` (Option A coupling); `HelicalMode` deleted, fixtures moved to foils; superseded as active line by [[bo-foils]]
 - [bo-foil](projects/bo-foil.md) — original 7D BO over foil-stack geometry; superseded by bo-michael
 - [bo-foils](projects/bo-foils.md) — 5D extras-only BO over stopping-target +12 envelope (≤6 up + ≤6 down) on the pinned 37-foil v02 base; no helical plug; Phase 0 PASS 2026-05-28
 - [bo-foilsg](projects/bo-foilsg.md) — 12D BO over a 49-foil stack in 4 z-groups (12-13-12-12), each group shares (rOut, hT, f); REPLACES deployed 37-foil base; wired 2026-06-09 after [[bo-foils]] saturated at sob≈3.89-3.90
@@ -46,7 +46,7 @@ See [[CLAUDE]] for the schema and maintenance contract.
 - [leaderboards](datasets/leaderboards.md) — TSV history files for each BO driver
 
 ## Drivers (executable scripts)
-- [autoresearch-bo-michael](drivers/autoresearch-bo-michael.md) — `propose | evaluate | preflight | show-priors`
+- [autoresearch-bo-michael](drivers/autoresearch-bo-michael.md) — `propose | evaluate | preflight` (7 modes; michael/helical + show-priors retired 2026-07-12)
 - [autoresearch-bo](drivers/autoresearch-bo.md) — original 7D BO driver
 - [pipeline](drivers/pipeline.md) — per-config runner: forks config, submits grid, harvests
 - [preflight](drivers/preflight.md) — local `mu2e -n 1` G4 init feasibility check

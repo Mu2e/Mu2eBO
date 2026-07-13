@@ -104,14 +104,20 @@ foilsflash — a staleness bug already logged at [[refresh-foils-slides]]:77;
 KEEP (skill + wiki reference them), fix only if the foils deck is still built.
 
 Candidates 3-5 (leaderboard schema, typed subprocess protocol, unified harvest)
-still unpicked. Two deferred **user decisions** (surfaced 2026-07-12, not done):
-- **Dormant-mode retirement** (`MichaelMode`+`HelicalMode`, ~300 lines) — policy
-  call, not mechanical: test fixtures use `helical`, off-repo `mmackenz_table_plots`
-  imports `bo.HelicalMode`, and `modes.SPECS`/`state.py` Literal/`test_modes`
-  lockstep all key on their presence. Needs a coordinated removal + fixture
-  migration, so left for explicit direction.
+still unpicked.
+- **Dormant-mode retirement** (`MichaelMode`+`HelicalMode`) — **DONE 2026-07-12**
+  (user picked it): −325 more production lines, registry now 7 modes. The
+  coordinated 11-file change (2 classes + 4 michael/helical-only helpers +
+  MODES/SPECS/state.Literal + every default repointed foils + ~30 test-fixture
+  migrations + 3 test rewrites) landed green because the registry lockstep
+  turned each omission into a loud KeyError/argparse-reject, not a silent
+  wrong-geometry run. michael was the only Categorical space AND the only
+  non-surfacecheck preflight, so those special cases died with it. Golden
+  harness: 7 survivors byte-identical bar one inert //-comment. Off-repo
+  mmackenz_table_plots helical scripts break at `bo.HelicalMode()` (retired
+  line, acceptable). Total session size cut now **−673 production lines**.
 - **A14** (`cmd_propose` vs `pipeline_io.propose_one` ~25-line shared kernel) —
-  skipped: pinned by `test_audit_fixes.py:268-284` source-regex ordering.
+  still skipped: pinned by `test_audit_fixes.py:268-284` source-regex ordering.
 
 ## Cross-links
 - Related: [[closed-loop-bo-design]], [[bo-modes]], [[mode-registry-childtracker-design]]

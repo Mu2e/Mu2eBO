@@ -82,7 +82,9 @@ or the driver mid-campaign changes running code.
   design); config.py dicts + botorch MODE_SPECS + pipeline tarball map are
   registry VIEWS (silent .get(...,michael) fallback deleted — ipa's
   Code_helical_base now explicit); 6 preflight tuples → 5 flags (prodtarget6d
-  banner drift fixed by construction); state Literal → 9 modes.
+  banner drift fixed by construction); state Literal → 9 modes (now **7** —
+  michael/helical retired 2026-07-12, registry lockstep made the deletion a
+  clean 11-file coordinated change verified green).
   **Prodtarget tarball question RESOLVED**: ships per-STAGE via
   STAGES["pot_only"]["code_tarball"] (pipeline.py:263-ish); spec records the
   same file, test pins equality — no path|build-from-workdir union needed.
