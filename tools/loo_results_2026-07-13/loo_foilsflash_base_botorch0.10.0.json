@@ -1,0 +1,62 @@
+{
+  "mode": "foilsflash",
+  "variant": "base",
+  "botorch": "0.10.0",
+  "n": 274,
+  "n_failed": 3,
+  "wall_s": 4718,
+  "outputs": [
+    {
+      "name": "y0",
+      "all": {
+        "n": 271,
+        "nll": -0.6861152734346347,
+        "rmse": 0.17147900446066713,
+        "z_mean": 0.01253088487078021,
+        "z_std": 1.237051919015426,
+        "cov2": 0.9261992619926199
+      },
+      "corner_top_decile_sob": {
+        "n": 28,
+        "nll": -2.141938125155353,
+        "rmse": 0.046122747811781266,
+        "z_mean": 0.3141072379359411,
+        "z_std": 1.2717640440709925,
+        "cov2": 0.9285714285714286
+      }
+    },
+    {
+      "name": "y1",
+      "all": {
+        "n": 271,
+        "nll": -2.4139106458094908,
+        "rmse": 0.022183592861005755,
+        "z_mean": -0.01194644443096629,
+        "z_std": 0.9982743549462892,
+        "cov2": 0.9446494464944649
+      },
+      "corner_top_decile_sob": {
+        "n": 28,
+        "nll": -2.7941818121728965,
+        "rmse": 0.014751573520503585,
+        "z_mean": -0.17917183012745544,
+        "z_std": 1.0128545742821164,
+        "cov2": 1.0
+      }
+    }
+  ],
+  "failed_folds": [
+    [
+      74,
+      "ModelFittingError('All attempts to fit the model have failed. For more information, try enabling botorch.settings.debug mode.')"
+    ],
+    [
+      217,
+      "ModelFittingError('All attempts to fit the model have failed. For more information, try enabling botorch.settings.debug mode.')"
+    ],
+    [
+      237,
+      "ModelFittingError('All attempts to fit the model have failed. For more information, try enabling botorch.settings.debug mode.')"
+    ]
+  ]
+}
