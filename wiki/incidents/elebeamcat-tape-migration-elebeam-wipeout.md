@@ -1,8 +1,8 @@
 # EleBeamCat persistent→tape migration wipes out a whole elebeam round
 
 **Type:** incident
-**Status:** resolved (v2 recovery landed 7/7 rows with real flash 2026-07-10 ~04:00; foilsflash11 inherited default_loc=tape automatically mid-campaign)
-**Updated:** 2026-07-10
+**Status:** resolved (MuBeamCat recurrence fixed 6906cb8 + verified: foilsflash16 mubeam cluster 70879403 submitted clean on tape URLs 2026-07-13)
+**Updated:** 2026-07-13
 
 ## Summary
 foilsflash10 (widened-box probe, q=8) produced ZERO leaderboard rows: every
@@ -18,6 +18,19 @@ flash extraction returned None → `evaluate` zero-rowed all 8 as
 needs resubmission.
 
 ## Key facts
+- **WATCH FIRED 2026-07-13: MuBeamCat Run1Baa migrated persistent→tape too**
+  (file gone from `/pnfs/mu2e/persistent/datasets/phy-sim/sim/mu2e/MuBeamCat/
+  Run1Baa/...`, present at the `/pnfs/mu2e/tape/...` counterpart). Killed
+  foilsflash15 (first rolling A/B): 5/5 children + replacements died at
+  `submit mubeam failed (rc=1)` — the post-incident INPUT PROBE (pipeline.py
+  ~:615-660) hard-failed BEFORE submission with the exact remediation
+  message, so ZERO grid jobs were wasted (vs ff10's 1,600 dead jobs — the
+  probe paid for itself on first firing). Fix = `STAGES["mubeam"]
+  ["default_loc"]` AND `STAGES["run1b_mubeam"]["default_loc"]` (both read
+  MuBeamCat) `"disk"` → `"tape"` (pipeline.py:157,167); elebeam_flash already
+  tape since 07-10. Bonus live validation: the rolling no_row_streak guard
+  counted 4/5 toward abort exactly as designed while replenish waves kept
+  launching into the dead submit.
 - **Failure signature:** job log tail shows `FileOpenError ... Unable to open
   specified secondary event stream file xroot://fndcadoor.fnal.gov//pnfs/
   fnal.gov/usr/mu2e/persistent/.../EleBeamCat/Run1Baa/...art` inside

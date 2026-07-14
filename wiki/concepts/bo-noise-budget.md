@@ -194,8 +194,10 @@
 > ff05's failure was the up-front FLOOD, not the concept; ~25%/eval); (4)
 > async rolling BO (kill the barrier's slowest-of-q tail, +30-50%; X_pending
 > fantasies already support pending-aware picks; natural after ChildTracker)
-> — **IMPLEMENTED 2026-07-12** as `closed_loop --rolling` (c47cd90; see
-> [[closed-loop-runner]]; awaiting first live A/B);
+> — **IMPLEMENTED 2026-07-12** as `closed_loop --rolling` (c47cd90) and
+> **VALIDATED 2026-07-14** (foilsflash16: 10/10 rows, rolling_done clean;
+> 1.21 evals/h @q=5 ≈ 10–25% over barrier at mini scale — full +30-50%
+> needs many-wave production scale; see [[closed-loop-runner]]);
 > (5) early-stop dominated evals (skip the flash stage, 40% of wall, when
 > sob stages show deep domination).
 > **Quantified stack (2026-07-08, vs measured ~60 evals/day @q=20)**:

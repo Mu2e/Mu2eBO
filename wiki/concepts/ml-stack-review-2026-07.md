@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-13 (botorch-0.18 gotchas + LOO harness live)
+**Updated:** 2026-07-14 (held-out ff16 test reverses LOO; revised recommendation)
 
 ## Summary
 Point-in-time audit of the ML/stats tooling: acquisition layer (qLogNEHVI /
@@ -106,7 +106,8 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   acquisition; corner exploitation is already covered by [[pareto-sob-picker]]
   rounds. Honest-validation caveat: all variants scored on the same archive;
   the next campaign's fresh rows are the true held-out test (harness
-  supports this trivially). Ax (its service layer duplicates our
+  supports this trivially).
+- **Explicitly NOT recommended:** Ax (its service layer duplicates our
   closed-loop orchestration), Optuna (TPE weaker than GP-BO at n<300), neural
   surrogates (<O(100D), see [[fast-sim-options-for-bo]]), replacing the sklearn
   viz GP (viz-only; but rendering the cloud from the botorch posterior would
@@ -116,6 +117,27 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   noise) is correct for our σ; Normalize+Standardize+float64 CPU; −log10(calo)
   training; Sobol cold start; xor round seeding; acq budget (128 qMC / 16
   restarts / 512 raw) already past diminishing returns ([[bo-noise-budget]]).
+
+- **HELD-OUT result (2026-07-14, the honest test): 10 fresh foilsflash16 rows
+  (fit on the 274 pre-campaign rows, `--holdout-prefix`) — REVERSES parts of
+  the LOO verdict.** sob axis: 0.18-base decisively beats 0.10-base (NLL
+  −1.01 vs −0.11, RMSE 0.072 vs 0.109; the incumbent OVER-predicted sob on
+  fresh points, z_mean −0.61) — opposite of LOO. warp wins overall: best NLL
+  on BOTH axes (−1.05 / −2.85), best flash RMSE (0.0139), flash z_std 0.97,
+  and its feared overconfidence did NOT materialize out-of-sample (sob z_std
+  1.30 ≈ incumbent's 1.31). Uniform-yvar COLLAPSES on sob mean (RMSE 0.33,
+  3–4× worse) — the LOO winner fails the honest test; do NOT wire uniform
+  yvar. Reading: LOO on a self-collected archive rewards interpolation;
+  held-out rewards generalization, and the 0.18 defaults + warp generalize
+  better. CAVEATS: n_test=10 (z bias SE ≈0.3), and the test points were
+  acquisition-selected by the incumbent picker, not random.
+- **REVISED recommendation (supersedes the five-way verdict's #1–#3):**
+  (1) keep accumulating held-out rows every campaign (one command:
+  `--holdout-prefix <prefix>`); (2) evidence now favors upgrading the picker
+  venv to botorch 0.18 and A/B-ing per-output warp behind an env flag, ahead
+  of the train_Yvar wiring (which needs per-row njobs to be viable at all —
+  uniform σ is now evidenced-against); (3) n=10 is too small to switch on —
+  defer adoption until ~30 held-out rows or a live picker A/B.
 
 ## Cross-links
 - Related: [[bo-noise-budget]], [[gp-cloud-rendering]], [[batch-bo]],

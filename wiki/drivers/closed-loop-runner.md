@@ -2,7 +2,7 @@
 
 **Type:** driver
 **Status:** active
-**Updated:** 2026-07-12 (--rolling pool replenishment wired)
+**Updated:** 2026-07-13 (rolling failure paths live-validated on foilsflash15 abort)
 
 > **Validate a NEW picker with a SMALL round, not full-stats q=10** (lesson
 > from foilsflash09, 2026-07-08). A picker only changes the PROPOSAL step; the
@@ -22,7 +22,29 @@ loop (human computes 5 Pareto picks → launches 5 chains by hand → waits 2 h
 in this phase.
 
 ## Key facts
-- **`--rolling` (wired 2026-07-12, commit c47cd90; NOT yet live-validated):**
+- **`--rolling` FAILURE PATHS LIVE-VALIDATED 2026-07-13 (foilsflash15):**
+  first real flight hit the MuBeamCat tape migration → all children died at
+  mubeam submit; observed working: first-resolution barrier exit, replenish
+  waves w1/w2 (q_next math + pending JSON handoff), per-wave krb5+bearer
+  refresh, and the full-pool streak abort (`no_row_streak 5/5 → ABORT`,
+  parent exits clean, 9 launched / 0 rows / 0 grid jobs / ~75 min). Abort
+  leaves in-flight children ORPHANED (they self-terminate at their own
+  failed submit here; a healthier abort scenario would leave them running —
+  same orphan shape as [[closed-loop-final-round-orphan-children]]).
+- **`--rolling` FULLY VALIDATED end-to-end (foilsflash16, 2026-07-14):**
+  10/10 rows, 0 failures, parent exited via `rolling_done` (budget spent,
+  pool drained). Every mechanism fired live: first-resolution barrier exit,
+  replenish waves w1–w5 (1 pick each, pool held at 5 continuously), one
+  2-resolution wave (w5 +2), drain ticks w6–w8 (q_next=0, no picker
+  subprocess), clean DONE. **Measured: 10 evals in 8 h 16 m (20:53→05:09) =
+  1.21 evals/h at q=5** vs barrier-mode estimate for the same shape (2
+  rounds × slowest-of-5 ≈ 9–11 h) → ~10–25% saved. Gain is structurally
+  small at max_evals=2q (only 5 replenishes + a full-cost drain tail);
+  the +30–50% projection needs production scale (many waves, larger q)
+  where drain cost amortizes. Best new row sob 3.83 (R00_02) — saturated
+  line as expected; the 10 rows double as the held-out GP test set
+  ([[ml-stack-review-2026-07]]).
+- **`--rolling` (wired 2026-07-12, commit c47cd90):**
   pool replenishment — barrier exits on the FIRST resolution, predict_picks
   refills only the free slots and passes in-flight x_points to
   botorch_predict `--pending-json` (X_pending fantasies; pareto_sob spreads
