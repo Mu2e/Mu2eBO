@@ -195,13 +195,94 @@ def run_loo(mode: str, variant: str, seed: int = 42):
     return out
 
 
+def run_holdout(mode: str, variant: str, prefix: str, seed: int = 42):
+    """TRUE held-out scoring: fit on rows whose config name does NOT start
+    with `prefix`, predict the rows that do. The honest test the LOO sweep
+    can't provide (LOO trains and scores on the same archive)."""
+    import botorch_predict as bp  # for MODE_SPECS bounds
+    spec = bp.MODE_SPECS[mode]
+    bo_mode = bp.bo.MODES[mode]
+    priors = bo_mode.load_priors() if hasattr(bo_mode, "load_priors") else []
+    pts = [p for p in priors + bo_mode.load_history()
+           if p.calo is not None and p.calo > 0
+           and p.sob is not None and math.isfinite(p.sob)]
+    tr = [p for p in pts if not p.cfg.startswith(prefix)]
+    te = [p for p in pts if p.cfg.startswith(prefix)]
+    if not te:
+        raise SystemExit(f"[holdout] no rows match prefix {prefix!r}")
+
+    def tensors(rows):
+        X = torch.tensor([[float(v) for v in p.x] for p in rows])
+        Y = torch.tensor([[p.sob, -math.log10(p.calo)] for p in rows])
+        return X, Y
+
+    Xtr, Ytr = tensors(tr)
+    Xte, Yte = tensors(te)
+    bounds = torch.stack([torch.tensor(spec["lo"]), torch.tensor(spec["hi"])])
+    m = Ytr.shape[-1]
+    yvar_tr = _make_yvar(mode, Ytr) if variant in ("yvar", "warpyvar") else None
+    yvar_te = _make_yvar(mode, Yte) if variant in ("yvar", "warpyvar") else None
+
+    torch.manual_seed(seed)
+    mu = torch.zeros(len(te), m)
+    var = torch.zeros(len(te), m)
+    if variant in ("warp", "warpyvar"):  # per-output fits (see docstring)
+        for j in range(m):
+            yv = yvar_tr[:, j:j + 1] if yvar_tr is not None else None
+            mj = _fit(_make_model(Xtr, Ytr[:, j:j + 1], bounds, variant, yvar=yv))
+            with torch.no_grad():
+                post = mj.posterior(Xte)
+                mu[:, j] = post.mean.reshape(-1)
+                lat = post.variance.reshape(-1)
+            var[:, j] = lat + (yvar_te[:, j] if yvar_te is not None
+                               else _noise_var_raw(mj, 1)[0])
+    else:
+        model = _fit(_make_model(Xtr, Ytr, bounds, variant, yvar=yvar_tr))
+        with torch.no_grad():
+            post = model.posterior(Xte)
+            mu = post.mean.reshape(len(te), m)
+            lat = post.variance.reshape(len(te), m)
+        var = lat + (yvar_te if yvar_te is not None
+                     else _noise_var_raw(model, m).unsqueeze(0))
+
+    z = (Yte - mu) / var.sqrt()
+    nll = 0.5 * (torch.log(2 * math.pi * var) + (Yte - mu) ** 2 / var)
+    import botorch
+    return {
+        "mode": mode, "variant": variant, "botorch": botorch.__version__,
+        "holdout_prefix": prefix, "n_train": len(tr), "n_test": len(te),
+        "outputs": [{"name": f"y{j}",
+                     "nll": float(nll[:, j].mean()),
+                     "rmse": float(((Yte[:, j] - mu[:, j]) ** 2).mean().sqrt()),
+                     "z_mean": float(z[:, j].mean()),
+                     "z_std": float(z[:, j].std()),
+                     } for j in range(m)],
+    }
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--mode", default="foilsflash", choices=sorted(REL_NOISE))
     ap.add_argument("--variant", default="base", choices=("base", "warp", "yvar", "warpyvar"))
     ap.add_argument("--out-dir", default=None,
                     help="Where to write the result JSON (default: cwd)")
+    ap.add_argument("--holdout-prefix", default=None,
+                    help="Score rows whose config starts with this prefix as "
+                         "TRUE held-out data (fit on the rest); skips LOO")
     ns = ap.parse_args(argv)
+
+    if ns.holdout_prefix:
+        res = run_holdout(ns.mode, ns.variant, ns.holdout_prefix)
+        import botorch
+        tag = (f"holdout_{ns.holdout_prefix}_{ns.mode}_{ns.variant}_"
+               f"botorch{botorch.__version__}")
+        out_dir = Path(ns.out_dir) if ns.out_dir else Path.cwd()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{tag}.json"
+        path.write_text(json.dumps(res, indent=2))
+        print(json.dumps(res, indent=2))
+        print(f"[holdout] wrote {path}", flush=True)
+        return
 
     res = run_loo(ns.mode, ns.variant)
     import botorch
