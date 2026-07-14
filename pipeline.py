@@ -154,7 +154,9 @@ STAGES = {
         "run_number": 1800,
         "ships_geom": True,
         "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'mubeam' / 'MuBeamCat.txt'}",
-        "default_loc": "disk",
+        # MuBeamCat migrated persistent->tape 2026-07-13 (same migration as
+        # EleBeamCat 07-09); see wiki elebeamcat-tape-migration-elebeam-wipeout.
+        "default_loc": "tape",
         "output_glob": "sim.*.TargetStops.*.art",
     },
     "run1b_mubeam": {
@@ -164,7 +166,8 @@ STAGES = {
         "run_number": 1810,
         "ships_geom": True,
         "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'run1b_mubeam' / 'MuBeamCat.txt'}",
-        "default_loc": "disk",
+        # MuBeamCat migrated persistent->tape 2026-07-13 (see mubeam above).
+        "default_loc": "tape",
         "output_glob": "nts.*.mubeam.*.root",
     },
     "concat": {
