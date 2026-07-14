@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-14 (held-out ff16 test reverses LOO; revised recommendation)
+**Updated:** 2026-07-14 (audit correction: only yvar-collapse significant at n=10)
 
 ## Summary
 Point-in-time audit of the ML/stats tooling: acquisition layer (qLogNEHVI /
@@ -118,26 +118,29 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   training; Sobol cold start; xor round seeding; acq budget (128 qMC / 16
   restarts / 512 raw) already past diminishing returns ([[bo-noise-budget]]).
 
-- **HELD-OUT result (2026-07-14, the honest test): 10 fresh foilsflash16 rows
-  (fit on the 274 pre-campaign rows, `--holdout-prefix`) — REVERSES parts of
-  the LOO verdict.** sob axis: 0.18-base decisively beats 0.10-base (NLL
-  −1.01 vs −0.11, RMSE 0.072 vs 0.109; the incumbent OVER-predicted sob on
-  fresh points, z_mean −0.61) — opposite of LOO. warp wins overall: best NLL
-  on BOTH axes (−1.05 / −2.85), best flash RMSE (0.0139), flash z_std 0.97,
-  and its feared overconfidence did NOT materialize out-of-sample (sob z_std
-  1.30 ≈ incumbent's 1.31). Uniform-yvar COLLAPSES on sob mean (RMSE 0.33,
-  3–4× worse) — the LOO winner fails the honest test; do NOT wire uniform
-  yvar. Reading: LOO on a self-collected archive rewards interpolation;
-  held-out rewards generalization, and the 0.18 defaults + warp generalize
-  better. CAVEATS: n_test=10 (z bias SE ≈0.3), and the test points were
-  acquisition-selected by the incumbent picker, not random.
-- **REVISED recommendation (supersedes the five-way verdict's #1–#3):**
-  (1) keep accumulating held-out rows every campaign (one command:
-  `--holdout-prefix <prefix>`); (2) evidence now favors upgrading the picker
-  venv to botorch 0.18 and A/B-ing per-output warp behind an env flag, ahead
-  of the train_Yvar wiring (which needs per-row njobs to be viable at all —
-  uniform σ is now evidenced-against); (3) n=10 is too small to switch on —
-  defer adoption until ~30 held-out rows or a live picker A/B.
+- **HELD-OUT result (2026-07-14, 10 fresh foilsflash16 rows vs the 274-row
+  archive, `--holdout-prefix`) — AUDITED with paired tests (independent
+  agent, same day; harness re-run reproduced every number to the digit).
+  Only ONE finding is statistically resolved:** uniform-yvar's sob-mean
+  COLLAPSE (RMSE 0.330 vs base 0.072 = 4.5×, bootstrap 95% CI [2.0, 9.1],
+  paired Wilcoxon p=0.037; driven by gross low-sob mispredictions) — the
+  LOO favorite fails the honest test; do NOT wire uniform yvar. The two
+  apparent "reversals" are WITHIN NOISE at n=10: 0.18-base's sob edge
+  (RMSE 0.072 vs 0.109) has p=0.85, CI [0.70, 2.85]; the incumbent's
+  "over-prediction" (z_mean −0.61) is a mean residual of only −0.015,
+  p=0.69; warp's flash edge (0.0139 vs 0.0185) has p=0.16, CI [0.49, 1.01],
+  and its sob RMSE is actually worse than 0.18-base. "Warp's overconfidence
+  didn't materialize" is under-powered at n=10, not demonstrated. The
+  methodological lesson STANDS: LOO on a self-collected archive rewards
+  interpolation and can disagree with held-out generalization — but which
+  variant generalizes best is UNRESOLVED. Test points are BO-proposed, not
+  iid (span sob 2.72–3.83).
+- **REVISED recommendation (post-audit):** (1) keep accumulating held-out
+  rows every campaign (one command: `--holdout-prefix <prefix>`) — the only
+  resolved verdict so far is negative (uniform yvar out); (2) 0.18+warp are
+  suggestive but unproven — do NOT switch pickers until ~30 held-out rows
+  or a live picker A/B resolves it; (3) per-row train_Yvar still requires
+  the leaderboard njobs column and fresh evidence before wiring.
 
 ## Cross-links
 - Related: [[bo-noise-budget]], [[gp-cloud-rendering]], [[batch-bo]],
