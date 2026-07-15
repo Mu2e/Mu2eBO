@@ -206,10 +206,11 @@ def run_holdout(mode: str, variant: str, prefix: str, seed: int = 42):
     pts = [p for p in priors + bo_mode.load_history()
            if p.calo is not None and p.calo > 0
            and p.sob is not None and math.isfinite(p.sob)]
-    tr = [p for p in pts if not p.cfg.startswith(prefix)]
-    te = [p for p in pts if p.cfg.startswith(prefix)]
+    pfxs = tuple(prefix.split(","))  # comma-separated prefixes pool the holdout
+    tr = [p for p in pts if not p.cfg.startswith(pfxs)]
+    te = [p for p in pts if p.cfg.startswith(pfxs)]
     if not te:
-        raise SystemExit(f"[holdout] no rows match prefix {prefix!r}")
+        raise SystemExit(f"[holdout] no rows match prefix(es) {pfxs!r}")
 
     def tensors(rows):
         X = torch.tensor([[float(v) for v in p.x] for p in rows])
@@ -257,6 +258,10 @@ def run_holdout(mode: str, variant: str, prefix: str, seed: int = 42):
                      "z_mean": float(z[:, j].mean()),
                      "z_std": float(z[:, j].std()),
                      } for j in range(m)],
+        # per-point predictions so paired tests don't require a re-run
+        "per_point": [{"cfg": te[i].cfg, "y": Yte[i].tolist(),
+                       "mu": mu[i].tolist(), "var": var[i].tolist()}
+                      for i in range(len(te))],
     }
 
 

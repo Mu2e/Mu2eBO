@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-14 (audit correction: only yvar-collapse significant at n=10)
+**Updated:** 2026-07-15 (live picker A/B + pooled 20-row holdout: bases indistinguishable)
 
 ## Summary
 Point-in-time audit of the ML/stats tooling: acquisition layer (qLogNEHVI /
@@ -135,6 +135,30 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   interpolation and can disagree with held-out generalization — but which
   variant generalizes best is UNRESOLVED. Test points are BO-proposed, not
   iid (span sob 2.72–3.83).
+- **LIVE PICKER A/B + POOLED 20-ROW HOLDOUT (ff16=0.10 vs ff17=0.18, both
+  rolling q=5/10 evals/hybrid, 2026-07-15).** Campaign level: identical
+  throughput (8h16m vs 8h01m), best sob 3.83 (0.10) vs 3.77 (0.18) — no
+  proposal-quality winner on a saturated line; behavioral difference: the
+  0.18 picker EXPLORED first (2 low-sob corner evals in w0: 1.65/1.69, one
+  high-flash 1.86e-6) then exploited (3.77/3.60 after refit), while 0.10
+  stayed in the known-good region. Model level, paired stats on 20 pooled
+  held-out rows (fit on 274): (a) **0.10-vs-0.18 base: NO difference**
+  (sob p=0.43, flash p=0.73, CIs span 1) — the n=10 "0.18 decisively
+  better" signal evaporated, audit vindicated twice; (b) **uniform-yvar sob
+  collapse REPLICATED, now decisive** (RMSE ratio 0.34, CI [0.22,0.50],
+  p=0.002); (c) **warp's flash-mean edge is the only positive trend**
+  (RMSE 0.052 vs 0.087 ≈ 1.7×, bootstrap CI excludes 1 [1.06–1.09 low
+  edge] but Wilcoxon p≈0.13-0.14 — a few large-error points carry it;
+  suggestive, NOT adoption-grade); (d) ALL variants overconfident on flash
+  for the exploratory ff17 points (z_std 1.29–1.53) — new-region
+  extrapolation + run-level systematic. Per-point predictions now embedded
+  in holdout JSONs (`per_point` field) so future paired tests need no
+  re-run; `--holdout-prefix` accepts comma-separated prefixes.
+- **BOTTOM-LINE ANSWER to "is 0.18 better?": no evidence better, no
+  evidence worse** — the upgrade case stays operational (0 fit failures,
+  faster, train_Yvar API), not performance. Staying on 0.10 remains
+  legitimate; the A/B seam + holdout tooling make continued tracking
+  ~free (score each campaign's rows, revisit at ~30+).
 - **REVISED recommendation (post-audit):** (1) keep accumulating held-out
   rows every campaign (one command: `--holdout-prefix <prefix>`) — the only
   resolved verdict so far is negative (uniform yvar out); (2) 0.18+warp are

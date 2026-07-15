@@ -44,6 +44,10 @@ in this phase.
   where drain cost amortizes. Best new row sob 3.83 (R00_02) — saturated
   line as expected; the 10 rows double as the held-out GP test set
   ([[ml-stack-review-2026-07]]).
+- **`AUTORESEARCH_BOTORCH_VENV` (2026-07-14, 5c5b4fb):** env seam overriding
+  the picker-subprocess venv DIRECTORY (default `.venv-botorch` = botorch
+  0.10; set `.venv-botorch-new` = 0.18 defaults) — for live picker A/Bs
+  without touching the default path. See [[ml-stack-review-2026-07]].
 - **`--rolling` (wired 2026-07-12, commit c47cd90):**
   pool replenishment — barrier exits on the FIRST resolution, predict_picks
   refills only the free slots and passes in-flight x_points to
