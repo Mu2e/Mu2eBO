@@ -184,5 +184,10 @@ def open_saver_conn():
 # (gpytorch + botorch). When --picker qnehvi is requested, node_predict_picks
 # subprocess-shells into this interpreter, dumps picks to a tmp JSON, and
 # loads them back into the langgraph state.
-BOTORCH_VENV_PY = PROJECT_ROOT / ".venv-botorch" / "bin" / "python"
+# AUTORESEARCH_BOTORCH_VENV overrides the venv DIRECTORY for a picker A/B
+# (e.g. .venv-botorch-new = botorch 0.18 defaults; see wiki
+# ml-stack-review-2026-07 — accuracy question unresolved at n=10 holdout).
+BOTORCH_VENV_PY = (PROJECT_ROOT
+                   / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv-botorch")
+                   / "bin" / "python")
 BOTORCH_PREDICT = PROJECT_ROOT / "botorch_predict.py"
