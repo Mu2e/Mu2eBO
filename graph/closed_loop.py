@@ -140,7 +140,7 @@ class RoundState(TypedDict, total=False):
     rolling: bool
     max_evals: int
     no_row_streak: int
-    prev_completed_count: int
+    prev_completed_names: list  # child names resolved as of the previous wave
     rolling_done: bool
 
 
@@ -695,10 +695,21 @@ def node_decide_next(state: RoundState) -> dict:
         # (the foilsX04 shape) -> abort.
         completed = set(state.get("completed_names", []))
         children = state.get("children", {})
-        prev = state.get("prev_completed_count", 0)
-        resolved_this_wave = max(0, len(completed) - prev)
-        streak = (0 if new_rows > 0
-                  else state.get("no_row_streak", 0) + resolved_this_wave)
+        # Name-based streak accounting (fixes rolling-no-row-streak-false-
+        # increment): a resolved child produced a row IFF its config name is in
+        # the leaderboard. The old count comparison (len-delta vs new_rows)
+        # raced the per-wave baseline refresh, so a row absorbed into a prior
+        # wave's baseline made a SUCCESSFUL child read as rowless. Names are
+        # immune to that timing — a child only enters completed_names after its
+        # evaluate node has appended the row. Reset the streak on ANY newly
+        # resolved child that produced a row; else add the rowless ones.
+        prev_names = set(state.get("prev_completed_names", []))
+        newly_resolved = completed - prev_names
+        lb_names = _leaderboard_names(mode)
+        rowless = [n for n in newly_resolved if n not in lb_names]
+        resolved_this_wave = len(newly_resolved)
+        streak = (0 if any(n in lb_names for n in newly_resolved)
+                  else state.get("no_row_streak", 0) + len(rowless))
         launched_total = len(set(children) | completed)
         n_pending = sum(1 for n in children if n not in completed)
         rolling_done = (launched_total >= state["max_evals"]) and n_pending == 0
@@ -716,7 +727,7 @@ def node_decide_next(state: RoundState) -> dict:
             "round_idx": state["round_idx"] + 1,
             "zero_rows": abort,
             "no_row_streak": streak,
-            "prev_completed_count": len(completed),
+            "prev_completed_names": sorted(completed),
             "rolling_done": rolling_done,
             "stop_seen": state.get("stop_seen", False),
             "timeout_seen": state.get("timeout_seen", False),
@@ -900,7 +911,7 @@ def main() -> int:
         "rolling": args.rolling,
         "max_evals": args.max_evals or args.q * args.max_rounds,
         "no_row_streak": 0,
-        "prev_completed_count": 0,
+        "prev_completed_names": [],
     }
 
     # Resolve the target leaderboard so the banner is self-incriminating: a

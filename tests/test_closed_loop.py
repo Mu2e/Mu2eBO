@@ -682,7 +682,7 @@ class TestRolling(unittest.TestCase):
             },
             "completed_names": ["foilsR00_01"],
             "no_row_streak": 0,
-            "prev_completed_count": 0,
+            "prev_completed_names": [],
             "history_len_before": 42,
         }
         base.update(kw)
@@ -752,25 +752,46 @@ class TestRolling(unittest.TestCase):
         self.assertFalse(out["timeout_seen"])
 
     def test_decide_streak_accumulates_and_resets(self):
-        # 1 rowless resolution -> streak 1, children NOT cleared.
+        # 1 newly-resolved child whose row is ABSENT from the leaderboard
+        # -> rowless -> streak 1, children NOT cleared.
         state = self._state()
-        with mock.patch.object(cl, "_leaderboard_len", return_value=42):
+        with mock.patch.object(cl, "_leaderboard_len", return_value=42), \
+             mock.patch.object(cl, "_leaderboard_names", return_value=set()):
             out = cl.node_decide_next(state)
         self.assertEqual(out["no_row_streak"], 1)
         self.assertFalse(out["zero_rows"])
         self.assertFalse(out["rolling_done"])
         self.assertNotIn("children", out)
         self.assertNotIn("launched_names", out)
-        # a new row resets the streak
+        # the resolved child's row PRESENT -> resets the streak
         state2 = self._state(no_row_streak=2)
-        with mock.patch.object(cl, "_leaderboard_len", return_value=43):
+        with mock.patch.object(cl, "_leaderboard_len", return_value=43), \
+             mock.patch.object(cl, "_leaderboard_names",
+                               return_value={"foilsR00_01"}):
             out2 = cl.node_decide_next(state2)
         self.assertEqual(out2["no_row_streak"], 0)
+
+    def test_decide_streak_immune_to_baseline_absorbed_row(self):
+        # Regression (incidents/rolling-no-row-streak-false-increment): a child
+        # resolved AND its row IS in the leaderboard, but the length baseline
+        # already absorbed that row (new_rows delta == 0 — the ff18 w1 race).
+        # Count-based accounting incremented the streak on this SUCCESSFUL
+        # child; name-based must keep it at 0.
+        state = self._state(completed_names=["foilsR00_01"],
+                            prev_completed_names=[], no_row_streak=0,
+                            history_len_before=100)
+        with mock.patch.object(cl, "_leaderboard_len", return_value=100), \
+             mock.patch.object(cl, "_leaderboard_names",
+                               return_value={"foilsR00_01"}):
+            out = cl.node_decide_next(state)
+        self.assertEqual(out["no_row_streak"], 0)  # NOT 1
+        self.assertFalse(out["zero_rows"])
 
     def test_decide_aborts_on_full_pool_streak(self):
         # q consecutive rowless resolutions == foilsX04 shape -> abort.
         state = self._state(no_row_streak=2)
-        with mock.patch.object(cl, "_leaderboard_len", return_value=42):
+        with mock.patch.object(cl, "_leaderboard_len", return_value=42), \
+             mock.patch.object(cl, "_leaderboard_names", return_value=set()):
             out = cl.node_decide_next(state)
         self.assertEqual(out["no_row_streak"], 3)
         self.assertTrue(out["zero_rows"])
@@ -779,7 +800,10 @@ class TestRolling(unittest.TestCase):
         state = self._state(
             max_evals=3,
             completed_names=["foilsR00_00", "foilsR00_01", "foilsR00_02"])
-        with mock.patch.object(cl, "_leaderboard_len", return_value=44):
+        with mock.patch.object(cl, "_leaderboard_len", return_value=44), \
+             mock.patch.object(cl, "_leaderboard_names",
+                               return_value={"foilsR00_00", "foilsR00_01",
+                                             "foilsR00_02"}):
             out = cl.node_decide_next(state)
         self.assertTrue(out["rolling_done"])
 
