@@ -52,7 +52,10 @@ this wiki was assessed AND EXECUTED 2026-07-17 (user-approved): 117 pages,
 - External: [blog](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing), [spec](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
 
 ## Open questions / TODO
-- CONVERTED 2026-07-17. Converter (idempotent, with parse-back validation)
-  archived at the session scratchpad `okf_convert.py`; gotcha: 4 pages began
-  with a bare `---` horizontal rule that must not be parsed as frontmatter.
+- CONVERTED 2026-07-17 by a one-shot deterministic script (not kept — it
+  would be dead code; commit dc7b6d1's message documents the transform).
+  Re-derivable gotchas: 4 pages began with a bare `---` horizontal rule that
+  must NOT be parsed as frontmatter; 18 pages carried stray memory-style
+  frontmatter to merge; link rewrite must be code-fence-aware and skip
+  `[[..]]` strings that match no page (prose about the old syntax).
 - Try the OKF static HTML graph visualizer on the bundle (nice-to-have).
