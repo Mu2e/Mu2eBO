@@ -1,7 +1,7 @@
 # All harvest metrics are constant across helical configs
 
 **Type:** incident
-**Status:** **resolved (2026-05-17)** — canonical `muse tarball` shipped: mgit Mu2eG4 sparse checkout of v13_12_10 + helical-plug.patch, built against Run1Bak backing in `/exp/mu2e/app/users/oksuzian/autoresearch_muse/`. The muse-built `Code.tar.bz2`'s `setup.sh` calls `muse setup $CODE_DIR -q e29 prof p094`, putting the local lib ahead of CVMFS by link/path order (no LD_PRELOAD needed). Validated on grid via helical002 clusters 27881180 mubeam + 27881183 run1b_mubeam.
+**Status:** resolved (2026-05-17) — canonical `muse tarball` shipped: mgit Mu2eG4 sparse checkout of v13_12_10 + helical-plug.patch, built against Run1Bak backing in `/exp/mu2e/app/users/oksuzian/autoresearch_muse/`. The muse-built `Code.tar.bz2`'s `setup.sh` calls `muse setup $CODE_DIR -q e29 prof p094`, putting the local lib ahead of CVMFS by link/path order (no LD_PRELOAD needed). Validated on grid via helical002 clusters 27881180 mubeam + 27881183 run1b_mubeam.
 **Updated:** 2026-05-17
 
 ## Summary

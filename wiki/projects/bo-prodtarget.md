@@ -607,7 +607,7 @@ Build into [[mmackenz-workflow]]-style autoresearch_muse area.
   `Mu2eG4/inc/SensitiveDetectorName.hh:54-78` —
   `ProductionTargetCoreSection`, `FinSection`, `PositiveEndRing` etc. score
   StepPointMC hits per plate region, but **are OFF by default in POT.fcl**
-  (`SDConfig.enableSD: [virtualdetector]` only — see g4-speed-knobs).
+  (`SDConfig.enableSD: [virtualdetector]` only — see [[g4-speed-knobs]]).
 - Feasible thermal/rad-damage proxy without source patch: enable
   `ProductionTargetCoreSection`/`FinSection` in `enableSD`, sum
   `StepPointMC::eDep()` per plate copy in an analyzer → Edep [MeV] per

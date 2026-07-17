@@ -53,7 +53,7 @@ and is only known to ROOT's TClass machinery.
       for s in h.product(): total += s.ionizingEdep()
   ```
   InputTag is label[:instance[:process]]; bare label matches. Working ref:
-  `pipeline.py:_TRK_EDEP_EXTRACT_SCRIPT` (bo-ipa). gallery is cleaner than the
+  `pipeline.py:_TRK_EDEP_EXTRACT_SCRIPT` ([[bo-ipa]]). gallery is cleaner than the
   SetBranchStatus loop when you have a known InputTag.
 - **Why not just write a custom analyzer?** Two paths exist; we chose
   PyROOT for the smoke test because it avoids a second muse rebuild.

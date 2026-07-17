@@ -1,7 +1,7 @@
 # Preflight FCL fails on prodtarget mode (and stock MDC2025aq): GenParticle product missing
 
 **Type:** incident
-**Status:** **resolved 2026-06-07** — prodtarget switched to the surface-check FCL path (Option 1); preflight pt001 PASS with 0 managed-volume overlaps and 117 baseline overlaps correctly whitelisted.
+**Status:** resolved 2026-06-07 — prodtarget switched to the surface-check FCL path (Option 1); preflight pt001 PASS with 0 managed-volume overlaps and 117 baseline overlaps correctly whitelisted.
 **Updated:** 2026-06-07
 
 ## Summary

@@ -248,7 +248,7 @@ Two distinct bugs collided to produce the silent failure:
   locally") are both in_progress/pending.
 
 ## Cross-links
-- Related: [[barrier-false-positive-round1]] (sibling failure mode —
+- Related: [[rolling-no-row-streak-false-increment]] (the rolling-era guard this shape motivated), [[barrier-false-positive-round1]] (sibling failure mode —
   same "looks converged" symptom, different mechanism),
   [[scan-broken-codes-too-narrow]] (sibling silent-pass-broken
   pattern in scan_logs),

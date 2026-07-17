@@ -37,7 +37,7 @@ substantially below v39's reported obj=3.459.
   - degrader=off, foil-stack: v98 → obj 2.095
   - degrader=off, helical: v111 → obj 1.958
   - (For comparison, v39 with moving degrader: obj 3.459 — excluded.)
-- **How our BO modes enforce it:** [[bo-michael]] emits
+- **How our BO modes ([[bo-modes]]) enforce it:** [[bo-michael]] emits
   `degrader.build=false` and never overrides any other stage-specific
   value, so the same proposal geom is valid in both Run1A and Run1B
   stages. [[bo-helical]] does the same plus pins helical knobs that

@@ -130,7 +130,7 @@ a submit-side fix MUST pass `--force` on the failed stage (pipeline-level
 cousin of [[closed-loop-stale-cluster-silent-no-launch]]).
 
 ## Cross-links
-- Related: [[prodtarget-env-divergence]] (same preflight-vs-grid env split),
+- Related: [[foilsflash-tarball-mode-key-omission]] (same tarball mode-key class), [[prodtarget-env-divergence]] (same preflight-vs-grid env split),
   [[stage-out-rename-race]] (the misdiagnosis), [[bo-foilsg]] (tainted
   leaderboard + original hazard warning),
   [[closed-loop-barrier-timeout-zero-rows-falsepos]] (foilsg05's 3

@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-05-15
+**Updated:** 2026-07-17
 
 ## Summary
 Aluminum absorber located downstream of the muon stopping target inside the TS.
@@ -19,7 +19,7 @@ decreasing it kills calo stops but starts swallowing signal-side acceptance.
 - **Best-known config:** v39 with `rin=130, halfLength4=8.75`.
 - **Topology toggles** (`tsda.extra.build`, `tsda.tubes.build`,
   `tsda.helical.build`, `tsda.cutout.build`) — extracted in scraper but
-  *not currently varied* by [[bo-michael]].
+  *was never varied* by [[bo-michael]] (mode retired 2026-07-12).
 
 ## Cross-links
 - Used in: [[bo-michael]]

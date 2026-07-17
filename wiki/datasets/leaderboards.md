@@ -2,7 +2,7 @@
 
 **Type:** dataset
 **Status:** active
-**Updated:** 2026-06-18
+**Updated:** 2026-07-17
 
 ## Summary
 One TSV per BO driver, append-only, recording every evaluated configuration
@@ -17,9 +17,10 @@ along with the metrics and scalarized objective. Used both as the BO history
   `mmackenz_table_plots/overlay_bo_on_s_sqrt_b.py`; the producing driver
   `autoresearch_bo.py` was removed 2026-05-21.
 - **`leaderboard_bo_helical.tsv`** — 5D helical history (kept).
-  Rows contaminated by silent disc/plug sibling overlap; still consumed as
+  Rows contaminated by silent disc/plug sibling overlap; was consumed as
   legacy training data by `mmackenz_table_plots/gp_predict_helical.py`
-  (HELICAL_LEGACY) and overlay scripts, with N_crit predicate filter applied.
+  (HELICAL_LEGACY) until HelicalMode's deletion (2026-07-12) broke that
+  script's driver import (see [[bo-helical]]); kept as a frozen archive.
   **2026-05-27 cleanup**: dropped 213→175 main rows (38 quarantined), and
   47→44 for the legacy 5D file (3 quarantined). See sidecar entries below.
 - **`leaderboard_bo_helical_v2.tsv`** — current canonical helical leaderboard

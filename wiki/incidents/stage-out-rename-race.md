@@ -83,7 +83,7 @@ list-outputs sees a clean tree.
   a `RESUME_*` or `RECOVER_*` for the same config is not a real failure.
 
 ## Cross-links
-- Related: [[concurrent-token-contention]], [[grid-job-completion-check]],
+- Related: [[stage-out-lag]], [[concurrent-token-contention]], [[grid-job-completion-check]],
   [[concat-xrootd-fileopen-postendjob]], [[stage-out-lag]], [[bo-helical]], [[foilsg-grid-tarball-scalar-holeradius-fallback]], [[harvest-pyroot-nfs-rpc-hang]], [[poll-deadlock-missing-outstage-dirs]]
 - Source: `pipeline.py:list_outputs` (function), `pipeline.py:cmd_list_outputs`,
   `pipeline.py:stage_hardlink_farm` (line 260, the `os.link` call that fails

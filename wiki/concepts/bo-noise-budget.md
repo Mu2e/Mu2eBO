@@ -405,7 +405,7 @@ equivalent ways:
   - **Cheap first step: replicate champion** (foilsf03R01_09) at current stats + 2× Run1B stats — ~4 grid-hours, gives *measured* σ at the saturation plateau before committing.
 
 ## Cross-links
-- Related: [[bo-foils]], [[batch-bo]], [[scalarized-objective]], [[events-per-job-mid-flight-edit]], [[harvest-denominator-bug]], [[gp-cloud-rendering]], [[fast-sim-options-for-bo]], [[pareto-sob-picker]], [[qlnei-sob-only-picker]]
+- Related: [[bo-foils]], [[batch-bo]], [[scalarized-objective]], [[events-per-job-mid-flight-edit]], [[harvest-denominator-bug]], [[gp-cloud-rendering]], [[fast-sim-options-for-bo]], [[pareto-sob-picker]], [[qlnei-sob-only-picker]], [[ml-stack-review-2026-07]]
 - Source files: `pipeline.py:116-172` (STAGES dict), `pipeline.py:191` (stamp-at-submit), `pipeline.py:132` (Run1B events_per_job), `botorch_predict.py:137-153` (_fit_gp), `graph/config.py:28-32` (STAGE_TARGETS)
 
 ## Open questions / TODO

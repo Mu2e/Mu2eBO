@@ -168,7 +168,7 @@ mock-grid branch; helical mode only.
   [[tessellated-solid-facet-orientation]] for the first issue this caught.
 
 ## Cross-links
-- Related: [[autoresearch-bo-michael]], [[preflight]], [[bo-helical]], [[orchestrator-evaluation-2026-05]]
+- Related: [[autoresearch-bo-michael]], [[preflight]], [[bo-helical]], [[orchestrator-evaluation-2026-05]], [[closed-loop-runner]]
 - Wrapped by: [[closed-loop-runner]] (multi-round driver spawns q parallel `graph.run` children per round)
 - Per-stage I/O: [[pipeline]] (idempotent submit/poll/list-outputs/harvest)
 - Regression tests: [[tests]]

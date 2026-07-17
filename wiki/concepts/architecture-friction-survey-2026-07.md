@@ -120,7 +120,7 @@ still unpicked.
   still skipped: pinned by `test_audit_fixes.py:268-284` source-regex ordering.
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]], [[bo-modes]], [[mode-registry-childtracker-design]]
+- Related: [[closed-loop-bo-design]], [[bo-modes]], [[mode-registry-childtracker-design]], [[simplification-audit-2026-07]]
 - Incident evidence: [[foilsflash-tarball-mode-key-omission]], [[preflight-mode-tuple-prodtarget6d-omission]], [[foilsg-grid-tarball-scalar-holeradius-fallback]], [[barrier-false-positive-round1]], [[closed-loop-barrier-timeout-zero-rows-falsepos]], [[closed-loop-final-round-orphan-children]], [[foilsx04-all-preflight-ambiguous]], [[closed-loop-stale-cluster-silent-no-launch]], [[preflight-past-init-false-pass]], [[events-per-job-mid-flight-edit]]
 - Source files: `pipeline.py:98`, `autoresearch_bo_michael.py:1854`, `graph/config.py:35`, `graph/closed_loop.py:168`, `botorch_predict.py:63`
 

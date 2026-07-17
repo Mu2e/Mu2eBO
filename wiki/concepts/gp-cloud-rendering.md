@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-10 (2^22 pushforward: chunked predict + O(N log N) pareto2d_idx required)
+**Updated:** 2026-07-17 (2^22 pushforward: chunked predict + O(N log N) pareto2d_idx required)
 
 ## Scaling the pushforward past 2^20 needs two mechanical fixes (2026-07-10)
 Bumping `N` in `gp_predict_foilsflash_perpot_cloud.py` beyond 2^20 hits two
@@ -332,7 +332,7 @@ So "picks land where cloud is sparse" is the expected mode, but for two layered 
 **Run1A movable-target overlay added 2026-06-17 (lines 117-130).** `--honest-only` now re-introduces ONE class from `table.org` for physics context: the 20 "Movable target" (degrader) configs `v22`–`v41` (blue squares, `cp.CLASS_MARKERS/COLORS["Movable target"]`, zorder 8). These sit at sob≈nominal (~3.3) but calo≈1e-7–1e-6 — ~20–200× lower calo than the honest-hole foil champions (~2e-5). Filtered to `c > 0` (drops v22/v24 which have calo=0 in the table). The GP fit / Pareto / density / gold stars still derive solely from foilsf11+14, so this is a context overlay only, not a training input.
 
 ## Foils cloud renderers never plot picks (2026-06-17)
-Structural asymmetry: `cp.render_picks()` (cyan diamonds) is called ONLY by the **helical** scripts (`gp_predict_helical.py`, `botorch_predict_helical.py`, `overlay_gp_predictions_helical_mpl.py`, `overlay_gp_with_rin80_pin.py`). The **foils** cloud scripts (`gp_predict_foils_cloud.py`, `gp_predict_foils_cloud_anim.py`, `gp_predict_foils_v2v3_cloud.py`, `botorch_predict_foils_cloud.py`) only call `render_density` + `render_pareto` + `render_star` — no picks layer, no read of any `gp_explore_picks.tsv` for foils. So slide 4 of `docs/foils_talk.html` shows magenta evaluated stars on the GP-predicted Pareto line by *coincidence* (BO drove evals onto the front), not because the current round's proposals are overlaid. To add cyan-diamond picks to a foils cloud: (a) emit a `gp_explore_picks.tsv` from the foils picker (currently only written by the helical picker via `compute_explore_picks`), and (b) wire `cp.render_picks(...)` after `render_pareto` in the chosen renderer.
+Structural asymmetry: `cp.render_picks()` (cyan diamonds) is called ONLY by the **helical** scripts (`gp_predict_helical.py`, `botorch_predict_helical.py`, `overlay_gp_predictions_helical_mpl.py`, `overlay_gp_with_rin80_pin.py`). The **foils** cloud scripts (`gp_predict_foils_cloud.py`, `gp_predict_foils_cloud_anim.py`, `gp_predict_foils_v2v3_cloud.py`, `botorch_predict_foils_cloud.py`) only call `render_density` + `render_pareto` + `render_star` — no picks layer, no read of any `gp_explore_picks.tsv` for foils. So slide 4 of `docs/foils_talk.html` shows magenta evaluated stars on the GP-predicted Pareto line by *coincidence* (BO drove evals onto the front), not because the current round's proposals are overlaid. To add cyan-diamond picks to a foils cloud: (a) emit a `gp_explore_picks.tsv` from the foils picker (historically written only by the helical picker via `compute_explore_picks` — mode retired 2026-07-12, so nothing produces the file today), and (b) wire `cp.render_picks(...)` after `render_pareto` in the chosen renderer.
 
 ## Anim wall-time (2026-06-17) — `gp_predict_foils_cloud_anim.py` ~2-3h single-core
 `mmackenz_table_plots/gp_predict_foils_cloud_anim.py` re-fits **two GPs** (sob + log-calo) **from scratch per cumulative cohort** (`main()` loop at `:124-134`), then predicts on **N=65,536 Sobol** (`:83`). 16-20 cohorts × growing n (3 → 73 v1+v2 rows) at `O(n³)` fit + `O(N·n²)` predict ⇒ ~7-8 min/frame, ~134 min wall on 1 core (observed 2026-06-17: 2:13 CPU at frame ~last). No fit caching, no parallelism. **Cheap wins (none landed):** drop N to 8192 (8×), `n_restarts_optimizer=0` in `make_gp()` (`:29-33`) — restart loop dominates on small-n fits — or skip early `n<10` cohorts. Not a bug, just a perf gotcha when invoking outside the 4-hourly cron.
@@ -766,8 +766,8 @@ corner. Both observations are simultaneously true.
 **Harvest sanity (parallel agent probe, 2026-06-06).** All 4 outliers
 healthy: `stopping_factor≈0.158`, `ce_simulated_events≈465k-497k`,
 `calo_files_seen=183-200`, `calo_total=53-70` (low but nonzero — not
-graph015 calo=0, not calo-constant-across-helical bit-identical, not
-stage-out-rename-race partial). Genuine geometry sweet spots — all 4
+graph015 calo=0, not [[calo-constant-across-helical]] bit-identical, not
+[[stage-out-rename-race]] partial). Genuine geometry sweet spots — all 4
 share signature `rOut_up=250, rOut_dn=250, hT_up=1.0, f_up=0.0` (thick
 maxed-radius upstream foils, zero up-extras, varying downstream). Basin
 contains ~5 of 117 leaderboard rows; nearest neighbors at L2≥0.26 have
@@ -782,7 +782,10 @@ widens visible tails for the *high-sob* star (sob=3.87, GP-predicted-3.83)
 but is useless for the 4 low-calo outliers.
 
 ### Foils cloud PNG file-map (2026-06-04) — which script writes which deck image
-The deck (`docs/foils_talk.md`) embeds TWO near-identical-looking foils clouds
+(Slide numbers below refer to the PRE-SPLIT 26-slide deck, archived same-day
+to `docs/foils_talk_full.md` when the concise 8-slide `docs/foils_talk.md`
+split off — see [[refresh-foils-slides]].)
+That pre-split deck embeds TWO near-identical-looking foils clouds
 from confusingly-named files; disambiguated by reading each PNG's embedded
 title:
 - **slide 11** `gp_predicted_foils_cloud.png` — written by
@@ -882,7 +885,7 @@ Only FT08R00_00 (geom mtime 2026-05-26 17:20) onward carries the key.
 - **Post-2026-05-26 dispatcher-era rows:** ~12 (FT08, TWB A/B pairs) —
   explicit per-row tracer via `useTwistedBox` key; the only era with
   guaranteed-clean twisted-box.
-- **mmackenz priors** (10 rows `v100`–`v109`, `v111` via
+- **mmackenz priors** ([[mmackenz-priors]] — 10 rows `v100`–`v109`, `v111` via
   `HelicalMode.load_priors()` at `autoresearch_bo_michael.py:415`) are
   tessellated-era. The v111 "beyond Pareto" anomaly is the tessellated-vs-
   twisted-box 2.2× calo offset documented in

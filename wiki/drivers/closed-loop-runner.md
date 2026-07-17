@@ -637,7 +637,7 @@ grid queue was empty.
     (~50 min/10-round campaign); safe to drop to 120s (write rate ~0.01/s).
 
 ## Cross-links
-- Related: [[graph-runner]], [[closed-loop-bo-design]], [[bo-helical]],
+- Related: [[tests]], [[graph-runner]], [[closed-loop-bo-design]], [[bo-helical]],
   [[batch-bo]], [[autoresearch-bo-michael]], [[scalarized-objective]],
   [[kerberos-mid-run-expiry]], [[g4-speed-knobs]]
 - Regression tests: [[tests]]

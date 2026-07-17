@@ -1,10 +1,10 @@
 # bo-ipa — inner proton absorber 5D BO
 
 **Type:** project
-**Status:** active but SATURATING — 70 evals (ipa04–11); high-S/√B corner locked
-at sob=3.31 since ipa06 (~40 flat evals); Pareto front's low-edep side still
-nibbling. Headline physics solid (deployed thickness near-optimal). α vestigial.
-**Updated:** 2026-06-27
+**Status:** dormant — WOUND DOWN 2026-06-27 at 70 evals (ipa04–11): high-S/√B
+corner locked at sob=3.31 since ipa06 (~40 flat evals). Headline physics solid
+(deployed thickness near-optimal). α vestigial.
+**Updated:** 2026-07-17
 
 ## Summary
 Optimize the **Run1A inner proton absorber (IPA)** geometry to trade **signal
@@ -250,7 +250,7 @@ No commit/push (operator reviews, like foils). Refresh both PNGs as rounds land.
   point, submit one config at those values.)
 
 ## Cross-links
-- Related: [[bo-foils]] (predecessor mode pattern + qNEHVI machinery),
+- Related: [[bo-foilsflash]] (clone of this mode's structure), [[bo-foils]] (predecessor mode pattern + qNEHVI machinery),
   [[scalarized-objective]], [[uproot-cannot-read-steppointmc]] (StrawGasStep
   needs PyROOT under muse, not uproot), [[bo-foilsflash]]
 - Source files: `autoresearch_bo_michael.py` (IPAMode),

@@ -159,7 +159,7 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
 - **Round 3 EXECUTED 2026-07-17** (user-approved "do the remaining items"):
   (a) deck-trio RETIRED as a coordinated pass — 3 tools + 4 truly-orphaned
   PNGs deleted (3 of the 7 script-managed PNGs KEPT: cited by wiki concept
-  pages), local refresh-foils-slides command deleted, refresh-deck user skill
+  pages), local [[refresh-foils-slides]] command deleted, refresh-deck user skill
   + refresh-foils-talk project skill re-worded, wiki driver page superseded;
   (b) aitools RELOCATED to /exp/mu2e/app/users/oksuzian/aitools, 12 symlinks
   re-pointed ([[aitools-skills-symlink-dependency]] resolved); (c) graph.run

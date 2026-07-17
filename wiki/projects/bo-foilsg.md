@@ -2,7 +2,7 @@
 
 **Type:** project
 **Status:** active
-**Updated:** 2026-06-12
+**Updated:** 2026-07-17
 
 ## Summary
 12-D BO over a 49-foil stack partitioned into 4 contiguous z-groups (sizes
@@ -62,9 +62,11 @@ the base 0.0528 mm halfThickness is the bottleneck. Mode wired end-to-end
 - **foilsg02 closed 2026-06-10 (qlnei, q=10, max-rounds=5).** Final
   leaderboard 44 rows (foilsg01:4 sobol + foilsg02:40). Per-round top sob:
   R0 **1.23** → R1 **1.49** → R2 **1.66** → R3 **2.10** → R4 **2.69**.
-  Trajectory monotone and still steepening at exit (R3→R4 was +28%, the
-  biggest jump). **No saturation yet** — final-round picker still actively
-  exploiting; max_rounds=5 cut it off mid-climb. **Gap to foilsf plateau
+  Trajectory monotone and steepening at exit (R3→R4 was +28%, the
+  biggest jump). **No saturation at the 2026-06 exit** — the final-round
+  picker was still exploiting when max_rounds=5 cut it off mid-climb; the
+  line has been dormant since (candidate venue for the botorch-0.18 high-d
+  test, [[ml-stack-review-2026-07]]). **Gap to foilsf plateau
   3.89 is ~31% (sob)** — open question whether free-base can clear it or
   whether the 12-D space just needs more evals to catch up to foilsf's 297.
   Operator decision pending on foilsg03 (more rounds, possibly larger q).

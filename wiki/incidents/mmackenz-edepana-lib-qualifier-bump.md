@@ -1,7 +1,7 @@
 # EdepAna harvest broke — mmackenz rebuilt Run1BAna p094→p101 (hardcoded lib path died)
 
 **Type:** incident
-**Status:** RESOLVED 2026-06-26 — EdepAna built into our own muse, pipeline repointed; verified by manual harvest AND a live campaign (foilsf26 R0 +10 rows clean, vs foilsf25 all-metrics_none); no longer depends on mmackenz's area
+**Status:** resolved 2026-06-26 — EdepAna built into our own muse, pipeline repointed; verified by manual harvest AND a live campaign (foilsf26 R0 +10 rows clean, vs foilsf25 all-metrics_none); no longer depends on mmackenz's area
 **Updated:** 2026-06-26
 
 ## Summary

@@ -67,7 +67,7 @@ already paid to learn.
 
 - **Scan_logs gating must precede leaderboard inclusion.** Inner graph
   has a `scan_logs` node that detects `GeomSolids1001` /
-  `tessellated-solid-facet-orientation` floods (see incident page). Today
+  [[tessellated-solid-facet-orientation]] floods (see incident page). Today
   it logs and continues. For closed-loop, hits there mean the row is
   physics-broken (count saturated by stuck-track inflation) and must NOT
   feed the GP — else round N+1's picks chase a phantom Pareto frontier.
@@ -109,7 +109,7 @@ already paid to learn.
   brokenness, not a slow-but-correct simulation.
 
 ## Cross-links
-- Related: [[batch-bo]], [[events-per-job-mid-flight-edit]],
+- Related: [[mode-registry-childtracker-design]], [[batch-bo]], [[events-per-job-mid-flight-edit]],
   [[tessellated-solid-facet-orientation]],
   [[orchestrator-evaluation-2026-05]], [[bo-helical]], [[architecture-friction-survey-2026-07]], [[mode-registry-childtracker-design]], [[qlnei-sob-only-picker]], [[saturation-is-acquisition-relative]]
 - Source: `graph/run.py:51` (sqlite connect, no WAL today),

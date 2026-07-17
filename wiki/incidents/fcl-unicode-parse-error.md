@@ -13,7 +13,7 @@ because the FTFP_BERT comment block contained a Unicode minus sign
 
 ## CRITICAL distinction: FHiCL (strict) vs SimpleConfig (lenient) — 2026-06-19
 **This only affects `.fcl` files parsed by FHiCL. Geom `.txt` files parsed by
-SimpleConfig TOLERATE non-ASCII.** Recurred 2026-06-19 on the bo-ipa
+SimpleConfig TOLERATE non-ASCII.** Recurred 2026-06-19 on the [[bo-ipa]]
 `pipeline_templates/mustops_pileup/template.fcl` — a Unicode arrow `→` (U+2192)
 in a comment killed `mu2ejobdef --embed` at line 6 (mubeam/concat/mustops_ce had
 already succeeded; only the new stage's FCL broke). The confusing part: the

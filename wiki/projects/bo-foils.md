@@ -321,7 +321,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
     clamp on search space needed.
   - Logs: `bo_foils_preflight/foilsP0_{AU,AD,AS}.log`.
 
-- **No mmackenz priors.** mmackenz's v22-v50 foil-stack runs (consumed by
+- **No mmackenz priors** (see [[mmackenz-priors]]). mmackenz's v22-v50 foil-stack runs (consumed by
   [[bo-michael]]) are 7D over different knobs (rIn / halfLength4 / holeRadius
   / col5) and don't project onto this extras-only space. In **v1 (5D)**
   `load_priors` returned `[]` outright.
@@ -411,7 +411,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
   the cron-refreshed v3only cloud).
 
 ## Cross-links
-- Related: [[bo-helical]] (parallel BO line; saturation motivated this),
+- Related: [[bo-foilsflash]] (foilsf geometry, flash objective), [[bo-helical]] (parallel BO line; saturation motivated this),
   [[bo-michael]] (original 7D foil-stack mode this supersedes for
   extras-only),
   [[stopping-target-foil-base-spec]] (load-bearing base + scalar-holeRadius

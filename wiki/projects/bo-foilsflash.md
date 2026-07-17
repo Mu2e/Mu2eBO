@@ -10,7 +10,7 @@
   a live caution against single-campaign saturation calls. NOT decisive: 3.86 vs 3.84 ≈ **1.3σ**
   at σ_sob 0.4% → needs a 400-job confirm re-eval before champion status (same flat-top-tie
   discipline as the 3.31 flash champion). Line is **near-saturated, not saturated**.
-**Updated:** 2026-07-16 (foilsflash18 new BO sob record 3.86; near-saturated not saturated)
+**Updated:** 2026-07-17 (foilsflash18 new BO sob record 3.86; near-saturated not saturated)
 
 ## Summary
 A new BO line that optimizes the **same foilsf 6D extra-foil geometry** and the
@@ -245,7 +245,7 @@ stage + tracker-edep gallery harvest).
 - **elebeam_flash SEED is shared across configs — GOTCHA for replicas + flash correlations (2026-06-30).**
   `pipeline_templates/elebeam_flash/template.fcl` pins `services.SeedService.baseSeed: 1` and
   `physics.filters.beamResampler.mu2e.MaxEventsToSkip: 319542`, and the submit run_number is
-  fixed (1810). So per-config the seed structure is IDENTICAL — only the per-job subrun varies
+  fixed (1803 — `pipeline.py:232`; an earlier revision of this page said 1810, which is run1b_mubeam's run number). So per-config the seed structure is IDENTICAL — only the per-job subrun varies
   WITHIN a cluster. Consequences: (1) two SEPARATE elebeam_flash clusters with the same seed
   re-sample the SAME EleBeamCat events → naive same-seed "replicas" are USELESS (identical);
   the correct way to cut σ_flash is a BIGGER SINGLE cluster (more jobs = more independent
