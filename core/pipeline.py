@@ -65,7 +65,7 @@ def _submit_lock(stage: str):
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 # --- Paths fixed at the code-repo level (config-independent) ---
-TEMPLATES_ROOT = Path(__file__).resolve().parent.parent / "pipeline_templates"
+TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from config import (  # noqa: E402

@@ -402,8 +402,8 @@ class FoilsMode(BOMode):
     name = "foils"
     leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foils_v2.tsv"
     leaderboard_v1 = ROOT / "leaderboards" / "leaderboard_bo_foils_v1.tsv"
-    proposal_dir = ROOT / "bo_foils_proposals"
-    preflight_dir = ROOT / "bo_foils_preflight"
+    proposal_dir = ROOT / "bo_work" / "proposals" / "foils"
+    preflight_dir = ROOT / "bo_work" / "preflight" / "foils"
 
     # Base 37-foil DOE-2017 spec.
     BASE_N_FOILS = 37
@@ -670,8 +670,8 @@ class FoilsFlashMode(FoilsFracMode):
     Point.calo slot (reused, like ipa reuses it for trk_edep)."""
     name = "foilsflash"
     leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foilsflash.tsv"
-    proposal_dir = ROOT / "bo_foilsflash_proposals"
-    preflight_dir = ROOT / "bo_foilsflash_preflight"
+    proposal_dir = ROOT / "bo_work" / "proposals" / "foilsflash"
+    preflight_dir = ROOT / "bo_work" / "preflight" / "foilsflash"
 
     # Fresh line, no priors -> Sobol-seed the first skopt-fallback round.
     N_INITIAL_POINTS = 10
@@ -735,8 +735,8 @@ class FoilsGroupMode(BOMode):
     """
     name = "foilsg"
     leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foilsg.tsv"
-    proposal_dir = ROOT / "bo_foilsg_proposals"
-    preflight_dir = ROOT / "bo_foilsg_preflight"
+    proposal_dir = ROOT / "bo_work" / "proposals" / "foilsg"
+    preflight_dir = ROOT / "bo_work" / "preflight" / "foilsg"
 
     N_FOILS = 49
     GROUP_SIZES = (12, 13, 12, 12)  # sum == 49; center-loaded
@@ -882,8 +882,8 @@ class IPAMode(BOMode):
     """
     name = "ipa"
     leaderboard = ROOT / "leaderboards" / "leaderboard_bo_ipa.tsv"
-    proposal_dir = ROOT / "bo_ipa_proposals"
-    preflight_dir = ROOT / "bo_ipa_preflight"
+    proposal_dir = ROOT / "bo_work" / "proposals" / "ipa"
+    preflight_dir = ROOT / "bo_work" / "preflight" / "ipa"
 
     # Fresh line, no priors -> Sobol-seed the first skopt-fallback round (mirrors
     # ProdTargetMode; see wiki/incidents/prodtarget-propose-skopt-empty-init.md).
@@ -989,8 +989,8 @@ class ProdTargetMode(BOMode):
     """
     name = "prodtarget"
     leaderboard = ROOT / "leaderboards" / "leaderboard_bo_prodtarget_v0.tsv"
-    proposal_dir = ROOT / "bo_prodtarget_proposals"
-    preflight_dir = ROOT / "bo_prodtarget_preflight"
+    proposal_dir = ROOT / "bo_work" / "proposals" / "prodtarget"
+    preflight_dir = ROOT / "bo_work" / "preflight" / "prodtarget"
 
     # No free priors (other modes load ~100 from mmackenz/geom_params.tsv).
     # Let skopt run its built-in Sobol-init for the first 10 asks so the GP
@@ -1244,8 +1244,8 @@ class ProdTarget6DMode(ProdTargetMode):
     """
     name = "prodtarget6d"
     leaderboard = ROOT / "leaderboards" / "leaderboard_bo_prodtarget6d_v0.tsv"
-    proposal_dir = ROOT / "bo_prodtarget6d_proposals"
-    preflight_dir = ROOT / "bo_prodtarget6d_preflight"
+    proposal_dir = ROOT / "bo_work" / "proposals" / "prodtarget6d"
+    preflight_dir = ROOT / "bo_work" / "preflight" / "prodtarget6d"
 
     # Mid-window: (LUG_OVER_THICK_MARGIN_MM + LUG_OVER_THICK_MAX_MM)/2 = 0.75
     LUG_MID_OFFSET_MM = 0.75

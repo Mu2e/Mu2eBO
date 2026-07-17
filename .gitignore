@@ -11,7 +11,9 @@ __pycache__/
 
 # =============================================================================
 # Per-iteration BO workspaces (rendered proposals, preflight scratch)
+# Consolidated 2026-07-17 into bo_work/{proposals,preflight}/<mode>/.
 # =============================================================================
+bo_work/
 bo_*_preflight/
 bo_*_proposals/
 
@@ -25,7 +27,13 @@ gdml_dumps/
 *.art
 
 # =============================================================================
-# LaTeX build intermediates (slides/ beamer deck)
+# LaTeX build intermediates (docs/slides/ beamer deck; moved there 2026-07-17)
+docs/slides/*.aux
+docs/slides/*.nav
+docs/slides/*.out
+docs/slides/*.snm
+docs/slides/*.toc
+docs/slides/*.vrb
 # =============================================================================
 slides/*.aux
 slides/*.nav
