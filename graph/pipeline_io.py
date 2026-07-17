@@ -1,13 +1,10 @@
 """Thin wrappers around autoresearch_bo_michael.py + pipeline.py.
 
-Phase 1 — only the BO seam (propose / preflight / evaluate) is wired.
 BO ops go in-process via `import autoresearch_bo_michael as bo` (the BOMode
-adapters are clean — no need to fork a subprocess for those). Preflight and
-evaluate use subprocess to keep their I/O side-effects firewalled from the
-long-lived LangGraph server process.
-
-Phase 2 will add submit_stage / poll_stage / harvest wrappers that shell out
-to pipeline.py.
+adapters are clean — no need to fork a subprocess for those). Preflight,
+evaluate, and the grid-stage wrappers (run_stage / run_harvest, which shell
+out to pipeline.py's idempotent verbs) use subprocess to keep their I/O
+side-effects firewalled from the long-lived runner process.
 """
 from __future__ import annotations
 
@@ -143,11 +140,10 @@ def mock_metrics(x_point: list[float], mode: str = DEFAULT_MODE) -> dict:
 
     Dimension-generic: normalizes each knob against the mode's registry
     bounds (modes.SPECS[mode].bounds_lo/hi), so every numeric mode works
-    (4D helical … 12D foilsg — the old 4D/5D-only version raised ValueError
-    for all the higher-D lines). sob peaks at mid-range of each knob; calo
-    grows with the last two normalized knobs ("more material"). michael's
-    Categorical space has no numeric bounds — falls back to a neutral 0.5
-    per knob (a smoke test only needs *a* number).
+    (5D ipa … 12D foilsg). sob peaks at mid-range of each knob; calo grows
+    with the last two normalized knobs ("more material"). Knobs without
+    numeric bounds fall back to a neutral 0.5 (vestigial — michael's
+    Categorical space was the only user, retired 2026-07-12).
     """
     import math
     spec = _modes.SPECS[mode]

@@ -1,4 +1,4 @@
-"""Graph nodes for the BO iteration (Phase 1: mock grid).
+"""Graph nodes for the BO iteration.
 
 Each node is a pure function: state in → partial state out. LangGraph merges
 the returned dict into the running state and checkpoints it.

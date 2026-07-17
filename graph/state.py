@@ -21,7 +21,9 @@ class StageStatus(TypedDict, total=False):
     cluster_id: Optional[str]
     n_done: int
     n_failed: int
-    status: Literal["pending", "submitted", "running", "done", "failed"]
+    # Values actually emitted: read_stage_status → "pending"/"in_flight"/
+    # "done"; node failure paths → "failed".
+    status: Literal["pending", "in_flight", "done", "failed"]
     last_poll_ts: Optional[float]
 
 

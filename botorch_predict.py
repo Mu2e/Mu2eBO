@@ -67,7 +67,7 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
                          "michael's Real+Categorical space needs a mixed model.")
     spec = MODE_SPECS[mode]
     bo_mode = bo.MODES[mode]
-    # Match the skopt shims (gp_predict_*.py): seeds = priors + history.
+    # Seeds = priors + history.
     # For foils v2, priors are the projected v1 n=6/6 subset (~51 rows);
     # without them an early v2 run with zero leaderboard rows has nothing
     # to fit on.
@@ -383,9 +383,9 @@ def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
 def _emit_picks(cands, int_dims):
     """Cast (q, d) tensor -> list of native-typed tuples.
 
-    int_dims get round() + int(); other dims get float(). Native types only
-    (msgpack-safe — see gp_predict_foils.py:62-67 for the LangGraph
-    constraint that motivates this).
+    int_dims get round() + int(); other dims get float(). Native types only:
+    LangGraph's SqliteSaver checkpoint serializer (msgpack) rejects numpy
+    scalars — see wiki/incidents/langgraph-checkpoint-numpy-int64.md.
     """
     int_set = set(int_dims)
     out = []
@@ -472,7 +472,7 @@ def compute_explore_picks(q: int = 5,
                           picker: str = "qnehvi",
                           x_pending: list | None = None,
                           ) -> list[tuple]:
-    """qNEHVI replacement matching gp_predict_{foils,helical}.compute_explore_picks.
+    """Explore-pick engine (successor of the retired off-repo skopt shims).
 
     picker = "qnehvi" (default, multi-objective Pareto-HV), "qlnei"
     (single-objective qLogNoisyExpectedImprovement on sob only — drops calo

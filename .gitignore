@@ -2,9 +2,7 @@
 # Runtime state (LangGraph, Python, build, etc.)
 # =============================================================================
 graph_data/
-.venv-graph
-.venv-botorch
-.langgraph_api/
+.venv-*
 .claude/
 build/
 __pycache__/
@@ -14,12 +12,8 @@ __pycache__/
 # =============================================================================
 # Per-iteration BO workspaces (rendered proposals, preflight scratch)
 # =============================================================================
-bo_helical_preflight/
-bo_helical_proposals/
-bo_michael_preflight/
-bo_michael_proposals/
-bo_foils_preflight/
-bo_foils_proposals/
+bo_*_preflight/
+bo_*_proposals/
 
 # =============================================================================
 # Driver runtime logs and scratch
@@ -29,6 +23,16 @@ gdml_dumps/
 *.log
 *.root
 *.art
+
+# =============================================================================
+# LaTeX build intermediates (slides/ beamer deck)
+# =============================================================================
+slides/*.aux
+slides/*.nav
+slides/*.out
+slides/*.snm
+slides/*.toc
+slides/*.vrb
 
 # =============================================================================
 # Editor / OS cruft
@@ -43,6 +47,7 @@ gdml_dumps/
 *.bak
 *.bak_*
 *.bak.*
+*.bak-*
 *.broken.tsv
 
 # =============================================================================
