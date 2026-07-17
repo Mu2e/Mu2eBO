@@ -163,6 +163,28 @@ coupling below is real but was fully resolved in one verified pass:
   TSV in `leaderboards/`. This is the papercut the keep-flat recommendation
   was avoiding; it's the accepted cost of the tidier root.
 
+### Directory consolidation (2026-07-17, round 2 of the reorg)
+
+Second declutter pass on root DIRECTORIES:
+- **7 gitignored driver-scratch dirs → one `bo_work/`**:
+  `bo_<mode>_proposals/` + `bo_<mode>_preflight/` collapse into
+  `bo_work/{proposals,preflight}/<mode>/`. The 12 `proposal_dir`/
+  `preflight_dir` constants in the driver were rewritten literal-for-literal
+  (preserving the `foilsf`-shares-`foils` inheritance: FoilsFracMode doesn't
+  override the dirs, so foilsf still lands in `bo_work/{…}/foils/`). No
+  off-repo/test coupling — pure driver scratch.
+- **`pipeline_templates/` → `core/pipeline_templates/`**: it's read only via
+  the single `TEMPLATES_ROOT` seam (`core/pipeline.py:68`, then :156/168/234/379),
+  so the move + reverting TEMPLATES_ROOT to `parent/` was self-contained; the
+  "templates live next to this script" docstring is true again.
+- **`slides/` → `docs/slides/`** (frozen May deck, no code refs). Gotcha:
+  the LaTeX-byproduct ignore rule `slides/*.aux` is path-anchored and did NOT
+  follow the move, so `git add docs/slides` re-staged the `.aux/.nav/.out/
+  .snm/.toc/.vrb` — unstaged them and repointed the rule to `docs/slides/*`.
+- Root now has NO loose `.py`/`.tsv` and the BO scratch is one dir instead of
+  7. Verified: 158 tests + live smokes (per-mode dirs under `bo_work/`,
+  TEMPLATES_ROOT + template.fcl, graph build, `core/pipeline.py` CLI).
+
 ### Original coupling analysis (why keep-flat was recommended)
 
 - **The 5 `.py` files are a load-bearing flat namespace**: ~30 call sites

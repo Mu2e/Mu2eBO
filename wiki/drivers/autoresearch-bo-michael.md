@@ -4,7 +4,7 @@ title: autoresearch_bo_michael.py — driver
 description: '`propose | evaluate | preflight` (7 modes; michael/helical + show-priors
   retired 2026-07-12)'
 status: active
-timestamp: '2026-07-12'
+timestamp: '2026-07-17'
 updated_note: live-verb map from size-reduction survey
 ---
 
@@ -100,12 +100,15 @@ subcommands, each independently runnable.
 - **`foilsf` reuses the `foils` dirs.** `FoilsFracMode` subclasses
   `FoilsMode` and does NOT override `preflight_dir`/`proposal_dir`/
   `leaderboard` — so foilsf preflight logs land in
-  **`bo_foils_preflight/`** and proposals in `bo_foils_proposals/`
-  (there is no `bo_foilsf_preflight/`). The leaderboard IS separate
-  (`leaderboard_bo_foils_v3.tsv`, overridden). `foilsg` does override
-  all three → `bo_foilsg_preflight/`, `bo_foilsg_proposals/`,
-  `leaderboard_bo_foilsg.tsv`. When hunting a foilsf<NN> log, look under
-  `bo_foils_preflight/`, not a foilsf-named dir.
+  **`bo_work/preflight/foils/`** and proposals in `bo_work/proposals/foils/`
+  (there is no `foilsf` dir). The leaderboard IS separate
+  (`leaderboards/leaderboard_bo_foils_v3.tsv`, overridden). `foilsg` does
+  override all three → `bo_work/preflight/foilsg/`,
+  `bo_work/proposals/foilsg/`, `leaderboards/leaderboard_bo_foilsg.tsv`.
+  When hunting a foilsf<NN> log, look under `bo_work/preflight/foils/`,
+  not a foilsf-named dir. (2026-07-17 reorg: the flat `bo_<mode>_{proposals,
+  preflight}/` dirs collapsed into `bo_work/{proposals,preflight}/<mode>/`;
+  driver + TSVs now live in `core/` + `leaderboards/`.)
 
 ## Cross-links
 - Projects: [bo-michael](/projects/bo-michael.md), [bo-helical](/projects/bo-helical.md), [bo-foils](/projects/bo-foils.md) (modes registered in `MODES`)

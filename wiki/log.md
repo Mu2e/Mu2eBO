@@ -7,6 +7,7 @@ superseded, linted.
 
 ## 2026-07-17
 
+- updated DIR CONSOLIDATION: 7 bo_<mode>_{proposals,preflight}/ → one bo_work/{proposals,preflight}/<mode>/; pipeline_templates→core/; slides→docs/slides/; 158 tests green — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
 - updated ROOT REORG EXECUTED (user override of keep-flat): 5 modules→core/, 13 leaderboards→leaderboards/, 8 pending→pending/; sys.path rebased (bare imports unchanged), 20 off-repo plotters rewritten, 158 tests + live smokes green — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md)
 - updated root .py/.tsv reorg investigated → KEEP FLAT: py files load-bearing bare-name namespace (~30 imports), TSVs pinned by ~15 hardcoded names in off-repo /data plotters — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md)
 - updated lock anchors relocated to locks/ via _lock_path() seam; suite green with flock broken exposed zero e2e lock coverage — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
