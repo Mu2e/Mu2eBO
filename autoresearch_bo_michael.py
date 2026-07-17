@@ -44,17 +44,29 @@ from pathlib import Path
 import modes as _modes  # noqa: E402
 
 
+def _lock_path(target: Path) -> Path:
+    """Flock anchor for `target`: <target's dir>/locks/<target's name>.lock.
+
+    All runtime lock files live in a dedicated locks/ folder next to the
+    thing they guard (relative to the target's parent, NOT a global constant,
+    so tests that point a mode's TSVs at a tmp dir keep their lock isolation).
+    Lock files are created if absent and intentionally NEVER deleted —
+    deleting one while a process holds it would let the next opener lock a
+    fresh inode at the same path, silently splitting the mutual exclusion.
+    """
+    lock_dir = target.parent / "locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    return lock_dir / (target.name + ".lock")
+
+
 @contextmanager
 def _flock_ex(target: Path):
-    """Exclusive-lock a sibling <target>.lock file for the duration of the block.
+    """Exclusive-lock target's locks/-dir anchor for the duration of the block.
 
     Used by leaderboard/pending TSV writers when multiple closed-loop child
-    processes may append concurrently. The lock file is created if absent
-    and intentionally NEVER deleted — keeping it around lets a later writer
-    acquire-without-create.
+    processes may append concurrently.
     """
-    lock_path = target.with_suffix(target.suffix + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = _lock_path(target)
     with open(lock_path, "w") as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
         try:
@@ -65,17 +77,14 @@ def _flock_ex(target: Path):
 
 @contextmanager
 def _flock_sh(target: Path):
-    """Shared-lock the sibling <target>.lock for the duration of the block.
+    """Shared-lock target's locks/-dir anchor for the duration of the block.
 
     Paired with _flock_ex on the same path: writers (append_history) hold EX
     and block readers; readers (load_history) hold SH and block only writers,
     not each other. Closes the torn-row race where a reader could observe a
     partially-written leaderboard line mid-append.
     """
-    lock_path = target.with_suffix(target.suffix + ".lock")
-    # No mkdir here: readers (load_history/load_pending) only lock after
-    # target.exists(), so the parent dir already exists — writers' _flock_ex
-    # keeps the mkdir for the first-ever write.
+    lock_path = _lock_path(target)
     with open(lock_path, "w") as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_SH)
         try:
@@ -1342,7 +1351,7 @@ MODES: dict[str, BOMode] = {
 def cmd_propose(args):
     mode = MODES[args.mode]
     names = args.config_names
-    lock_path = mode.leaderboard.parent / f".propose_{mode.name}.lock"
+    lock_path = _lock_path(mode.leaderboard.with_name(f"propose_{mode.name}"))
     with lock_path.open("w") as lock_f:
         fcntl.flock(lock_f, fcntl.LOCK_EX)
         return _cmd_propose_locked(args, mode, names)

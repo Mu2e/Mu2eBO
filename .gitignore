@@ -51,7 +51,8 @@ slides/*.vrb
 *.broken.tsv
 
 # =============================================================================
-# Runtime locks (cross-process file locks)
+# Runtime locks (cross-process file locks; anchors live in locks/)
+locks/
 # =============================================================================
 *.lock
 
