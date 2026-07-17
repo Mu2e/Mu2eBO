@@ -167,6 +167,13 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
   synthesizing fake metrics; closed_loop children already passed --no-mock);
   (d) data sediment purged (37 files + 4 retired workspace dirs; foilsg
   quarantine + active foilsflash locks kept).
+  **Round-3 gotcha that FIRED live:** `git add docs/` blanket-swept the
+  under-review deck files (foilsflash_talk.*, cloud PNG) AND untracked docs
+  into the trio commit — exactly what the refresh-foils-talk skill warns
+  against. Recovery (unpushed only): `git reset --soft <pre-commit>` →
+  `git restore --staged <deck files>` → re-commit each group with explicit
+  pathspecs (`git commit -m ... -- <paths>`). When deleting files under
+  docs/, stage the named deletions, never the directory.
 - Still open (all gated, not forgotten): cluster.txt literal consolidation
   (only remaining unverified candidate); skopt retirement (needs a
   replacement lockstep invariant for build_space before deletion); venv
