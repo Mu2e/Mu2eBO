@@ -134,6 +134,30 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
   retired-feature comments at `pipeline.py:425`, `pipeline_io.py:146-150`,
   `botorch_predict.py:387,475`.
 
+## Key facts — root .py / .tsv reorganization: KEEP FLAT (2026-07-17)
+
+Investigated moving the 5 root `.py` modules into a package and the 22 root
+TSVs into a `leaderboards/` subdir. **Both are net-negative — leave flat.**
+
+- **The 5 `.py` files are a load-bearing flat namespace**: ~30 call sites
+  `import` them by bare name (`modes`, `harvest`, `autoresearch_bo_michael`,
+  `pipeline`, `botorch_predict`) from graph/, tests/, tools/, /data scripts,
+  and each other; resolved via 10+ scattered `sys.path.insert` (one
+  hardcoded-absolute at `graph/pipeline_io.py:22`). Plus 3 subprocess path
+  constants (`graph/config.py:21-22,193`) and the `pipeline.py` /
+  `python -m graph.run` CLI entrypoints. Packaging = ~30 import rewrites in
+  the exact subprocess/sys.path machinery behind past incidents, for zero
+  functional gain. 5 flat modules is a conventional library layer under the
+  already-packaged `graph/`.
+- **The 22 root TSVs can't move because off-repo plotters hardcode their
+  filenames** — see [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md) "REVERSE coupling":
+  ~15 `ROOT / "leaderboard_bo_<mode>.tsv"` constants across ~10 unversioned
+  /data scripts, silent breakage on move. The `_bo_<mode>` prefix already
+  sorts them into coherent groups. Even `leaderboard_bo.tsv` (retired) is
+  pinned by absolute path in `overlay_bo_on_s_sqrt_b.py:25`, so it can't
+  even be renamed. **The real underlying friction is the sys.path.insert
+  thicket, not file placement** — a separate (architecture-review) task.
+
 ## Key facts — top-level FILE audit (2026-07-17): everything is a KEEP
 
 All 42 root files adjudicated; zero deletables left after the earlier

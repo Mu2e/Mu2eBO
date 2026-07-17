@@ -7,6 +7,7 @@ superseded, linted.
 
 ## 2026-07-17
 
+- updated root .py/.tsv reorg investigated → KEEP FLAT: py files load-bearing bare-name namespace (~30 imports), TSVs pinned by ~15 hardcoded names in off-repo /data plotters — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md)
 - updated lock anchors relocated to locks/ via _lock_path() seam; suite green with flock broken exposed zero e2e lock coverage — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
 - updated top-level FILE audit: all 42 root files are keeps; .env load-bearing via graph/run.py:34 load_dotenv, zero-byte locks intentionally permanent (flock docstring) — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 - updated all dormant preflight dirs archived (prodtarget6d/ipa/foilsg/prodtarget, counts verified, ~1.3 GB /app → 68 MB /data total) + grid_test* and autoresearch_runs/ parent deleted — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)

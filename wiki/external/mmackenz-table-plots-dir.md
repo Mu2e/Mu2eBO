@@ -5,7 +5,7 @@ description: off-repo /data dir holding ~20 unversioned picker/renderer scripts
   + artifacts; name is historical misnomer; 3 hardcoded repo refs; migration blocked
   while a closed-loop runs
 status: active
-timestamp: '2026-06-02'
+timestamp: '2026-07-17'
 ---
 
 # mmackenz_table_plots/ — off-repo analysis + picker scripts dir
@@ -37,6 +37,18 @@ artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
   - `graph/closed_loop.py:86` — `GP_SCRIPT_DIR` (picker import dir)
   - `botorch_predict.py:6` — docstring pointer to `gp_predict_{foils,helical}.py`
   - `autoresearch_bo_michael.py:76` — `GEOM_TSV = .../geom_params.tsv`
+- **REVERSE coupling (2026-07-17): these plotters hardcode the repo's
+  leaderboard FILENAMES**, which is why the root TSVs can't be moved into a
+  `leaderboards/` subdir. ~15 refs across ~10 scripts build
+  `ROOT / "leaderboard_bo_<mode>.tsv"` as module-level constants (e.g.
+  `gp_predict_foilsflash_cloud.py:27`, `saturation_foilsg.py:20-21`,
+  `foils_v2_loader.py:19-21`, `botorch_predict_helical.py:51-52`); even the
+  RETIRED mode-less `leaderboard_bo.tsv` is pinned by an ABSOLUTE path at
+  `overlay_bo_on_s_sqrt_b.py:25`. Moving/renaming any leaderboard breaks
+  these SILENTLY (deck-refresh `cp` succeeds against the stale PNG → no diff
+  to commit → half-refreshed deck, no error). Verdict: leave all root TSVs
+  in place; the `leaderboard_bo_<mode>` / `pending_bo_<mode>` prefix IS the
+  organization.
 - **Size breakdown (2026-06-02 `du`):** 2.2 GB total, but that's **1.6 GB of
   TSV/JSON** (sobol prediction dumps, scraped tables) — the actual size driver.
   Code is **147 KB** (all 20 `.py`); PNGs 4.6 MB (39); GIF 2.4 MB. For scale
