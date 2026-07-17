@@ -61,7 +61,6 @@ slides/*.vrb
 backing
 runs
 Run1BAna/
-aitools/
 
 # =============================================================================
 # Pending-BO in-flight queue (mutates on every iteration; not a durable record)
