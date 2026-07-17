@@ -1,30 +1,34 @@
-# foilsg grid tarball runs unpatched StoppingTargetMaker — scalar holeRadius fallback
+---
+type: incident
+title: foilsg grid tarball runs unpatched StoppingTargetMaker — scalar holeRadius
+  fallback
+description: grid tarball lacks holeRadii-vector patch; foilsg jobs silently build
+  uniform-hole stacks (scalar mean) or crash G4Tubs when mean > min rOut; ALL 62
+  foilsg rows tainted; foilsg05 7/10 'rename race' diagnosis retracted
+status: resolved
+status_note: 'fix landed + grid-verified 2026-06-12. Landed: patched `StoppingTargetMaker.{cc,hh}`
+  in `Offline_helical/` (holeRadii vector + length validation + "holeRadii vector
+  active (n=N)" canary print), `libmu2e_GeometryService.so` rebuilt clean; preflight
+  of the crashing foilsg06R00_00 geom under the patched env = PASS with canary (n=49),
+  0 GeomSolids; classifier fixed ([[preflight-past-init-false-pass]]); `MUSING_BY_MODE`
+  foils/foilsf/foilsg → `Offline_helical/setup_local.sh` (preflight parity); `pipeline.py`
+  `MUSE_TARBALL_BY_MODE` dispatch added (foils* → `Code_helical_holeradii.tar.bz2`,
+  michael/helical stay on Code_helical_base because Offline_helical''s Mu2eG4 lib
+  of May 16 predates the May-26 twistedbox fix); POISON-PILL scalar `holeRadius=1.0e6`
+  now emitted by FoilsMode + FoilsGroupMode geoms (unpatched env crashes loudly
+  instead of silently building uniform holes); foilsg leaderboard quarantined to
+  `.broken.tsv`. Tarball built + installed (`Code_helical_holeradii.tar.bz2`, 710
+  MB, packed lib verified to carry the canary string). **VERIFIED END-TO-END 2026-06-12:
+  grid replay `foilsgV01` (forced-x of foilsg06R00_07) ran the full patched chain
+  — preflight PASS with canary, mubeam 198/200, concat via cvmfs `--setup`, mustops_ce
+  191/200, harvest — and scored sob=2.57 vs the broken uniform-hole 3.16 for the
+  IDENTICAL x-point (19% difference = the holes are physically real now; real holes
+  remove stopping material, hence lower sob for this x).** foilsgV01 is row 1 of
+  the clean leaderboard. foilsg07 cleared to launch.'
+timestamp: '2026-06-12'
+---
 
-**Type:** incident
-**Status:** resolved — fix landed + grid-verified 2026-06-12. Landed: patched
-`StoppingTargetMaker.{cc,hh}` in `Offline_helical/` (holeRadii vector +
-length validation + "holeRadii vector active (n=N)" canary print),
-`libmu2e_GeometryService.so` rebuilt clean; preflight of the crashing
-foilsg06R00_00 geom under the patched env = PASS with canary (n=49), 0
-GeomSolids; classifier fixed ([[preflight-past-init-false-pass]]);
-`MUSING_BY_MODE` foils/foilsf/foilsg → `Offline_helical/setup_local.sh`
-(preflight parity); `pipeline.py` `MUSE_TARBALL_BY_MODE` dispatch added
-(foils* → `Code_helical_holeradii.tar.bz2`, michael/helical stay on
-Code_helical_base because Offline_helical's Mu2eG4 lib of May 16 predates
-the May-26 twistedbox fix); POISON-PILL scalar `holeRadius=1.0e6` now
-emitted by FoilsMode + FoilsGroupMode geoms (unpatched env crashes loudly
-instead of silently building uniform holes); foilsg leaderboard
-quarantined to `.broken.tsv`. Tarball built + installed
-(`Code_helical_holeradii.tar.bz2`, 710 MB, packed lib verified to carry
-the canary string). **VERIFIED END-TO-END 2026-06-12: grid replay
-`foilsgV01` (forced-x of foilsg06R00_07) ran the full patched chain —
-preflight PASS with canary, mubeam 198/200, concat via cvmfs `--setup`,
-mustops_ce 191/200, harvest — and scored sob=2.57 vs the broken
-uniform-hole 3.16 for the IDENTICAL x-point (19% difference = the holes
-are physically real now; real holes remove stopping material, hence
-lower sob for this x).** foilsgV01 is row 1 of the clean leaderboard.
-foilsg07 cleared to launch.
-**Updated:** 2026-06-12
+# foilsg grid tarball runs unpatched StoppingTargetMaker — scalar holeRadius fallback
 
 ## Summary
 
@@ -64,7 +68,7 @@ the intended per-group holes. Two consequences:
   zero `holeRadii` support. Preflight "passing" was NOT a vector-aware
   local env — preflight crashed with the identical GeomSolids0002 abort
   and was misclassified PASS by the `past_init` classifier bug
-  ([[preflight-past-init-false-pass]]).
+  ([preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)).
 - **Scope is bigger than foilsg: foils (v2) and foilsf (v3) are affected
   too.** `FoilsMode._geom_text` (shared by foilsf via `_frac_to_abs`)
   emits scalar `holeRadius = 21.5` + the holeRadii vector. With no patch,
@@ -80,14 +84,14 @@ the intended per-group holes. Two consequences:
   for back-compat) and `stoppingTarget.holeRadii` (vector). The back-compat
   scalar is what makes the fallback *silent* when the mean is geometrically
   valid — without it the unpatched maker would fail on every config.
-  [[bo-foilsg]] documented this hazard at wiring time ("verify the grid
+  [bo-foilsg](/projects/bo-foilsg.md) documented this hazard at wiring time ("verify the grid
   tarball is current before launching") but no verification was ever run.
 - **Crash-vs-silent predictor:** child crashes iff
   `mean(holeRadii) > min_g(rOut_g)`. foilsg06 R0: 3/10 crashed, 7/10
   silently wrong. foilsg05 R0: 7/10 crashed, 3/10 silently wrong rows
   (R00_05/06/08).
 - **Misdiagnosis corrected:** the foilsg05 7/10 failures were previously
-  attributed to [[stage-out-rename-race]] under grid contention (the
+  attributed to [stage-out-rename-race](/incidents/stage-out-rename-race.md) under grid contention (the
   rename-quiesce WARN text matches superficially). Wrong: dirs stay
   hash-form because the JOBS FAILED, not because the rename pass lagged.
   The rename-race page carries a retraction note for that recurrence
@@ -127,15 +131,15 @@ cluster silently skips ("already submitted (cluster=...); skip submit
 satisfies the idempotency guard — then poll/list run against the dead
 cluster and reproduce the original failure. Stalled-chain recovery after
 a submit-side fix MUST pass `--force` on the failed stage (pipeline-level
-cousin of [[closed-loop-stale-cluster-silent-no-launch]]).
+cousin of [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)).
 
 ## Cross-links
-- Related: [[foilsflash-tarball-mode-key-omission]] (same tarball mode-key class), [[prodtarget-env-divergence]] (same preflight-vs-grid env split),
-  [[stage-out-rename-race]] (the misdiagnosis), [[bo-foilsg]] (tainted
+- Related: [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md) (same tarball mode-key class), [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md) (same preflight-vs-grid env split),
+  [stage-out-rename-race](/incidents/stage-out-rename-race.md) (the misdiagnosis), [bo-foilsg](/projects/bo-foilsg.md) (tainted
   leaderboard + original hazard warning),
-  [[closed-loop-barrier-timeout-zero-rows-falsepos]] (foilsg05's 3
+  [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md) (foilsg05's 3
   survivors were orphaned by that bug *and* silently wrong from this one),
-  [[muse-backing-pattern]] (how the patched lib is built), [[foilsflash-tarball-mode-key-omission]], [[preflight-past-init-false-pass]]
+  [muse-backing-pattern](/external/muse-backing-pattern.md) (how the patched lib is built), [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md), [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)
 - Source files: `autoresearch_bo_michael.py` `FoilsGroupMode._geom_text`
   (dual scalar+vector emission), `pipeline.py:506 submit_stage` (where the
   empty-jobdef rc=255 surfaces)
@@ -145,7 +149,7 @@ cousin of [[closed-loop-stale-cluster-silent-no-launch]]).
 
 ## Open questions / TODO
 - Rebuild the grid code tarball from a patched workdir (recipe in
-  [[prodtarget-env-divergence]]) and verify with a single-job smoke that a
+  [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md)) and verify with a single-job smoke that a
   per-group-hole config builds Foil_00 with its OWN hole radius.
   **Patch site (verified 2026-06-12):**
   `/exp/mu2e/app/users/oksuzian/Offline_helical/` is a FULL Offline
@@ -165,5 +169,5 @@ cousin of [[closed-loop-stale-cluster-silent-no-launch]]).
   restart foilsg clean. Either way the sob=3.16 champion claim must not be
   quoted as a per-group-hole result.
 - Was the foilsg01/02-era tarball ever patched? (If yes, find what
-  rebuilt/reverted it; if no, the hazard warning in [[bo-foilsg]] was
+  rebuilt/reverted it; if no, the hazard warning in [bo-foilsg](/projects/bo-foilsg.md) was
   never acted on.)

@@ -1,8 +1,15 @@
-# SqliteSaver WAL/SHM corrupt after abrupt graph.run kill
+---
+type: incident
+title: SqliteSaver WAL/SHM corrupt after abrupt graph.run kill
+description: abrupt graph.run kill leaves `checkpoints.sqlite-wal/shm` such that
+  next run dies at `PRAGMA journal_mode=WAL` with "file is not a database" even
+  though main DB `integrity_check ok`; fix is park (mv) the two sidecars and relaunch
+status: resolved
+status_note: 2026-06-08 (recovery recipe documented)
+timestamp: '2026-06-18'
+---
 
-**Type:** incident
-**Status:** resolved 2026-06-08 (recovery recipe documented)
-**Updated:** 2026-06-18
+# SqliteSaver WAL/SHM corrupt after abrupt graph.run kill
 
 ## Summary
 Abruptly killing a `graph.run` process mid-write (e.g. SIGKILL of a
@@ -22,7 +29,7 @@ though the **main** `checkpoints.sqlite` is fine (`PRAGMA integrity_check;
 - Root cause: prior graph.run was killed while it held the WAL lock; the
   sidecar is partially-flushed and SQLite refuses to reconcile it with the
   main file. (Observed 2026-06-08 after the abandon-grid-run wipe in
-  [[steppointmcdumper-no-edep]] flow.)
+  [steppointmcdumper-no-edep](/incidents/steppointmcdumper-no-edep.md) flow.)
 - Recovery recipe (non-destructive — main DB stays intact):
   ```bash
   mv graph_data/checkpoints.sqlite-wal /tmp/wal.parked
@@ -64,9 +71,9 @@ though the **main** `checkpoints.sqlite` is fine (`PRAGMA integrity_check;
   guarantees it regardless of node.)
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]] (WAL-mode adoption rationale +
-  smoke-test results), [[langgraph-checkpoint-numpy-int64]] (separate
-  msgpack-serialization checkpoint failure mode), [[kerberos-mid-run-expiry]]
+- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (WAL-mode adoption rationale +
+  smoke-test results), [langgraph-checkpoint-numpy-int64](/incidents/langgraph-checkpoint-numpy-int64.md) (separate
+  msgpack-serialization checkpoint failure mode), [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md)
   (another way graph.run dies abruptly mid-write)
 - Source: `graph/run.py:74-83` (sqlite connect + WAL pragma), `graph_data/checkpoints.sqlite`
 

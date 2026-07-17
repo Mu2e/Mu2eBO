@@ -1,8 +1,15 @@
-# sourced_env stderr swallowed — transient setup blips look like silent stage death
+---
+type: incident
+title: sourced_env stderr swallowed — transient setup blips look like silent stage
+  death
+description: pipeline.py:278 sourced_env() swallows bash stderr; 3/10 foilsX06R00
+  children died on transient `setup mu2egrid` rc=127 + missing CET_PLUGIN_PATH mfPlugin
+  "cerr" with no captured cause
+status: active
+timestamp: '2026-06-01'
+---
 
-**Type:** incident
-**Status:** active
-**Updated:** 2026-06-01
+# sourced_env stderr swallowed — transient setup blips look like silent stage death
 
 ## SECOND CODE PATH FOUND + FIXED (2026-06-01): cmd_preflight
 - The retry fix was applied to `pipeline.py:sourced_env` (submit/harvest)
@@ -21,7 +28,7 @@
   (20:16–20:19, 2026-06-01) and terminated; a manual re-run at 20:26
   passed rc=0 (741 KB log). Round 0 degraded 3→1 eval.
 - **This is almost certainly the unidentified root cause of
-  [[foilsx04-all-preflight-ambiguous]]** ("whatever made X04 picks
+  [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)** ("whatever made X04 picks
   uniformly fail preflight with rc=3" — 20/20 children, never explained).
 - **Fix (`autoresearch_bo_michael.py:1047`):** retry loop with backoff
   `(5,15,30)s`, but retries ONLY when `mu2e` never started — a genuine run
@@ -104,7 +111,7 @@ should_retry, label, log)`:
   `node_renew_token` lives in the **long-lived parent process**, which
   imported the old code at launch — so its new getToken-retry only applies to
   **future** parent launches, not an in-flight one. See
-  [[kerberos-mid-run-expiry]].
+  [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md).
 
 ## Resolution (2026-05-30)
 - `pipeline.py:271-310` swapped `setup mu2egrid` → `muse setup ops`;
@@ -129,7 +136,7 @@ and on non-zero rc raises CalledProcessError with NO stderr captured. Any
 transient cvmfs/setup blip surfaces as a bare `submit <stage> failed
 (rc=1)` from pipeline.py — the actual failure reason (rc=127 for
 `setup mu2egrid`, missing mfPlugin "cerr", etc.) is permanently lost.
-Same anti-pattern as [[jobsub-disk-quota-stderr-swallowed]] but a
+Same anti-pattern as [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) but a
 DIFFERENT code path (line 278, not 420).
 
 ## Key facts
@@ -182,10 +189,10 @@ DIFFERENT code path (line 278, not 420).
   manual re-run.
 
 ## Cross-links
-- Related: [[jobsub-disk-quota-stderr-swallowed]] (sibling: pipeline.py
+- Related: [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) (sibling: pipeline.py
   swallows mu2ejobsub stderr at line 420 — same anti-pattern, different
-  line), [[edepana-saw-events-scientific-notation-parse]], [[mmackenz-edepana-lib-qualifier-bump]]
-- Related: [[closed-loop-thread-id-checkpoint-collision]] (PR2/#6/#8
+  line), [edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md), [mmackenz-edepana-lib-qualifier-bump](/incidents/mmackenz-edepana-lib-qualifier-bump.md)
+- Related: [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md) (PR2/#6/#8
   surfaced these — closed-loop fix told us WHERE to look)
 - Source files: `pipeline.py:278` (sourced_env), `pipeline.py:559`
   (cmd_submit env =), pipeline.py:cmd_harvest (same call)

@@ -1,8 +1,13 @@
-# Closed-loop thread-ID checkpoint collision
+---
+type: incident
+title: Closed-loop thread-ID checkpoint collision
+description: SqliteSaver thread_id reuse silently swapped foilsX05R01_07's config_name
+  to graph001 (2026-05-30); leaderboard row never landed under intended name
+status: resolved
+timestamp: '2026-05-30'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-05-30
+# Closed-loop thread-ID checkpoint collision
 
 ## Summary
 SqliteSaver in `graph/closed_loop.py` keys checkpoints by `thread_id`. A child
@@ -71,8 +76,8 @@ is the one persisted to the leaderboard, not foilsX05R01_07.
   swap-guard symptom.
 
 ## Cross-links
-- Related: [[barrier-false-positive-round1]], [[closed-loop-bo-design]],
-  [[closed-loop-runner]], [[closed-loop-stale-cluster-silent-no-launch]], [[sourced-env-stderr-swallowed]]
+- Related: [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md),
+  [closed-loop-runner](/drivers/closed-loop-runner.md), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md), [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md)
 - Source files: `graph/closed_loop.py`, `graph/state.py`
 - Detection log: `graph_data/closed_loop_logs/foilsX05R01_07.log`
 

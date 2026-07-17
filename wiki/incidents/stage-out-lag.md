@@ -1,14 +1,15 @@
 ---
-name: stage-out-lag
-description: pipeline.py list-outputs "outstage missing" when poll returns before /pnfs stage-out catches up; resolved by convergence-poll gate
 type: incident
+title: Stage-out lag race on list-outputs
+description: pipeline.py list-outputs "outstage missing" when poll returns before
+  /pnfs stage-out catches up; resolved by convergence-poll gate
+status: resolved
+status_note: (2026-05-20; convergence-poll gate in `pipeline.py:poll_cluster`)
+timestamp: '2026-07-09'
+updated_note: added downstream rc=25 signature
 ---
 
 # Stage-out lag race on list-outputs
-
-**Type:** incident
-**Status:** resolved (2026-05-20; convergence-poll gate in `pipeline.py:poll_cluster`)
-**Updated:** 2026-07-09 (added downstream rc=25 signature)
 
 > **Downstream signature (2026-07-09, foilsflash10R00_01): empty captured path
 > → `mu2ejobdef` rc=25.** A DIFFERENT face of the same class — instead of
@@ -20,7 +21,7 @@ type: incident
 > non-printable characters"). Diagnostic: compare the failed child's
 > `concat_outputs.txt` (blank line) vs a healthy sibling's (real /pnfs path).
 > Cosmetic spack/muse "syntax error / error importing function definition"
-> lines above it are benign ([[sourced-env-stderr-swallowed]]) — the rc=25 +
+> lines above it are benign ([sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md)) — the rc=25 +
 > empty-basenames is the real cause. Single-child transient, not geometry-
 > or box-related; not worth mid-round recovery on a q=8 probe.
 
@@ -34,7 +35,7 @@ When `list-outputs` ran immediately, the `00/` subdirectory under the cluster
 outstage didn't exist yet (no job had committed its first stage-out), and the
 existence guard hard-exited. The graph runner treated this as fatal and
 terminated the iteration with `objective: null`. This was distinct from
-the sibling [[stage-out-rename-race]] — that race fires *after* `00/` exists
+the sibling [stage-out-rename-race](/incidents/stage-out-rename-race.md) — that race fires *after* `00/` exists
 while hash-form siblings are still renaming; this one fires *before* `00/`
 exists at all.
 
@@ -93,9 +94,9 @@ Pre-fix, the obvious bandaid was to bolt a `base.exists()` retry loop onto
   when the stage is actually done, not when one proxy says it is.
 
 ## Cross-links
-- Related: [[stage-out-rename-race]] (sibling race once `00/` exists),
-  [[concurrent-token-contention]] (separate race at submit time),
-  [[grid-job-completion-check]] (broader playbook on jobsub_q vs /pnfs), [[elebeamcat-tape-migration-elebeam-wipeout]], [[poll-deadlock-missing-outstage-dirs]]
+- Related: [stage-out-rename-race](/incidents/stage-out-rename-race.md) (sibling race once `00/` exists),
+  [concurrent-token-contention](/incidents/concurrent-token-contention.md) (separate race at submit time),
+  [grid-job-completion-check](/incidents/grid-job-completion-check.md) (broader playbook on jobsub_q vs /pnfs), [elebeamcat-tape-migration-elebeam-wipeout](/incidents/elebeamcat-tape-migration-elebeam-wipeout.md), [poll-deadlock-missing-outstage-dirs](/incidents/poll-deadlock-missing-outstage-dirs.md)
 - Source: `pipeline.py:poll_cluster` (convergence gate),
   `pipeline.py:list_outputs` (precondition assert)
 - Consumer: `graph/pipeline_io.py:run_stage` (calls submit→poll→list-outputs

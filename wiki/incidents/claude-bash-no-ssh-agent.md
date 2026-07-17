@@ -1,8 +1,14 @@
-# claude-bash-no-ssh-agent — Bash-tool subshells can't reach user's ssh-agent
+---
+type: incident
+title: claude-bash-no-ssh-agent — Bash-tool subshells can't reach user's ssh-agent
+description: Bash-tool subshells can't reach user's `ssh-agent`; `git push` to GitHub
+  fails for Claude even when it works in user's interactive shell
+status: active
+status_note: (general SSH limitation) — but RESOLVED for Mu2eBO via HTTPS remote
+timestamp: '2026-06-02'
+---
 
-**Type:** incident
-**Status:** active (general SSH limitation) — but RESOLVED for Mu2eBO via HTTPS remote
-**Updated:** 2026-06-02
+# claude-bash-no-ssh-agent — Bash-tool subshells can't reach user's ssh-agent
 
 ## CONFIRMED: Claude CAN push to Mu2eBO (2026-06-02)
 The `git push origin main` workaround on lines 67–73 is **live and proven**:
@@ -86,7 +92,7 @@ Claude's subshell.
   use workaround 1, 2, or 3.
 
 ## Cross-links
-- Related: [[slack-bot-dm-channel-not-found]] (parallel pattern —
+- Related: [slack-bot-dm-channel-not-found](/incidents/slack-bot-dm-channel-not-found.md) (parallel pattern —
   different auth identities, can't piggyback on each other's session)
 - External: [GitHub SSH key setup](https://docs.github.com/en/authentication/connecting-to-github-with-ssh)
 

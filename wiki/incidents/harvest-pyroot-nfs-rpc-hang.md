@@ -1,8 +1,16 @@
-# Harvest PyROOT extractor hangs in NFS RPC (D-state), no watchdog
+---
+type: incident
+title: Harvest PyROOT extractor hangs in NFS RPC (D-state), no watchdog
+description: harvest PyROOT extractor D-state on stuck /pnfs NFS RPC (3s CPU / 5.5h
+  wall), no timeout at any layer; kill pipeline parent FIRST (extractor-only kill
+  → fail-soft flash-less summary → degraded row); retry works (per-RPC, not dead
+  mount)
+status: resolved
+timestamp: '2026-07-10'
+updated_note: 'recurrence #2: EdepAna face'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-07-10 (recurrence #2: EdepAna face)
+# Harvest PyROOT extractor hangs in NFS RPC (D-state), no watchdog
 
 ## Summary
 foilsflashSOBX01's harvest sat 5.5 h with all grid work done and no leaderboard
@@ -41,8 +49,8 @@ node), so one wedged RPC stalls the whole chain indefinitely.
   arm a watchdog monitor (summary-exists / pid-dead / 45-min cap) so a
   recurrence can't eat hours silently.
 - 2 prior xrootd/pnfs flakiness incidents are cousins but distinct:
-  [[concat-xrootd-fileopen-postendjob]] (grid-side art open), 
-  [[stage-out-rename-race]] (dir renames). This one is local-harvest NFS.
+  [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md) (grid-side art open), 
+  [stage-out-rename-race](/incidents/stage-out-rename-race.md) (dir renames). This one is local-harvest NFS.
 - TODO (mechanism fix): add a `timeout=` to the extractor `subprocess.run`
   in `pipeline.py:_extract_trk_edep_per_pot` (e.g. 3600 s) so the fail-soft
   path fires instead of an unbounded hang; per-file progress logging would
@@ -63,7 +71,7 @@ node), so one wedged RPC stalls the whole chain indefinitely.
   summary.json write race (child reads-only on its way out).
 
 ## Cross-links
-- Related: [[concat-xrootd-fileopen-postendjob]], [[stage-out-rename-race]], [[edepana-saw-events-scientific-notation-parse]]
+- Related: [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md), [stage-out-rename-race](/incidents/stage-out-rename-race.md), [edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md)
 - Source files: `pipeline.py:_extract_trk_edep_per_pot`, `pipeline.py:_edep_from_stage_outputs`
 - Config: foilsflashSOBX01 (foils-champion transplant eval, 2026-07-08)
 

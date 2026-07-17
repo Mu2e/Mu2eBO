@@ -1,8 +1,13 @@
-# orchestrator-evaluation-2026-05 — choosing a workflow engine for the BO loop
+---
+type: concept
+title: orchestrator-evaluation-2026-05 — choosing a workflow engine for the BO loop
+description: why LangGraph (vs Prefect 3) was chosen for Phase 1; revisit at end
+  of Phase 2
+status: active
+timestamp: '2026-05-19'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-05-19
+# orchestrator-evaluation-2026-05 — choosing a workflow engine for the BO loop
 
 ## Summary
 Notes from the 2026-05 evaluation of three orchestrator options for the BO
@@ -43,7 +48,7 @@ four grid stages, multi-day wall, single operator, no LLM nodes today.
   is synchronous `subprocess.run`.
 
 ## Cross-links
-- Related: [[graph-runner]], [[autoresearch-bo-michael]], [[batch-bo]], [[closed-loop-bo-design]]
+- Related: [graph-runner](/drivers/graph-runner.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [batch-bo](/concepts/batch-bo.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
 - External: [LangGraph docs](https://langchain-ai.github.io/langgraph/),
   [Prefect 3 docs](https://docs.prefect.io/), [SNIFS-science/prefect-hpc-worker](https://github.com/SNIFS-science/prefect-hpc-worker)
 

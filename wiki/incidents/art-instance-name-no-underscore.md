@@ -1,8 +1,15 @@
-# art instance-name rejects underscore
+---
+type: incident
+title: art instance-name rejects underscore
+description: art rejects `_` in product instance names (BranchKey field separator);
+  killed Path D until `ProductionTargetPlate_<i>` renamed to `ProductionTargetPlate%02d`
+  in patched constructTargetPS.cc + muse rebuild (2026-06-07)
+status: resolved
+status_note: (2026-06-07; patched in autoresearch_muse_prodtarget fork)
+timestamp: '2026-06-07'
+---
 
-**Type:** incident
-**Status:** resolved (2026-06-07; patched in autoresearch_muse_prodtarget fork)
-**Updated:** 2026-06-07
+# art instance-name rejects underscore
 
 ## Summary
 Path D DPA wiring was hard-blocked because `art::OutputModule` rejects any
@@ -43,8 +50,8 @@ rc=9 at module construction — never reaches G4 init.
   the grid `Code.tar.bz2` for the new sensitiveVolumes list to work.
 
 ## Cross-links
-- Related: [[dpa-scoring]], [[stickman-sd-unwired]],
-  [[steppointmcdumper-no-edep]], [[prodtarget-spacer-supportring-overlap]], [[uproot-cannot-read-steppointmc]]
+- Related: [dpa-scoring](/concepts/dpa-scoring.md), [stickman-sd-unwired](/incidents/stickman-sd-unwired.md),
+  [steppointmcdumper-no-edep](/incidents/steppointmcdumper-no-edep.md), [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md), [uproot-cannot-read-steppointmc](/incidents/uproot-cannot-read-steppointmc.md)
 - Source files: `autoresearch_muse_prodtarget/Offline/Mu2eG4/src/constructTargetPS.cc:1667`
 - External: [art ProductRegistryHelper](https://github.com/art-framework-suite/art/blob/develop/art/Framework/Core/ProductRegistryHelper.h)
 

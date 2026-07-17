@@ -1,8 +1,17 @@
-# ML/statistics stack review (2026-07)
+---
+type: concept
+title: ML/statistics stack review (2026-07)
+description: 'ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measured
+  σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, skopt EI on
+  the preflight-retry path, high-sob-corner misfit → Warp; Ax/Optuna/neural surrogates
+  explicitly rejected'
+status: active
+timestamp: '2026-07-15'
+updated_note: 'adoption rule: 6D null does not transfer; new high-D lines default
+  to 0.18'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-15 (adoption rule: 6D null does not transfer; new high-D lines default to 0.18)
+# ML/statistics stack review (2026-07)
 
 ## Summary
 Point-in-time audit of the ML/stats tooling: acquisition layer (qLogNEHVI /
@@ -34,7 +43,7 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
      through botorch_predict + apply `is_buildable` rejection to emitted picks;
      retire skopt.
   4. **Known GP misfit in the high-sob corner is unaddressed** — forward-LOO
-     log-calo bias −0.80 (2.3× underprediction, [[gp-cloud-rendering]]) is a
+     log-calo bias −0.80 (2.3× underprediction, [gp-cloud-rendering](/concepts/gp-cloud-rendering.md)) is a
      stationarity failure; botorch's `Warp` input transform (Kumaraswamy) is the
      cheap targeted fix; TuRBO-style trust region only if warping fails.
   5. **qNEHVI ref point recomputed per round from the noisy observed nadir**
@@ -103,20 +112,20 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   uncertainties, 10× faster fits, and per-row noise handles 100-vs-400-job
   row mixing; (3) PARK warp — the corner non-stationarity is real (its
   diagnostic value stands) but calibration collapse disqualifies it for
-  acquisition; corner exploitation is already covered by [[pareto-sob-picker]]
+  acquisition; corner exploitation is already covered by [pareto-sob-picker](/concepts/pareto-sob-picker.md)
   rounds. Honest-validation caveat: all variants scored on the same archive;
   the next campaign's fresh rows are the true held-out test (harness
   supports this trivially).
 - **Explicitly NOT recommended:** Ax (its service layer duplicates our
   closed-loop orchestration), Optuna (TPE weaker than GP-BO at n<300), neural
-  surrogates (<O(100D), see [[fast-sim-options-for-bo]]), replacing the sklearn
+  surrogates (<O(100D), see [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md)), replacing the sklearn
   viz GP (viz-only; but rendering the cloud from the botorch posterior would
   kill the dual-model inconsistency).
 - **Confirmed right:** log-family acquisitions (Ament 2023) fix exactly our
   saturation flat-gradient regime; NEI-family (never trusts best-observed under
   noise) is correct for our σ; Normalize+Standardize+float64 CPU; −log10(calo)
   training; Sobol cold start; xor round seeding; acq budget (128 qMC / 16
-  restarts / 512 raw) already past diminishing returns ([[bo-noise-budget]]).
+  restarts / 512 raw) already past diminishing returns ([bo-noise-budget](/concepts/bo-noise-budget.md)).
 
 - **HELD-OUT result (2026-07-14, 10 fresh foilsflash16 rows vs the 274-row
   archive, `--holdout-prefix`) — AUDITED with paired tests (independent
@@ -180,15 +189,15 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   the leaderboard njobs column and fresh evidence before wiring.
 
 ## Cross-links
-- Related: [[bo-noise-budget]], [[gp-cloud-rendering]], [[batch-bo]],
-  [[saturation-is-acquisition-relative]], [[fast-sim-options-for-bo]],
-  [[architecture-friction-survey-2026-07]]
+- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [batch-bo](/concepts/batch-bo.md),
+  [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md),
+  [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md)
 - Source files: `botorch_predict.py:215-231` (_fit_gp), `botorch_predict.py:252-254`
   (ref point), `autoresearch_bo_michael.py:245-320` (skopt path),
   `graph/nodes.py:114-119` (skopt on the retry path)
 
 ## Open questions / TODO
-- ~~Log `likelihood.noise` post-fit~~ DONE 2026-07-13 (163bb2e; first reading in [[bo-noise-budget]]).
+- ~~Log `likelihood.noise` post-fit~~ DONE 2026-07-13 (163bb2e; first reading in [bo-noise-budget](/concepts/bo-noise-budget.md)).
 - Decide leaderboard σ/njobs column shape before wiring train_Yvar (the one
   adopted follow-up from the LOO verdict; env-flag the picker change for A/B).
 - ~~LOO verdict pending~~ DONE 2026-07-13 — five-way table + verdict in Key facts;

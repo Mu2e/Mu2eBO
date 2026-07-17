@@ -1,8 +1,14 @@
-# aitools/ — untracked in-tree clone that 12 user skills symlink into
+---
+type: external
+title: aitools/ — untracked in-tree clone that 12 user skills symlink into
+description: '(**resolved 2026-07-17**: clone relocated to /exp/mu2e/app/users/oksuzian/aitools,
+  12 ~/.claude/skills symlinks re-pointed) was: in-tree clone silently load-bearing
+  for user skills'
+status: resolved
+timestamp: '2026-07-17'
+---
 
-**Type:** external
-**Status:** resolved
-**Updated:** 2026-07-17
+# aitools/ — untracked in-tree clone that 12 user skills symlink into
 
 > **RESOLVED 2026-07-17:** clone moved to the neutral home
 > `/exp/mu2e/app/users/oksuzian/aitools` (same-volume mv, instant); all 12
@@ -30,7 +36,7 @@ breaks 12 cross-project skills with no error surfaced at the repo.
   0 lines of project code change. NEVER delete it as part of repo cleanup.
 
 ## Cross-links
-- Related: [[venv-relocated-to-data-volume]] (same pattern: project-root
+- Related: [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md) (same pattern: project-root
   entries whose real substance lives elsewhere)
 - Source files: `.gitignore:59`
 

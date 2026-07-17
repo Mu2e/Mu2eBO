@@ -1,8 +1,15 @@
-# muse-backing-pattern — build a patched Offline subset against a Musing
+---
+type: external
+title: muse-backing-pattern — build a patched Offline subset against a Musing
+description: build patched Offline subset against a Musing; how the helical-plug
+  lib is produced
+status: active
+timestamp: '2026-06-07'
+updated_note: added muse 4.17.0 source citations for CVMFS-link preservation + empty-repos
+  behavior + grid-side setup.sh contract
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-06-07 (added muse 4.17.0 source citations for CVMFS-link preservation + empty-repos behavior + grid-side setup.sh contract)
+# muse-backing-pattern — build a patched Offline subset against a Musing
 
 ## Summary
 
@@ -123,10 +130,10 @@ muse build -j 8 >/tmp/build.log 2>&1
 
 ## Cross-links
 
-- Used by: [[pipeline]] (`write_code_tarball` ships `Code/lib/libmu2e_Mu2eG4.so`
+- Used by: [pipeline](/drivers/pipeline.md) (`write_code_tarball` ships `Code/lib/libmu2e_Mu2eG4.so`
   + `LD_PRELOAD` in `setup.sh`)
-- Motivating bug: [[calo-constant-across-helical]]
-- Project: [[bo-helical]]
+- Motivating bug: [calo-constant-across-helical](/incidents/calo-constant-across-helical.md)
+- Project: [bo-helical](/projects/bo-helical.md)
 - Source patch: `/exp/mu2e/app/users/oksuzian/Offline_helical/helical-plug.patch`
 - Build dir: `/exp/mu2e/app/users/oksuzian/Offline_helical/build/al9-prof-e29-p094/Offline/lib/`
 - Mu2e wiki: https://mu2ewiki.fnal.gov/wiki/GitHubWorkflow#Developer_Workflow
@@ -166,7 +173,7 @@ for a full-Offline overlay) because it contains only `Code/setup.sh` +
 backing.
 
 Concrete example (2026-06-07, produced `Code_MDC2025aq_prodtarget.tar.bz2`
-for [[bo-prodtarget]]):
+for [bo-prodtarget](/projects/bo-prodtarget.md)):
 
 ```bash
 mkdir -p $WORK/autoresearch_muse_prodtarget && cd $_

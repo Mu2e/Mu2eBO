@@ -1,8 +1,13 @@
-# mu2e-offline-radiation-damage
+---
+type: external
+title: mu2e-offline-radiation-damage
+description: Offline has NO DPA/NIEL scorer (2026-06-07); only G4PSDoseDeposit3D
+  + custom scorerDose{Prompt,Residual} in Mu2eG4ScoringManager.cc
+status: active
+timestamp: '2026-06-07'
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-06-07
+# mu2e-offline-radiation-damage
 
 ## Summary
 Inventory of radiation-damage / dose scoring primitives implemented in
@@ -60,7 +65,7 @@ offline post-processing of step records.
   `GetNonIonizingEnergyDeposit()`. **In QGSP_BERT this is silently zero**
   for protons on heavy nuclei because the relevant inelastic processes never
   call `G4Step::ProposeNonIonizingEnergyDeposit`. Cross-ref: ruled out as
-  Path A for bo-prodtarget DPA scoring (2026-06-07, see [[bo-prodtarget]]).
+  Path A for bo-prodtarget DPA scoring (2026-06-07, see [bo-prodtarget](/projects/bo-prodtarget.md)).
   Do not use as a DPA proxy without confirming non-zero on your physics list.
 
 - **Adding DPA would require:** writing a `G4VPrimitiveScorer` subclass that
@@ -71,7 +76,7 @@ offline post-processing of step records.
   (no Offline infrastructure exists for this today).
 
 ## Cross-links
-- Related: [[mu2e-offline]], [[mu2e-overlap-check]]
+- Related: [mu2e-offline](/external/mu2e-offline.md), [mu2e-overlap-check](/external/mu2e-overlap-check.md)
 - Source files: `Mu2e/Offline/Mu2eG4/src/Mu2eG4ScoringManager.cc`
 - External: [Mu2e/Offline](https://github.com/Mu2e/Offline), [G4NIELCalculator docs](https://geant4-userdoc.web.cern.ch/UsersGuides/PhysicsReferenceManual/html/electromagnetic/utilities/niel.html)
 

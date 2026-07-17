@@ -1,12 +1,19 @@
-# Mode registry + ChildTracker — refactor design
+---
+type: concept
+title: Mode registry + ChildTracker — refactor design
+description: 'crystallized refactor design: ModeSpec registry in root modes.py (all
+  fields required, no silent defaults) + stateful ChildTracker with injected signals
+  adapter; cl_min picker retired (ADR-0001/0002); GATED on foilsflash08 completion'
+status: resolved
+timestamp: '2026-07-11'
+updated_note: ALL THREE COMMITS DONE — design fully implemented
+---
 
-**Type:** concept
-**Status:** resolved
-**Updated:** 2026-07-11 (ALL THREE COMMITS DONE — design fully implemented)
+# Mode registry + ChildTracker — refactor design
 
 ## Summary
 Crystallized design (2026-07-06 grilling session) for the two refactors picked
-from [[architecture-friction-survey-2026-07]]: (1) a single pure-data ModeSpec
+from [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md): (1) a single pure-data ModeSpec
 registry in root `modes.py`, and (2) a stateful ChildTracker owning child
 resolution in the closed loop. Decisions are recorded in `docs/adr/0001` (retire
 cl_min) and `docs/adr/0002` (registry home); domain terms in root `CONTEXT.md`.
@@ -58,7 +65,7 @@ or the driver mid-campaign changes running code.
   (2) ChildTracker + barrier/launch/assign rewiring, (3) cl_min deletion.
   Then one live single-eval smoke before the next campaign.
 - **Verification item found during design**: `MUSE_TARBALL_BY_MODE` has no
-  prodtarget keys, yet [[prodtarget-env-divergence]] says the prodtarget grid
+  prodtarget keys, yet [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md) says the prodtarget grid
   tarball was rebuilt from the patched workdir — find where pipeline.py
   actually selects the prodtarget tarball (likely a separate path near
   write_code_tarball / pot_only stage config) before declaring the
@@ -96,8 +103,8 @@ or the driver mid-campaign changes running code.
   graph builds under all 9 modes, 146/146 suite, live dry-run.
 
 ## Cross-links
-- Related: [[architecture-friction-survey-2026-07]], [[closed-loop-bo-design]]
-- Incident evidence: see [[architecture-friction-survey-2026-07]] (8 incidents)
+- Related: [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
+- Incident evidence: see [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) (8 incidents)
 - Source files: `modes.py` (to be created), `graph/child_tracker.py` (to be
   created), `autoresearch_bo_michael.py:1854`, `graph/closed_loop.py:520`,
   `docs/adr/0001-retire-cl-min-picker.md`, `docs/adr/0002-mode-registry-root-modes-py.md`, `CONTEXT.md`

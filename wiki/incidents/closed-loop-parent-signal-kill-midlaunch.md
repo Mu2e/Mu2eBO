@@ -1,10 +1,16 @@
-# closed-loop parent + children signal-killed mid-launch (no traceback)
+---
+type: incident
+title: closed-loop parent + children signal-killed mid-launch (no traceback)
+description: closed-loop parent + just-launched children die together mid-round,
+  no traceback (signal kill); setsid doesn't escape the session cgroup so a session-OOM
+  takes the whole tree; foilsf12 R2 2026-06-13, cause unconfirmed
+status: open
+status_note: observed 2026-06-13 on foilsf12 R2, 3 foilsf13 relaunch attempts (same
+  night), AND 2026-06-17 on foilsf15 R0; memory-pressure-linked, infra-unstable
+timestamp: '2026-06-17'
+---
 
-**Type:** incident
-**Status:** open — observed 2026-06-13 on foilsf12 R2, 3 foilsf13
-relaunch attempts (same night), AND 2026-06-17 on foilsf15 R0;
-memory-pressure-linked, infra-unstable
-**Updated:** 2026-06-17
+# closed-loop parent + children signal-killed mid-launch (no traceback)
 
 ## Summary
 
@@ -19,7 +25,7 @@ queued jobs — its dead child never harvested).
 
 No-traceback death = killed by a **signal**, not a Python exception
 (contrast the same evening's qNEHVI `TimeoutExpired`, which printed a full
-stack — see [[qlnei-sob-only-picker]]). R0+R1 had already completed
+stack — see [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)). R0+R1 had already completed
 cleanly (20 rows, best sob 3.85); the science verdict was banked, so
 nothing scientific was lost.
 
@@ -41,17 +47,17 @@ nothing scientific was lost.
   parent tripped a per-session memory cgroup limit. Could not confirm —
   `journalctl --user` not readable, and the only dmesg OOM is stale
   (Jun 12, unrelated 9 GB pid).
-- **Distinct from neighbors:** NOT [[closed-loop-final-round-orphan-children]]
+- **Distinct from neighbors:** NOT [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md)
   (that's a CLEAN exit at max_rounds leaving still-running children — here
-  the children DIED too). NOT [[kerberos-mid-run-expiry]] (that throws
+  the children DIED too). NOT [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md) (that throws
   Errno 127 with a traceback). NOT the liveness-barrier false-positive
-  ([[closed-loop-barrier-timeout-zero-rows-falsepos]], now fixed) — the
+  ([closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md), now fixed) — the
   parent never reached the barrier.
 - **No grid orphans:** the one submitted cluster (R02_00 mubeam) drained
   to 0; other queued jobs at the time were unrelated (pt6d-family).
 - **Recovery:** R0+R1 rows are durable in the leaderboard. If the final
   round is wanted, relaunch under a FRESH `--name-prefix` (foilsf13);
-  reuse trips [[closed-loop-stale-cluster-silent-no-launch]].
+  reuse trips [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md).
 
 ## foilsf15 R0 recurrence (2026-06-17) — all 10 children died at `preflight: pass`
 
@@ -116,7 +122,7 @@ cmdline, never trust the captured launch pid).
 Tried to relaunch the lost final round as foilsf13 (q=10, max-rounds=2,
 `--stagger 150`). **3 consecutive failures, all with an EMPTY parent log
 (died before the `thread_id=` banner, i.e. during module import — the
-venvs are on cold Ceph, [[venv-relocated-to-data-volume]], so import is
+venvs are on cold Ceph, [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md), so import is
 slow):**
 - 2× plain `nohup … &`: parent died ~2 min in, 8.8 GB free (NOT memory on
   this node — it's an 11 GB GPVM, distinct from the 170 GiB session where
@@ -142,17 +148,17 @@ slow):**
 
 ## Cross-links
 - **Same kill window, sister campaign:**
-  [[pipeline-poll-rc120-atexit-death]] (pt6d05 R1: 7 poll subprocesses
+  [pipeline-poll-rc120-atexit-death](/incidents/pipeline-poll-rc120-atexit-death.md) (pt6d05 R1: 7 poll subprocesses
   in the OTHER live closed-loop on this node died synchronously in
   19:01:40-19:03:34, same session-23.scope; memory.peak 170.69 GiB
   ≈91% RAM). Strong evidence this incident's "session-cgroup OOM"
   hypothesis is right, although cgroup `memory.events` didn't record
   an oom_kill so the mechanism is closer to memory-pressure-induced
   fd corruption than a clean OOM signal.
-- Related: [[closed-loop-final-round-orphan-children]],
-  [[kerberos-mid-run-expiry]],
-  [[closed-loop-barrier-timeout-zero-rows-falsepos]],
-  [[closed-loop-runner]], [[bo-foils]]
+- Related: [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md),
+  [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md),
+  [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md),
+  [closed-loop-runner](/drivers/closed-loop-runner.md), [bo-foils](/projects/bo-foils.md)
 - Source: `graph/closed_loop.py` `node_launch_children`
   (`start_new_session=True` Popen)
 

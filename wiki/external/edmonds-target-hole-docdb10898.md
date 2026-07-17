@@ -1,13 +1,21 @@
-# Edmonds target-hole flash study (DocDB-10898)
+---
+type: external
+title: Edmonds target-hole flash study (DocDB-10898)
+description: 'Edmonds 2017 (DocDB-10898): a CENTRAL stopping-target hole (R≈18-21.5mm)
+  cuts beam flash ~30% (DAQ-window ~10-15%) + tracker dose ~30%, SES unchanged,
+  2-3% stop loss at fixed mass; flash parents are central (RMS 24mm) — reconciles
+  the [[bo-foilsflash]] null (foilsflash varied the outer envelope, not the central
+  hole)'
+status: active
+timestamp: '2026-06-29'
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-06-29
+# Edmonds target-hole flash study (DocDB-10898)
 
 ## Summary
 Andy Edmonds' 2017 study (Mu2e DocDB-10898v1) showing that a **central hole in the
 stopping target mitigates the beam flash** in the tracker without hurting sensitivity.
-This is the direct physics antecedent of the [[bo-foilsflash]] line — and it explains
+This is the direct physics antecedent of the [bo-foilsflash](/projects/bo-foilsflash.md) line — and it explains
 why foilsflash got a NULL: Edmonds' flash lever is a hole in the CENTRE of the main
 stopping target, whereas foilsflash varied the OUTER extra-foil envelope on a pinned
 base. Two decks were shared with this project: `main3.pdf` = "Target Hole Simulations"
@@ -22,7 +30,7 @@ base. Two decks were shared with this project: `main3.pdf` = "Target Hole Simula
   emitted as 37× `21.5` in the holeRadii vector. So the ~30% flash mitigation is ALREADY
   BANKED, and the foilsflash base is this HOLED (low-flash) target — NOT solid. To recover
   the +30% "no-hole" flash you would CLOSE the hole (→ Edmonds' 34-disk solid baseline);
-  foilsflash cannot (base rIn pinned). See [[bo-foilsflash]] CORRECTION bullet.
+  foilsflash cannot (base rIn pinned). See [bo-foilsflash](/projects/bo-foilsflash.md) CORRECTION bullet.
 - **Problem:** the beam flash deposits the MOST charge in the straws and the MOST
   radiation dose in the tracker electronics of all background frames (vs dio/oot/
   neutron/photon/deuteron/proton). "No loss in gain up to 1 C/cm" was the straw limit.
@@ -42,7 +50,7 @@ base. Two decks were shared with this project: `main3.pdf` = "Target Hole Simula
 - **Tracker electronics radiation dose:** ↓ **~30%** in upstream G10 volumes.
 - **Stopped muons:** at FIXED mass lose only **2–3%** (rel 0.97–0.98). At LOWER mass
   (34-disk/R=20 mm/151 g) lose **8%** (rel 0.92) → holding mass is essential. (This
-  2–3% matches the [[bo-foils]]/[[bo-foilsflash]] independent finding.)
+  2–3% matches the [bo-foils](/projects/bo-foils.md)/[bo-foilsflash](/projects/bo-foilsflash.md) independent finding.)
 - **Single Event Sensitivity:** UNCHANGED within errors — 2.69±0.03 → 2.8±0.1 ×10⁻¹⁷
   (S.E.S.). Mechanism (slide 13): the holed target pushes stops to **larger radii** →
   the conversion electron passes through **less material** → "better" tracks, which
@@ -55,9 +63,9 @@ base. Two decks were shared with this project: `main3.pdf` = "Target Hole Simula
   / 20-slot" CD3 tracker geometry. (3) Benefit is all-times ~30% but DAQ-window ~10–15%.
 
 ## Cross-links
-- Related: [[bo-foilsflash]] (the null this reconciles), [[stopping-target-foil-base-spec]]
+- Related: [bo-foilsflash](/projects/bo-foilsflash.md) (the null this reconciles), [stopping-target-foil-base-spec](/concepts/stopping-target-foil-base-spec.md)
   (the base target whose central holeRadius is Edmonds' lever; scalar holeRadius),
-  [[mu2e-run1-sensitivity]] (SES context)
+  [mu2e-run1-sensitivity](/concepts/mu2e-run1-sensitivity.md) (SES context)
 - External: Mu2e DocDB-10898v1 (Edmonds, "Target Hole Simulations", 2017)
 
 ## ★ A/B UPDATE (2026-06-30, high-stats): Edmonds' effect REPRODUCED in flash RATE/TOTAL
@@ -66,7 +74,7 @@ first pass just used the wrong metric. Flash-event COUNT (same ~40M input, equal
 133,967 vs holed 101,403 → **hole −24% flash RATE (~67σ), −21.5% TOTAL flash/input** — same
 direction and comparable magnitude as Edmonds' ~30%. The per-event MEAN was ~flat (−3.8%,
 noise) because it divides out the event count where the lever lives. So Edmonds' central-hole
-flash reduction IS present in our sim; the [[bo-foilsflash]] objective (`flash_edep_per_event`
+flash reduction IS present in our sim; the [bo-foilsflash](/projects/bo-foilsflash.md) objective (`flash_edep_per_event`
 = mean) was blind to it (metric-definition bug). The section below (electron≠proton, "not a
 lever") reflected the mean-only view and is SUPERSEDED by this rate/total result.
 
@@ -81,7 +89,7 @@ to Edmonds" mechanism was RETRACTED (1σ wiggle). Open hypotheses for why our me
 doesn't show his effect: our `EleBeamCat` resampled electron-beam early flash may be a
 different background than his prompt "flash" frame, and/or the electron flash at the straw
 radius doesn't sample the central hole. Needs replicas + background-identity check. See
-[[bo-foilsflash]] NO-HOLE A/B RESULT.
+[bo-foilsflash](/projects/bo-foilsflash.md) NO-HOLE A/B RESULT.
 
 ## Open questions / TODO
 - A real flash-mitigation BO line should vary the base target's **central `holeRadius`

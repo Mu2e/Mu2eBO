@@ -1,15 +1,13 @@
 ---
-name: venv-relocated-to-data-volume
-description: .venv-graph and .venv-botorch live on /exp/mu2e/data (symlinked from project root); Ceph cross-volume mv ran ~430 KB/s on many-small-files
 type: incident
+title: venv relocated to /exp/mu2e/data volume
+description: .venv-graph and .venv-botorch live on /exp/mu2e/data (symlinked from
+  project root); Ceph cross-volume mv ran ~430 KB/s on many-small-files
 status: resolved
+timestamp: '2026-07-16'
 ---
 
 # venv relocated to /exp/mu2e/data volume
-
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-07-16
 
 > **Corollary (2026-07-08): never use git-worktree isolation for agents/tasks
 > in this repo.** `.venv-graph`/`.venv-botorch` are UNTRACKED symlinks at the
@@ -36,7 +34,7 @@ linearly extrapolate from small-venv timing.
   `DEVICE=cpu`). The CPU-wheel build (`.venv-botorch-new`, botorch 0.18)
   is ~973 MB. Retiring the 0.10 venv after the A/B verdict reclaims
   ~6.7G on the 2TB /data quota that already EDQUOT'd once
-  ([[data-quota-exhausted-grid-accumulation]]).
+  ([data-quota-exhausted-grid-accumulation](/incidents/data-quota-exhausted-grid-accumulation.md)).
 - **`.venv-botorch-new` is uv-built without pip** — `pip list` silently
   returns nothing; audit installed packages via `ls .../site-packages/*.dist-info`.
   It is also missing from `.gitignore` (lines 5-6 cover only the other
@@ -75,7 +73,7 @@ linearly extrapolate from small-venv timing.
   the Ceph→Ceph pessimism over to NFS→Ceph.
 - **No source file references `.venv-botorch`** — it's
   manually-activated only. `.venv-graph` is referenced from the
-  [[graph-runner]] skill and is the standard entrypoint for
+  [graph-runner](/drivers/graph-runner.md) skill and is the standard entrypoint for
   `python -m graph.run`.
 
 - **Skill/script gotcha 2026-06-07: `.venv-botorch/bin/python` is NOT
@@ -134,11 +132,11 @@ linearly extrapolate from small-venv timing.
 
 ## Cross-links
 
-- Related: [[jobsub-disk-quota-stderr-swallowed]] (the /nashome 94%
+- Related: [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) (the /nashome 94%
   side of the same 2026-05-22 quota episode; /app was also at 94%
-  which is why these venvs got moved), [[closed-loop-sqlite-checkpoint-transient-corruption]], [[data-quota-exhausted-grid-accumulation]], [[prodtarget-env-divergence]].
+  which is why these venvs got moved), [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md), [data-quota-exhausted-grid-accumulation](/incidents/data-quota-exhausted-grid-accumulation.md), [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md).
 - Source files: none — relocation is filesystem-level only.
-- External: [[mu2e-offline]] for /cvmfs paths (unaffected).
+- External: [mu2e-offline](/external/mu2e-offline.md) for /cvmfs paths (unaffected).
 
 - **`~/.npm` relocated (2026-06-11)** to free /nashome quota for RCDS
   publish: `/nashome/o/oksuzian/.npm` (was 2.8 G) → symlink →
@@ -153,7 +151,7 @@ linearly extrapolate from small-venv timing.
   re-creates the dir on its next launch — keep the gap between
   delete and symlink minimal.
 - **Local home cleanup is essentially powerless against /nashome
-  filesystem-wide quota** (cross-link [[jobsub-disk-quota-stderr-swallowed]]).
+  filesystem-wide quota** (cross-link [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md)).
   Our entire home is ~5 G against a 5.8 T shared mount; relocating .npm
   drops it from 5.1 G to 2.3 G but `df /nashome` stays at 96%.
   The 2.8 G recovered is functionally MB-level relative to the

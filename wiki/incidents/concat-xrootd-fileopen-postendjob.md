@@ -1,14 +1,15 @@
 ---
-name: concat-xrootd-fileopen-postendjob
-description: concat-stage art exits 1 in PostEndJob with xrootd FileOpenError under high concurrent IO; outstage has .log but no .art
 type: incident
+title: concat-stage xrootd FileOpenError in PostEndJob
+description: concat-stage art exits 1 in PostEndJob with xrootd FileOpenError under
+  high concurrent IO; outstage has .log but no .art
+status: active
+status_note: (transient — recurs whenever many concat jobs read inputs simultaneously;
+  no code fix, just retry)
+timestamp: '2026-05-18'
 ---
 
 # concat-stage xrootd FileOpenError in PostEndJob
-
-**Type:** incident
-**Status:** active (transient — recurs whenever many concat jobs read inputs simultaneously; no code fix, just retry)
-**Updated:** 2026-05-18
 
 ## Summary
 Under heavy concurrent IO (several `q=5` chains all running their `concat`
@@ -46,8 +47,8 @@ in the chain script — same surface as token contention, different root cause).
   mustops_ce submit is `state/mustops_ce_basenames.txt`, which is empty when
   the upstream concat outputs are missing. Three distinct things now share
   the `FAIL submit-mustops_ce` surface:
-  1. token race ([[concurrent-token-contention]])
-  2. stage-out rename race ([[stage-out-rename-race]])
+  1. token race ([concurrent-token-contention](/incidents/concurrent-token-contention.md))
+  2. stage-out rename race ([stage-out-rename-race](/incidents/stage-out-rename-race.md))
   3. empty inputs file because concat outputs never landed (this incident)
 - **Diagnostic ladder when `FAIL submit-mustops_ce` hits:**
   1. Check `state/mustops_ce_basenames.txt` size — empty → this incident or
@@ -65,9 +66,9 @@ in the chain script — same surface as token contention, different root cause).
   files for output finalization and is where the timeout shows up.
 
 ## Cross-links
-- Related: [[concurrent-token-contention]] (shares failure surface),
-  [[stage-out-rename-race]] (also shares surface), [[bo-helical]]
-  (dx-widening probe), [[grid-job-completion-check]], [[closed-loop-barrier-timeout-zero-rows-falsepos]], [[elebeamcat-tape-migration-elebeam-wipeout]], [[harvest-pyroot-nfs-rpc-hang]]
+- Related: [concurrent-token-contention](/incidents/concurrent-token-contention.md) (shares failure surface),
+  [stage-out-rename-race](/incidents/stage-out-rename-race.md) (also shares surface), [bo-helical](/projects/bo-helical.md)
+  (dx-widening probe), [grid-job-completion-check](/incidents/grid-job-completion-check.md), [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md), [elebeamcat-tape-migration-elebeam-wipeout](/incidents/elebeamcat-tape-migration-elebeam-wipeout.md), [harvest-pyroot-nfs-rpc-hang](/incidents/harvest-pyroot-nfs-rpc-hang.md)
 - Source: `pipeline.py:submit_stage` (submits), `pipeline.py:list_outputs`
   (silently emits empty file when no .art present)
 - Recovery script: `/tmp/helical_resume_concat_full.sh`

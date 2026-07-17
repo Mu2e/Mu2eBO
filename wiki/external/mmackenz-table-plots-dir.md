@@ -1,8 +1,14 @@
-# mmackenz_table_plots/ — off-repo analysis + picker scripts dir
+---
+type: external
+title: mmackenz_table_plots/ — off-repo analysis + picker scripts dir
+description: off-repo /data dir holding ~20 unversioned picker/renderer scripts
+  + artifacts; name is historical misnomer; 3 hardcoded repo refs; migration blocked
+  while a closed-loop runs
+status: active
+timestamp: '2026-06-02'
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-06-02
+# mmackenz_table_plots/ — off-repo analysis + picker scripts dir
 
 ## Summary
 `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/` is an
@@ -15,17 +21,17 @@ artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
 ## Key facts
 - **Why "mmackenz" (historical drift):** it began as plots of mmackenz's
   hand-designed config TABLE — `scrape_geom_params.py` scrapes
-  `geom_params.tsv` from the [[mmackenz-workflow]] tree; "table_plots" = plots
+  `geom_params.tsv` from the [mmackenz-workflow](/external/mmackenz-workflow.md) tree; "table_plots" = plots
   of that table. It then accreted ALL the BO renderers/shims/overlays. The
   name is now a **misnomer** — almost nothing in it is mmackenz-specific.
 - **Why on /data:** /app (repo volume) has tight quota; /data is the big
   volume, so large regenerable artifacts (GIFs ~2.9 MB, PNGs ~200–250 KB)
   live there to keep git lean — same rationale as
-  [[venv-relocated-to-data-volume]]. It's also a sibling of the
+  [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md). It's also a sibling of the
   `autoresearch_grid/` work tree it plots.
 - **Smell:** ~20 scripts there are CODE, unversioned (no git history/review).
   `botorch_predict_helical.py` was once deleted before a snapshot window
-  (see [[bo-helical]]) — exactly this fragility. Artifacts on /data is fine;
+  (see [bo-helical](/projects/bo-helical.md)) — exactly this fragility. Artifacts on /data is fine;
   load-bearing code on /data is the risk.
 - **THREE hardcoded repo refs pin this path** (must all change on any move):
   - `graph/closed_loop.py:86` — `GP_SCRIPT_DIR` (picker import dir)
@@ -55,8 +61,8 @@ artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
   Do it between campaigns, or leave a symlink `mmackenz_table_plots → <new>`.
 
 ## Cross-links
-- Related: [[gp-cloud-rendering]], [[closed-loop-runner]], [[batch-bo]],
-  [[mmackenz-workflow]], [[venv-relocated-to-data-volume]]
+- Related: [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [closed-loop-runner](/drivers/closed-loop-runner.md), [batch-bo](/concepts/batch-bo.md),
+  [mmackenz-workflow](/external/mmackenz-workflow.md), [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md)
 - Source refs: `graph/closed_loop.py:86`, `botorch_predict.py:6`,
   `autoresearch_bo_michael.py:76`
 

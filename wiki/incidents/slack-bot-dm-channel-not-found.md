@@ -1,14 +1,20 @@
-# slack-bot-dm-channel-not-found — bot can't share to a user's MCP DM channel
+---
+type: incident
+title: slack-bot-dm-channel-not-found — bot can't share to a user's MCP DM channel
+description: bot's `files.completeUploadExternal` → `channel_not_found` on user-MCP
+  DM channels; call `conversations.open` first to mint the bot's own DM
+status: resolved
+timestamp: '2026-05-29'
+updated_note: private-channel case added
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-05-29 (private-channel case added)
+# slack-bot-dm-channel-not-found — bot can't share to a user's MCP DM channel
 
 ## Summary
 A freshly installed Slack bot (the mu2e-workspace bot at user
 `U0B6XLZH9DG`) cannot post or share files to the DM channel a *human
 user* sees with the claudeai-proxy MCP user (channel `D738B2DRV` for
-U725NHNHG). Step 3 of [[slack-file-upload-flow]] returns
+U725NHNHG). Step 3 of [slack-file-upload-flow](/external/slack-file-upload-flow.md) returns
 `{"ok":false,"error":"channel_not_found"}` even though the file was
 uploaded cleanly in step 2.
 
@@ -63,5 +69,5 @@ claudeai-proxy DM `D738B2DRV`). The user sees the bot upload in a
   directly. No multi-hop relay needed.
 
 ## Cross-links
-- Related: [[slack-file-upload-flow]], [[claude-bash-no-ssh-agent]]
+- Related: [slack-file-upload-flow](/external/slack-file-upload-flow.md), [claude-bash-no-ssh-agent](/incidents/claude-bash-no-ssh-agent.md)
 - External: [conversations.open](https://api.slack.com/methods/conversations.open)

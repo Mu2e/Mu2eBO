@@ -1,11 +1,16 @@
+---
+type: concept
+title: Scalarized objective — `obj = S/√B − α·calo/POT`
+description: '`obj = S/√B − α·calo/POT`, α choice'
+status: active
+timestamp: '2026-06-19'
+updated_note: recorded why α removal was declined
+---
+
 # Scalarized objective — `obj = S/√B − α·calo/POT`
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-06-19 (recorded why α removal was declined)
-
 ## Summary
-[[bo-michael]] is a multi-objective problem (maximize Run1A CE S/√B, minimize
+[bo-michael](/projects/bo-michael.md) is a multi-objective problem (maximize Run1A CE S/√B, minimize
 Run1B calo_stop_per_pot) collapsed to a single scalar so a stock GP-EI
 optimizer can drive it. The weight α controls the trade-off rate: how many
 units of S/√B we are willing to give up to halve the calo nuisance.
@@ -48,7 +53,7 @@ units of S/√B we are willing to give up to halve the calo nuisance.
     lives in `graph/closed_loop.py`.) α is vestigial on the qNEHVI path, used only
     for the post-hoc leaderboard `obj` column. So a
     saturated qNEHVI/qLogNEHVI run maps the same front at any α; re-rank for
-    free afterward. See [[batch-bo]].
+    free afterward. See [batch-bo](/concepts/batch-bo.md).
 - **α-FREE reporting alternative: best-sob-at-calo-budget (2026-06-04).** Instead
   of a single α-champion, report the empirical front as `max sob s.t. calo ≤ B`
   at a few interpretable calo budgets `B` — no α. Over **all 343 foils evals
@@ -93,7 +98,7 @@ removal is high-blast-radius and was declined:
   misaligned TSVs unless all are migrated (~10+ files).
 - **Live-campaign hazard** — changing the schema while campaigns append (ipa02,
   pt6d11, …) corrupts in-progress files.
-Resolution: keep α, rely on this page + [[bo-ipa]] documenting it as vestigial.
+Resolution: keep α, rely on this page + [bo-ipa](/projects/bo-ipa.md) documenting it as vestigial.
 Don't re-propose removal as a quick edit.
 
 ## Open questions / TODO
@@ -113,7 +118,7 @@ Don't re-propose removal as a quick edit.
   front + a champion *band* over α, don't oversell a single `obj`.
 
 ## Cross-links
-- Related: [[g4-speed-knobs]], [[bfield-at-helical-plug]], [[bo-noise-budget]], [[qlnei-sob-only-picker]]
-- Driver: [[autoresearch-bo-michael]]
-- See also: [[bo-modes]] (which `sob` value the optimizer reads vs the report),
-  [[batch-bo]] (qNEHVI explores the front α-free; defer-α two-phase strategy)
+- Related: [g4-speed-knobs](/concepts/g4-speed-knobs.md), [bfield-at-helical-plug](/concepts/bfield-at-helical-plug.md), [bo-noise-budget](/concepts/bo-noise-budget.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)
+- Driver: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+- See also: [bo-modes](/concepts/bo-modes.md) (which `sob` value the optimizer reads vs the report),
+  [batch-bo](/concepts/batch-bo.md) (qNEHVI explores the front α-free; defer-α two-phase strategy)

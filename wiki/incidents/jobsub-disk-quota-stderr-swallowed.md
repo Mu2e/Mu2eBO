@@ -1,15 +1,15 @@
 ---
-name: jobsub-disk-quota-stderr-swallowed
-description: mu2ejobsub fails rc=1 with no error in graph log — OSError 122 (disk quota) hidden by capture_output=True in submit_stage
 type: incident
-status: resolved
+title: jobsub-disk-quota — stderr swallowed by submit_stage
+description: mu2ejobsub fails rc=1 with no error in graph log — OSError 122 (disk
+  quota) hidden by capture_output=True in submit_stage
+status: recurring
+status_note: stderr-swallow code path unchanged (now `pipeline.py:643`); foilsflash04
+  R1 lost 1/10 with quota HEALTHY 2026-07-01 (cause ≠ quota, still swallowed)
+timestamp: '2026-07-01'
 ---
 
 # jobsub-disk-quota — stderr swallowed by submit_stage
-
-**Type:** incident
-**Status:** recurring — stderr-swallow code path unchanged (now `pipeline.py:643`); foilsflash04 R1 lost 1/10 with quota HEALTHY 2026-07-01 (cause ≠ quota, still swallowed)
-**Updated:** 2026-07-01
 
 ## Summary
 
@@ -111,10 +111,10 @@ raises before lines 421-423 print `out.stderr`.
   this is a binary "home-quota up / down" state, not a per-child race.
   decide_next then legitimately tripped its `zero new rows → all failed`
   guard (this time correctly, vs the false-positive of
-  [[closed-loop-barrier-timeout-zero-rows-falsepos]] where children
+  [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md) where children
   were still running). Recovery: free home, relaunch under a new
   `--name-prefix` (foilsg05) — the existing foilsg04R00_* names cannot
-  be re-used because [[closed-loop-stale-cluster-silent-no-launch]]
+  be re-used because [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)
   would skip them all.
 - **Recurrence (foilsflash04R01_06, 2026-07-01) — quota was NOT the cause; the incident is BROADER than "disk quota".**
   1/10 R1 children died at the **mustops_ce** `mu2ejobsub` rc=1 (mubeam+concat had submitted fine) with the
@@ -175,12 +175,12 @@ raises before lines 421-423 print `out.stderr`.
 
 ## Cross-links
 
-- Related: [[concurrent-token-contention]] (other mu2ejobsub failure
-  mode — also under submit-lock, but token-races, not quota), [[data-quota-exhausted-grid-accumulation]], [[sourced-env-stderr-swallowed]], [[venv-relocated-to-data-volume]].
+- Related: [concurrent-token-contention](/incidents/concurrent-token-contention.md) (other mu2ejobsub failure
+  mode — also under submit-lock, but token-races, not quota), [data-quota-exhausted-grid-accumulation](/incidents/data-quota-exhausted-grid-accumulation.md), [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md), [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md).
 - Source files: `pipeline.py:413-432` (`submit_stage` jobsub call +
   swallowed stderr), `pipeline.py:265-274` (env construction —
   `setup mu2egrid` requirement).
-- Driver page: [[pipeline]] (per-stage submit semantics).
+- Driver page: [pipeline](/drivers/pipeline.md) (per-stage submit semantics).
 
 ## Open questions / TODO
 

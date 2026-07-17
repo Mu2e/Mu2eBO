@@ -1,17 +1,16 @@
 ---
-name: concurrent-token-contention
-description: jobsub_lite mu2ejobsub races when N>1 chains submit within ~10s; need 60-90s stagger
 type: incident
+title: Concurrent token contention on mu2ejobsub
+description: jobsub_lite mu2ejobsub races when N>1 chains submit within ~10s; need
+  60-90s stagger
+status: resolved
+status_note: '(mitigated 2026-05-20: host-wide `fcntl.flock` on `/tmp/mu2e_submit.$USER.lock`
+  wraps the token-refresh + `mu2ejobsub` critical section in `pipeline.py:_submit_lock`;
+  serializes all submits across all concurrent chains)'
+timestamp: '2026-06-18'
 ---
 
 # Concurrent token contention on mu2ejobsub
-
-**Type:** incident
-**Status:** resolved (mitigated 2026-05-20: host-wide `fcntl.flock` on
-`/tmp/mu2e_submit.$USER.lock` wraps the token-refresh + `mu2ejobsub`
-critical section in `pipeline.py:_submit_lock`; serializes all submits
-across all concurrent chains)
-**Updated:** 2026-06-18
 
 ## Summary
 When two or more pipeline.py chains run concurrently and both reach a
@@ -59,7 +58,7 @@ mustops_ce within a 5-minute window — three of five failed.
     the grid without a retry.
   - BUT: chains drifted into sync at the concat→mustops_ce transition.
     helical026 hit submit-concat at 09:50:07 (stage-out rename race —
-    [[stage-out-rename-race]] variant 2), and on its 10:02:09 retry it
+    [stage-out-rename-race](/incidents/stage-out-rename-race.md) variant 2), and on its 10:02:09 retry it
     collided with helical025's submit-mustops_ce → htgettoken failed.
   - **Lesson:** launch-time stagger does not propagate. Stage wall times
     are nearly identical across configs (mubeam ~6 min, run1b_mubeam
@@ -81,17 +80,17 @@ mustops_ce within a 5-minute window — three of five failed.
   the surface:
   1. Token race (this page) — stderr mentions htgettoken / vault / no
      cluster ID parsed.
-  2. Stage-out rename race ([[stage-out-rename-race]]) — `FileNotFoundError`
+  2. Stage-out rename race ([stage-out-rename-race](/incidents/stage-out-rename-race.md)) — `FileNotFoundError`
      inside `stage_hardlink_farm` because /pnfs `NNNNN.<hash>` dir renamed
      to bare-index mid-glob.
-  3. Empty inputs file ([[concat-xrootd-fileopen-postendjob]]) — upstream
+  3. Empty inputs file ([concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md)) — upstream
      concat job lost its .art in PostEndJob xrootd timeout, so
      `<stage>_basenames.txt` is empty.
-  See [[concat-xrootd-fileopen-postendjob]] for the diagnostic ladder.
+  See [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md) for the diagnostic ladder.
 
 ## Cross-links
-- Related: [[stage-out-rename-race]], [[grid-job-completion-check]],
-  [[bo-helical]], [[concat-xrootd-fileopen-postendjob]], [[jobsub-disk-quota-stderr-swallowed]], [[kerberos-mid-run-expiry]], [[stage-out-lag]]
+- Related: [stage-out-rename-race](/incidents/stage-out-rename-race.md), [grid-job-completion-check](/incidents/grid-job-completion-check.md),
+  [bo-helical](/projects/bo-helical.md), [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md), [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md), [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md), [stage-out-lag](/incidents/stage-out-lag.md)
 - Source: `pipeline.py:submit_stage` (preemptive `getToken` landed
   2026-05-18; still no flock for cache-dir race)
 - Resume scripts (ad-hoc, /tmp): `helical_resume_run1b.sh`,

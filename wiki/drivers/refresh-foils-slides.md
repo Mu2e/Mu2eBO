@@ -1,9 +1,16 @@
-# refresh-foils-slides
+---
+type: driver
+title: refresh-foils-slides
+description: (**script trio DELETED 2026-07-17** — captions stamper clobbered the
+  live deck footer) now the record of per-deck figure→generator maps; refresh path
+  = refresh-foils-talk skill
+status: superseded
+timestamp: '2026-07-17'
+updated_note: '**the script trio was DELETED** — this page is now the record of
+  the per-deck figure→generator maps, which remain current'
+---
 
-**Type:** driver
-**Status:** superseded
-**Updated:** 2026-07-17 (**the script trio was DELETED** — this page is now
-the record of the per-deck figure→generator maps, which remain current)
+# refresh-foils-slides
 
 > **2026-07-17: `tools/refresh_foils_slides.sh` + `tools/stamp_foils_highlights.py`
 > + `tools/refresh_foils_talk_captions.py` were deleted** (simplification
@@ -25,14 +32,14 @@ EXCEPT saturation_*/ipa which write `docs/` directly):
   `sketch_foil_champions.py`, `saturation_report.py <v3.tsv>`, `saturation_foilsg.py`
   + hand-built slide-5/7 HTML tables (see below).
 - **ipa_talk** → `gp_predict_ipa_cloud.py` (writes docs/ directly),
-  `sketch_ipa.py`. See [[bo-ipa]].
+  `sketch_ipa.py`. See [bo-ipa](/projects/bo-ipa.md).
 - **prodtarget6d_talk** → `botorch_predict_prodtarget6d_cloud.py --current-box-only`
   (→ `*_t8only.png`) and `--acq` (→ `*_acq_cloud.png`) — both write the PLOTS dir,
   must `cp` into `docs/`; `pt6d07R01_07_geometry_sketch.png` (champion, static).
   GOTCHA: the two clouds are a slow botorch GP fit (~minutes each, sequential),
   and their n=… captions + the status `<small>` block are HAND-edited (count the
   t-upper>7 rows for the t8only caption). marp render needs CHROME_PATH +
-  npm_config_cache=/tmp/oksuzian_npm_cache (see [[marp-pdf-rendering]]).
+  npm_config_cache=/tmp/oksuzian_npm_cache (see [marp-pdf-rendering](/concepts/marp-pdf-rendering.md)).
 
 ## Current deck image → generator map (2026-06-18) — the .sh is ORPHANED
 `docs/foils_talk.md` now references **5 images, and `tools/refresh_foils_slides.sh`
@@ -83,8 +90,6 @@ champion (foilsf17 3.83→3.91) silently contradicts it. Steps 4-6 are the ones 
 above) but correct on `saturation_report.py` mechanics + marp sizing.
 
 ## n_evals divergence (2026-06-17) — caption reads 251, GIF reads 323
-
-## n_evals divergence (2026-06-17) — caption reads 251, GIF reads 323
 Manual rerun 2026-06-17: `gp_predict_foils_cloud_anim.py` GIF final-frame caption = `n=323 foilsZ07R01` (loader pulls v1+v2+v3 via `load_history_all_v1_symmetric`, latest sweep up to foilsZ07), but `refresh_foils_talk_captions.py` stamps `n_evals=251` into `docs/foils_talk.md` because it reads only `leaderboard_bo_foils_v1.tsv` (per "Highlights templating" + "Caption refresh" bullets below — both are v1-only). Two different counters; the cron will publish a deck where the **image** says 323 and the **adjacent caption** says 251. Surface this before push. Fix path: either point captioner at the all-v3 leaderboard, or accept the v1-era 251 number as historical and drop the bullet that names it.
 
 ## v1-era pipeline NOT fully orphaned (2026-06-17 correction)
@@ -116,7 +121,7 @@ pushes manually.
 
 - **`saturation_report.py` regret panel reads OBJ (legacy scalar), not sob (2026-06-07).**
   The bottom-right Δbest panel + black "round-best obj" line both consume
-  column 11 `obj = sob − α·calo` with α=1e5 (the [[scalarized-objective]] from
+  column 11 `obj = sob − α·calo` with α=1e5 (the [scalarized-objective](/concepts/scalarized-objective.md) from
   the v1/skopt era — stamped on every leaderboard row at harvest time). The
   v3 picker is qLogNEHVI on the 2D Pareto front `(sob, −log calo)` and
   **does NOT use `obj`**. Consequence: the regret-panel y2 scale (~1.7-2.0)
@@ -281,9 +286,9 @@ pushes manually.
   is the bottleneck (~90 min); pass `--skip-overlay` for a fast refresh.
 
 ## Cross-links
-- Related: [[gp-cloud-rendering]] (what produces the input GIF)
-- Related: [[github-pages-publish-dir]] (why `docs/` is the publish dir)
-- Related: [[slack-file-upload-flow]] (sibling Slack cron `41e49197`)
+- Related: [gp-cloud-rendering](/concepts/gp-cloud-rendering.md) (what produces the input GIF)
+- Related: [github-pages-publish-dir](/external/github-pages-publish-dir.md) (why `docs/` is the publish dir)
+- Related: [slack-file-upload-flow](/external/slack-file-upload-flow.md) (sibling Slack cron `41e49197`)
 - Source files: `tools/refresh_foils_slides.sh`,
   `tools/stamp_foils_highlights.py`, `tools/refresh_foils_talk_captions.py`,
   `.claude/skills/refresh-foils-talk/SKILL.md`

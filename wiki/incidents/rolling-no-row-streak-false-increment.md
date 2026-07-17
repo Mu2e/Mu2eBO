@@ -1,8 +1,18 @@
-# Rolling no_row_streak falsely increments on SUCCESSFUL children
+---
+type: incident
+title: Rolling no_row_streak falsely increments on SUCCESSFUL children
+description: rolling abort guard counts a wave-level row delta but detects resolutions
+  at the barrier → a child resolving during a wave transition has its row absorbed
+  into the next baseline, so the streak increments on a SUCCESSFUL child (ff18 w1);
+  ≥q clustered resolutions could abort a healthy campaign; fix = name-based accounting
+  via `_leaderboard_names`
+status: resolved
+status_note: (name-based accounting landed 2026-07-16; regression test `test_decide_streak_immune_to_baseline_absorbed_row`,
+  suite 162 green)
+timestamp: '2026-07-16'
+---
 
-**Type:** incident
-**Status:** resolved (name-based accounting landed 2026-07-16; regression test `test_decide_streak_immune_to_baseline_absorbed_row`, suite 162 green)
-**Updated:** 2026-07-16
+# Rolling no_row_streak falsely increments on SUCCESSFUL children
 
 ## Summary
 In `--rolling` mode the `no_row_streak` abort guard counts a **wave-level row
@@ -48,13 +58,13 @@ window could abort a perfectly healthy campaign.
 - **Mid-campaign safety:** `closed_loop.py` is the PARENT's own module, loaded
   once at launch — editing it does NOT affect a running parent (unlike
   `pipeline.py`/`botorch_predict.py`, which children/waves re-execute; see the
-  freeze note in [[closed-loop-runner]]). A crash+relaunch would pick up the
+  freeze note in [closed-loop-runner](/drivers/closed-loop-runner.md)). A crash+relaunch would pick up the
   new code, which is desirable.
 
 ## Cross-links
-- Related: [[closed-loop-runner]], [[foilsx04-all-preflight-ambiguous]] (the
+- Related: [closed-loop-runner](/drivers/closed-loop-runner.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md) (the
   original zero-rows shape this guard generalizes),
-  [[closed-loop-barrier-timeout-zero-rows-falsepos]] (sibling false-positive in
+  [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md) (sibling false-positive in
   the barrier-mode guard)
 - Source files: `graph/closed_loop.py:686-701` (delta + streak),
   `graph/closed_loop.py:417` (baseline refresh), `graph/closed_loop.py:217`

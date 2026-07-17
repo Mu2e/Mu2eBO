@@ -1,8 +1,13 @@
-# pipeline.py — parametric grid runner
+---
+type: driver
+title: pipeline.py — parametric grid runner
+description: 'per-config runner: forks config, submits grid, harvests'
+status: active
+timestamp: '2026-06-07'
+updated_note: added `harvest-pot-only` subcommand for bo-prodtarget
+---
 
-**Type:** driver
-**Status:** active
-**Updated:** 2026-06-07 (added `harvest-pot-only` subcommand for bo-prodtarget)
+# pipeline.py — parametric grid runner
 
 ## Summary
 One canonical pipeline.py at the repo root. Pass `--config CFG`; per-config
@@ -10,7 +15,7 @@ paths (work tree, geom file, DSCONF, /pnfs staging dir, stage `desc` strings)
 are derived from CFG. Invoked once per BO iteration after `propose` to submit
 the multi-stage workflow to the grid and harvest results into `summary.json`.
 
-Replaced the per-config rsync+sed fork pattern (see [[template-fcl-staleness]]
+Replaced the per-config rsync+sed fork pattern (see [template-fcl-staleness](/incidents/template-fcl-staleness.md)
 for the failure that motivated this).
 
 ## Key facts
@@ -31,7 +36,7 @@ for the failure that motivated this).
 - **Subcommands:** `submit | poll | list-outputs | harvest | harvest-pot-only`
   (a `materialize` debug verb was removed 2026-07-12 — zero callers;
   `_materialize_template` itself lives on inside `submit`). `harvest-pot-only` (added
-  2026-06-07 for [[bo-prodtarget]]) is a separate uproot-based subcommand
+  2026-06-07 for [bo-prodtarget](/projects/bo-prodtarget.md)) is a separate uproot-based subcommand
   (not a switch on `harvest`) because the objective differs (`mu_per_POT` at
   VD sid=8 vs S/√B − α·calo/POT) and the chain is single-stage — cleaner as
   a parallel command than rewiring `cmd_harvest`. VD branch is `sid` (not
@@ -47,19 +52,19 @@ for the failure that motivated this).
   needs to be reseeded with a different cluster (rare; usually the right move
   is to delete the cluster file by hand). Poll and harvest have always been
   naturally re-entrant. The guards enable the LangGraph stage nodes (see
-  [[graph-runner]]) to safely re-run after a checkpoint kill or hot-reload
+  [graph-runner](/drivers/graph-runner.md)) to safely re-run after a checkpoint kill or hot-reload
   without double-submitting — see graph007 incident, 2026-05-19, where three
   successive submits clobbered the cluster file before the guards landed.
 - **Preemptive token renewal (`submit_stage` lines 319-326, landed 2026-05-18):**
   Before every `mu2ejobsub` invocation, runs
   `bash -c 'source $SETUPMU2E && getToken'` to refresh the bearer token
   idempotently. Addresses the "cached token went stale under concurrent
-  submission" sub-flavor of [[concurrent-token-contention]]. The
+  submission" sub-flavor of [concurrent-token-contention](/incidents/concurrent-token-contention.md). The
   jobsub_lite cache-dir same-second collision is NOT addressed by this and
   still needs a per-user flock (TODO).
 - **Stages:** `mubeam` → `concat` → `mustops_ce` (Run1A) and `run1b_mubeam`
   (Run1B), defined in module-level `STAGES` dict. Plus `pot_only`
-  (single-stage, MDC2025aq-backed) added 2026-06-07 for [[bo-prodtarget]].
+  (single-stage, MDC2025aq-backed) added 2026-06-07 for [bo-prodtarget](/projects/bo-prodtarget.md).
   Stage selection for a chain is owned by `GRID_STAGES_BY_MODE` in
   `graph/config.py` (Mu2eBO issue #15, design only as of 2026-06-07);
   invoked-by-name `pipeline.py submit <stage>` works for any STAGES entry
@@ -112,8 +117,8 @@ for the failure that motivated this).
   `Code/build/al9-prof-e29-p094/Offline/lib/`. Build artifact source is
   `/exp/mu2e/app/users/oksuzian/autoresearch_muse/` (mgit Mu2eG4 sparse
   checkout of v13_12_10 + helical-plug.patch, backed by SimJob/Run1Bak,
-  `muse build -j 8 → muse tarball`). See [[muse-backing-pattern]] for the
-  build recipe and [[calo-constant-across-helical]] for the motivating bug.
+  `muse build -j 8 → muse tarball`). See [muse-backing-pattern](/external/muse-backing-pattern.md) for the
+  build recipe and [calo-constant-across-helical](/incidents/calo-constant-across-helical.md) for the motivating bug.
 - **Historical: `LD_PRELOAD` retired 2026-05-17.** An earlier same-day
   iteration shipped the patched lib as `Code/lib/libmu2e_Mu2eG4.so` + an
   `export LD_PRELOAD=` line in `setup.sh`, because `LD_LIBRARY_PATH` is
@@ -129,11 +134,11 @@ for the failure that motivated this).
   staging, so worker mounts don't matter.
 
 ## Cross-links
-- Consumed by: [[autoresearch-bo-michael]] `evaluate`, [[graph-runner]] (per-stage nodes)
-- Geom rendered by: [[autoresearch-bo-michael]] `propose` (auto-stages into work tree)
-- Regression tests: [[tests]] (pins the `_check_stage_config_sha` contract)
-- See: [[grid-job-completion-check]] for monitoring conventions
-- History: [[template-fcl-staleness]] (the bug this refactor closes)
+- Consumed by: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md) `evaluate`, [graph-runner](/drivers/graph-runner.md) (per-stage nodes)
+- Geom rendered by: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md) `propose` (auto-stages into work tree)
+- Regression tests: [tests](/drivers/tests.md) (pins the `_check_stage_config_sha` contract)
+- See: [grid-job-completion-check](/incidents/grid-job-completion-check.md) for monitoring conventions
+- History: [template-fcl-staleness](/incidents/template-fcl-staleness.md) (the bug this refactor closes)
 
 ## Open questions / TODO
 - Eventually delete the legacy `smoke_*/` trees under

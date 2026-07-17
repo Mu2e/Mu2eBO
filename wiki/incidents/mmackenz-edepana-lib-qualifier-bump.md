@@ -1,8 +1,18 @@
-# EdepAna harvest broke — mmackenz rebuilt Run1BAna p094→p101 (hardcoded lib path died)
+---
+type: incident
+title: EdepAna harvest broke — mmackenz rebuilt Run1BAna p094→p101 (hardcoded lib
+  path died)
+description: 'foils+ipa harvest rc=9 "EdepAna not in CET_PLUGIN_PATH": mmackenz
+  rebuilt Run1BAna p094→p101 (2026-06-25) deleting the hardcoded mmlib path in pipeline.py:360;
+  EdepAna exists in p101 but ABI-vs-our-p094-muse untested; prodtarget immune; 2026-06-26'
+status: resolved
+status_note: 2026-06-26 — EdepAna built into our own muse, pipeline repointed; verified
+  by manual harvest AND a live campaign (foilsf26 R0 +10 rows clean, vs foilsf25
+  all-metrics_none); no longer depends on mmackenz's area
+timestamp: '2026-06-26'
+---
 
-**Type:** incident
-**Status:** resolved 2026-06-26 — EdepAna built into our own muse, pipeline repointed; verified by manual harvest AND a live campaign (foilsf26 R0 +10 rows clean, vs foilsf25 all-metrics_none); no longer depends on mmackenz's area
-**Updated:** 2026-06-26
+# EdepAna harvest broke — mmackenz rebuilt Run1BAna p094→p101 (hardcoded lib path died)
 
 ## Summary
 All foils + ipa harvests started failing at the EdepAna step (`rc=9`, art config
@@ -79,8 +89,8 @@ mmlib prepend (or point it at our own build).
    or pin a copy of the EdepAna .so into our own tree.
 
 ## Cross-links
-- Related: [[muse-backing-pattern]], [[sourced-env-stderr-swallowed]],
-  [[mmackenz-table-plots-dir]] (other off-repo mmackenz dependencies), [[edepana-saw-events-scientific-notation-parse]], [[elebeamcat-tape-migration-elebeam-wipeout]]
+- Related: [muse-backing-pattern](/external/muse-backing-pattern.md), [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md),
+  [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md) (other off-repo mmackenz dependencies), [edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md), [elebeamcat-tape-migration-elebeam-wipeout](/incidents/elebeamcat-tape-migration-elebeam-wipeout.md)
 - Reference: `reference_run1bana_repo` (EdepAna is in github.com/michaelmackenzie/Run1BAna)
 - Source: `pipeline.py:350-365` (mmlib + CET_PLUGIN_PATH prepend), `:1110-1127`
   (EdepAna invocation, rc check)

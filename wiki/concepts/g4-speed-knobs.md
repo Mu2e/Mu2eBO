@@ -1,8 +1,14 @@
-# Geant4 speed knobs (local bench, 2026-05-22)
+---
+type: concept
+title: Geant4 speed knobs (local bench, 2026-05-22)
+description: '`minRangeCut=0.05` is the safe speedup arm (−6% CPU); `Minimal` physics
+  list zeros stop counts even though workflow looks "EM-only"'
+status: active
+timestamp: '2026-07-08'
+updated_note: 'local `elebeam_flash` geometry-pruning bench: guess overturned'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-08 (local `elebeam_flash` geometry-pruning bench: guess overturned)
+# Geant4 speed knobs (local bench, 2026-05-22)
 
 ## External G4 speedup technology survey (2026-07-08, web research, no local bench)
 
@@ -91,7 +97,7 @@ short of the guessed 10-30%.
 
 | Flag | Result | Root cause | Fixable how |
 |---|---|---|---|
-| `hasCosmicRayShield=false` | **BROKEN** (alone or combined w/ STM+MBS) | `Mu2eG4/src/constructVirtualDetectors.cc` (~line 1768): `GeomHandle<CosmicRayShield> CRS;` sits *before* the `if(vdg->exist(vdId))` gate in the `CRV_R..CRV_U` virtual-detector loop — instantiated unconditionally every job. Reached via `Mu2eWorld.cc`'s unconditional call to `constructVirtualDetectors()` (not itself gated on `hasCosmicRayShield`/`vd.crv.build`). Independent of `hasSTM` (tested both ways — same crash). | 1-line source patch: move the `GeomHandle` inside the loop, or wrap the loop in `if (_config.getBool("hasCosmicRayShield", false))`. Needs muse-backed patched Offline rebuild (see [[muse-backing-pattern]]). |
+| `hasCosmicRayShield=false` | **BROKEN** (alone or combined w/ STM+MBS) | `Mu2eG4/src/constructVirtualDetectors.cc` (~line 1768): `GeomHandle<CosmicRayShield> CRS;` sits *before* the `if(vdg->exist(vdId))` gate in the `CRV_R..CRV_U` virtual-detector loop — instantiated unconditionally every job. Reached via `Mu2eWorld.cc`'s unconditional call to `constructVirtualDetectors()` (not itself gated on `hasCosmicRayShield`/`vd.crv.build`). Independent of `hasSTM` (tested both ways — same crash). | 1-line source patch: move the `GeomHandle` inside the loop, or wrap the loop in `if (_config.getBool("hasCosmicRayShield", false))`. Needs muse-backed patched Offline rebuild (see [muse-backing-pattern](/external/muse-backing-pattern.md)). |
 | `hasExternalShielding=false` | **BROKEN** (alone or combined) | `Mu2eG4/src/Mu2eWorld.cc:237` calls `constructSaddles(hallInfo, _config)` **unconditionally** (only the *ExternalShielding volumes themselves*, lines 231-233, are gated by `hasExternalShielding`), but `GeometryService.cc:308-312` only builds the `Saddle` detector element **inside** `if(hasExternalShielding)`. Confirmed both in an isolated single-flag smoke test and combined with CRV+STM+MBS. | `if (_config.getBool("hasExternalShielding", false)) constructSaddles(...)` in Mu2eWorld.cc. |
 | `hasMBS=false` | **BROKEN** (alone or combined) | `Mu2eWorld::constructStepLimiters()` (~line 655) unconditionally does `_helper->locateVolInfo("MBSMother").logical` for the step-limiter volume list, even though the actual MBS G4 construction (line 246-248) *is* correctly gated by `hasMBS`. Third independent unconditional-dependency bug, unrelated to the CRV/Ext ones. | Guard the `MBSMother` lookup in `constructStepLimiters()` with the same `hasMBS` check. |
 | `hasSTM=false` (alone) | **SAFE but ~POINTLESS** | Runs clean (correctly gated everywhere touched — `Mu2eWorld.cc:254`, `GeometryService.cc:283`, `VirtualDetectorMaker.cc:523`'s hasSTM block skips cleanly when nothing downstream needs it). | n/a |
@@ -183,7 +189,7 @@ It's a hook (fast-sim manager process + user-supplied G4VFastSimulationModel
 per envelope region), not a speedup. Every candidate model for our workloads
 is dominated: (1) foil region — physics IS transport/MCS, nothing to
 parametrize; the "model" = our external parametric toy, better outside G4
-(see [[fast-sim-options-for-bo]]); (2) invariant beamline — an in-G4
+(see [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md)); (2) invariant beamline — an in-G4
 teleport model duplicates what MuBeamCat resampling already does at file
 level; the better lever is the resampling-surface audit; (3) the ONE
 in-scope use: post-tracker calo showers in flash jobs are wasted CPU for the
@@ -298,7 +304,7 @@ Belle II CHEP2021, COMET TDR, SHiP arXiv:2512.10520):
 > G4-bearing templates** (mubeam, run1b_mubeam, mustops_ce, mustops_pileup,
 > elebeam_flash) — the −8-20% grid CPU and −45% VmPeak are banked. Stepper
 > dp745 remains optimal per the 5-arm bench. **Reframe: at the pinned
-> ~1,250-slot ceiling ([[bo-noise-budget]]), G4 CPU cuts are CAPACITY
+> ~1,250-slot ceiling ([bo-noise-budget](/concepts/bo-noise-budget.md)), G4 CPU cuts are CAPACITY
 > (evals/day), not just latency — but value is line-shape dependent.**
 > Open levers, re-ranked 2026-07-08:
 > 1. **`elebeam_flash` never profiled** (post-dates this campaign; ~85% of
@@ -372,7 +378,7 @@ end-of-chain (after 4 stages, of which only one differed).
 **Selection bias warning on the CPU mean:** The n=182/196 row counts only
 jobs whose `.art` made it to /pnfs (post-stage-out success); these jobs
 exclude the slow-tail workers that died during PostEndJob (xrootd
-FileOpenError per [[concat-xrootd-fileopen-postendjob]]). The slow-tail
+FileOpenError per [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md)). The slow-tail
 jobs ARE in worker logs (they reach TimeReport before stage-out). Filtering
 on /pnfs success preferentially drops slow-tail jobs — and that filter
 removed 18 jobs from Shield but only 4 from FTFP, biasing the Shield mean
@@ -494,7 +500,7 @@ Raw rows in `leaderboard_bo_helical_v2.tsv`:
 
 **Footgun re-confirmed:** the `--config-name helicalQR00_02_ftfp` CLI flag
 silently fell through to auto-increment `graph027` due to the pending-row
-collision in propose_one — see [[graph-runner]] for the workaround
+collision in propose_one — see [graph-runner](/drivers/graph-runner.md) for the workaround
 (clear pending TSV row before reusing a name from the CLI).
 
 ---
@@ -573,7 +579,7 @@ out to be unsafe (`Minimal` physics list breaks the workflow; `bfieldMaxStep`
   with exit 90 "Can't find file".
 
 ## Cross-links
-- Related: [[scalarized-objective]], [[bo-helical]], [[mmackenz-workflow]], [[production-target-stickman]]
+- Related: [scalarized-objective](/concepts/scalarized-objective.md), [bo-helical](/projects/bo-helical.md), [mmackenz-workflow](/external/mmackenz-workflow.md), [production-target-stickman](/concepts/production-target-stickman.md)
 - Source files: `/tmp/g4_mubeam_bench/run_bench.sh`,
   `/tmp/g4_mubeam_bench/bench_*.fcl`
 - External: [Geant4 production cuts](https://geant4-userdoc.web.cern.ch/UsersGuides/ForApplicationDeveloper/html/TrackingAndPhysics/cuts.html)
@@ -689,7 +695,7 @@ unfiltered g4run, 100 events; diagnostic in
   generator throws. MinDEDX is **NOT** usable as a drop-in for the full
   production chain. To use MinDEDX in production needs one of: (a)
   patch `simParticleList.cc:15` to accept {31, 32} (Muse-backed Offline
-  rebuild — see [[muse-backing-pattern]] for the helical-plug
+  rebuild — see [muse-backing-pattern](/external/muse-backing-pattern.md) for the helical-plug
   precedent), or (b) re-tag code 31 → 32 in
   `Mu2eG4CustomizationPhysicsConstructor` before the SimParticle is
   written out. Either is a bigger change than the bench warranted.
@@ -896,7 +902,7 @@ signal entirely** — never apply there.
   production deployment. Revisit in ~12 months.
 - **VecGeom** — vectorized geometry. 5–15% on tube-heavy geometry like
   ours but **requires Offline rebuild** to link/swap solid impls.
-  Tessellated-plug fragility (see [[tessellated-solid-facet-orientation]])
+  Tessellated-plug fragility (see [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md))
   raises overlap/boundary risk. Not worth it for marginal gain.
 - **G4-MT** — Mu2e has `Mu2eG4MT_module.cc` but hardcodes
   `SetNumberOfThreads(1)` (line 82). No FCL exposure of nThreads. Even

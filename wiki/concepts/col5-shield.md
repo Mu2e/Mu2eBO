@@ -1,12 +1,16 @@
-# COL5 — TS COL5 polyethylene shield
+---
+type: concept
+title: COL5 — TS COL5 polyethylene shield
+description: TS COL5 polyethylene shield categorical
+status: active
+timestamp: '2026-05-15'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-05-15
+# COL5 — TS COL5 polyethylene shield
 
 ## Summary
 The fifth Transport Solenoid collimator's inner material. mmackenz uses three
-variants. For [[bo-michael]] we collapse them into a binary categorical
+variants. For [bo-michael](/projects/bo-michael.md) we collapse them into a binary categorical
 {air, poly} because the two poly variants behave indistinguishably to first
 order.
 
@@ -22,6 +26,6 @@ order.
 - **Knob:** `ts.coll5.material1Name`
 
 ## Cross-links
-- Related: [[tsda]]
-- Used in: [[bo-michael]]
-- Bug history: [[col5-projection-bug]]
+- Related: [tsda](/concepts/tsda.md)
+- Used in: [bo-michael](/projects/bo-michael.md)
+- Bug history: [col5-projection-bug](/incidents/col5-projection-bug.md)

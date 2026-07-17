@@ -1,8 +1,15 @@
-# StepPointMCDumper has no totalEDep branch
+---
+type: incident
+title: StepPointMCDumper has no totalEDep branch
+description: stock StepPointMCDumper writes only a VirtualDetector hit struct (no
+  totalEDep); `writeVDHit` gated off by default; harvest path switched to `art::RootOutput`
+  drop/keep + PyROOT loop (2026-06-07)
+status: resolved
+status_note: 2026-06-08 (Path B chosen — custom TH1D analyzer)
+timestamp: '2026-06-08'
+---
 
-**Type:** incident
-**Status:** resolved 2026-06-08 (Path B chosen — custom TH1D analyzer)
-**Updated:** 2026-06-08
+# StepPointMCDumper has no totalEDep branch
 
 ## Summary
 The original Path D harvest plan called for adding a
@@ -40,7 +47,7 @@ start — trees existed (540 entries) but had **zero branches**.
   50 events → 1.4 MB ptmc.art with 35 plate collections.
 - **PyROOT (not uproot)** is mandatory because uproot raises
   `NotImplementedError: memberwise serialization of AsVector(mu2e::StepPointMC)`.
-  See [[uproot-cannot-read-steppointmc]].
+  See [uproot-cannot-read-steppointmc](/incidents/uproot-cannot-read-steppointmc.md).
 - Reference harvester:
   `/exp/mu2e/app/users/oksuzian/dpa_smoke/make_dpa_plot.py` — uses
   `events.SetBranchStatus` + per-branch loop to avoid loading all 35
@@ -53,8 +60,8 @@ start — trees existed (540 entries) but had **zero branches**.
   proves stable.
 
 ## Cross-links
-- Related: [[dpa-scoring]], [[art-instance-name-no-underscore]],
-  [[uproot-cannot-read-steppointmc]], [[stickman-sd-unwired]]
+- Related: [dpa-scoring](/concepts/dpa-scoring.md), [art-instance-name-no-underscore](/incidents/art-instance-name-no-underscore.md),
+  [uproot-cannot-read-steppointmc](/incidents/uproot-cannot-read-steppointmc.md), [stickman-sd-unwired](/incidents/stickman-sd-unwired.md)
 - Source files: `pipeline.py:_render_pt_dumper_block` (legacy, retained
   for now but the analyzer block it emits returns empty trees and is
   not used by the working harvester)

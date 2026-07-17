@@ -1,8 +1,16 @@
-# prodtarget mode preflight + grid silently ran stock MDC2025aq for weeks
+---
+type: incident
+title: prodtarget mode preflight + grid silently ran stock MDC2025aq for weeks
+description: patched `autoresearch_muse_prodtarget` workdir (% 02d rename + NIEL
+  SD + spacer-shrink) was reached by NEITHER preflight (Run1Bak/p094) NOR grid (backing-only
+  tarball); **resolved 2026-06-08** via per-mode `MUSING_BY_MODE` dispatch + workdir-level
+  `setup_local.sh` + grid tarball rebuild from patched workdir
+status: resolved
+status_note: (2026-06-08)
+timestamp: '2026-06-08'
+---
 
-**Type:** incident
-**Status:** resolved (2026-06-08)
-**Updated:** 2026-06-08
+# prodtarget mode preflight + grid silently ran stock MDC2025aq for weeks
 
 ## Summary
 
@@ -111,10 +119,10 @@ spacer-shrink fix in the patched workdir is now actually reached.
 
 ## Cross-links
 
-- Related: [[prodtarget-spacer-supportring-overlap]] (the bug whose
-  fix was being silently bypassed), [[foilsflash-tarball-mode-key-omission]], [[foilsg-grid-tarball-scalar-holeradius-fallback]]
-- Related: [[muse-backing-pattern]] (general muse layering pattern)
-- Related: [[venv-relocated-to-data-volume]] (sister env-source
+- Related: [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md) (the bug whose
+  fix was being silently bypassed), [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)
+- Related: [muse-backing-pattern](/external/muse-backing-pattern.md) (general muse layering pattern)
+- Related: [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md) (sister env-source
   surprise)
 - Source: `graph/config.py:18-32`, `autoresearch_bo_michael.py:99,1471`,
   `pipeline.py:194`, `autoresearch_muse_prodtarget/setup_local.sh`

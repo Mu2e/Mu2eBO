@@ -1,8 +1,14 @@
-# Wiki-review hooks (Claude Code Stop hook contract)
+---
+type: concept
+title: Wiki-review hooks (Claude Code Stop hook contract)
+description: Stop hook must emit `{"decision":"block","reason":...}` JSON + check
+  `stop_hook_active` guard to actually feed back to the model; plain echo / stderr
+  are invisible
+status: active
+timestamp: '2026-05-23'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-05-23
+# Wiki-review hooks (Claude Code Stop hook contract)
 
 ## Summary
 The project's wiki-maintenance discipline is enforced via Claude Code hooks
@@ -52,7 +58,7 @@ the review.
 ## Cross-links
 - Source files: `/exp/mu2e/app/users/oksuzian/autoresearch/.claude/settings.local.json:139-148`,
   `/exp/mu2e/app/users/oksuzian/autoresearch/.claude/hooks/wiki_review_stop.sh`
-- Related: [[CLAUDE]] (the wiki maintenance contract that this hook enforces)
+- Related: [CLAUDE](/CLAUDE.md) (the wiki maintenance contract that this hook enforces)
 - External: [Claude Code hooks reference](https://docs.claude.com/en/docs/claude-code/hooks)
 
 ## Open questions / TODO

@@ -1,8 +1,14 @@
-# Open Knowledge Format (OKF) — candidate target format for this wiki
+---
+type: external
+title: Open Knowledge Format (OKF) — candidate target format for this wiki
+description: 'OKF v0.1 spec digest + wiki-conversion assessment (2026-07-17): ~90%
+  isomorphic, 2 real costs (link rewrite, log.md newest-first regroup); CONVERTED
+  2026-07-17'
+status: resolved
+timestamp: '2026-07-17'
+---
 
-**Type:** external
-**Status:** open
-**Updated:** 2026-07-17
+# Open Knowledge Format (OKF) — candidate target format for this wiki
 
 ## Summary
 OKF v0.1 (Google Cloud Data Cloud team, open spec at
@@ -10,8 +16,9 @@ github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) is an explicit
 formalization of the Karpathy LLM-wiki pattern this wiki follows: a bundle =
 directory tree of markdown "concept" files with YAML frontmatter, reserved
 `index.md`/`log.md` filenames, and normal markdown cross-links. Conversion of
-this wiki was assessed 2026-07-17: ~90% isomorphic, deterministic script,
-DECISION PENDING (user).
+this wiki was assessed AND EXECUTED 2026-07-17 (user-approved): 117 pages,
+1052 links rewritten, log.md regrouped into 61 newest-first date headings,
+0 validation errors.
 
 ## Key facts
 - **Conformance requires exactly 3 things:** every non-reserved .md has
@@ -41,10 +48,11 @@ DECISION PENDING (user).
   converted pages.
 
 ## Cross-links
-- Related: [[mu2e-exp-website-docroot]] (other publication surface)
+- Related: [mu2e-exp-website-docroot](/external/mu2e-exp-website-docroot.md) (other publication surface)
 - External: [blog](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing), [spec](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
 
 ## Open questions / TODO
-- User decision pending on converting this wiki (assessment 2026-07-17:
-  recommended yes; acceptance gate = adapted /wiki-lint run on the converted
-  bundle).
+- CONVERTED 2026-07-17. Converter (idempotent, with parse-back validation)
+  archived at the session scratchpad `okf_convert.py`; gotcha: 4 pages began
+  with a bare `---` horizontal rule that must not be parsed as frontmatter.
+- Try the OKF static HTML graph visualizer on the bundle (nice-to-have).

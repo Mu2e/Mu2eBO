@@ -1,8 +1,15 @@
-# EdepAna "Saw N events" parse miss at >1M events (scientific notation)
+---
+type: incident
+title: EdepAna "Saw N events" parse miss at >1M events (scientific notation)
+description: 'foilsflash02 harvest_exception zero rows: EdepAna ''Saw N events''
+  regex `\d+` missed the scientific-notation count (`2.70937e+06`) that EdepAna
+  prints via %g at >1M events (big mustops_ce); EdepAna actually succeeded; fix=broaden
+  regex + int(float()); scale-induced, fixed 2026-06-28'
+status: resolved
+timestamp: '2026-06-28'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-28
+# EdepAna "Saw N events" parse miss at >1M events (scientific notation)
 
 ## Summary
 foilsflash02 R00_00 (the first child to harvest) produced a `harvest_exception`
@@ -30,13 +37,13 @@ foils/ipa/smoke ran mustops_ce at ≤5e5 events (<1M), but foilsflash02's big
   already-failed R00_00 needed a manual re-harvest.
 - **The visible edep.log tail is misleading:** it's full of benign
   `error importing function definition for muse/spack/...` sh warnings
-  ([[sourced-env-stderr-swallowed]]); the real EdepAna summary + TrigReport
+  ([sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md)); the real EdepAna summary + TrigReport
   (`Events total = 2709366`) are above the noise. Filter the import-noise to see
   the true result.
 
 ## Cross-links
-- Related: [[bo-foilsflash]], [[bo-noise-budget]], [[mmackenz-edepana-lib-qualifier-bump]],
-  [[sourced-env-stderr-swallowed]], [[harvest-pyroot-nfs-rpc-hang]]
+- Related: [bo-foilsflash](/projects/bo-foilsflash.md), [bo-noise-budget](/concepts/bo-noise-budget.md), [mmackenz-edepana-lib-qualifier-bump](/incidents/mmackenz-edepana-lib-qualifier-bump.md),
+  [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md), [harvest-pyroot-nfs-rpc-hang](/incidents/harvest-pyroot-nfs-rpc-hang.md)
 - Source files: `pipeline.py` (`_EDEP_SAW_RX` ~852, `ce_seen` parse ~1172)
 
 ## Harvest race with the fix (2026-06-28)

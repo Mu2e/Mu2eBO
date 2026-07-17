@@ -1,8 +1,15 @@
-# closed-loop final-round children orphaned when barrier hits max_rounds early
+---
+type: incident
+title: closed-loop final-round children orphaned when barrier hits max_rounds early
+description: closed_loop.py exits "done" at max_rounds even if final-round barrier
+  hasn't collected every child; ptX02R01_03 orphaned (cluster still Running when
+  parent exited clean); leaderboard short 1-2 rows with no error
+status: active
+status_note: (no fix yet — observed 2026-06-09 on ptX02)
+timestamp: '2026-06-09'
+---
 
-**Type:** incident
-**Status:** active (no fix yet — observed 2026-06-09 on ptX02)
-**Updated:** 2026-06-09
+# closed-loop final-round children orphaned when barrier hits max_rounds early
 
 ## Summary
 `graph/closed_loop.py` exits cleanly when round_idx reaches `max_rounds`
@@ -39,7 +46,7 @@ ptX02R01_03 cluster still running at parent-exit time.
   finish harvest. Or accept the loss for the campaign.
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]], [[barrier-false-positive-round1]], [[closed-loop-barrier-timeout-zero-rows-falsepos]], [[closed-loop-parent-signal-kill-midlaunch]]
+- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md), [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md), [closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md)
 - Source files: `graph/closed_loop.py` (the round loop + barrier-poll
   + final return path)
 

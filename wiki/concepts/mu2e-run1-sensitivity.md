@@ -1,8 +1,15 @@
-# Mu2e Run 1 sensitivity — parameters + scaling model
+---
+type: concept
+title: Mu2e Run 1 sensitivity — parameters + scaling model
+description: 'Run-1 μ→e sensitivity; CURRENT Run1A (2026 note, 4wk/50%/reduced-shield)
+  is BACKGROUND-DOMINATED (~30 cosmic ev): SES~2.5e-15 but 90%CL UL ~2.6-3.5e-14
+  (√B/N_cap, NOT 1/N_stop); 2022 full-shield paper = optimistic baseline'
+status: active
+timestamp: '2026-07-01'
+updated_note: superseded by Run1A note for the current config — see top section
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-01 (superseded by Run1A note for the current config — see top section)
+# Mu2e Run 1 sensitivity — parameters + scaling model
 
 ## ⚠️ CURRENT Run1A config supersedes the 2022 paper (Middleton note, 2026-06-15)
 The actual late-2027 **Run 1A** (`Run1A_PhysicsNot-8.pdf` in repo root; do NOT
@@ -61,7 +68,7 @@ is already 2.6e-14 (stat) / 3.5e-14 (syst) — see top section.
 Reconstructed momentum spectrum rebuilt from the REAL ntuples (not figure-matched):
 `docs/fig15_remake.png`, script `/tmp/plot_fig15.py`, arrays `/tmp/mom_{CE,DIO,COS}.npy`
 (sid=0 |p| for e⁻ tracks, loose selection: nactive≥20, trkqual>0.2, 640<t₀<1650 ns).
-Full datasets processed via [[pyutils-analysis-env]] reducing-worker (CE 198/200, DIO
+Full datasets processed via [pyutils-analysis-env](/external/pyutils-analysis-env.md) reducing-worker (CE 198/200, DIO
 497/500, COS 496/500 files; ~2h wall total). Normalization (subset-corrected `×n_tot/n_succ`):
 - **CE:** `w = N_cap·R_μe/gencount = 3.40e15·1e-13/1e7 = 3.43e-5` → **55 signal ev in SR**
   at R_μe=1e-13. That's >the note's 40 because this loose selection has **ε≈0.16 vs the
@@ -158,7 +165,7 @@ t0err):**
   - **Plotting gotcha (separate):** `gaussian_kde(bw_method=0.35)` over-smooths even the ~14% in-window slope
     to flat — use a **degree-2 polyfit over 92–122 MeV/c** to preserve it. The earlier "dead-flat ~4.3/bin"
     was the *pre-veto loose* sample (thin flat slice of a broad 3–574 MeV/c distribution).
-- **Per-track field access:** load via [[pyutils-analysis-env]] `Importer` with branch list incl.
+- **Per-track field access:** load via [pyutils-analysis-env](/external/pyutils-analysis-env.md) `Importer` with branch list incl.
   `trkpid.result`, `crvcoincs.*`, and the two `trig_*` bools; `pyvector.get_mag` for |p|, and
   `trksegs.mom.fCoordinates.f{X,Y,Z}` for the pz/pt pitch cut.
 - **Fig 15 vs Fig 16 (note p.24–25):** SAME momentum spectrum twice. **Fig 15** ("scaled
@@ -206,5 +213,5 @@ worse SES.
 ## Cross-links
 - External: arXiv:2210.11380. Signal/bkg MC = MDC2025ar EventNtuple datasets
   (CeMLeadingLog* = signal, DIOtail95, Cosmic*, RPC*, RMC*, etc.), readable via
-  [[pyutils-analysis-env]] (CE |p| peak at ~105 MeV verified 2026-06-26).
-- Related: [[production-target-stickman]] (the PT the BO lines optimize feeds N_stop), [[fast-sim-options-for-bo]].
+  [pyutils-analysis-env](/external/pyutils-analysis-env.md) (CE |p| peak at ~105 MeV verified 2026-06-26).
+- Related: [production-target-stickman](/concepts/production-target-stickman.md) (the PT the BO lines optimize feeds N_stop), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md).

@@ -1,8 +1,14 @@
-# pareto-sob-picker
+---
+type: concept
+title: pareto-sob-picker
+description: '`--picker pareto_sob`: submits the GP-predicted highest-sob points
+  (top-q by posterior-mean sob, min-distance spread) as real evals; multi-obj (keeps
+  calo); by-hand sob-corner exploit; wired 2026-06-22'
+status: active
+timestamp: '2026-06-22'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-06-22
+# pareto-sob-picker
 
 ## Summary
 A third closed-loop picker (`--picker pareto_sob`) that submits the **highest-sob
@@ -18,7 +24,7 @@ sob corner.
   objectives (output 0 = sob, output 1 = −log10 calo, both maximized), build the
   non-dominated mask, return the q frontier points with the **highest predicted
   sob**. Multi-objective fit (keeps calo) → runs the full 4-stage chain (does NOT
-  stamp AUTORESEARCH_NO_RUN1B, unlike [[qlnei-sob-only-picker]]).
+  stamp AUTORESEARCH_NO_RUN1B, unlike [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)).
 - **Registry wiring**: dispatched in `compute_explore_picks` alongside
   qnehvi/qlnei; added to `botorch_predict.py` `--picker` choices, closed_loop
   `PICKER_CHOICES` (`graph/closed_loop.py:119`), and the two
@@ -29,17 +35,17 @@ sob corner.
   just takes the GP's current best-sob mean predictions — pure exploit, no
   exploration value. Use it to *probe/confirm* the top, not to *advance* it.
 - **Expected behavior**: on the saturated foilsf front the GP over-extrapolates
-  at the sparse top ([[gp-cloud-rendering]]: envelope ~4.06 vs measured 3.91), so
+  at the sparse top ([gp-cloud-rendering](/concepts/gp-cloud-rendering.md): envelope ~4.06 vs measured 3.91), so
   pareto_sob picks should **measure ~3.9, below their predicted ~4.0** — i.e. it
   confirms the over-extrapolation rather than breaking the ceiling.
 - **Does NOT tie-break the flat top**: real evals at σ(sob)≈0.4%, so distinct
   high-sob picks remain indistinguishable within noise — that needs replicas
-  ([[bo-noise-budget]]). pareto_sob answers "do the GP's top predictions hold up",
+  ([bo-noise-budget](/concepts/bo-noise-budget.md)). pareto_sob answers "do the GP's top predictions hold up",
   not "is A > B".
 
 ## Cross-links
-- Related: [[qlnei-sob-only-picker]], [[batch-bo]], [[gp-cloud-rendering]],
-  [[bo-noise-budget]], [[bo-foils]], [[saturation-is-acquisition-relative]]
+- Related: [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [batch-bo](/concepts/batch-bo.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md),
+  [bo-noise-budget](/concepts/bo-noise-budget.md), [bo-foils](/projects/bo-foils.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
 - Source: `botorch_predict.py` (`_pareto_sob_picks`, `compute_explore_picks`),
   `graph/closed_loop.py` (`PICKER_CHOICES`, picker-route guards)
 
@@ -49,7 +55,7 @@ within σ(sob)≈0.4%. So the GP posterior MEAN is accurate at the high-sob corn
 it does NOT over-predict there. **But none beat 3.91** — picks cluster right at
 the saturated plateau. Interpretation: the GP simply has no Sobol-sampled point
 it *predicts* above ~3.83 (posterior-mean compression at the sparse rail, cf
-[[gp-cloud-rendering]] — the rail-extrapolated 4.06 envelope is NOT reachable by
+[gp-cloud-rendering](/concepts/gp-cloud-rendering.md) — the rail-extrapolated 4.06 envelope is NOT reachable by
 actual sampled means). Net: pareto_sob confirms 3.91 is the real ceiling AND that
 the GP's top predictions are trustworthy — two useful results in one batch.
 

@@ -1,8 +1,14 @@
-# Saturation is acquisition-relative
+---
+type: concept
+title: Saturation is acquisition-relative
+description: '"saturated" = flat acquisition signal, NOT fully-mapped front (foilsflash
+  tail sat ~9σ beyond evals while the GP knew); end-of-campaign checklist: corner-picker
+  round + sibling-champion transplant probes'
+status: active
+timestamp: '2026-07-08'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-08
+# Saturation is acquisition-relative
 
 ## Summary
 Lesson crystallized by the foilsflashSOBX01 transplant (2026-07-08): a
@@ -30,9 +36,9 @@ knew it.
   (floor corner re-found independently 7×; deployed-optimality conclusion
   untouched — the tail sits at +68% flash).
 - **End-of-campaign checklist before declaring a front mapped**: (a) run one
-  round of a corner-exploit picker ([[qlnei-sob-only-picker]] /
-  [[pareto-sob-picker]]) to stress the tails, and/or (b) transplant sibling
-  lines' champions as 1-eval blind-spot probes ([[bo-foilsflash]]
+  round of a corner-exploit picker ([qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md) /
+  [pareto-sob-picker](/concepts/pareto-sob-picker.md)) to stress the tails, and/or (b) transplant sibling
+  lines' champions as 1-eval blind-spot probes ([bo-foilsflash](/projects/bo-foilsflash.md)
   transplant moved the measured ceiling +3.4% for one eval).
 - **"Just run more evals" does NOT fix it at any sane budget**: the tail
   incentive SHRINKS as the plateau fills (no fixed hit-rate to buy) —
@@ -52,9 +58,9 @@ knew it.
   sliver-blindness is qNEHVI working AS DESIGNED — use the checklist instead.
 
 ## Cross-links
-- Related: [[batch-bo]], [[closed-loop-bo-design]], [[bo-modes]],
-  [[qlnei-sob-only-picker]], [[pareto-sob-picker]], [[fast-sim-options-for-bo]]
-- Evidence: [[bo-foilsflash]] (foilsflashSOBX01), [[bo-foils]] (foilsf17R01_07)
+- Related: [batch-bo](/concepts/batch-bo.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-modes](/concepts/bo-modes.md),
+  [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md)
+- Evidence: [bo-foilsflash](/projects/bo-foilsflash.md) (foilsflashSOBX01), [bo-foils](/projects/bo-foils.md) (foilsf17R01_07)
 - Source files: `botorch_predict.py` (qNEHVI ref-point/HV construction;
   `_qnparego_picks` at :348, `_hybrid_picks` at :400, dispatch at :529-532),
   `graph/closed_loop.py:99` (`PICKER_CHOICES` incl. `qnparego`/`hybrid`)
@@ -66,7 +72,7 @@ knew it.
   sweep, so tails are patrolled natively; qNEHVI keeps HV efficiency in the
   useful region. Bonus: ParEGO does no HV box decomposition, so a hybrid
   degrades gracefully where pure qNEHVI times out on big fronts (foilsf12
-  @history≈366, see [[qlnei-sob-only-picker]]). Implementation ≈40 lines in
+  @history≈366, see [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)). Implementation ≈40 lines in
   botorch_predict.py (per-candidate scalarization loop with X_pending — NOT
   the shared `_optimize(sequential=True)` shape) + a PICKER_CHOICES entry.
   Complementary: fix the HV ref point physically instead of nadir−10%.
@@ -86,7 +92,7 @@ knew it.
   saturated front — likely reverses on an UNsaturated front where the useful
   region isn't the corners.) (2) **the optimizer found sob=3.82 on its own**,
   pushing the campaign-found ceiling 3.77→3.82 (was stuck at 3.77 across 7
-  prior qNEHVI campaigns) — almost certainly because the [[bo-foilsflash]]
+  prior qNEHVI campaigns) — almost certainly because the [bo-foilsflash](/projects/bo-foilsflash.md)
   transplant (SOBX01=3.90) is now IN the 206-row training set, re-shaping the
   GP's beliefs so acquisition confidently pushed the upstream-degrader region.
   The transplant didn't just measure a point; it moved where the next

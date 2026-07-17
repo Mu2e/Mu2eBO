@@ -1,9 +1,14 @@
 ---
-# foils GP cloud crashes on calo=0 sob-only-picker rows
+type: incident
+title: foils GP cloud crashes on calo=0 sob-only-picker rows
+description: foils GP cloud crashes on calo=0 sob-only rows (log10(0)=-inf); fix=calo>0
+  filter; ALSO flags refresh-foils-talk skill stale vs live deck
+status: resolved
+status_note: (calo>0 filter added 2026-06-20)
+timestamp: '2026-06-20'
+---
 
-**Type:** incident
-**Status:** resolved (calo>0 filter added 2026-06-20)
-**Updated:** 2026-06-20
+# foils GP cloud crashes on calo=0 sob-only-picker rows
 
 ## Summary
 `gp_predict_foils_v2v3_cloud.py` (the foils deck GP-cloud producer) crashes with
@@ -16,7 +21,7 @@ measured" → `log10(0) = -inf` → sklearn rejects the training target.
 ## Key facts
 - As of 2026-06-20, **90 of 486** v3 rows have `calo=0`: foilsf08 (10), foilsf09
   (20), foilsf10 (20), foilsf12 (20), foilsf19 (20). All sob-only-picker runs
-  ([[qlnei-sob-only-picker]]) that drop the DS-off run1b_mubeam stage, so calo is
+  ([qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)) that drop the DS-off run1b_mubeam stage, so calo is
   never measured and harvested as 0.
 - These same `calo=0` rows are the deck's "inflated" champions: the top sob
   (foilsf19R01_00, **3.91**) is calo=0 and is explicitly the kind the deck's
@@ -32,8 +37,8 @@ measured" → `log10(0) = -inf` → sklearn rejects the training target.
 
 ## Cross-links
 - Source: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_foils_v2v3_cloud.py:82-98`
-- Related: [[qlnei-sob-only-picker]] (writes calo=0), [[refresh-foils-slides]],
-  `refresh-foils-talk` (skill; see [[refresh-foils-slides]]) (the skill — also STALE vs the live deck, see below)
+- Related: [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md) (writes calo=0), [refresh-foils-slides](/drivers/refresh-foils-slides.md),
+  `refresh-foils-talk` (skill; see [refresh-foils-slides](/drivers/refresh-foils-slides.md)) (the skill — also STALE vs the live deck, see below)
 
 ## Open questions / TODO
 - **`refresh-foils-talk` skill is out of date vs the live deck (2026-06-20).** The

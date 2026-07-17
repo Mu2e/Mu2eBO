@@ -1,14 +1,21 @@
 ---
-name: foilsx04-all-preflight-ambiguous
-description: foilsX04 ran 20 children across 2 rounds, all died at preflight=ambiguous (rc=3), parent reported converged=True with zero leaderboard rows
 type: incident
+title: foilsX04 — silent total failure with spurious convergence
+description: foilsX04 ran 20 children across 2 rounds, all died at preflight=ambiguous
+  (rc=3), parent reported converged=True with zero leaderboard rows
+status: resolved
+status_note: 2026-05-29 (convergence-by-pareto-hash machinery deleted entirely;
+  zero-row safety break in `node_decide_next`; rc=3 ambiguous now retriable in `route_after_preflight`)
+timestamp: '2026-06-05'
+updated_note: 'FIX BAKED IN + VERIFIED UNDER CONCURRENCY: `export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER`
+  prepended INSIDE the bash command at `autoresearch_bo_michael.py:1188` (cmd_preflight)
+  + `pipeline.py:289` (sourced_env). Single-config verify: foilsZ05R00_00 re-preflight
+  rc=0, no Errno 5. **q=10 concurrent verify (foilsZ06 R00): ALL 10 preflights PASS,
+  0 ambiguous** — compare foilsZ05 pre-fix (26 ambiguous, 0 pass). Incident class
+  retired.'
 ---
 
 # foilsX04 — silent total failure with spurious convergence
-
-**Type:** incident
-**Status:** resolved 2026-05-29 (convergence-by-pareto-hash machinery deleted entirely; zero-row safety break in `node_decide_next`; rc=3 ambiguous now retriable in `route_after_preflight`)
-**Updated:** 2026-06-05 (FIX BAKED IN + VERIFIED UNDER CONCURRENCY: `export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER` prepended INSIDE the bash command at `autoresearch_bo_michael.py:1188` (cmd_preflight) + `pipeline.py:289` (sourced_env). Single-config verify: foilsZ05R00_00 re-preflight rc=0, no Errno 5. **q=10 concurrent verify (foilsZ06 R00): ALL 10 preflights PASS, 0 ambiguous** — compare foilsZ05 pre-fix (26 ambiguous, 0 pass). Incident class retired.)
 
 ## ACTUAL ROOT CAUSE — STALE SPACK LOCK, *NOT* CVMFS (2026-06-05, definitive)
 
@@ -164,7 +171,7 @@ qLogNEHVI even found `sob=3.82` in R00).
 ## ROOT CAUSE OF BUG #1 IDENTIFIED (2026-06-01)
 The "unknown" cause of the uniform rc=3 preflight failures is the **same
 transient cvmfs/spack env-source flake** documented in
-[[sourced-env-stderr-swallowed]], hitting `cmd_preflight`'s OWN env-source
+[sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md), hitting `cmd_preflight`'s OWN env-source
 (`autoresearch_bo_michael.py:1039`, separate from `pipeline.py:sourced_env`).
 When the flake hits, `mu2e` never runs → empty output → nonzero rc →
 rc-map reads it as **rc=3 ambiguous**. The preflight log is just the 16-byte
@@ -233,7 +240,7 @@ Two distinct bugs collided to produce the silent failure:
   `pareto_hash` from the LEADERBOARD, not the round's new evals. When
   no new rows land, the hash is identical to the prior round's by
   construction. Two identical hashes → k=2 repeat → converged. Same
-  failure mode as [[barrier-false-positive-round1]] but driven by
+  failure mode as [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) but driven by
   all-children-fail rather than saver miss. **Fix shape: gate
   convergence on `len(history_after) > len(history_before)` for
   the round before counting toward k.**
@@ -248,13 +255,13 @@ Two distinct bugs collided to produce the silent failure:
   locally") are both in_progress/pending.
 
 ## Cross-links
-- Related: [[rolling-no-row-streak-false-increment]] (the rolling-era guard this shape motivated), [[barrier-false-positive-round1]] (sibling failure mode —
+- Related: [rolling-no-row-streak-false-increment](/incidents/rolling-no-row-streak-false-increment.md) (the rolling-era guard this shape motivated), [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) (sibling failure mode —
   same "looks converged" symptom, different mechanism),
-  [[scan-broken-codes-too-narrow]] (sibling silent-pass-broken
+  [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) (sibling silent-pass-broken
   pattern in scan_logs),
-  [[bo-foils]] (the project line affected),
-  [[closed-loop-runner]] (where the convergence-on-no-new-evals fix
-  belongs), [[preflight-fcl-genparticle-missing]], [[preflight-past-init-false-pass]]
+  [bo-foils](/projects/bo-foils.md) (the project line affected),
+  [closed-loop-runner](/drivers/closed-loop-runner.md) (where the convergence-on-no-new-evals fix
+  belongs), [preflight-fcl-genparticle-missing](/incidents/preflight-fcl-genparticle-missing.md), [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)
 - Source files:
   - `graph/pipeline_io.py:140` — `{3: "ambiguous"}` rc mapping
   - `graph/closed_loop.py` — convergence-check site (needs gate)
@@ -304,7 +311,7 @@ initial single-bug hypothesis:
   logs `foilsX04R00_*/R01_*.log` mtime range 07:37–08:56. The
   visible parent log is a **relaunch** that reaped pre-existing
   checkpoint state and instantly reported `barrier: all resolved`.
-  Same family as [[barrier-false-positive-round1]] (saver returns
+  Same family as [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) (saver returns
   stale state). NOT a fresh run from scratch.
 - `Code_helical_base.tar.bz2` mtime 2026-05-26 — predates X03 by
   three days. The `useTwistedBox` dispatcher work (TaskList #134-136)
@@ -354,7 +361,7 @@ Load-bearing facts for whoever applies these:
 ## Resolution applied 2026-05-29
 
 Both findings addressed in `graph/closed_loop.py` + `graph/nodes.py`
-(see [[closed-loop-runner]] "Convergence" section for design rationale):
+(see [closed-loop-runner](/drivers/closed-loop-runner.md) "Convergence" section for design rationale):
 
 1. **Convergence-by-pareto-hash deleted** rather than gated. 15-run
    production audit showed 0 true saves; mechanism wasn't earning

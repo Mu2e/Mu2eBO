@@ -1,8 +1,18 @@
-# Stickman + inDS2Vacuum overrides → STMUpstream G4 fatal overlap
+---
+type: incident
+title: Stickman + inDS2Vacuum overrides → STMUpstream G4 fatal overlap
+description: '`inDS2Vacuum=true` + `ds2.halfLength=3825` overrides push VirtualDetector_STMUpstream
+  outside DS2 (G4 rc=134 fatal); STMUpstream is unconditional in VirtualDetectorMaker.cc:195;
+  workaround = strip the DS2 extension for pot_only smoke'
+status: resolved
+status_note: (2026-06-07; ProdTargetMode.render_proposal no longer emits the DS2
+  extension; first hit on grid as cluster 84569380, 100/100 jobs rc=134)
+timestamp: '2026-06-07'
+updated_note: added placement-math root cause + MDC2025aq-is-fine clarification
+  + minimal reproducer + canonical 3646 value
+---
 
-**Type:** incident
-**Status:** resolved (2026-06-07; ProdTargetMode.render_proposal no longer emits the DS2 extension; first hit on grid as cluster 84569380, 100/100 jobs rc=134)
-**Updated:** 2026-06-07 (added placement-math root cause + MDC2025aq-is-fine clarification + minimal reproducer + canonical 3646 value)
+# Stickman + inDS2Vacuum overrides → STMUpstream G4 fatal overlap
 
 ## Summary
 Local smoke tests of the nominal Stickman geometry (pt001) fatally
@@ -25,7 +35,7 @@ it, which pushes STMUpstream past the DS2 envelope.
   bool calorimeter.inDS2Vacuum = true;
   ```
   These mirror the `geom_run1_a.txt` Stickman delta that
-  [[geom-run1a-vs-run1b]] tracks for muon production runs.
+  [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md) tracks for muon production runs.
 - `VirtualDetectorMaker.cc:195` adds `VirtualDetector_STMUpstream`
   **unconditionally** — no toggle. `hasSTM=false` and
   `vd.STMUpStr.build=false` do not affect this VD (they govern
@@ -90,8 +100,8 @@ it, which pushes STMUpstream past the DS2 envelope.
   conditional on stage rather than dropped entirely**.
 
 ## Cross-links
-- Related: [[geom-run1a-vs-run1b]], [[bo-prodtarget]],
-  [[production-target-stickman]], [[dpa-scoring]], [[prodtarget-mother-margin-tt-midinner-overlap]]
+- Related: [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md), [bo-prodtarget](/projects/bo-prodtarget.md),
+  [production-target-stickman](/concepts/production-target-stickman.md), [dpa-scoring](/concepts/dpa-scoring.md), [prodtarget-mother-margin-tt-midinner-overlap](/incidents/prodtarget-mother-margin-tt-midinner-overlap.md)
 - Source files:
   `/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v13_18_00/Offline/GeometryService/src/VirtualDetectorMaker.cc:195`
 - Work-around geom: `/exp/mu2e/app/users/oksuzian/dpa_smoke/g.txt`

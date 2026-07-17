@@ -1,8 +1,25 @@
-# Patched ProductionTargetMaker — spacer + support-ring overlaps with downstream plate
+---
+type: incident
+title: Patched ProductionTargetMaker — spacer + support-ring overlaps with downstream
+  plate
+description: pt001 5 managed-volume overlaps all reported "by 50 nm" = `stickmanMagicOffset/2`
+  precision-tolerance; **resolved 2026-06-08** by shrinking `spacerHalfLength` by
+  `stickmanMagicOffset` (matches existing rod shrink at constructTargetPS.cc:1730)
+status: active
+status_note: 'shrinks + lug-cap cover 8/10 of ptX05R00 picks; **third failure mode
+  discovered 2026-06-10**: thick-plate regime re-triggers; **fourth failure mode**
+  had a wrong magnitude claim (250–500 µm) — **CORRECTED 2026-06-17 via pt6d07 evidence**:
+  end-plate clamp `lPlate[{0,-1}]=tPlate` (shipped autoresearch_bo_michael.py:1527-1534)
+  DID eliminate the macro overhang (pt6d07 R0 = 10/10 clean, R1 = 7/10 with 3 fails
+  reporting only **50–100 nm** = magic-offset class), so the original 4-OOM physical-overhang
+  diagnosis was incorrect. Residual `SpacerNegZ_0 ⟷ Plate00` at precision tolerance
+  is the same class as the documented `SpacerPosZ × Plate_last` mode and needs the
+  mirror-side spacer shrink in `constructTargetPS.cc:1730`.'
+timestamp: '2026-06-17'
+updated_note: 'pt6d07 evidence: clamp works, residual is precision-tolerance class'
+---
 
-**Type:** incident
-**Status:** active — shrinks + lug-cap cover 8/10 of ptX05R00 picks; **third failure mode discovered 2026-06-10**: thick-plate regime re-triggers; **fourth failure mode** had a wrong magnitude claim (250–500 µm) — **CORRECTED 2026-06-17 via pt6d07 evidence**: end-plate clamp `lPlate[{0,-1}]=tPlate` (shipped autoresearch_bo_michael.py:1527-1534) DID eliminate the macro overhang (pt6d07 R0 = 10/10 clean, R1 = 7/10 with 3 fails reporting only **50–100 nm** = magic-offset class), so the original 4-OOM physical-overhang diagnosis was incorrect. Residual `SpacerNegZ_0 ⟷ Plate00` at precision tolerance is the same class as the documented `SpacerPosZ × Plate_last` mode and needs the mirror-side spacer shrink in `constructTargetPS.cc:1730`.
-**Updated:** 2026-06-17 (pt6d07 evidence: clamp works, residual is precision-tolerance class)
+# Patched ProductionTargetMaker — spacer + support-ring overlaps with downstream plate
 
 ## Summary
 pt001 (stock Stickman defaults: N=33 plates, rOut=3.15, t=5, lug=6,
@@ -22,7 +39,7 @@ tolerance signature, not a geometry-math bug. These are
 `GeomVol1002` advisories: jobs would START on the grid but with
 physically undefined navigation in the overlap region → biased
 totalEdep and biased VD/POT counts. Surface-check preflight
-([[preflight-fcl-genparticle-missing]]) caught them before submit.
+([preflight-fcl-genparticle-missing](/incidents/preflight-fcl-genparticle-missing.md)) caught them before submit.
 
 ## Root cause: 50 nm = `stickmanMagicOffset / 2`
 
@@ -83,7 +100,7 @@ G4 physical-volume names use `ProductionTargetPlate_<n>` (underscore,
 not zero-padded — visible in `Checking overlaps for volume
 ProductionTargetPlate_0:0`). But `pipeline.py:266` generates the SD
 sensitive-volume list as `ProductionTargetPlate{i:02d}` (e.g.
-`ProductionTargetPlate00`) — see [[art-instance-name-no-underscore]]
+`ProductionTargetPlate00`) — see [art-instance-name-no-underscore](/incidents/art-instance-name-no-underscore.md)
 for why the rename happened on the art-instance-name side.
 
 These two name forms don't textually match. Path D edep harvest may
@@ -100,15 +117,15 @@ lookup. Worth verifying that:
 
 - Source: `Offline/Mu2eG4/src/constructTargetPS.cc:~1723` and `:1730` (patched in
   `autoresearch_muse_prodtarget` muse)
-- Related: [[preflight-fcl-genparticle-missing]] (surface-check is
+- Related: [preflight-fcl-genparticle-missing](/incidents/preflight-fcl-genparticle-missing.md) (surface-check is
   what surfaced this — without it, the overlap would have silently
-  reached the grid), [[pipeline-poll-rc120-atexit-death]]
-- Related: [[prodtarget-env-divergence]] (without env wiring the
+  reached the grid), [pipeline-poll-rc120-atexit-death](/incidents/pipeline-poll-rc120-atexit-death.md)
+- Related: [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md) (without env wiring the
   fixed libs never reach preflight or grid)
-- Related: [[art-instance-name-no-underscore]] (the prior patch that
+- Related: [art-instance-name-no-underscore](/incidents/art-instance-name-no-underscore.md) (the prior patch that
   caused the secondary LV-name mismatch noted below)
-- Related: [[stickman-sd-unwired]] (Path B SD dispatch context)
-- Related: [[tessellated-solid-facet-orientation]] (other example of
+- Related: [stickman-sd-unwired](/incidents/stickman-sd-unwired.md) (Path B SD dispatch context)
+- Related: [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) (other example of
   silent-pass `GeomVol1002` overlaps that bias physics)
 
 ## Re-trigger under ptX03 wider bounds (2026-06-09)
@@ -219,7 +236,7 @@ Rationale: ptX02 children all lived in lug `[4.86, 10.21]` and all passed
 preflight; clamping to `[5.0, 10.5]` keeps a 1 mm buffer from the 4 mm
 floor where the spacer/plate face coincidence triggers. r/t/N untouched.
 Verified `MODES['prodtarget'].build_space()` matches `MODE_SPECS` after
-edit. Relaunched as ptX04 (NEW prefix per [[closed-loop-stale-cluster-silent-no-launch]]).
+edit. Relaunched as ptX04 (NEW prefix per [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)).
 
 **This is a workaround, not the fix.** The code fix (`constructTargetPS.cc:~1389`
 plate-lug shrink, designed above) still needs to land; once muse-built and
@@ -301,7 +318,7 @@ Subagent diagnosis on `pt6d05R01_{00,03,06}/geom/asbuilt_*.gdml`:
    (and matching `halfStickmanLength` formula in `ProductionTarget.cc:230`).
    The 6D `_expand` already enforces ≥0.5 mm overhang so this is
    non-zero for every config. Requires `muse build -j 16` + grid
-   tarball rebuild from patched workdir (per [[prodtarget-env-divergence]]).
+   tarball rebuild from patched workdir (per [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md)).
 
 Recommended order: ship #1 first as the unblocker, queue #2 as the
 proper fix at next muse rebuild cycle.
@@ -329,7 +346,7 @@ the union-solid placement produces the 50–100 nm intersection slab.
 
 **Real fix (deferred):** apply the same `-= stickmanMagicOffset` shrink to
 the negative-Z spacer half-length. Source patch + muse rebuild + grid
-tarball rebuild per [[prodtarget-env-divergence]]. Until then, BO loses
+tarball rebuild per [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md). Until then, BO loses
 ~15–30% of picks at the upstream-spacer boundary on average.
 
 ## Agent-review corrections (2026-06-10)
@@ -412,11 +429,11 @@ failed children get retried in subsequent rounds with different picks.
 ## Open questions / TODO
 
 - [ ] Verify Path D plate-tree population for plates > 0
-  (LV-name-vs-SD-instance-name mismatch, [[stickman-sd-unwired]]).
+  (LV-name-vs-SD-instance-name mismatch, [stickman-sd-unwired](/incidents/stickman-sd-unwired.md)).
 - [x] Identify which dimension combination triggers each overlap class —
   RESOLVED 2026-06-10: 50nm class = `lPlate - tPlate` ≈ 0 (face
   coincidence at lug junction) covered by 1389/1851 shrinks; 150nm class
   = `lPlate - tPlate > ~1mm` (lug overhang into spacer) covered by
   `LUG_OVER_THICK_MAX_MM` cap.
 - [ ] Re-verify after grid tarball rebuild that the patched libs reach
-  the closed-loop child jobs (per [[prodtarget-env-divergence]]).
+  the closed-loop child jobs (per [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md)).

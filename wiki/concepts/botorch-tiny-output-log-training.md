@@ -1,8 +1,13 @@
-# BoTorch SingleTaskGP on tiny outputs needs -log10 training space
+---
+type: concept
+title: BoTorch SingleTaskGP on tiny outputs needs -log10 training space
+description: SingleTaskGP+Standardize on n<5 outputs ~1e-9 blows up extrapolation
+  100×; train on `-log10(y)` and invert on predict
+status: active
+timestamp: '2026-06-09'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-06-09
+# BoTorch SingleTaskGP on tiny outputs needs -log10 training space
 
 ## Summary
 With n<5 training points and outputs on the order of 1e-9 (e.g. peak dose
@@ -32,7 +37,7 @@ predict. Mirrors the recipe foils calo cloud uses for the same reason.
   `peak_dose_Gy_per_POT`.
 
 ## Cross-links
-- Related: [[gp-cloud-rendering]], [[bo-prodtarget]]
+- Related: [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [bo-prodtarget](/projects/bo-prodtarget.md)
 - Source files: `botorch_predict.py:117-121`,
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/botorch_predict_prodtarget_cloud.py`
 

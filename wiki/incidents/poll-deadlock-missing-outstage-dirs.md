@@ -1,8 +1,16 @@
-# poll_cluster deadlocks 24h when workers vanish without /pnfs dirs
+---
+type: incident
+title: poll_cluster deadlocks 24h when workers vanish without /pnfs dirs
+description: '`pipeline.py:550 poll_cluster` waits the full 24h `cap_hours` when
+  workers vanish without writing any /pnfs subdir (bare or hash); failure-aware
+  exit at :612 requires `all_dirs >= njobs` — fails open silently; observed pt001
+  70267542 36/100 on 2026-06-08'
+status: open
+status_note: (recovery recipe documented, no code fix yet)
+timestamp: '2026-06-08'
+---
 
-**Type:** incident
-**Status:** open (recovery recipe documented, no code fix yet)
-**Updated:** 2026-06-08
+# poll_cluster deadlocks 24h when workers vanish without /pnfs dirs
 
 ## Summary
 `pipeline.py:550 poll_cluster` waits for two convergence conditions:
@@ -76,7 +84,7 @@ benign-looking line for hours.
 - **Recovery path C (resubmit fresh cluster):** appropriate if you
   suspect the 64 missing jobs hit a systemic issue (worker-pool
   outage, /pnfs write storm, jobsub_lite bug). Wipe
-  `state/<stage>_{cluster,outputs}.txt` per the [[graph-runner]]
+  `state/<stage>_{cluster,outputs}.txt` per the [graph-runner](/drivers/graph-runner.md)
   resubmit recipe.
 - **Cause confirmed for pt001 cluster 70267542 (2026-06-08):** 65/100
   jobs were `condor_rm`'d by user (status=3, `RemoveReason = "via
@@ -115,10 +123,10 @@ benign-looking line for hours.
     files in it, so this is NOT the deadlock cause)
 
 ## Cross-links
-- Related: [[stage-out-rename-race]] (similar /pnfs convergence
+- Related: [stage-out-rename-race](/incidents/stage-out-rename-race.md) (similar /pnfs convergence
   hazard, different failure mode — there the dir IS on /pnfs, just in
-  hash form), [[stage-out-lag]] (the original motivator for the
-  two-condition convergence gate), [[graph-runner]] (per-stage
+  hash form), [stage-out-lag](/incidents/stage-out-lag.md) (the original motivator for the
+  two-condition convergence gate), [graph-runner](/drivers/graph-runner.md) (per-stage
   idempotency means resume after wipe is safe)
 - Source: `pipeline.py:550-621` (poll_cluster), particularly:551
   (`quorum=0.9`), :564 (`target = quorum * njobs`), :612 (early-exit

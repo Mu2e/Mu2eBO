@@ -1,8 +1,14 @@
-# B-field & helix kinematics at the helical-plug region
+---
+type: concept
+title: B-field & helix kinematics at the helical-plug region
+description: Bz drops 10% across plug (graded TS5→DS region); muon pitch ~1m >>
+  plug halflength, so "matched-pitch" model is wrong — plug is a Coulomb-scatter
+  + azimuth-randomizer, not a pitch-resonant filter
+status: active
+timestamp: '2026-05-26'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-05-26
+# B-field & helix kinematics at the helical-plug region
 
 ## Summary
 The helical plug sits in the **graded TS5→DS field-transition region**, NOT in the
@@ -74,7 +80,7 @@ not as a pitch-resonant filter.
   shows calo varying 15× monotonically).
 
 ## Cross-links
-- Related: [[bo-helical]], [[tsda]], [[scalarized-objective]], [[gp-cloud-rendering]]
+- Related: [bo-helical](/projects/bo-helical.md), [tsda](/concepts/tsda.md), [scalarized-objective](/concepts/scalarized-objective.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md)
 - Source files: `/cvmfs/mu2e.opensciencegrid.org/DataFiles/BFieldMaps/Mau13/DSMap_altDS11_helical.txt`,
   `/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v10_38_00/Offline/Mu2eG4/geom/bfgeom_reco_altDS11_helical_v01.txt`,
   `/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v10_38_00/Offline/Mu2eG4/geom/TransportSolenoid_v02.txt`
@@ -84,7 +90,7 @@ not as a pitch-resonant filter.
 The Coulomb-scatter + azimuth-mix model predicts (a) thin ribbon, (b) fast geometric
 twist relative to muon pitch, (c) no sharp resonance, (d) dy matched to muon r_L
 scale to set "which orbits clip the ribbon." Top-3 obj leaders (L02, graph023,
-helical050a) — see [[bo-helical]] champion section — agree on all four:
+helical050a) — see [bo-helical](/projects/bo-helical.md) champion section — agree on all four:
 
 | prediction | top-3 measurement |
 |---|---|

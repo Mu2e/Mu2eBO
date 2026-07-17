@@ -1,8 +1,15 @@
-# Batch / Asynchronous Bayesian Optimization
+---
+type: concept
+title: Batch / Asynchronous Bayesian Optimization
+description: q>1 parallel BO; CL-mean q=3 (michael) / CL-min q=2 (helical); skopt-native
+status: active
+timestamp: '2026-06-04'
+updated_note: 'n=251 overlay post-foilsX08: CL-min L2=0.075 + 10/10 dominance —
+  collapse onto `(n_up=6, n_down∈{0,1}, rOut≈128, hT≈0.23, rIn=0)`; sequence n=128→0.139,
+  n=164→0.095, n=178→0.821, n=186→0.079, n=193→0.590, n=204→0.122, n=251→0.075'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-06-04 (n=251 overlay post-foilsX08: CL-min L2=0.075 + 10/10 dominance — collapse onto `(n_up=6, n_down∈{0,1}, rOut≈128, hT≈0.23, rIn=0)`; sequence n=128→0.139, n=164→0.095, n=178→0.821, n=186→0.079, n=193→0.590, n=204→0.122, n=251→0.075)
+# Batch / Asynchronous Bayesian Optimization
 
 ## Summary
 How to propose **q > 1 in-flight BO points** at once instead of one-at-a-time, so
@@ -135,7 +142,7 @@ variant — "go Log" applies to whichever acquisition you pick.
     (4:28, vs >10 min joint-timeout) — that's the per-round picker cost,
     negligible vs the ~80 min grid wall/round. Launched `foilsZ03` (q=10×5) on it.
     So the q-scaling ceiling has a **picker-side cost**
-    on top of the grid-throughput one ([[closed-loop-runner]] lever 2): joint
+    on top of the grid-throughput one ([closed-loop-runner](/drivers/closed-loop-runner.md) lever 2): joint
     optimize_acqf is O(q·d)-dim and explodes; sequential is linear in q. Always
     `sequential=True` for q≳5.
   - **Acquisition-selection rule for THIS problem (2026-06-04):**
@@ -157,7 +164,7 @@ variant — "go Log" applies to whichever acquisition you pick.
     we don't have; ours is a flat 2-obj trade-off); **MOBO** (not a library —
     the general *category* of multi-objective BO that qNEHVI already IS). Net:
     BoTorch + qLogNEHVI is the settled choice for our noisy 2-objective regime;
-    **marginal gains are now in the PROBLEM (pitch dimension [[bo-foils]],
+    **marginal gains are now in the PROBLEM (pitch dimension [bo-foils](/projects/bo-foils.md),
     confirming the 2.017, or adding a 3rd objective), not in more
     optimizer/library shopping.**
 - **Mid-campaign edit GOTCHA:** `closed_loop` re-shells `botorch_predict.py`
@@ -221,7 +228,7 @@ cl_min once the ridge is sharp). Non-obvious design points:
   large-q collapse pathology.
 - **Bounded upside:** phase 2 polishes (confirm/refine, few-% obj), it does not
   leap — near a true optimum, refinement has diminishing returns. Good use right
-  now: confirm whether foilsZ02's marginal n=1 `obj=2.017` ([[bo-foils]]) is real
+  now: confirm whether foilsZ02's marginal n=1 `obj=2.017` ([bo-foils](/projects/bo-foils.md)) is real
   by collapsing cl_min onto the thin-annulus region. **Runtime knob:** the LOCO script monkey-patches
 `botorch.optim.optimize_acqf` with cheap settings (num_restarts=4,
 raw_samples=128, maxiter=50; vs production 16/512/200) for ~30× speedup;
@@ -309,11 +316,11 @@ n=193→0.590, n=204→0.122, n=251→0.075. Plot:
 `diversity_overlay_foils.png`.
 
 ## Cross-links
-- Related: [[bo-noise-budget]], [[fast-sim-options-for-bo]], [[orchestrator-evaluation-2026-05]], [[pareto-sob-picker]], [[qlnei-sob-only-picker]], [[saturation-is-acquisition-relative]]
-- Driver: [[autoresearch-bo-michael]]
-- Driver: [[pipeline]]
-- Concept: [[bo-modes]], [[closed-loop-bo-design]], [[gp-cloud-rendering]], [[scalarized-objective]]
-- Project: [[bo-michael]], [[bo-helical]]
+- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
+- Driver: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+- Driver: [pipeline](/drivers/pipeline.md)
+- Concept: [bo-modes](/concepts/bo-modes.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [scalarized-objective](/concepts/scalarized-objective.md)
+- Project: [bo-michael](/projects/bo-michael.md), [bo-helical](/projects/bo-helical.md)
 - Source files: `autoresearch_bo_michael.py:152-161` (Optimizer factory), `:423-458` (cmd_propose, batch retrofit lands here), `:132-150` (history I/O, pending-union point), `pipeline.py:36-67` (per-config paths, q-safe today)
 
 ## Sources
@@ -389,12 +396,12 @@ all dim ratios are in 0.1–0.5 stably, switch to `cl_min` q=3.
 each pipeline finishes — otherwise pending rows linger and the next `propose`
 gets stale info. But auto-evaluation on a corrupt `summary.json` would
 silently poison the leaderboard. We have one known case of that already
-([[harvest-denominator-bug]] — the corrected sob was 3% off and the GP would
+([harvest-denominator-bug](/incidents/harvest-denominator-bug.md) — the corrected sob was 3% off and the GP would
 have happily learned the wrong shape for many batches).
 
 **Recommendation — gated auto-eval with three sanity assertions:**
 1. **Harvest writes a `summary.json` + a `harvest.ok` marker** only after
-   passing internal checks (file count ratios per [[grid-job-completion-check]],
+   passing internal checks (file count ratios per [grid-job-completion-check](/incidents/grid-job-completion-check.md),
    non-NaN sob/calo, ce_simulated_events > 0). One-line change in `cmd_harvest`.
 2. **`autoresearch_loop.py` polls** for `harvest.ok` across pending configs
    (cheap directory listing every 5 min). On hit, runs `cmd_evaluate` with

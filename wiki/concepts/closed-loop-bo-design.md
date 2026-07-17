@@ -1,12 +1,18 @@
-# Closed-loop BO design constraints
+---
+type: concept
+title: Closed-loop BO design constraints
+description: load-bearing constraints for `graph/closed_loop.py` (SqliteSaver WAL,
+  leaderboard/pending locking, barrier source-of-truth, config-SHA stamping, scan_logs
+  gating)
+status: active
+timestamp: '2026-06-28'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-06-28
+# Closed-loop BO design constraints
 
 > **2026-06-12 — process liveness is a sufficient barrier wait condition.**
 > Once the barrier checks child pid liveness (landed with the
-> [[closed-loop-barrier-timeout-zero-rows-falsepos]] fix), a per-round
+> [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md) fix), a per-round
 > wall-clock timeout is no longer load-bearing: an alive `graph.run` child
 > is always progressing toward resolution because every grid stage inside it
 > is bounded by pipeline.py's `cap_hours` (24h) poll cap — it either
@@ -57,7 +63,7 @@ already paid to learn.
   as a sanity cross-check.
 
 - **Config snapshot at submit-time generalizes the events-per-job stamp.**
-  The same class of bug that produced [[events-per-job-mid-flight-edit]]
+  The same class of bug that produced [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md)
   applies to anything else the closed loop reads at multiple points in
   time. Recommended: at submit, hash the effective config dict
   (STAGES[stage] + relevant `graph/config.py` constants) and stamp the
@@ -67,7 +73,7 @@ already paid to learn.
 
 - **Scan_logs gating must precede leaderboard inclusion.** Inner graph
   has a `scan_logs` node that detects `GeomSolids1001` /
-  [[tessellated-solid-facet-orientation]] floods (see incident page). Today
+  [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) floods (see incident page). Today
   it logs and continues. For closed-loop, hits there mean the row is
   physics-broken (count saturated by stuck-track inflation) and must NOT
   feed the GP — else round N+1's picks chase a phantom Pareto frontier.
@@ -87,7 +93,7 @@ already paid to learn.
 - **q-parallel BO acquisition function quality.** With q=5 children all
   proposed from the same GP fit, the first-round picks share the same
   acquisition surface — they cluster unless the picker uses CL-mean / CL-min
-  fantasy points (see [[batch-bo]]). The current
+  fantasy points (see [batch-bo](/concepts/batch-bo.md)). The current
   `gp_predict_helical.compute_explore_picks` uses Pareto-evenly-spaced
   picks across sob-rank, which is a workable proxy but NOT a calibrated
   acquisition. Round 1 may produce 5 nearly-degenerate picks if the
@@ -98,7 +104,7 @@ already paid to learn.
   SR00_00 (`dx=0.011, dy=125, halflen=251, angle=167`, N_crit≈4144)
   reproduced the GeomSolids1001 + stuck-track flood the gate was
   supposed to prevent (90/100 mustops_ce jobs flagged; see
-  [[bo-helical]] "N_crit margin too loose"). scan_logs gating worked
+  [bo-helical](/projects/bo-helical.md) "N_crit margin too loose"). scan_logs gating worked
   end-to-end — broken.txt written, leaderboard append suppressed —
   but the closed loop wasted 6 h of grid CPU on a doomed pick because
   the propose-time guard accepted it. Lowered to **2000** in
@@ -109,9 +115,9 @@ already paid to learn.
   brokenness, not a slow-but-correct simulation.
 
 ## Cross-links
-- Related: [[mode-registry-childtracker-design]], [[batch-bo]], [[events-per-job-mid-flight-edit]],
-  [[tessellated-solid-facet-orientation]],
-  [[orchestrator-evaluation-2026-05]], [[bo-helical]], [[architecture-friction-survey-2026-07]], [[mode-registry-childtracker-design]], [[qlnei-sob-only-picker]], [[saturation-is-acquisition-relative]]
+- Related: [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md), [batch-bo](/concepts/batch-bo.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md),
+  [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md),
+  [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [bo-helical](/projects/bo-helical.md), [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
 - Source: `graph/run.py:51` (sqlite connect, no WAL today),
   `autoresearch_bo_michael.py:150-156` (append_history, no lock),
   `autoresearch_bo_michael.py:186-206` (pending TSV r-w-t cycle, no lock),
@@ -154,7 +160,7 @@ disambiguate by the artifacts before alarming:
 - **Harvest zero-row (geometry ran, metric extraction failed):** child log HAS
   `zero_row[<cfg>] cause=<harvest_exception|metrics_none|obj_unparseable>`, grid dir
   has full stage outputs + a harvest/ dir. THIS is the one to investigate
-  (cf [[edepana-saw-events-scientific-notation-parse]]).
+  (cf [edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md)).
 So: "done + objective=null + no zero_row + geom-only grid dir" = preflight reject (fine);
 "done + objective=null + zero_row cause=..." = real harvest problem.
 
@@ -203,7 +209,7 @@ So: "done + objective=null + no zero_row + geom-only grid dir" = preflight rejec
   + 30s SQLite timeout in `graph/run.py` and `graph/closed_loop.py`.
   **OVERTURNED 2026-06-09**: the smoke was 3 orders below the actual
   load and only tested lock-acquire contention, not WAL mmap coherence
-  across processes — see [[closed-loop-sqlite-checkpoint-transient-corruption]].
+  across processes — see [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md).
 - **Driver shape: LangGraph outer graph (closed_loop.py) wins the
   deletion test.** WAL works → cross-thread checkpoint visibility
   preserved → barrier can re-poll via `SqliteSaver.list({thread_id})`

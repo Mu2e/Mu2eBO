@@ -1,8 +1,13 @@
-# mu2e-exp-website-docroot — local filesystem path of mu2e-exp.fnal.gov
+---
+type: external
+title: mu2e-exp-website-docroot — local filesystem path of mu2e-exp.fnal.gov
+description: '`https://mu2e-exp.fnal.gov` docroot is NFS-mounted at `/web/sites/m/mu2e-exp.fnal.gov/htdocs/`;
+  readable without Shibboleth login'
+status: active
+timestamp: '2026-05-29'
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-05-29
+# mu2e-exp-website-docroot — local filesystem path of mu2e-exp.fnal.gov
 
 ## Summary
 The public Mu2e site `https://mu2e-exp.fnal.gov` is Shibboleth-protected

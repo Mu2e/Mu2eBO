@@ -1,9 +1,19 @@
-# /data 2TB CephFS quota exhausted by autoresearch_grid accumulation → Errno 122
+---
+type: incident
+title: /data 2TB CephFS quota exhausted by autoresearch_grid accumulation → Errno
+  122
+description: /exp/mu2e/data/users/oksuzian 2TB CephFS quota filled by autoresearch_grid
+  (2.04TB, Code.tar.bz2 accumulation) → Errno 122 EDQUOT at propose_one geom-copy;
+  killed ipa02 4/5 children; diagnose with getfattr not df; 2026-06-19
+status: resolved
+status_note: '2026-06-20 (deleted 1474 completed-config dirs → freed 1.88 TB: /data
+  2148 GB → 269 GB = 12%); campaigns relaunched fresh'
+timestamp: '2026-07-01'
+updated_note: 're-measured: Code.tar.bz2+cnf.tar=579GB/63%, harvest only 1.1GB,
+  outputs already on /pnfs → delete not reroute'
+---
 
-**Type:** incident
-**Status:** resolved 2026-06-20 (deleted 1474 completed-config dirs → freed
-1.88 TB: /data 2148 GB → 269 GB = 12%); campaigns relaunched fresh
-**Updated:** 2026-07-01 (re-measured: Code.tar.bz2+cnf.tar=579GB/63%, harvest only 1.1GB, outputs already on /pnfs → delete not reroute)
+# /data 2TB CephFS quota exhausted by autoresearch_grid accumulation → Errno 122
 
 ## Summary
 The per-user CephFS **byte quota on `/exp/mu2e/data/users/oksuzian` (2.0 TB)**
@@ -47,7 +57,7 @@ ipa02 lost 4/5 R0 children; foilsf20 + pt6d11 were next.
 - **Second, separate squeeze: the /app quota.**
   `/exp/mu2e/app/users/oksuzian` = `ceph.quota.max_bytes` **86 GB**, ~99.8% full.
   Breaks leaderboard/proposal/log/wiki writes on app. (App tightness is also why
-  the venvs were moved to /data — [[venv-relocated-to-data-volume]].)
+  the venvs were moved to /data — [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md).)
   **App consumers (rbytes, 2026-06-20): stale `muse_*` build areas dominate** —
   `muse_101323` 21.6 GB (2025-09), `muse_080224` 8.3 GB (2025-08), `muse_050125`
   4.8 GB (2026-04); `Run1B` 14 GB. Cleanup target = the 2 oldest muse builds
@@ -79,7 +89,7 @@ ipa02 lost 4/5 R0 children; foilsf20 + pt6d11 were next.
   (foilsZ*/foilsf01–19/helical*/pt6d01–10/…). Use **named-path** deletes, never
   wildcard `rm` (see memory `feedback_avoid_rm_rf_star`).
 - **Pause campaigns first** (SIGTERM, not -9 — shared-checkpoint safety,
-  [[sqlite-wal-corrupt-after-kill]]) so they stop churning failed children while
+  [sqlite-wal-corrupt-after-kill](/incidents/sqlite-wal-corrupt-after-kill.md)) so they stop churning failed children while
   you clean, then relaunch.
 - **Outcome (2026-06-20):** deleting the 1474 completed-config dirs (everything
   matching `*R[0-9][0-9]_[0-9][0-9]` except the 3 active prefixes) freed
@@ -87,15 +97,15 @@ ipa02 lost 4/5 R0 children; foilsf20 + pt6d11 were next.
   (foils ~6.7 GB, old helical/foilsZ smaller). Whole-dir deletion was the right
   call — Code.tar.bz2-only would have freed ~3× less. Then killed the 3 stuck
   campaigns (SIGTERM) and relaunched fresh (new prefixes + fresh decoupled
-  checkpoint dirs, since post-SIGTERM WALs may be dirty — [[sqlite-wal-corrupt-after-kill]]).
+  checkpoint dirs, since post-SIGTERM WALs may be dirty — [sqlite-wal-corrupt-after-kill](/incidents/sqlite-wal-corrupt-after-kill.md)).
 - **Prevention TODO:** a post-harvest hook that deletes a config's
   `*/Code.tar.bz2` once its leaderboard row lands would bound autoresearch_grid
   growth; right now nothing prunes it.
 
 ## Cross-links
-- Related: [[jobsub-disk-quota-stderr-swallowed]] (same Errno 122 but at the
-  jobsub RCDS-publish step, not the geom-copy), [[venv-relocated-to-data-volume]]
-  (app-volume tightness), [[closed-loop-runner]]
+- Related: [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) (same Errno 122 but at the
+  jobsub RCDS-publish step, not the geom-copy), [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md)
+  (app-volume tightness), [closed-loop-runner](/drivers/closed-loop-runner.md)
 - Source: `graph/pipeline_io.py:93` (propose_one geom-copy),
   `graph/config.py:25` (`GRID_DATA_ROOT`)
 

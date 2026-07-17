@@ -1,13 +1,21 @@
-# closed-loop relaunch silently skips all children when stale cluster.txt files survive
+---
+type: incident
+title: closed-loop relaunch silently skips all children when stale cluster.txt files
+  survive
+description: 'relaunching closed-loop with same `--name-prefix` after a crash silently
+  launches 0 children: `_already_running()` reads stale `state/*_cluster.txt` from
+  prior run → `pending=[]` → barrier-polls forever. Fix: use new name-prefix or
+  rm the stale cluster files'
+status: resolved
+timestamp: '2026-06-09'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-09
+# closed-loop relaunch silently skips all children when stale cluster.txt files survive
 
 ## Summary
 Relaunching a closed-loop with the same `--name-prefix` after a prior run that submitted grid jobs but never wrote a leaderboard row results in **zero children launched and the parent barrier-polling forever**. Root cause is `node_launch_children._already_running(name)` returning True for every child because `*_cluster.txt` files from the prior aborted run survived in the per-config grid state dir.
 
-Surfaced 2026-06-08 during foilsf08 recovery: after the first foilsf08R00 SqliteSaver crash (see [[closed-loop-sqlite-checkpoint-transient-corruption]]), the relaunch `--name-prefix foilsf08 --thread-id foilsf08b` computed picks (`got=10`), reached `launch_children`, found `pending=[]`, Popened 0 children, and entered `barrier_poll` waiting on 10 children that were never started. No error, no log line, just the barrier-poll loop running forever.
+Surfaced 2026-06-08 during foilsf08 recovery: after the first foilsf08R00 SqliteSaver crash (see [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md)), the relaunch `--name-prefix foilsf08 --thread-id foilsf08b` computed picks (`got=10`), reached `launch_children`, found `pending=[]`, Popened 0 children, and entered `barrier_poll` waiting on 10 children that were never started. No error, no log line, just the barrier-poll loop running forever.
 
 ## Key facts
 - `graph/closed_loop.py:389-410` — `node_launch_children` filters `pending` via `_already_running(name)`:
@@ -58,7 +66,7 @@ The existing empty-guard at `:474-479` then fires correctly within seconds when 
 - **All Popens raise** (e.g. log_path permission denied): today, barrier hangs full 240 min; fix correctly empties `launched_names` and the guard fires.
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]] (scan_logs gating + cluster-file idempotency design), [[closed-loop-sqlite-checkpoint-transient-corruption]] (the crash that triggered the recovery scenario), [[closed-loop-thread-id-checkpoint-collision]] (separate but adjacent collision-on-resume hazard), [[barrier-false-positive-round1]] (other barrier silent-failure mode), [[closed-loop-barrier-timeout-zero-rows-falsepos]]
+- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (scan_logs gating + cluster-file idempotency design), [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md) (the crash that triggered the recovery scenario), [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md) (separate but adjacent collision-on-resume hazard), [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) (other barrier silent-failure mode), [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md)
 - Source files: `graph/closed_loop.py:401-410` (`_already_running`), `graph/closed_loop.py:407-410` (`pending` filter), `graph/closed_loop.py:454-457` (returns `launched_names` from `children.keys()` even when `pending` was empty)
 
 ## Resolution (2026-06-09)

@@ -1,8 +1,17 @@
-# DPA scoring for the Mu2e production target
+---
+type: concept
+title: DPA scoring for the Mu2e production target
+description: Mu2e Stickman design point = peak 10 DPA/yr Inconel 718 (arXiv 2508.18450);
+  Geant4 11.3 has no DPA scorer but ships G4NIELCalculator; recommended path is
+  custom SD + NRT (E_d=40 eV) piggybacked on stickman-sd-unwired fix
+status: active
+timestamp: '2026-06-07'
+updated_note: Path B shipped; Path A failure mechanism corrected — ShieldingM (not
+  QGSP_BERT) IS the Mu2e physics list, but tracking-cutoff strands recoils in totalEdep
+  so stock-SD NIEL still ≡ 0
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-06-07 (Path B shipped; Path A failure mechanism corrected — ShieldingM (not QGSP_BERT) IS the Mu2e physics list, but tracking-cutoff strands recoils in totalEdep so stock-SD NIEL still ≡ 0)
+# DPA scoring for the Mu2e production target
 
 ## Summary
 Displacements-per-atom (DPA) is the radiation-damage figure of merit for the
@@ -10,7 +19,7 @@ Inconel 718 production target. Mu2e's published design point is **peak ~10
 DPA/year** (arXiv 2508.18450, MEDSI 2025) — anchored to SNS measurements
 showing solution-annealed Inconel 718 *gains* ductility up to 10 DPA proton
 irradiation. This page captures the conventions and the implementation menu
-for adding a DPA scoring channel to [[bo-prodtarget]] (currently only
+for adding a DPA scoring channel to [bo-prodtarget](/projects/bo-prodtarget.md) (currently only
 `mu_per_POT` is wired).
 
 ## Key facts
@@ -81,7 +90,7 @@ for adding a DPA scoring channel to [[bo-prodtarget]] (currently only
 - **Mu2e Offline DPA infrastructure score**: **0**. Verified in
   `Mu2eG4/src/constructTargetPS.cc` (v13_18_00 backing) — no
   `SetSensitiveDetector` calls on PT plates, no `#include`
-  `SensitiveDetectorName.hh` (commented out). Confirms [[stickman-sd-unwired]]
+  `SensitiveDetectorName.hh` (commented out). Confirms [stickman-sd-unwired](/incidents/stickman-sd-unwired.md)
   still holds in the MDC2025aq Musing.
 
 ## Canonical SD snippet (≤30 lines, from TestEm1 + NRT)
@@ -183,7 +192,7 @@ published-magnitude DPA requires either (a) parallel neutron SD, or
 (b) inclusion of secondary ion stopping in the cascade output.
 
 Path B does NOT yet feed the BO objective — `total_edep_per_POT` from
-[[stopping-target-foil-base-spec]] / Path D remains the ranking channel.
+[stopping-target-foil-base-spec](/concepts/stopping-target-foil-base-spec.md) / Path D remains the ranking channel.
 
 **Grid-harvest gap (2026-06-07)**: even though the patched
 `ProductionTargetNIELSD` dispatch is in the autoresearch_muse_prodtarget
@@ -208,22 +217,22 @@ we need: (1) add NIEL-instance dumper to `_render_pt_dumper_block`,
 | Where it lives | n/a | `Mu2eG4/src/ProductionTargetSD.cc` + wire in `constructTargetPS`; enable in `POT.fcl` `g4.sensitiveDetectors` | StepPointMC producer on PT plates → python NRT fold |
 | Per-step physics | — | `niel = NIELcalc.ComputeNIEL(step)`; `dpa += 0.8·niel/(2·E_d·N_atoms)` | dump (PDG, E_kin, step, vol) → fold σ_d(E,Z) offline |
 | CPU overhead | — | **~5–10%** (PT is <0.1% of event volume) | ~30–80% (StepPointMC I/O dominates) |
-| Effort | — | ~150 LOC + 1 muse rebuild; reuses missing SD plumbing from [[stickman-sd-unwired]] | ~50 LOC G4 + 200 LOC Python; needs NJOY/SPECTER σ_d table |
+| Effort | — | ~150 LOC + 1 muse rebuild; reuses missing SD plumbing from [stickman-sd-unwired](/incidents/stickman-sd-unwired.md) | ~50 LOC G4 + 200 LOC Python; needs NJOY/SPECTER σ_d table |
 | Per-geometry scalar | — | `sum(dpa_per_plate) / N_POT` | same, in pandas |
 
 **Recommendation: Option B.** The SD plumbing has to be built anyway to unblock
-per-plate Edep ([[stickman-sd-unwired]]); DPA piggybacks on the same
+per-plate Edep ([stickman-sd-unwired](/incidents/stickman-sd-unwired.md)); DPA piggybacks on the same
 `ProcessHits`. `G4NIELCalculator` already ships in 11.3 — just instantiate
 with `G4ScreenedNuclearRecoil`. Hard-code E_d = 40 eV (BO ranking is
 invariant to that constant). CPU overhead is a rounding error vs. the
-cascade itself, so the 30 s/job [[bo-prodtarget]] pot_only budget survives.
+cascade itself, so the 30 s/job [bo-prodtarget](/projects/bo-prodtarget.md) pot_only budget survives.
 
 Option C only wins if you later want to swap NRT ↔ arc-DPA ↔ athermal models
 without re-simulating. Defer until BO closes.
 
 ## Cross-links
-- Related: [[bo-prodtarget]], [[production-target-stickman]],
-  [[stickman-sd-unwired]]
+- Related: [bo-prodtarget](/projects/bo-prodtarget.md), [production-target-stickman](/concepts/production-target-stickman.md),
+  [stickman-sd-unwired](/incidents/stickman-sd-unwired.md)
 - Source files (to-be-created):
   - `backing/Offline/Mu2eG4/src/ProductionTargetSD.cc` (new)
   - `backing/Offline/Mu2eG4/src/constructTargetPS.cc` (wire SD)

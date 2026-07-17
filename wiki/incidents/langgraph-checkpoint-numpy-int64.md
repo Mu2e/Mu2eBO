@@ -1,15 +1,24 @@
-# LangGraph SqliteSaver checkpoint fails on numpy.int64 in prodtarget x-point
+---
+type: incident
+title: LangGraph SqliteSaver checkpoint fails on numpy.int64 in prodtarget x-point
+description: '`graph.run --mode prodtarget` crashes at SqliteSaver msgpack write
+  with `TypeError: Type is not msgpack serializable: numpy.int64`; N (numberOfPlates)
+  Integer dim arrives as np.int64 from skopt and isn''t coerced before state assignment
+  (distinct from the propose-JSON fix)'
+status: resolved
+timestamp: '2026-06-07'
+updated_note: fix shipped at graph/pipeline_io.py:96 — `.item()` coerce in propose_one
+  return
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-07 (fix shipped at graph/pipeline_io.py:96 — `.item()` coerce in propose_one return)
+# LangGraph SqliteSaver checkpoint fails on numpy.int64 in prodtarget x-point
 
 ## Summary
 `graph.run --mode prodtarget --config-name pt001` crashes at checkpoint
 write with `TypeError: Type is not msgpack serializable: numpy.int64`
 inside `langgraph.checkpoint.sqlite.__init__:478` →
 `jsonplus._msgpack_enc` → `ormsgpack.packb`. Distinct from the
-already-fixed propose-JSON path ([[prodtarget-propose-skopt-empty-init]]
+already-fixed propose-JSON path ([prodtarget-propose-skopt-empty-init](/incidents/prodtarget-propose-skopt-empty-init.md)
 adds a `np.int64` coerce there). The `N` (numberOfPlates) Integer dim
 arrives as `np.int64` from skopt and slips into the LangGraph state dict;
 SqliteSaver tries to msgpack-encode the state and dies.
@@ -35,9 +44,9 @@ SqliteSaver tries to msgpack-encode the state and dies.
   evaluate still writes state that contains the x-point.
 
 ## Cross-links
-- Related: [[prodtarget-propose-skopt-empty-init]] (sibling np.int64 fix
+- Related: [prodtarget-propose-skopt-empty-init](/incidents/prodtarget-propose-skopt-empty-init.md) (sibling np.int64 fix
   in the propose JSON-write path, NOT the LangGraph checkpoint path),
-  [[bo-prodtarget]], [[sqlite-wal-corrupt-after-kill]]
+  [bo-prodtarget](/projects/bo-prodtarget.md), [sqlite-wal-corrupt-after-kill](/incidents/sqlite-wal-corrupt-after-kill.md)
 - Source files:
   - `graph/nodes.py` (propose / evaluate nodes that write to state)
   - `graph/state.py` (state dataclass)

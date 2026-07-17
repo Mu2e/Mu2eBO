@@ -1,8 +1,15 @@
-# preflight-mode-tuple-prodtarget6d-omission
+---
+type: incident
+title: preflight-mode-tuple-prodtarget6d-omission
+description: pt6d04 R1 10/10 children mis-reported fail_managed; rc=1 overload +
+  missing "prodtarget6d" in autoresearch_bo_michael.py:1982 surface-check tuple;
+  subclass inherits methods NOT mode-tuple membership
+status: resolved
+status_note: (2026-06-13)
+timestamp: '2026-06-13'
+---
 
-**Type:** incident
-**Status:** resolved (2026-06-13)
-**Updated:** 2026-06-13
+# preflight-mode-tuple-prodtarget6d-omission
 
 ## Summary
 pt6d04 R1 had ALL 10 children mis-classified as `fail_managed` and
@@ -56,10 +63,10 @@ literal-string tuple membership. Subclasses inherit Python methods,
 not driver mode-dispatch.
 
 ## Cross-links
-- Related: [[foilsflash-tarball-mode-key-omission]], [[pipeline-poll-rc120-atexit-death]]
-- Caused by: my 2026-06-13 GDML-emission wiring (see [[preflight]]
+- Related: [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md), [pipeline-poll-rc120-atexit-death](/incidents/pipeline-poll-rc120-atexit-death.md)
+- Caused by: my 2026-06-13 GDML-emission wiring (see [preflight](/drivers/preflight.md)
   driver page, "GDML emission tier")
-- Related rc=1 overload: [[preflight-past-init-false-pass]] (different
+- Related rc=1 overload: [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md) (different
   symptom, same overloaded rc=1 channel)
 - Per-mode dispatch table: `autoresearch_bo_michael.py:1982, 1991, 2127, 2147`
 - Classifier: `graph/pipeline_io.py:134`

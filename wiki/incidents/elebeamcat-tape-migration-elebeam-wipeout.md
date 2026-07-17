@@ -1,8 +1,17 @@
-# EleBeamCat persistent→tape migration wipes out a whole elebeam round
+---
+type: incident
+title: EleBeamCat persistent→tape migration wipes out a whole elebeam round
+description: 'EleBeamCat Run1Baa moved persistent→tape mid-campaign (2026-07-09):
+  all foilsflash10 elebeam jobs FileOpenError → blank outputs.txt → fail-soft flash=None
+  → 0 rows despite valid sob; basename filelists mean fresh `submit --force` auto-resolves
+  via SAM; MuBeamCat still on persistent (WATCH — **FIRED 2026-07-13**, fixed 6906cb8)'
+status: resolved
+status_note: '(MuBeamCat recurrence fixed 6906cb8 + verified: foilsflash16 mubeam
+  cluster 70879403 submitted clean on tape URLs 2026-07-13)'
+timestamp: '2026-07-13'
+---
 
-**Type:** incident
-**Status:** resolved (MuBeamCat recurrence fixed 6906cb8 + verified: foilsflash16 mubeam cluster 70879403 submitted clean on tape URLs 2026-07-13)
-**Updated:** 2026-07-13
+# EleBeamCat persistent→tape migration wipes out a whole elebeam round
 
 ## Summary
 foilsflash10 (widened-box probe, q=8) produced ZERO leaderboard rows: every
@@ -85,7 +94,7 @@ needs resubmission.
   `AUTORESEARCH_ELEBEAM_NJOBS=200` (env seam, default 100 — ff08/09/10 ran
   200; poll target must see the same value as submit).
 - **R00_01 doubly dead:** it had already died at mustops_ce submit (rc=25
-  blank-line face, see [[stage-out-lag]]) — no ce outputs, not recoverable
+  blank-line face, see [stage-out-lag](/incidents/stage-out-lag.md)) — no ce outputs, not recoverable
   by elebeam resubmit alone. 7/8 recovered.
 - **WATCH ITEM:** `MuBeamCat.Run1Baa` (mubeam + run1b_mubeam auxinput) is
   still on **persistent** disk (samweb 2026-07-09). The same migration will
@@ -94,15 +103,15 @@ needs resubmission.
   unexplained all-jobs-fast-crash appears in mubeam.
 - **scan_logs blind spot:** the 200 FileOpenError logs sailed through
   scan_logs (patterns are geometry-only, see
-  [[scan-broken-codes-too-narrow]]); the round was classified by the
+  [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md)); the round was classified by the
   barrier as "all failed" only via zero rows.
 
 ## Cross-links
-- Related: [[stage-out-lag]] (blank outputs.txt face), [[scan-broken-codes-too-narrow]],
-  [[mmackenz-edepana-lib-qualifier-bump]] (same class: external dependency
-  rots under us), [[concat-xrootd-fileopen-postendjob]] (different xrootd
+- Related: [stage-out-lag](/incidents/stage-out-lag.md) (blank outputs.txt face), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md),
+  [mmackenz-edepana-lib-qualifier-bump](/incidents/mmackenz-edepana-lib-qualifier-bump.md) (same class: external dependency
+  rots under us), [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md) (different xrootd
   FileOpen face: transient under IO load, not missing file)
-- Project: [[bo-foilsflash]]
+- Project: [bo-foilsflash](/projects/bo-foilsflash.md)
 - Source: `pipeline.py:poll_cluster` (failure-aware exit), `graph/nodes.py:node_evaluate`,
   `graph/config.py` (`AUTORESEARCH_ELEBEAM_NJOBS` seam)
 

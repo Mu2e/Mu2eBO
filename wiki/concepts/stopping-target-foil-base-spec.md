@@ -1,15 +1,21 @@
-# Stopping-Target Foil Base Spec
+---
+type: concept
+title: Stopping-Target Foil Base Spec
+description: deployed 37 foils at rOut=75, halfThickness=0.0528 mm (≈105.6 µm full
+  — not the "100 µm" design spec); holeRadius is a SINGLE SCALAR (StoppingTargetMaker.cc:41
+  getDouble), not per-foil
+status: active
+timestamp: '2026-06-01'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-06-01
+# Stopping-Target Foil Base Spec
 
 ## Summary
 The deployed Mu2e stopping-target geometry is 37 aluminum foils at rOut=75 mm,
 halfThickness=0.0528 mm (full ≈ 105.6 µm — *not* the "100 µm" design spec),
 holeRadius=21.5 mm, deltaZ=22.222222 mm, z0InMu2e=5871 mm. Knowing the
 exact source-of-truth file + override chain matters when building per-foil
-overrides (e.g. [[bo-foils]] adds extras around this base) or interpreting
+overrides (e.g. [bo-foils](/projects/bo-foils.md) adds extras around this base) or interpreting
 "why is the count 37 and not 34 or 38?"
 
 ## Key facts
@@ -41,7 +47,7 @@ overrides (e.g. [[bo-foils]] adds extras around this base) or interpreting
   `vector<double> stoppingTarget.holeRadii` when present (last-element-
   repeat semantics, mirrors `halfThicknesses` parsing), falls back to the
   scalar otherwise. Decouples extras-rIn from the pinned base rIn=21.5 in
-  [[bo-foils]]. **Dual-emit contract:** `FoilsMode._geom_text` always emits
+  [bo-foils](/projects/bo-foils.md). **Dual-emit contract:** `FoilsMode._geom_text` always emits
   BOTH the scalar (at BASE_HOLE_RADIUS_MM=21.5) and the per-foil vector —
   legacy grid workers running the old tarball silently fall back to the
   scalar and rebuild the deployed-baseline base correctly (extras still
@@ -56,7 +62,7 @@ overrides (e.g. [[bo-foils]] adds extras around this base) or interpreting
   `vector<double> stoppingTarget.radii = {...}` *after* an `#include`
   *replaces* the included vector entirely; it does not append/merge. Same
   pattern is used by `geom_run1_b_v06.txt:29-31` for run1b overrides. This
-  is how [[bo-foils]] inserts `n_up + 37 + n_down` extras around the base.
+  is how [bo-foils](/projects/bo-foils.md) inserts `n_up + 37 + n_down` extras around the base.
 
 - **HelicalMode previously emitted FOIL_COUNT=38** (off-by-one vs deployed
   37). Fixed at `autoresearch_bo_michael.py:379` on 2026-05-28; affects
@@ -73,8 +79,8 @@ overrides (e.g. [[bo-foils]] adds extras around this base) or interpreting
   `bo_foils_preflight/foilsP0_{AU,AD,AS}.log`.
 
 ## Cross-links
-- Related: [[bo-foils]] (consumes this spec), [[bo-helical]] (re-emits foil
-  vector at rOut=125 to block calo stops), [[tsda]], [[production-target-stickman]]
+- Related: [bo-foils](/projects/bo-foils.md) (consumes this spec), [bo-helical](/projects/bo-helical.md) (re-emits foil
+  vector at rOut=125 to block calo stops), [tsda](/concepts/tsda.md), [production-target-stickman](/concepts/production-target-stickman.md)
 - Source files:
   `/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/CaloCalibc/Offline/GeometryService/src/StoppingTargetMaker.cc:33-127`,
   `Offline/Mu2eG4/geom/stoppingTargetHoles_v02.txt`,

@@ -1,16 +1,23 @@
 ---
-# bo-prodtarget — profile-mode BO over Stickman PS production target
+type: project
+title: bo-prodtarget — profile-mode BO over Stickman PS production target
+description: proposed ~11D profile-mode BO over Stickman PS production target (rOut,
+  plateThickness, plateLugThickness as K=3 quadratic profiles + N_plates); pure
+  config (no source patch); design only as of 2026-06-06
+status: active
+status_note: (ptX01–ptX04 shipped; ptX05 launched 2026-06-10 with lug-overhang cap)
+timestamp: '2026-06-23'
+updated_note: champion significance + GP-underfit analysis added
+---
 
-**Type:** project
-**Status:** active (ptX01–ptX04 shipped; ptX05 launched 2026-06-10 with lug-overhang cap)
-**Updated:** 2026-06-23 (champion significance + GP-underfit analysis added)
+# bo-prodtarget — profile-mode BO over Stickman PS production target
 
 ## Summary
 Proposed BO line over the **production target** (MDC2025aq Stickman v1.0,
-[[production-target-stickman]]), focused on the four thermal-coupled
+[production-target-stickman](/concepts/production-target-stickman.md)), focused on the four thermal-coupled
 geometric knobs `{rOut, plateThickness, numberOfPlates, plateLugThickness}`
 (NOT `spacerHalfLength` — confirmed dead-on-arrival in
-[[production-target-stickman]] z-march).
+[production-target-stickman](/concepts/production-target-stickman.md) z-march).
 
 Per-plate parameterization (35×4 = 140-D) is too large for BO; this design
 uses **profile-mode parameterization**: each per-plate quantity is a smooth
@@ -20,7 +27,7 @@ search dim ≈ 11D (10 continuous + 1 int).
 
 Pure config change — no source code modifications needed
 (`ProductionTargetMaker.cc` already reads all four knobs as length-N vectors;
-see [[production-target-stickman]] for file:line refs).
+see [production-target-stickman](/concepts/production-target-stickman.md) for file:line refs).
 
 ## Key facts
 
@@ -78,14 +85,14 @@ made it under the wire; the other 8 didn't.
 at barrier-exit time, NOT including in-flight writes. The 2 rows that
 DID arrive came in seconds-to-minutes AFTER the parent's snapshot,
 so `decide_next` saw `0 new` and triggered the early-exit path.
-Same pattern as the [[closed-loop-final-round-orphan-children]]
+Same pattern as the [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md)
 incident but on R0 instead of final round.
 
 **Mitigations (for pt6d02 relaunch):**
 - `--barrier-timeout-min 360` (or 480) — give `pot_only` enough wall
 - 8 R0 orphans will keep writing rows until they finish; relaunching
   with same `--name-prefix pt6d01` would hit
-  [[closed-loop-stale-cluster-silent-no-launch]] (state/*_cluster.txt
+  [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md) (state/*_cluster.txt
   lingers → `_already_running()` returns true). Use a new prefix
   (`pt6d02`) or wait + rm the stale state files.
 Sobol cold-start path. `_load_history_tensor` returns empty
@@ -94,7 +101,7 @@ SystemExit). `compute_explore_picks` guards `if X.shape[0] < 2`:
 draws `q` Sobol picks from `MODE_SPECS[mode]` bounds via
 `botorch.utils.sampling.draw_sobol_samples` with seed `42 ^ round_idx`
 (matches qnehvi seed contract — see
-[[botorch-predict-seed-pow-vs-xor]]). `_emit_picks` int_dim cast
+[botorch-predict-seed-pow-vs-xor](/incidents/botorch-predict-seed-pow-vs-xor.md)). `_emit_picks` int_dim cast
 applies, so integer dims (e.g. `N` for prodtarget 10D) round
 correctly. The `< 2` threshold is set by SingleTaskGP's Cholesky fit
 needing ≥2 points to avoid a degenerate posterior.
@@ -158,9 +165,9 @@ at the t1=7.000 cap.
 | campaign | evals | best new μ | t1=7.000 picks | notes |
 |---|---|---|---|---|
 | pt6d04 R0 | 10/10 | `pt6d04R00_00` 2.376e-3 / 1.89e-9 | 10/10 | clean |
-| pt6d04 R1 | 0/10 | (n/a) | n/a | 10/10 `fail_managed` from [[preflight-mode-tuple-prodtarget6d-omission]]; fixed |
+| pt6d04 R1 | 0/10 | (n/a) | n/a | 10/10 `fail_managed` from [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md); fixed |
 | pt6d05 R0 | 10/10 | `pt6d05R00_07` 2.364e-3 / 2.12e-9 | 10/10 | clean |
-| pt6d05 R1 | 6/10 | **`pt6d05R01_05` 2.390e-3 / 2.38e-9** | 8/10 | 7/10 orphaned by rc=120 ([[pipeline-poll-rc120-atexit-death]]), manually harvested 6/7; 3/10 real spacer↔plate-00 |
+| pt6d05 R1 | 6/10 | **`pt6d05R01_05` 2.390e-3 / 2.38e-9** | 8/10 | 7/10 orphaned by rc=120 ([pipeline-poll-rc120-atexit-death](/incidents/pipeline-poll-rc120-atexit-death.md)), manually harvested 6/7; 3/10 real spacer↔plate-00 |
 | pt6d06 R0 | 9/10 | `pt6d06R00_02` 2.340e-3 / 2.31e-9 | 8/9 | 1 preflight-fail (real spacer↔plate-00) |
 | pt6d06 R1 | 10/10 | `pt6d06R01_03` 2.293e-3 / 2.61e-9 | 8/10 | clean — first end-to-end success after rc=120 mitigations |
 
@@ -173,7 +180,7 @@ implicit cap. The looser AND-dominance count (μ>baseline AND dose<baseline)
 is 30 — useful for Pareto-front breadth, not for single-axis records.
 
 **pt6d06-specific (2026-06-15):** ran clean end-to-end (no rc=120, no
-fail_managed) under the [[pipeline-poll-rc120-atexit-death]] mitigations:
+fail_managed) under the [pipeline-poll-rc120-atexit-death](/incidents/pipeline-poll-rc120-atexit-death.md) mitigations:
 fresh `--name-prefix pt6d06`, mu2esrv01 idle at 13 GB / 173 GB free
 (vs the 170 GiB peak that killed pt6d05 R1 + foilsf12 R2 on 2026-06-13).
 First exploratory low-t2=3.0 pick (`pt6d06R01_08`) landed at μ=2.174e-3
@@ -236,16 +243,16 @@ SingleTaskGP+Standardize on foilsf gives 0.11% residual and on ipa 0.07% — bot
 INTERPOLATE their stars. So prodtarget6d stars scatter off the cloud because the
 GP underfits, not framing/compression. **RESOLVED 2026-06-23 (team-tested): CORRECT behavior, real ~3% measurement noise,
 not a bug.** Fitted GP noise = 3.1% of μ = the μ_per_POT Poisson floor
-([[bo-noise-budget]]); forcing noise→1e-6 drops residual 2.27%→0.00% (GP CAN
+([bo-noise-budget](/concepts/bo-noise-budget.md)); forcing noise→1e-6 drops residual 2.27%→0.00% (GP CAN
 interpolate, correctly chooses not to); ARD refuted (already ARD Matern-5/2,
 lengthscales non-railed, explicit ARD worse). prodtarget6d's μ is ~7× noisier than
 foils sob (0.4%)/ipa (0.6%), so its GP correctly de-noises and the noisy stars
 scatter ±3% off the de-noised cloud. **Only lever = more stats/eval (500k→2M POT
 ≈ ½ Poisson σ); NOT ARD/kernel/basis/render.** Leave GP as-is. See
-[[gp-cloud-rendering]]. (Surrogate-fit story only; champion/ceiling robust, below.)
+[gp-cloud-rendering](/concepts/gp-cloud-rendering.md). (Surrogate-fit story only; champion/ceiling robust, below.)
 
 ### Champion significance — robust multi-campaign cluster, NOT a lone outlier (2026-06-23, n=260)
-Unlike the foils 3.91 champion (a 6.3σ lone outlier — [[bo-foils]]), the
+Unlike the foils 3.91 champion (a 6.3σ lone outlier — [bo-foils](/projects/bo-foils.md)), the
 prodtarget6d μ champion sits at the top of a WELL-POPULATED cluster:
 - champion `pt6d07R01_07` 2.493e-3 vs runner-up `pt6d09R01_02` 2.488e-3 =
   **0.1 Poisson-σ** apart (Poisson σ≈3%≈7.5e-5) — statistically TIED.
@@ -255,7 +262,7 @@ prodtarget6d μ champion sits at the top of a WELL-POPULATED cluster:
   (pt6d07/08/09/12) → the ~2.45–2.49e-3 ceiling is reproduced, robust.
 **So the +4% #1 lead is unresolved (champion interchangeable with the next few);
 no confirmation-re-run concern like foils.** The champion being OUTSIDE the GP
-cloud (+2.6%) is the SEPARATE t>7 box-edge mean-reversion ([[gp-cloud-rendering]]),
+cloud (+2.6%) is the SEPARATE t>7 box-edge mean-reversion ([gp-cloud-rendering](/concepts/gp-cloud-rendering.md)),
 not a statistical-outlier issue — don't conflate the two.
 
 ### pt6d07: t_upper 7→8 raise breaks the cap; new μ champion (2026-06-17/18)
@@ -263,7 +270,7 @@ not a statistical-outlier issue — don't conflate the two.
 Acting on the pt6d06 verdict, pt6d07 raised **t_upper 7→8** and added an
 end-plate lug clamp (`lPlate[0]=lPlate[-1]=tPlate` in `_expand`, to kill the
 upstream/downstream lug-overhang that had forced the 7.0 cap; see
-[[prodtarget-spacer-supportring-overlap]]). Result: the μ "plateau" was
+[prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md)). Result: the μ "plateau" was
 **box-edge, not physics** — μ kept climbing the moment the box opened.
 
 - **New μ champion `pt6d07R01_07` = 2.493×10⁻³** (+15% over Stickman) /
@@ -276,13 +283,13 @@ upstream/downstream lug-overhang that had forced the 7.0 cap; see
   dose-axis floor (`pt6d03R00_08` 9.93e-10) still the binding "beat-both" constraint.
 - The champion's out-of-GP-cloud / forward-LOO "surprise" is a direct
   consequence of this raise (sparse new corner, GP mean extrapolates down
-  from the 95 ≤7 rows). Full analysis in [[gp-cloud-rendering]].
+  from the 95 ≤7 rows). Full analysis in [gp-cloud-rendering](/concepts/gp-cloud-rendering.md).
 
 **Length side-effect (unenforced engineering constraint, 2026-06-18):** because
 plate pitch = `plateLugThickness` and 6D ties `lug = t + 0.75`, pushing
 thickness to the t_upper edge **lengthens the whole target**. Via the envelope
 identity (`2·halfStickmanLength = 2·supportRingLength + 4·spacerHalfLength +
-Σ plateLugThickness`, see [[production-target-stickman]]): champion full length
+Σ plateLugThickness`, see [production-target-stickman](/concepts/production-target-stickman.md)): champion full length
 = **308.9 mm vs nominal 232.2 mm = +33% (+76.7 mm)** (Σlug 286.7 vs 210.0;
 cores +50%, 261.9 vs 175.0 mm). The forker auto-grows the envelope to fit
 (`halfStickmanLength=154.44`, `productionTargetMotherHalfLength=174.44` vs
@@ -317,7 +324,7 @@ because `closed_loop.py:_qnehvi_picks_subprocess` calls `subprocess.run(cmd)`
 **without `env=`**, so the picker subprocess inherits the parent env (R0 launch-pick
 at :746 + later rounds at :359). The picker still proposes over the full box
 (t∈[3,8]); only the *fit* is restricted. Same idea as the cloud renderer's
-`--current-box-only` flag ([[gp-cloud-rendering]]) but env-gated for the picker.
+`--current-box-only` flag ([gp-cloud-rendering](/concepts/gp-cloud-rendering.md)) but env-gated for the picker.
 
 Launch: `AUTORESEARCH_CURRENT_BOX_ONLY=1 nohup .venv-graph/bin/python -m
 graph.closed_loop --mode prodtarget6d --picker qnehvi --q 10 --max-rounds 2
@@ -334,9 +341,9 @@ never submitted to grid** — config dirs hold only `geom/` (no `pot_only/`); th
 barrier counts them "completed" because the graph reached `done` via the
 terminate-at-preflight path (final-state keys end `…geom_path, metrics…` vs the
 successful `…geom_path, iter…`). `fail_managed` = a real BO-movable-volume
-overlap, the spacer↔plate / support-ring class ([[prodtarget-spacer-supportring-overlap]],
+overlap, the spacer↔plate / support-ring class ([prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md),
 same as pt6d07 R1's SpacerNegZ_0×Plate00); NOT the old false-positive bug
-([[preflight-mode-tuple-prodtarget6d-omission]] — that failed all 10; here 6
+([preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md) — that failed all 10; here 6
 passed). **Key consequence: the current-box (high-t) restriction RAISES the
 overlap-rejection rate** — 3 of the 4 failures sit at the t=8.0 ceiling (thick
 plates + lug=t+0.75 pack the stack until spacers/plates collide), so 4/10 here
@@ -372,7 +379,7 @@ the complementary test: **standard full-history qNEHVI** (no `AUTORESEARCH_CURRE
 GP fit on all 126→140 evals over the whole box), q=10, max-rounds=2, launched 2026-06-18
 on mu2esrv01 concurrent with the foilsf17 foils loop. (Launch-timing note: foilsf17 was
 mid-submit; the host-wide `/tmp/mu2e_submit` lock serializes submits across campaigns so
-concurrency is token-safe regardless of timing — see [[concurrent-token-contention]].)
+concurrency is token-safe regardless of timing — see [concurrent-token-contention](/incidents/concurrent-token-contention.md).)
 **Result: still did NOT beat the champion, but got closer than pt6d08.** R0 6/10 + R1 8/10
 = **14 rows** (6/20 preflight deaths, ~30%, same high-t spacer↔plate overlap). Best =
 **`pt6d09R01_02` μ=2.4879e-3** at r=(3.33,4.24,2.00) t=(7.64,8.00,5.81), dose **3.20e-9**
@@ -395,7 +402,7 @@ poll/harvest/stage-out portion doesn't shrink. Config (full-history qNEHVI, q=10
 identical to pt6d09. Science result unremarkable (BO draw): 16 rows, best `pt6d10R01_06`
 2.396e-3 — below champion (this round's picks landed low; stats unaffected by the split).
 **The 200×2500 pot_only config is now the default for all future prodtarget runs.** See
-[[closed-loop-runner]] for the measured round wall-clock.
+[closed-loop-runner](/drivers/closed-loop-runner.md) for the measured round wall-clock.
 
 ### Length↔μ coupling: no within-nominal-length config beats Stickman (2026-06-19)
 Target full length `L = 2·(SUPPORT_RING_LEN + 2·SPACER_HALFLEN + Σ lPlate/2)`
@@ -437,11 +444,11 @@ def profile(c, N):                 # c = (c0, c1, c2); knots at u=0,0.5,1
 - Quadratic captures upstream/downstream + center-vs-edges in 3 numbers.
 - v2 upgrade path: K=5 PCHIP (monotone cubic, no ringing) if v1 pins to
   parabolic edges of the box (same staged pattern as
-  [[bo-foils]] v1→v2→v3).
+  [bo-foils](/projects/bo-foils.md) v1→v2→v3).
 
 ### Hard constraints the forker must enforce
 1. **Vector length**: all four per-plate vectors length-N
-   (`PTM.cc:419-438` asserts; see [[production-target-stickman]]).
+   (`PTM.cc:419-438` asserts; see [production-target-stickman](/concepts/production-target-stickman.md)).
 2. **Per-plate overlap**: `plateLugThickness[i] ≥ plateThickness[i] + ε`
    (default ε=0.5 mm). NOT asserted by geom maker; silent overlap if
    violated. Project after profile evaluation:
@@ -464,7 +471,7 @@ def profile(c, N):                 # c = (c0, c1, c2); knots at u=0,0.5,1
 4. Include the patched file from a derived
    `geom_run1_a_bo_prodtarget_XXX.txt` (parallel to
    `geom_run1_a_stickman.txt:69`).
-5. Hand to [[pipeline]] / [[graph-runner]] like any other config.
+5. Hand to [pipeline](/drivers/pipeline.md) / [graph-runner](/drivers/graph-runner.md) like any other config.
 
 ### POT.fcl single-stage cost (benchmarked 2026-06-06, MDC2025aq defaults)
 Ran `mu2e -c Production/JobConfig/beam/POT.fcl -n {1,100}` after
@@ -483,7 +490,7 @@ Ran `mu2e -c Production/JobConfig/beam/POT.fcl -n {1,100}` after
   consumes — POT itself does NOT produce stopped-muon counts.
 - **Critical**: POT.fcl alone gives a charged-fraction proxy, not stopped
   muons. Stopped-muon yield requires the full POT → mubeam chain — same
-  reason the current [[pipeline]] starts at `mubeam` (consuming a frozen
+  reason the current [pipeline](/drivers/pipeline.md) starts at `mubeam` (consuming a frozen
   POT-stage prior `MuBeamCat.txt`) and never re-runs POT per config.
   Optimizing the PT geometry means we MUST re-run POT per config.
 - Budget estimate at σ=1% on a charged-fraction proxy:
@@ -537,7 +544,7 @@ neighbors.
 different mass have different peak T. Shrinking `rOut` at fixed beam
 profile keeps Edep ≈ constant but divides by smaller mass → specific dose
 scales as **1/rOut²** (mass ∝ rOut²). This is why rOut is the dominant
-thermal knob even though it doesn't change DPA ([[production-target-stickman]]
+thermal knob even though it doesn't change DPA ([production-target-stickman](/concepts/production-target-stickman.md)
 DPA vs thermal coupling section).
 
 **Edep/mass is NOT DPA** — total ionizing+non-ionizing Edep overestimates
@@ -583,8 +590,8 @@ commented out at `constructTargetPS.cc:32`.
    at `constructTargetPS.cc:1710`) → maps StepPointMC `volumeId` to plate
    index for free.
 4. Rebuild patched `libmu2e_Mu2eG4.so` against MDC2025aq Musing + ship
-   via LD_PRELOAD — same recipe as [[muse-backing-pattern]] used to fix
-   [[calo-constant-across-helical]] for the helical plug.
+   via LD_PRELOAD — same recipe as [muse-backing-pattern](/external/muse-backing-pattern.md) used to fix
+   [calo-constant-across-helical](/incidents/calo-constant-across-helical.md) for the helical plug.
 
 **Surprise gotcha** (worth bumping any future "is the SD enabled?" check):
 empty StepPointMC collection in art file + zero CPU overhead means the
@@ -597,7 +604,7 @@ function for the relevant geom_run1_*.txt selection, not by trusting
 `volumeCopy` but NOT `eDep` — so even after patching SDs, a custom
 analyzer is required to sum eDep per plate copy. ~30 lines patterned on
 `StepPointMCDumper_module.cc` adding `i.totalEDep()` to the VDHit struct.
-Build into [[mmackenz-workflow]]-style autoresearch_muse area.
+Build into [mmackenz-workflow](/external/mmackenz-workflow.md)-style autoresearch_muse area.
 
 ### DPA / NIEL support in Mu2e Offline (checked 2026-06-07)
 - `grep -rln "dpa|DPA|displacementPer|nielFactor|NIEL|kermaToD"` over
@@ -607,7 +614,7 @@ Build into [[mmackenz-workflow]]-style autoresearch_muse area.
   `Mu2eG4/inc/SensitiveDetectorName.hh:54-78` —
   `ProductionTargetCoreSection`, `FinSection`, `PositiveEndRing` etc. score
   StepPointMC hits per plate region, but **are OFF by default in POT.fcl**
-  (`SDConfig.enableSD: [virtualdetector]` only — see [[g4-speed-knobs]]).
+  (`SDConfig.enableSD: [virtualdetector]` only — see [g4-speed-knobs](/concepts/g4-speed-knobs.md)).
 - Feasible thermal/rad-damage proxy without source patch: enable
   `ProductionTargetCoreSection`/`FinSection` in `enableSD`, sum
   `StepPointMC::eDep()` per plate copy in an analyzer → Edep [MeV] per
@@ -617,14 +624,14 @@ Build into [[mmackenz-workflow]]-style autoresearch_muse area.
 Likely candidates:
 - `stoppedMuons / POT` measured at the muon stopping target (cleanest, but
   requires running POT → mubeam → muStops chain — multi-stage, expensive
-  per eval, much costlier than [[bo-foils]] which is single-stage)
+  per eval, much costlier than [bo-foils](/projects/bo-foils.md) which is single-stage)
 - Pion flux at PS exit (cheaper, one-stage POT; less directly meaningful)
 - Scalarized `obj = stoppedMu/POT − α · (peakPowerProxy)` if a thermal
   surrogate is added
 
 ### Thermal/DPA safety
 This box **touches the thermal design point** — all four knobs are
-thermal-coupled per [[production-target-stickman]]. v1 should either:
+thermal-coupled per [production-target-stickman](/concepts/production-target-stickman.md). v1 should either:
 (a) hard-clip the box to ±20% of defaults (no engineering check needed,
 small thermal perturbation), or
 (b) post-hoc filter champions through a thermal/DPA check before any
@@ -634,11 +641,11 @@ DPA is **not** dominated by this box (σ is excluded). Local DPA stays
 ~constant as long as `min(rOut) ≥ few·σ`.
 
 ## Cross-links
-- Related: [[production-target-stickman]] (knob inventory, z-march,
-  per-plate semantics), [[bo-foils]] (precedent for staged
-  v1→v2→v3 dim growth), [[closed-loop-bo-design]] (runner constraints
-  if reused), [[scalarized-objective]] (objective family pattern),
-  [[batch-bo]] (q>1 if/when launching)
+- Related: [production-target-stickman](/concepts/production-target-stickman.md) (knob inventory, z-march,
+  per-plate semantics), [bo-foils](/projects/bo-foils.md) (precedent for staged
+  v1→v2→v3 dim growth), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (runner constraints
+  if reused), [scalarized-objective](/concepts/scalarized-objective.md) (objective family pattern),
+  [batch-bo](/concepts/batch-bo.md) (q>1 if/when launching)
 - Source files (read-only refs, no edits):
   `backing/Offline/Mu2eG4/geom/ProductionTarget_Stickman_v1_0.txt`,
   `backing/Offline/GeometryService/src/ProductionTargetMaker.cc:407-438`,
@@ -666,7 +673,7 @@ in `MODES["prodtarget"]`). Reuses the existing `BOMode` ABC + CLI
 **Required project-wide overlay** the forker MUST emit (not optional, even
 though it has nothing to do with the PT geometry — Stickman base file
 inherits the same broken `TT_MidInner -> DS2Vacuum` placement as plain
-`geom_run1_a.txt`, see [[geom-run1a-vs-run1b]]):
+`geom_run1_a.txt`, see [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md)):
 ```
 bool   tracker.inDS2Vacuum   = true;
 double ds2.halfLength        = 3825;
@@ -710,7 +717,7 @@ n_pot = int(uproot.open(path)["genCountLogger/numEvents"].values()[0])
 
 This makes the harvest denominator EXACT per file (vs the
 `len(files_seen)·events_per_job` proxy used elsewhere — see
-[[harvest-denominator-bug]]). No new module needed; existing
+[harvest-denominator-bug](/incidents/harvest-denominator-bug.md)). No new module needed; existing
 infrastructure. Also robust against a partial-job that emitted an output
 file with fewer events than `events_per_job` (the count reflects what
 was actually generated, not what was requested at submit).
@@ -720,7 +727,7 @@ GitHub issues `oksuzian/Mu2eBO#10-#16` track the M2 build order with
 explicit `Blocked by` / `Blocks` links in the bodies:
 - #10 **DONE 2026-06-07**: Built `Code_MDC2025aq_prodtarget.tar.bz2`
   (377 B, backing-only — no source overlay needed for pure-config
-  Stickman knobs; see [[muse-backing-pattern]] "Backing-only tarball"
+  Stickman knobs; see [muse-backing-pattern](/external/muse-backing-pattern.md) "Backing-only tarball"
   section). Working dir:
   `/exp/mu2e/app/users/oksuzian/autoresearch_muse_prodtarget/`.
   Installed at
@@ -729,7 +736,7 @@ explicit `Blocked by` / `Blocks` links in the bodies:
   p094 — different envset across modes is expected).
 - #11 **DONE 2026-06-07**: uproot 5.7.4 + awkward 2.9.0 installed in
   `.venv-graph` via `uv pip` (venv is uv-managed, has no `pip` binary —
-  see [[venv-relocated-to-data-volume]]). Added to
+  see [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md)). Added to
   `requirements-graph.txt`.
 - #12 **DONE 2026-06-07**: `pot_only` stage wired into pipeline.
   `pipeline_templates/pot_only/template.fcl` (POT + ReadVirtualDetector +
@@ -755,7 +762,7 @@ Worth a follow-up `gh label create` batch.
 
 **Cold-start decision** (REVISED 2026-06-07): the "skip Sobol seeding"
 plan crashed on contact with skopt (see
-[[prodtarget-propose-skopt-empty-init]]) — `n_initial_points=0` requires
+[prodtarget-propose-skopt-empty-init](/incidents/prodtarget-propose-skopt-empty-init.md)) — `n_initial_points=0` requires
 ≥1 prior, which prodtarget doesn't have. Decision flipped to use skopt's
 built-in Sobol-init: `ProdTargetMode.N_INITIAL_POINTS = 10`. First 10
 `ask()`s are Sobol-random, then GP takes over. ~5 closed-loop rounds at
@@ -797,8 +804,8 @@ rows. `edep_per_POT_MeV` kept as diagnostic column.
 
 **Magnitude sanity**: ~1.5e-9 Gy/POT × 6e15 POT/yr (Mu2e nominal) ≈ 9 MGy/yr.
 Order-of-magnitude consistent with Stickman design point (peak dose drives
-~10 DPA/yr per [[dpa-scoring]] — different quantity, similar magnitude
-class). Real DPA needs NIEL channel ([[bo-prodtarget]] §"Path B").
+~10 DPA/yr per [dpa-scoring](/concepts/dpa-scoring.md) — different quantity, similar magnitude
+class). Real DPA needs NIEL channel ([bo-prodtarget](/projects/bo-prodtarget.md) §"Path B").
 
 ## Noise floor (measured 2026-06-09)
 pt001 + pt002 are noise replicates at the baseline x_point (3.87, 3.35,
@@ -809,13 +816,13 @@ pt001 + pt002 are noise replicates at the baseline x_point (3.87, 3.35,
 | pt002 | 92/100  | 460k | 2.174e-3 | 421.67 |
 
 - σ(mu_per_POT)/μ ≈ 0.6% (pt001 was harvested off only 36 jobs due to
-  [[poll-deadlock-missing-outstage-dirs]]; pt002 is full 92).
+  [poll-deadlock-missing-outstage-dirs](/incidents/poll-deadlock-missing-outstage-dirs.md); pt002 is full 92).
 - σ(edep_per_POT_MeV)/μ ≈ 0.05% — edep is essentially noise-free at this
   job budget. Sets a useful lower bound for BO acquisition resolution.
 - Implication: 92 jobs × 50 evt = 4600 evt is more than enough on the edep
   axis; could probably halve njobs for the same edep precision. mu axis
   is the binding constraint for noise budget (still ≪ 8% calo noise of
-  the foils campaign — [[bo-noise-budget]]).
+  the foils campaign — [bo-noise-budget](/concepts/bo-noise-budget.md)).
 
 ## Open questions / TODO
 - **Objective**: stopped-muons-per-POT (needs full POT→mubeam→muStops chain
@@ -824,11 +831,11 @@ pt001 + pt002 are noise replicates at the baseline x_point (3.87, 3.35,
 - **Engineering envelope**: max/min on `numberOfPlates`, `plateThickness`,
   `rOut`, `plateLugThickness` set by the Stickman mechanical design — need
   the docDB / thermal study. Current bounds are placeholders.
-- **Whether to run inside [[closed-loop-bo-design]]** (multi-round
+- **Whether to run inside [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)** (multi-round
   GP-refit) or as a single Sobol sweep first to scope. Closed-loop has
-  several gotchas ([[barrier-false-positive-round1]],
-  [[closed-loop-thread-id-checkpoint-collision]],
-  [[foilsx04-all-preflight-ambiguous]]) — a Sobol scoping pass would
+  several gotchas ([barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md),
+  [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md),
+  [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)) — a Sobol scoping pass would
   surface those before committing to multi-round.
 - **`plateMaterial` v2**: small categorical (W, Ta, Inconel718) with
   potential `[W, W, …, Inconel, Inconel]` upstream/downstream split.

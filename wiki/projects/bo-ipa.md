@@ -1,17 +1,25 @@
-# bo-ipa — inner proton absorber 5D BO
+---
+type: project
+title: bo-ipa — inner proton absorber 5D BO
+description: 5D BO over the Run1A inner proton absorber (thickness/halfLength/OutRadius0/1/distFromTargetEnd);
+  objective S/√B vs tracker StrawGasStep eDep from target-stop protons (via `MuStopPileup.fcl`);
+  SATURATING at sob=3.31 (n=70, ipa04–11; deployed 0.511mm near-optimal) — recommend
+  wind-down 2026-06-27
+status: dormant
+status_note: 'WOUND DOWN 2026-06-27 at 70 evals (ipa04–11): high-S/√B corner locked
+  at sob=3.31 since ipa06 (~40 flat evals). Headline physics solid (deployed thickness
+  near-optimal). α vestigial.'
+timestamp: '2026-07-17'
+---
 
-**Type:** project
-**Status:** dormant — WOUND DOWN 2026-06-27 at 70 evals (ipa04–11): high-S/√B
-corner locked at sob=3.31 since ipa06 (~40 flat evals). Headline physics solid
-(deployed thickness near-optimal). α vestigial.
-**Updated:** 2026-07-17
+# bo-ipa — inner proton absorber 5D BO
 
 ## Summary
 Optimize the **Run1A inner proton absorber (IPA)** geometry to trade **signal
 significance S/√B** against **tracker energy deposition from muon-stop products**
 — specifically the **protons (and other secondaries) from muon nuclear capture
 on the Al stopping target**, which the IPA exists to absorb before they reach
-the tracker. Same closed-loop qNEHVI machinery as [[bo-foils]]; only the geometry
+the tracker. Same closed-loop qNEHVI machinery as [bo-foils](/projects/bo-foils.md); only the geometry
 knobs and the second objective differ. The deployed 37-foil stopping target is
 left untouched — only the IPA cylinder/cone varies.
 
@@ -21,7 +29,7 @@ left untouched — only the IPA cylinder/cone varies.
   `thickness` (0.511 mm default), `halfLength` (500), `OutRadius0`/`OutRadius1`
   (300.5 each — cone taper), `distFromTargetEnd` (625). Overridden by appending
   `double protonabsorber.* = …;` after the geom include (same pattern as
-  [[bo-foils]] `_geom_text`). Starting BO ranges (CONFIRM before live):
+  [bo-foils](/projects/bo-foils.md) `_geom_text`). Starting BO ranges (CONFIRM before live):
   thickness [0.1,3.0], halfLength [200,700], OutRadius0/1 [250,400],
   distFromTargetEnd [400,800] mm.
 - **Second objective = tracker `StrawGasStep` eDep from target-stop protons**
@@ -40,7 +48,7 @@ left untouched — only the IPA cylinder/cone varies.
   *signal primary's* momentum at the tracker-front virtual detector
   (`VirtualDetectorId::TT_FrontHollow/TT_FrontPA`), NOT summed straw Edep from
   background capture products. Don't reuse it for the IPA objective.
-- **Mode mechanics** (mirrors [[bo-foils]], minimally invasive): the 2nd
+- **Mode mechanics** (mirrors [bo-foils](/projects/bo-foils.md), minimally invasive): the 2nd
   objective rides the generic `Point.calo` slot (`= trk_edep_per_pot`), so
   `obj = sob − α·trk_edep` and qNEHVI(sob, −trk_edep) need no plumbing change.
   `IPAMode.extract_metrics` reads `trk_edep_per_pot` (falls back to
@@ -101,8 +109,8 @@ left untouched — only the IPA cylinder/cone varies.
 **High-S/√B corner: SATURATED.** Best sob per campaign: ipa04 3.25 → ipa05 3.28
 → ipa06 3.31 → ipa07 3.29 → ipa08/09/11 all **3.31**. The ceiling has been flat
 for ~40 evals (ipa06→ipa11); the top cluster (3.31/3.31/3.31/3.31) is within
-σ(sob)=0.4% ([[bo-noise-budget]]) = statistically tied. Same plateau signature as
-[[bo-foils]] at 3.89.
+σ(sob)=0.4% ([bo-noise-budget](/concepts/bo-noise-budget.md)) = statistically tied. Same plateau signature as
+[bo-foils](/projects/bo-foils.md) at 3.89.
 **Pareto FRONT: still being filled (NOT fully saturated).** The last 2 campaigns
 (ipa09, ipa11) contributed **8 of the 22 current front points**, mostly on the
 **low-trk_edep side** (incl. the lowest-edep corner ipa09R00_04 sob=2.54/edep=8.8e-3).
@@ -210,7 +218,7 @@ mass to contribute signal — it's purely a background-shield-vs-CE-scatter knob
   objective). For foils that was a deliberate ceiling-test; for IPA it would
   silently throw away trk_edep, the whole point of the line.
 - Caveat: qNEHVI `optimize_acqf` has timed out on dense near-saturated fronts
-  before ([[qlnei-sob-only-picker]]) — a late-stage robustness issue, not
+  before ([qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)) — a late-stage robustness issue, not
   IPA-specific; early/sparse IPA is fine.
 - **Cloud/Pareto rendering TODO:** `cloud_plot.render_density` is hardcoded to
   the calo axis (LogNorm 1e-8…1e-4); to visualize the IPA front, rescale the 2nd
@@ -218,7 +226,7 @@ mass to contribute signal — it's purely a background-shield-vs-CE-scatter knob
 
 ## α (alpha) is VESTIGIAL — do NOT bother tuning it
 α is a leftover from the old skopt scalarized era; **qNEHVI ignores it entirely**
-([[scalarized-objective]] Key facts). It was **never tuned for foils or
+([scalarized-objective](/concepts/scalarized-objective.md) Key facts). It was **never tuned for foils or
 prodtarget** — it sat at the default 1e5 and nobody cared, because the campaigns
 are ranked by the raw `sob`/cost columns, not the `obj` column. Same for IPA:
 with trk_edep~0.029 (≫ calo~1e-5), the `obj` column reads ~−2900 — cosmetic junk
@@ -250,9 +258,9 @@ No commit/push (operator reviews, like foils). Refresh both PNGs as rounds land.
   point, submit one config at those values.)
 
 ## Cross-links
-- Related: [[bo-foilsflash]] (clone of this mode's structure), [[bo-foils]] (predecessor mode pattern + qNEHVI machinery),
-  [[scalarized-objective]], [[uproot-cannot-read-steppointmc]] (StrawGasStep
-  needs PyROOT under muse, not uproot), [[bo-foilsflash]]
+- Related: [bo-foilsflash](/projects/bo-foilsflash.md) (clone of this mode's structure), [bo-foils](/projects/bo-foils.md) (predecessor mode pattern + qNEHVI machinery),
+  [scalarized-objective](/concepts/scalarized-objective.md), [uproot-cannot-read-steppointmc](/incidents/uproot-cannot-read-steppointmc.md) (StrawGasStep
+  needs PyROOT under muse, not uproot), [bo-foilsflash](/projects/bo-foilsflash.md)
 - Source files: `autoresearch_bo_michael.py` (IPAMode),
   `mmackenz_table_plots/gp_predict_ipa.py`,
   `Production/JobConfig/pileup/MuStopPileup.fcl`,
@@ -320,7 +328,7 @@ profile-mode code (`prodtarget6d` K-quadratic / `foilsg` z-groups):
   r_L=p⊥/(0.3B)≈**32 cm** (≈ the IPA radius — that's WHY protons reach r~300mm),
   but its helix **pitch=2π·p∥/(0.3B)≈1–2 m** (~4 m for the tens-of-MeV tail).
   Any buildable absorber-helix pitch is ~cm → **~100× mismatch, no resonant
-  threading possible**; same lesson as [[bfield-at-helical-plug]] (muon pitch ~1m
+  threading possible**; same lesson as [bfield-at-helical-plug](/concepts/bfield-at-helical-plug.md) (muon pitch ~1m
   ≫ plug halflength; "matched-pitch filter" model was WRONG). (2) A helix leaves
   azimuthal GAPS → isotropically-emitted protons escape; wind it tight enough to
   close the gaps and it's just a cylinder with the same material → helical is
@@ -329,7 +337,7 @@ profile-mode code (`prodtarget6d` K-quadratic / `foilsg` z-groups):
   dE/dx×thickness×(low-Z) effect a uniform cylinder already optimizes; geometry
   adds nothing. (4) Helical gives the CE a position-dependent path → non-uniform
   resolution smear (worse than the cylinder's uniform minimal path). The winning
-  direction is thin + uniform + low-Z, not geometric cleverness (cf [[bo-helical]],
+  direction is thin + uniform + low-Z, not geometric cleverness (cf [bo-helical](/projects/bo-helical.md),
   retired after saturating; consistent with thickness corr(sob)=−0.92 dominant,
   shape inert). Could add a helical arm as a null-result CONFIRMATION, but physics
   + the helical-plug result both say no gain.

@@ -1,9 +1,15 @@
 ---
-# Stickman production target sensitive detectors are unwired
+type: incident
+title: Stickman production target sensitive detectors are unwired
+description: MDC2025aq Stickman PT plates have no SetSensitiveDetector calls; enabling
+  PT SDs in POT.fcl is silently a no-op (empty StepPointMCs, 0% CPU overhead); per-plate
+  Edep needs ~10-line source patch + muse rebuild
+status: active
+status_note: (root-caused 2026-06-07; no fix yet)
+timestamp: '2026-06-07'
+---
 
-**Type:** incident
-**Status:** active (root-caused 2026-06-07; no fix yet)
-**Updated:** 2026-06-07
+# Stickman production target sensitive detectors are unwired
 
 ## Summary
 Enabling the `ProductionTarget*Section`/`*EndRing` sensitive detectors in
@@ -39,10 +45,10 @@ are wired by the Hayman segmented-core builder only.
 
 ## Why it matters for bo-prodtarget
 The v1 thermal proxy `peak_dose = max_i (Edep_i / mass_i)` (see
-[[bo-prodtarget]] thermal-proxy section) requires per-plate Edep scoring.
+[bo-prodtarget](/projects/bo-prodtarget.md) thermal-proxy section) requires per-plate Edep scoring.
 With Stickman SDs unwired, the proxy is unobtainable from POT.fcl alone
 — requires a source patch + muse rebuild (~10 lines, pattern same as
-[[muse-backing-pattern]] used for [[calo-constant-across-helical]]).
+[muse-backing-pattern](/external/muse-backing-pattern.md) used for [calo-constant-across-helical](/incidents/calo-constant-across-helical.md)).
 
 ## Diagnosis heuristic
 **Empty StepPointMC collection + zero CPU overhead** when an SD is
@@ -52,8 +58,8 @@ inside the builder function for the active `geom_run1_*.txt` selection,
 not by trusting `SDConfig.enableSD`.
 
 ## Cross-links
-- Related: [[bo-prodtarget]], [[production-target-stickman]],
-  [[muse-backing-pattern]], [[calo-constant-across-helical]], [[art-instance-name-no-underscore]], [[g4nielcalculator-ctor-segfault]], [[prodtarget-spacer-supportring-overlap]], [[steppointmcdumper-no-edep]]
+- Related: [bo-prodtarget](/projects/bo-prodtarget.md), [production-target-stickman](/concepts/production-target-stickman.md),
+  [muse-backing-pattern](/external/muse-backing-pattern.md), [calo-constant-across-helical](/incidents/calo-constant-across-helical.md), [art-instance-name-no-underscore](/incidents/art-instance-name-no-underscore.md), [g4nielcalculator-ctor-segfault](/incidents/g4nielcalculator-ctor-segfault.md), [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md), [steppointmcdumper-no-edep](/incidents/steppointmcdumper-no-edep.md)
 - Source files (read-only refs): `backing/Offline/Mu2eG4/src/constructTargetPS.cc:32`
   (commented include), `:90` (dispatch), `:800` (Hayman SD wiring),
   `:1278-2305` (Stickman builder), `:1705-1713` (plate finishNesting,

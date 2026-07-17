@@ -1,8 +1,13 @@
-# Mu2e pyutils — analysis environment + run recipe
+---
+type: external
+title: Mu2e pyutils — analysis environment + run recipe
+description: Mu2e/pyutils EventNtuple analysis toolkit; verified run recipe (mu2einit→pyenv
+  ana→pyutils 2.7.0); CWD-shadowing gotcha vs local 1.0.0 fork
+status: active
+timestamp: '2026-07-01'
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-07-01
+# Mu2e pyutils — analysis environment + run recipe
 
 ## Summary
 [Mu2e/pyutils](https://github.com/Mu2e/pyutils) is the Mu2e Python analysis toolkit
@@ -64,7 +69,7 @@ wall: **the ntuples are reconstruction-filtered and carry no generated-event cou
 - **RESOLVED (2026-06-30): gencount IS recoverable via SAM `dh.gencount`; there's a working framework.**
   My "not recoverable / re-ntuple / resampling-breaks-it" claims below were WRONG — I
   was looking at ROOT objects + metacat, but the generated count lives in **SAM
-  metadata `dh.gencount`** (set by `GenEventCounter`, [[mu2e-offline]]
+  metadata `dh.gencount`** (set by `GenEventCounter`, [mu2e-offline](/external/mu2e-offline.md)
   `EventGenerator/src/GenEventCounter_module.cc`), **inherited downstream to the nts
   files** via keepDropOptions. Sum it with `prodtools/genFilterEff`.
   **Working framework at `/exp/mu2e/app/users/oksuzian/Run1B/analysis/`:**
@@ -124,7 +129,7 @@ wall: **the ntuples are reconstruction-filtered and carry no generated-event cou
   need production-chain metadata (genCountLogger, resampling factors, CRY live-time;
   Mu2e DocDB 44084 / github.com/Mu2e/Production / parent sim datasets via metacat).
   The reco ntuple alone supports **selection efficiency + spectra shapes**, not an
-  absolute sensitivity. See [[mu2e-run1-sensitivity]].
+  absolute sensitivity. See [mu2e-run1-sensitivity](/concepts/mu2e-run1-sensitivity.md).
 - CE selection that works on EventNtuple: tracker-entrance segment is **sid=0**;
   `trksegs.{mom,time,sid}` (depth-3 event→track→seg), `trk.{pdg,nactive,...}` (depth-2),
   `trkqual.result` (ANN score); momentum at sid=0 via `ak.firsts(mag[sid==0],axis=2)`.
@@ -145,11 +150,11 @@ wall: **the ntuples are reconstruction-filtered and carry no generated-event cou
   `CeMLeadingLogOnSpill`=**1.0e7** (200 files), `DIOtail95OnSpill`=**2.5e7** (500 files),
   `CosmicSignalOnSpill`=**2.5e10** (500 files). CE/DIO match the Run1A note's §4.4 gen
   counts exactly; cosmics are normalized by **livetime (1.3e7 s)** not gencount (anchor a
-  from-data plot's cosmic SR integral to the note's **30** instead). See [[mu2e-run1-sensitivity]].
+  from-data plot's cosmic SR integral to the note's **30** instead). See [mu2e-run1-sensitivity](/concepts/mu2e-run1-sensitivity.md).
 
 ## Cross-links
 - External: [Mu2e/pyutils](https://github.com/Mu2e/pyutils); Slack `#analysis-tools`.
-- Related: [[mu2e-offline]], `reference_run1bana_repo` (user-memory note) (EdepAna lives elsewhere), building-with-muse skill.
+- Related: [mu2e-offline](/external/mu2e-offline.md), `reference_run1bana_repo` (user-memory note) (EdepAna lives elsewhere), building-with-muse skill.
 - This project's own harvest path uses uproot/PyROOT directly, not pyutils — pyutils
   is for EventNtuple-style downstream analysis.
 

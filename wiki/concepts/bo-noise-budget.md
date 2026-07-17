@@ -1,8 +1,14 @@
-# bo-noise-budget
+---
+type: concept
+title: bo-noise-budget
+description: per-point event budget + measured σ(sob)=0.4% / σ(calo)=8%; calo is
+  binding noise channel near saturation
+status: active
+timestamp: '2026-07-13'
+updated_note: GP noise audit logged + first reading
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-13 (GP noise audit logged + first reading)
+# bo-noise-budget
 
 > **Per-stage wall MEASURED, full n=10 (foilsflash09 all children, 2026-07-09;
 > state-file timeline = submit→outputs):** mubeam(15j) mean 87 (34-115),
@@ -197,7 +203,7 @@
 > — **IMPLEMENTED 2026-07-12** as `closed_loop --rolling` (c47cd90) and
 > **VALIDATED 2026-07-14** (foilsflash16: 10/10 rows, rolling_done clean;
 > 1.21 evals/h @q=5 ≈ 10–25% over barrier at mini scale — full +30-50%
-> needs many-wave production scale; see [[closed-loop-runner]]);
+> needs many-wave production scale; see [closed-loop-runner](/drivers/closed-loop-runner.md));
 > (5) early-stop dominated evals (skip the flash stage, 40% of wall, when
 > sob stages show deep domination).
 > **Quantified stack (2026-07-08, vs measured ~60 evals/day @q=20)**:
@@ -230,7 +236,7 @@ To decide whether one flat-top champion is *genuinely* above another (sob spread
 ~0.3% vs σ(sob)≈0.4%), the lever is **reducing σ on the SAME geometry**, two
 equivalent ways:
 - **More events/config** (×N stats) → σ ∝ 1/√N. `events_per_job` is hardcoded in
-  `pipeline.STAGES` and mid-flight edits are hazardous ([[events-per-job-mid-flight-edit]]),
+  `pipeline.STAGES` and mid-flight edits are hazardous ([events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md)),
   so this needs an env-override, not an in-place edit.
 - **Replicas** (simpler, ZERO code): re-run the SAME config N times via
   `graph.run --x-point <csv> --config-name <name>` (forces exact geometry, skips
@@ -249,7 +255,7 @@ equivalent ways:
   - `mubeam` (Run1A signal denom): 200 jobs × 5,000 events = **1.0e6 events**
   - `run1b_mubeam` (calo numerator): 200 jobs × 5,000 events = **1.0e6 events**
   - `mustops_ce` (sob numerator, EdepAna ce_seen): 200 jobs × 2,500 events = **5.0e5 events**
-  - Total G4 events per BO point: **≈2.5e6**. Stamped per-submit at `pipeline.py:191` so mid-flight `STAGES` edits don't bias historical leaderboard rows (see [[events-per-job-mid-flight-edit]]).
+  - Total G4 events per BO point: **≈2.5e6**. Stamped per-submit at `pipeline.py:191` so mid-flight `STAGES` edits don't bias historical leaderboard rows (see [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md)).
 
 - **Prescale overrides — both objectives keep FULL stats (nPrescale=1):** the
   resampler stages carry a `RandomPrescaleFilter` whose production default throws
@@ -258,7 +264,7 @@ equivalent ways:
   - `mubeam`: `TargetStopPrescaleFilter.nPrescale: 1` (prod default
     `MuminusTargetStopPrescale=1000`, pileup/prolog.fcl:366) — keeps ALL μ⁻ target
     stops feeding the S/√B numerator. Set at `pipeline_templates/mubeam/template.fcl:19`.
-  - `elebeam_flash` ([[bo-foilsflash]]): `EarlyPrescaleFilter.nPrescale: 1` (prod
+  - `elebeam_flash` ([bo-foilsflash](/projects/bo-foilsflash.md)): `EarlyPrescaleFilter.nPrescale: 1` (prod
     default `EarlyEleBeamFlashPrescale=1000`) — keeps all early-flash events for
     the `flash_edep` objective. Without it, ~250 events → ~32× (√1000) worse noise.
   - The prescale is a RANDOM subsample → does NOT bias the per-event mean (harvest
@@ -278,7 +284,7 @@ equivalent ways:
   - **Consequence:** trimming mubeam DOES cost sob precision (stopping-factor Poisson
     + CE-reuse correlation both grow) — so keep mubeam at 200 for production. But for
     a SMOKE (sob is throwaway, and the flash objective is independent of mubeam — see
-    [[bo-foilsflash]]) mubeam can be slashed to ~40 jobs for free.
+    [bo-foilsflash](/projects/bo-foilsflash.md)) mubeam can be slashed to ~40 jobs for free.
 
 - **GRID EFFICIENCY: events_per_job is too SMALL — payload ≈ setup (measured 2026-06-27).**
   Per-job art payload is only **~45 s** (mubeam 5000 ev: `0:45.73elapsed`, 1.1 GB;
@@ -300,7 +306,7 @@ equivalent ways:
   ≈ 1820 s each) but the measured stage WALLS are ~75–90 min → **~45–60 min/stage is overhead** = queue wait +
   muse setup (~44 s) + the **677 MB `Code.tar.bz2` RCDS download per job** + stage-out. So compute is the
   minority. **"More parallel jobs" is the WRONG lever and was disproven live:** the ff05 elebeam
-  parallelization flooded the grid with 2000 concurrent jobs → 4–5× SLOWER ([[closed-loop-runner]]).
+  parallelization flooded the grid with 2000 concurrent jobs → 4–5× SLOWER ([closed-loop-runner](/drivers/closed-loop-runner.md)).
   (CAVEAT 2026-07-02: that slowdown was OBSERVED but the CAUSE is UNVERIFIED — fairshare throttling and/or
   dCache/RCDS I/O contention, not confirmed raw compute-slot starvation; FermiGrid is huge but we get a
   fairshare slice. Diagnose next burst via `jobsub_q` idle-vs-running.)
@@ -343,7 +349,7 @@ equivalent ways:
     **throughput ≈ our-concurrency (~1,250) ÷ jobs-per-eval** — so cutting jobs/eval (elebeam 200→100) is the
     OTHER lever and stacks with higher q. Secondary q-scaling limits (all
     already seen at q=10): shared SqliteSaver checkpoint contention (corruption risk,
-    [[closed-loop-sqlite-checkpoint-transient-corruption]]), leaderboard-append contention at the `evaluate`
+    [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md)), leaderboard-append contention at the `evaluate`
     node (R00_02 died on a 120 s timeout), submit-lock serialization, and loss of BO adaptivity (qNEHVI commits
     all q points before any results). **The real lever for more points-in-parallel = fewer jobs PER eval**
     (elebeam 200→100) so more evals fit the fixed slot budget — then q can rise safely. More grid fairshare is
@@ -353,7 +359,7 @@ equivalent ways:
   - **Two distinct "stats" — keep separate.** foilsflash03's "increase stats on slide 3" raised the **number of points** (n 18→48), which sharpens cloud coverage + correlation estimates (corr(flash,f_dn) noisy +0.62 @n=15 → +0.05 @n=48) but does **NOTHING** to shrink a single dot's error bar. ff03 actually ran *fewer* flash events/eval than ff02 (37k vs 50k). Per-dot precision is set by **events-per-eval**, which was not increased.
   - **Per-eval flash precision floors at ~3–4% because the per-event tracker flash deposit is HEAVY-TAILED** (a few flash events dump most of the StrawGasStep energy). Precision of the mean = CV_event/√N; with √N≈190–220 and mean-CoV~4%, per-event CV≈**800%**. So 4%→2% needs **4× the flash events** — only √N gains.
   - **Cross-point CoV is NOT pure measurement noise** — it also carries the geometry spread of each campaign's sampled region (ff03 has fewer events yet lower CoV than ff02 → geometry-region effect, not Poisson). Removing the linear geom trend (R²(flash~6 knobs)=0.17) leaves per-eval measurement noise ≈3.5–4%.
-  - **Irrelevant to the [[bo-foilsflash]] null:** geometry signal (max/min 1.30, R²=0.17) is far below what even a zero-noise measurement would need to make foils a flash lever; sharper per-eval stats shrink the dots but leave the GP-mean cloud flat. See [[gp-cloud-rendering]] for the dots-vs-cloud-σ story.
+  - **Irrelevant to the [bo-foilsflash](/projects/bo-foilsflash.md) null:** geometry signal (max/min 1.30, R²=0.17) is far below what even a zero-noise measurement would need to make foils a flash lever; sharper per-eval stats shrink the dots but leave the GP-mean cloud flat. See [gp-cloud-rendering](/concepts/gp-cloud-rendering.md) for the dots-vs-cloud-σ story.
 
 - **flash-per-POT (the CORRECTED objective) per-point precision ≈ 2–4% at 100 elebeam jobs (2026-07-01).**
   Measured from two independent runs of the SAME geometry (100-job original vs 400-job hi):
@@ -364,7 +370,7 @@ equivalent ways:
   lever is 2.5× (SNR~50, R²=0.89), so **100 jobs already MAPS the landscape**; more flash jobs only
   buy FINE discrimination near the (already low-flash) default — resolving a ~5% Pareto gain needs
   σ~1.5% → ~4× jobs (`AUTORESEARCH_ELEBEAM_NJOBS`). Keep sob stages at the fast 15-job config
-  (σ_sob 0.4% ample). See [[bo-foilsflash]].
+  (σ_sob 0.4% ample). See [bo-foilsflash](/projects/bo-foilsflash.md).
 - **foilsflash `sob` channel is ~10× TIGHTER than flash — σ(sob)≈0.4%, counting floor ~0.24% (2026-06-29):**
   - Measured ingredients from 46 foilsflash summaries: `ce_seen` median **532k** (1/√N=0.14%), `muminus_stops` median **261k** (1/√N=0.20%) → quadrature **≈0.24%**; conservative end-to-end value matches the documented **0.4%** (helical001 A/B). Absolute ≈ ±0.012 at sob=3.
   - foilsflash's `muminus_stops` (261k) is **LARGER** than standard-foils full-stats (~143k) — the "fast" config runs FEWER but LARGER jobs (per-eval beam events went up, wall-clock down), so the sob channel is well-fed despite the small job count. ("Fast" = fewer jobs, not fewer events.)
@@ -372,13 +378,13 @@ equivalent ways:
 
 - **Measured noise channels:**
   - **σ(sob) ≈ 0.4% relative** (≈ 0.015 absolute at sob=3.8). Source: helical001 half-vs-half A/B run on `mustops_ce`, 97 vs 97 jobs at full stats agreed to 0.4%. Already 10× below the round-to-round improvement signal; **not the binding noise**.
-  - **σ(calo) ≈ 8% relative**. Recorded in [[batch-bo]] as the Run1B-mubeam sampling floor. **This is the binding noise channel** — the picker's calo-axis discrimination is limited by it.
+  - **σ(calo) ≈ 8% relative**. Recorded in [batch-bo](/concepts/batch-bo.md) as the Run1B-mubeam sampling floor. **This is the binding noise channel** — the picker's calo-axis discrimination is limited by it.
   - Top-3 spread (proxy): sob 3.89/3.88/3.87 (Δ ≈ 0.3%); calo 2.03e-5/2.16e-5/2.05e-5 (Δ ≈ 6%) — consistent with the above.
 
 - **prodtarget6d noise channel is DIFFERENT — the 0.4% sob figure does NOT carry over (2026-06-17 review):**
   - `mu_per_POT = total_mu / total_pot` where the numerator is a raw **muon count** at VD sid=8 (`pipeline.py:921`) and the denominator is the exact generated POT. All noise lives in the ~1000-count numerator → **σ ≈ √N/POT ≈ 3% relative** (champion pt6d07R01_07: 1122 counts → 7.4e-5 abs / 2.99% rel). This is **~8× noisier** than the CE `sob` channel; do not reuse σ(sob)=0.4% for prodtarget6d picks.
-  - Per-config budget for `pot_only` = **100 jobs × 5,000 = 5.0e5 POT nominal** (`graph/config.py:99`, `pipeline.py:210`); champion lost 10 jobs → 450k POT, denominator derived from **landed** files so the ratio stays unbiased ([[harvest-denominator-bug]] absent here).
-  - **Consequence for ranking:** the champion is +6.6 Poisson-σ above the 2.0e-3 bulk (real high-t-corner signal), but its lead over runner-up pt6d07R00_03 (2.402e-3) is only **1.2 Poisson-σ** → the +4% gap is **statistically unresolved** at 500k POT. A confirmation re-run is needed before trusting the #1 ranking. See [[gp-cloud-rendering]] (the forward-LOO z there is GP-prediction surprise, a *different* σ from this measurement-Poisson σ — do not conflate; champion is a modest ~2–3σ GP surprise but +6.6 measurement-σ above bulk).
+  - Per-config budget for `pot_only` = **100 jobs × 5,000 = 5.0e5 POT nominal** (`graph/config.py:99`, `pipeline.py:210`); champion lost 10 jobs → 450k POT, denominator derived from **landed** files so the ratio stays unbiased ([harvest-denominator-bug](/incidents/harvest-denominator-bug.md) absent here).
+  - **Consequence for ranking:** the champion is +6.6 Poisson-σ above the 2.0e-3 bulk (real high-t-corner signal), but its lead over runner-up pt6d07R00_03 (2.402e-3) is only **1.2 Poisson-σ** → the +4% gap is **statistically unresolved** at 500k POT. A confirmation re-run is needed before trusting the #1 ranking. See [gp-cloud-rendering](/concepts/gp-cloud-rendering.md) (the forward-LOO z there is GP-prediction surprise, a *different* σ from this measurement-Poisson σ — do not conflate; champion is a modest ~2–3σ GP surprise but +6.6 measurement-σ above bulk).
   - **CONFIRMATION EVIDENCE (pt6d18, 2026-06-29):** a fresh 21-eval high-stats campaign (q=10×3, pot_only 800×2500=2M POT/eval, qNEHVI warm-started on all 359 prior rows) topped out at **mu/POT=2.380e-3** (pt6d18R00_06) and never approached 2.49e-3 — it converged in the 2.32-2.38e-3 band. So an independent campaign at 4× the POT/eval did NOT reproduce pt6d07's 2.49e-3 → strong support that **pt6d07R01_07's 2.49e-3 was a high-side Poisson fluctuation, not a real peak.** Treat the realistic prodtarget6d optimum as ~2.38e-3, not 2.49e-3.
 
 - **TWO SEPARATE GPs — cloud viz ≠ proposal engine (don't conflate; 2026-07-03).** The density cloud
@@ -393,9 +399,9 @@ equivalent ways:
   a higher-fidelity map can't propose better points on a genuinely flat front, it just fits the noise-scatter
   more precisely. To resolve which converged point is best, spend stats on the MEASUREMENT (replicas / more
   elebeam jobs per point), not on the map — same principle as the flat-top-tie note above.
-- **GP noise modeling (`botorch_predict.py:_fit_gp`, lines 137–153):** `SingleTaskGP` with `Standardize` outcome + `Normalize` input. **No explicit `noise_constraint` / `WhiteKernel`**; default `GaussianLikelihood` with a learned homoscedastic noise term + default `GammaPrior(1.1, 0.05)` on noise variance. By contrast, the sklearn-based cloud renderer caps WhiteKernel at `noise_level_bounds=(1e-5, 3e-2)` ([[gp-cloud-rendering]]).
-- **Independent flash-noise cross-check via LOO z-calibration (2026-07-13):** fitting the GP with FIXED assumed noise (train_Yvar, `tools/gp_loo_benchmark.py` yvar variant) and reading back the LOO z_std gives **effective archive flash noise ≈ 4.5%** (z_std 0.75 under an assumed 6%) → run-level systematic ≈ √(4.5²−2.5²) ≈ **3.7%** — confirms the NC02 run-level estimate at its LOW end (5–10% was the ceiling guess). sob readback: effective σ ≈ 0.5% (assumed 0.4%). Details: [[ml-stack-review-2026-07]].
-- **GP noise audit — LOGGED as of 2026-07-13 (commit 163bb2e) + FIRST READING:** `_fit_gp` now prints fitted σ per output, un-Standardize'd to raw units. foilsflash n=274: **σ(sob)=7.0e-3 abs ≈ 0.2% rel** (matches the 0.24% counting floor — GP correctly sees sob as near-noiseless); **σ(log10 flash)=1.31e-2 ≈ 3.0% rel on flash** — squarely the measured *within-run* band (2–4% @100j) but EXCLUDING the ~5–10% run-level systematic (NC02) → **the GP currently treats run-level flash offsets as geometry signal**. Quantifies the train_Yvar case ([[ml-stack-review-2026-07]] gap #1); `tools/gp_loo_benchmark.py` (LOO NLL/z-calibration, variants base/warp/yvar, botorch 0.10-vs-new compat) is the offline judge.
+- **GP noise modeling (`botorch_predict.py:_fit_gp`, lines 137–153):** `SingleTaskGP` with `Standardize` outcome + `Normalize` input. **No explicit `noise_constraint` / `WhiteKernel`**; default `GaussianLikelihood` with a learned homoscedastic noise term + default `GammaPrior(1.1, 0.05)` on noise variance. By contrast, the sklearn-based cloud renderer caps WhiteKernel at `noise_level_bounds=(1e-5, 3e-2)` ([gp-cloud-rendering](/concepts/gp-cloud-rendering.md)).
+- **Independent flash-noise cross-check via LOO z-calibration (2026-07-13):** fitting the GP with FIXED assumed noise (train_Yvar, `tools/gp_loo_benchmark.py` yvar variant) and reading back the LOO z_std gives **effective archive flash noise ≈ 4.5%** (z_std 0.75 under an assumed 6%) → run-level systematic ≈ √(4.5²−2.5²) ≈ **3.7%** — confirms the NC02 run-level estimate at its LOW end (5–10% was the ceiling guess). sob readback: effective σ ≈ 0.5% (assumed 0.4%). Details: [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md).
+- **GP noise audit — LOGGED as of 2026-07-13 (commit 163bb2e) + FIRST READING:** `_fit_gp` now prints fitted σ per output, un-Standardize'd to raw units. foilsflash n=274: **σ(sob)=7.0e-3 abs ≈ 0.2% rel** (matches the 0.24% counting floor — GP correctly sees sob as near-noiseless); **σ(log10 flash)=1.31e-2 ≈ 3.0% rel on flash** — squarely the measured *within-run* band (2–4% @100j) but EXCLUDING the ~5–10% run-level systematic (NC02) → **the GP currently treats run-level flash offsets as geometry signal**. Quantifies the train_Yvar case ([ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md) gap #1); `tools/gp_loo_benchmark.py` (LOO NLL/z-calibration, variants base/warp/yvar, botorch 0.10-vs-new compat) is the offline judge.
 
 - **Stats-bump decision matrix (verdict 2026-06-07 from agentic research):**
   - **Do NOT 2× globally** — ~10 grid-hours/round extra for ~no win on the sob channel (σ already <round-to-round signal).
@@ -405,7 +411,7 @@ equivalent ways:
   - **Cheap first step: replicate champion** (foilsf03R01_09) at current stats + 2× Run1B stats — ~4 grid-hours, gives *measured* σ at the saturation plateau before committing.
 
 ## Cross-links
-- Related: [[bo-foils]], [[batch-bo]], [[scalarized-objective]], [[events-per-job-mid-flight-edit]], [[harvest-denominator-bug]], [[gp-cloud-rendering]], [[fast-sim-options-for-bo]], [[pareto-sob-picker]], [[qlnei-sob-only-picker]], [[ml-stack-review-2026-07]]
+- Related: [bo-foils](/projects/bo-foils.md), [batch-bo](/concepts/batch-bo.md), [scalarized-objective](/concepts/scalarized-objective.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md), [harvest-denominator-bug](/incidents/harvest-denominator-bug.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
 - Source files: `pipeline.py:116-172` (STAGES dict), `pipeline.py:191` (stamp-at-submit), `pipeline.py:132` (Run1B events_per_job), `botorch_predict.py:137-153` (_fit_gp), `graph/config.py:28-32` (STAGE_TARGETS)
 
 ## Open questions / TODO

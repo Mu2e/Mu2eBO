@@ -1,8 +1,12 @@
-# TSdA — Transport Solenoid downstream Absorber
+---
+type: concept
+title: TSdA — Transport Solenoid downstream Absorber
+description: TS downstream Absorber; dominant variance knob in mmackenz sweep
+status: active
+timestamp: '2026-07-17'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-17
+# TSdA — Transport Solenoid downstream Absorber
 
 ## Summary
 Aluminum absorber located downstream of the muon stopping target inside the TS.
@@ -19,9 +23,9 @@ decreasing it kills calo stops but starts swallowing signal-side acceptance.
 - **Best-known config:** v39 with `rin=130, halfLength4=8.75`.
 - **Topology toggles** (`tsda.extra.build`, `tsda.tubes.build`,
   `tsda.helical.build`, `tsda.cutout.build`) — extracted in scraper but
-  *was never varied* by [[bo-michael]] (mode retired 2026-07-12).
+  *was never varied* by [bo-michael](/projects/bo-michael.md) (mode retired 2026-07-12).
 
 ## Cross-links
-- Used in: [[bo-michael]]
-- Related: [[col5-shield]], [[degrader]], [[bfield-at-helical-plug]], [[stopping-target-foil-base-spec]]
+- Used in: [bo-michael](/projects/bo-michael.md)
+- Related: [col5-shield](/concepts/col5-shield.md), [degrader](/concepts/degrader.md), [bfield-at-helical-plug](/concepts/bfield-at-helical-plug.md), [stopping-target-foil-base-spec](/concepts/stopping-target-foil-base-spec.md)
 - Source params: `Offline/Mu2eG4/geom/geom_run1_*.txt`

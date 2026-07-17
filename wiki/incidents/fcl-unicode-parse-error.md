@@ -1,8 +1,15 @@
-# FCL parser rejects non-ASCII characters (Unicode minus, em-dash, brackets)
+---
+type: incident
+title: FCL parser rejects non-ASCII characters (Unicode minus, em-dash, brackets)
+description: FHiCL parser hard-fails on non-ASCII bytes in template comments; Unicode
+  minus (U+2212) killed 8/8 FT01 closed-loop children at mubeam submit
+status: resolved
+timestamp: '2026-06-19'
+updated_note: recurred on bo-ipa mustops_pileup template; FHiCL-vs-SimpleConfig
+  distinction added
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-19 (recurred on bo-ipa mustops_pileup template; FHiCL-vs-SimpleConfig distinction added)
+# FCL parser rejects non-ASCII characters (Unicode minus, em-dash, brackets)
 
 ## Summary
 mu2ejobdef / the FHiCL parser hard-fails on any non-ASCII byte in a
@@ -13,7 +20,7 @@ because the FTFP_BERT comment block contained a Unicode minus sign
 
 ## CRITICAL distinction: FHiCL (strict) vs SimpleConfig (lenient) — 2026-06-19
 **This only affects `.fcl` files parsed by FHiCL. Geom `.txt` files parsed by
-SimpleConfig TOLERATE non-ASCII.** Recurred 2026-06-19 on the [[bo-ipa]]
+SimpleConfig TOLERATE non-ASCII.** Recurred 2026-06-19 on the [bo-ipa](/projects/bo-ipa.md)
 `pipeline_templates/mustops_pileup/template.fcl` — a Unicode arrow `→` (U+2192)
 in a comment killed `mu2ejobdef --embed` at line 6 (mubeam/concat/mustops_ce had
 already succeeded; only the new stage's FCL broke). The confusing part: the
@@ -82,9 +89,9 @@ A pre-commit lint or a `grep -P "[^\x00-\x7f]" pipeline_templates/`
 check would catch this. Not yet wired.
 
 ## Cross-links
-- Related: [[template-fcl-staleness]] (different failure but same
-  blast surface — silent on the grid until G4 init), [[pipeline]], [[readvd-savepdg-string-not-int]]
-- Driver: [[graph-runner]], [[closed-loop-runner]]
+- Related: [template-fcl-staleness](/incidents/template-fcl-staleness.md) (different failure but same
+  blast surface — silent on the grid until G4 init), [pipeline](/drivers/pipeline.md), [readvd-savepdg-string-not-int](/incidents/readvd-savepdg-string-not-int.md)
+- Driver: [graph-runner](/drivers/graph-runner.md), [closed-loop-runner](/drivers/closed-loop-runner.md)
 - Source files: `pipeline_templates/<stage>/template.fcl`,
   `pipeline.py:390` (the `subprocess.run(jobdef, ..., check=True)` call)
 

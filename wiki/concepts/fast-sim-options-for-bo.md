@@ -1,8 +1,15 @@
-# Fast-sim options for the BO loop
+---
+type: concept
+title: Fast-sim options for the BO loop
+description: the GP IS the fast sim at 6D/scalar objectives; diffusion surrogates
+  fit fixed-geometry production, not geometry search; best ROI = classical range-straggling
+  toy calibrated on the eval archive (multi-fidelity low tier); neural surrogates
+  only at ~O(100D)
+status: active
+timestamp: '2026-07-08'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-08
+# Fast-sim options for the BO loop
 
 ## Summary
 Assessment + design notes (2026-07-08) for the four realistic fast-sim routes
@@ -31,7 +38,7 @@ correlation (Spearman ρ ≳ 0.8 vs the archive), never absolute agreement.
   kick per crossing updates (θ, r) — MCS matters because it walks muons
   across hole edges (beam RMS ~24 mm vs base hole rIn 21.5 mm).
 - sob ∝ Σ stops weighted by a stop-z acceptance curve: Run1A B is
-  cosmic-dominated (~geometry-independent, see [[mu2e-run1-sensitivity]]),
+  cosmic-dominated (~geometry-independent, see [mu2e-run1-sensitivity](/concepts/mu2e-run1-sensitivity.md)),
   so to first order S/√B ∝ S; the z-acceptance weights + overall norm are
   CALIBRATED, not derived.
 - ~3-5 fitted nuisances total (norm, acceptance slope, straggling scale),
@@ -60,7 +67,7 @@ calibration+validation set no new line would have on day 0.
   both still comfortably below front-feature scales. Correlation with full
   fidelity ≈ 1 by construction (same simulator).
 - Saves GRID-HOURS (÷3-4 after fixed overhead), NOT latency (queue and
-  stage-transition overhead dominate wall; see [[bo-noise-budget]]). So its
+  stage-transition overhead dominate wall; see [bo-noise-budget](/concepts/bo-noise-budget.md)). So its
   win is capacity: more concurrent screening evals inside the ~1,250 ceiling.
 - Two-stage integration (skip full MFKG): round = screen phase (M≈2q cheap
   evals) → promote top-q by posterior to full stats.
@@ -68,7 +75,7 @@ calibration+validation set no new line would have on day 0.
   pollute the full-fidelity GP. Cleanest: a fidelity column + per-row noise
   fed to a fixed-noise GP (botorch `train_Yvar`) — then one leaderboard
   serves both tiers. Fidelity must be stamped per-config at submit
-  ([[events-per-job-mid-flight-edit]] class hazard otherwise).
+  ([events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md) class hazard otherwise).
 
 ## Option 3 — geometry-conditioned NN emulator (only for a ~O(100D) future)
 
@@ -109,12 +116,12 @@ consistency (corr≈1, no cross-tool calibration burden). Its real strength
   parallel and let it replace the screen tier if it passes ρ≳0.8.
 - Line dimensionality >~30D → start Option 3 evaluation.
 - Latency (not grid-hours) is the pain → none of these; see the throughput
-  levers in [[bo-noise-budget]] (overhead-bound analysis).
+  levers in [bo-noise-budget](/concepts/bo-noise-budget.md) (overhead-bound analysis).
 
 ## Cross-links
-- Related: [[bo-noise-budget]], [[saturation-is-acquisition-relative]], [[batch-bo]], [[mu2e-run1-sensitivity]]
-- Datasets: [[leaderboards]] (the calibration/validation archive)
-- Incidents: [[events-per-job-mid-flight-edit]] (fidelity-stamping hazard)
+- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [batch-bo](/concepts/batch-bo.md), [mu2e-run1-sensitivity](/concepts/mu2e-run1-sensitivity.md)
+- Datasets: [leaderboards](/datasets/leaderboards.md) (the calibration/validation archive)
+- Incidents: [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md) (fidelity-stamping hazard)
 - External: ATLAS AtlFast3 / CaloDiffusion literature (fixed-geometry surrogates); Celeritas/AdePT (GPU EM transport)
 
 ## Open questions / TODO
@@ -123,4 +130,4 @@ consistency (corr≈1, no cross-tool calibration burden). Its real strength
   objectives, else fall back to Option 2.
 - Option 2 prerequisite: fidelity column + fixed-noise GP (`train_Yvar`)
   design — fold into the leaderboard-schema refactor (candidate 3 of the
-  [[architecture-friction-survey-2026-07]]).
+  [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md)).

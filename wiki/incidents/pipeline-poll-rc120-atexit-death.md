@@ -1,8 +1,17 @@
-# pipeline-poll-rc120-atexit-death
+---
+type: incident
+title: pipeline-poll-rc120-atexit-death
+description: 'pt6d05 R1 7/10 children: `pipeline.py poll` subprocess died mid-sleep
+  with rc=120 (CPython "atexit error") while grid clusters were still healthy; `decide_next`
+  mis-converged + exited R2 silently; symptom-twin of pt6d04 but different root
+  cause'
+status: open
+status_note: '(2026-06-13) — root-cause refined: system-wide mu2esrv01 memory-pressure
+  event, NOT per-child atexit bug'
+timestamp: '2026-06-13'
+---
 
-**Type:** incident
-**Status:** open (2026-06-13) — root-cause refined: system-wide mu2esrv01 memory-pressure event, NOT per-child atexit bug
-**Updated:** 2026-06-13
+# pipeline-poll-rc120-atexit-death
 
 ## Summary
 pt6d05 R1 7/10 children (`_01,_02,_04,_05,_07,_08,_09`) passed preflight,
@@ -16,7 +25,7 @@ poll wrapper itself died — not the grid jobs.
 in a tight 19:01:40-19:03:34 window (poll-log mtimes: 19:01:40, 19:01:46,
 19:01:51, 19:03:13, 19:03:30, 19:03:34). The other live campaign on the
 same node — foilsf12 R2 — *also* lost its parent + 9 children at ~19:02
-(see [[closed-loop-parent-signal-kill-midlaunch]]). Two unrelated python
+(see [closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md)). Two unrelated python
 trees dying synchronously rules out per-child interpreter bug;
 this is a **system-wide kill event on mu2esrv01 at 19:01-19:03**.
 The rc=120 is the *fingerprint* (CPython TextIOWrapper teardown after
@@ -25,7 +34,7 @@ fd corruption), not the cause.
 Closed-loop's `decide_next` then misread the 7 grid-killed children +
 3 genuine `fail_managed` (real spacer-vs-plate overlap) as "0 new rows,
 all failed → exit early", and quit R2 silently. Same SURFACE symptom as
-[[preflight-mode-tuple-prodtarget6d-omission]] (which was pt6d04 R1) but
+[preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md) (which was pt6d04 R1) but
 a totally different root cause — the tuple fix did NOT prevent pt6d05's
 failure mode.
 
@@ -40,7 +49,7 @@ failure mode.
 - **Synchronized cross-campaign death window (19:01:40-19:03:34):**
   all 7 pt6d05R01 poll-log mtimes cluster in this 114-second window,
   AND foilsf12 R2's parent + 9 children died in the same window
-  ([[closed-loop-parent-signal-kill-midlaunch]]). Two independent
+  ([closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md)). Two independent
   python process trees dying synchronously = system-level event, not
   per-child bug.
 - **session-23.scope memory.peak = 170.69 GiB (183.27 GB) ≈ 91% of
@@ -74,7 +83,7 @@ failure mode.
   pt6d05R01 children with `preflight=fail_managed`
   (`_00, _03, _06`) all show overlaps between
   `ProductionTargetSpacerNegZ_{0,1,2}` and `ProductionTargetPlate00`
-  (NOT against the ring as in [[prodtarget-spacer-supportring-overlap]]).
+  (NOT against the ring as in [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md)).
   This is a different solid pair — fixing the rod-shrink earlier did
   not cover this case. Likely the same off-by-`stickmanMagicOffset`
   precision issue affects spacer↔plate-00 contact when t0 (first plate
@@ -101,7 +110,7 @@ failure mode.
    `leaderboard_bo_<mode>_v0.tsv`, AND clears the pending row.
 4. Relaunch closed-loop with a **FRESH `--name-prefix`** (NOT the same
    prefix bumped — thread-id resume ignores new `--max-rounds`, prefix
-   reuse trips [[closed-loop-stale-cluster-silent-no-launch]] and may also
+   reuse trips [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md) and may also
    collide with checkpoint-resume bugs). Rows land under their own
    config_name and feed history.
 
@@ -113,7 +122,7 @@ failure mode.
 - **CephFS MDS reconnect:** no recent reconnect events in dmesg
   window around 19:01.
 - **NFS lost-locks:** timestamps don't align.
-- **Kerberos mid-run expiry** ([[kerberos-mid-run-expiry]] mechanism):
+- **Kerberos mid-run expiry** ([kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md) mechanism):
   would manifest as Errno 127 from subprocess.run, not rc=120 from
   the wrapper itself, and wouldn't synchronize two campaigns.
 
@@ -150,14 +159,14 @@ failure mode.
 
 ## Cross-links
 - **Same kill window, other campaign:**
-  [[closed-loop-parent-signal-kill-midlaunch]] (foilsf12 R2 parent+9
+  [closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md) (foilsf12 R2 parent+9
   children died ~19:02 same day; treat as the same root event)
-- Symptom-twin (different cause): [[preflight-mode-tuple-prodtarget6d-omission]]
+- Symptom-twin (different cause): [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md)
   (pt6d04 R1)
 - Related overlap incident (different solid pair):
-  [[prodtarget-spacer-supportring-overlap]]
+  [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md)
 - Related decide_next false-positive on barrier timeout:
-  [[closed-loop-barrier-timeout-zero-rows-falsepos]]
+  [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md)
 - Source files: `graph/pipeline_io.py:202-222` (the verb wrapper that
   raises on non-zero), `graph/closed_loop.py:~620` (`decide_next` exit
   guard), `pipeline.py:593-665` (`poll_cluster`)

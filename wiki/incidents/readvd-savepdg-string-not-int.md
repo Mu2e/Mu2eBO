@@ -1,8 +1,14 @@
-# ReadVirtualDetector savePDG takes symbolic names, not integers
+---
+type: incident
+title: ReadVirtualDetector savePDG takes symbolic names, not integers
+description: 'pt001 100/100 jobs died at art rc=66 ("PDGCode invalid enum name :
+  -13"); `savePDG` is `vector<string>` of symbolic names (mu_minus/mu_plus), NOT
+  integers; ReadVirtualDetector_module.cc:252-256'
+status: resolved
+timestamp: '2026-06-07'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-07
+# ReadVirtualDetector savePDG takes symbolic names, not integers
 
 ## Summary
 pt001 cluster 28338433 (bo-prodtarget Step A pot_only) had all 100/100 jobs
@@ -48,9 +54,9 @@ named `-13` and throws.
   resubmit with `--force` after fixing the template.
 
 ## Cross-links
-- Related: [[fcl-unicode-parse-error]] (other "everyone dies identically at
+- Related: [fcl-unicode-parse-error](/incidents/fcl-unicode-parse-error.md) (other "everyone dies identically at
   module construction" incident — same failure pattern, different cause),
-  [[bo-prodtarget]], [[pipeline]]
+  [bo-prodtarget](/projects/bo-prodtarget.md), [pipeline](/drivers/pipeline.md)
 - Source files:
   - `pipeline_templates/pot_only/template.fcl:14` (the bad line)
   - `Offline/Analyses/src/ReadVirtualDetector_module.cc:252-256` (the parser)

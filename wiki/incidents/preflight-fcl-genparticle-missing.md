@@ -1,8 +1,19 @@
-# Preflight FCL fails on prodtarget mode (and stock MDC2025aq): GenParticle product missing
+---
+type: incident
+title: 'Preflight FCL fails on prodtarget mode (and stock MDC2025aq): GenParticle
+  product missing'
+description: prodtarget mode preflight FCL (and stock MDC2025aq under same FCL)
+  dies at "GenParticle not found" because g4run/mu2eg4runDefaultSingleStage needs
+  an input vector that genCounter-only FCL doesn't produce; **resolved 2026-06-07**
+  by switching prodtarget to surface-check FCL path (matches helical/foils/foilsf)
+status: resolved
+status_note: 2026-06-07 — prodtarget switched to the surface-check FCL path (Option
+  1); preflight pt001 PASS with 0 managed-volume overlaps and 117 baseline overlaps
+  correctly whitelisted.
+timestamp: '2026-06-07'
+---
 
-**Type:** incident
-**Status:** resolved 2026-06-07 — prodtarget switched to the surface-check FCL path (Option 1); preflight pt001 PASS with 0 managed-volume overlaps and 117 baseline overlaps correctly whitelisted.
-**Updated:** 2026-06-07
+# Preflight FCL fails on prodtarget mode (and stock MDC2025aq): GenParticle product missing
 
 ## Summary
 The preflight FCL used by `ProdTargetMode` (only `genCounter` + `g4run` via
@@ -50,7 +61,7 @@ template, not in any prodtarget-specific geom override.
 - The geometry log lines preflight is supposed to gate on never get
   emitted, because the job aborts before geometry construction.
 - This is what burned ~1h of mis-debugging the retracted
-  [[prodtarget-mother-margin-tt-midinner-overlap]] — the actual signal
+  [prodtarget-mother-margin-tt-midinner-overlap](/incidents/prodtarget-mother-margin-tt-midinner-overlap.md) — the actual signal
   ("GenParticle not found") is buried far above the rc=3 line.
 
 ## Fix shipped (2026-06-07)
@@ -78,10 +89,10 @@ managed-volume overlaps.
 
 ## Cross-links
 
-- Related: [[prodtarget-mother-margin-tt-midinner-overlap]] (retracted
+- Related: [prodtarget-mother-margin-tt-midinner-overlap](/incidents/prodtarget-mother-margin-tt-midinner-overlap.md) (retracted
   margin "fix" was triggered by misreading this preflight failure as a
-  geometry problem), [[prodtarget-spacer-supportring-overlap]]
-- Related: [[foilsx04-all-preflight-ambiguous]] (different cause, same
+  geometry problem), [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md)
+- Related: [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md) (different cause, same
   symptom shape: silent preflight=ambiguous burns a round)
 - Source: `autoresearch_bo_michael.py` ProdTargetMode preflight FCL
   emission (TODO: pin line)

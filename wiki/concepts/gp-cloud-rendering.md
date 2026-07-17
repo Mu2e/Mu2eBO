@@ -1,8 +1,15 @@
-# GP density-cloud rendering gotchas
+---
+type: concept
+title: GP density-cloud rendering gotchas
+description: 'GP density cloud silently fails to envelope top-3 champions: <1.1%
+  of Sobol samples at sob≥3.2 (invisible under LogNorm) + GP under-predicts calo
+  there by 2.3× (matches forward-LOO log-calo bias −0.80)'
+status: active
+timestamp: '2026-07-17'
+updated_note: '2^22 pushforward: chunked predict + O(N log N) pareto2d_idx required'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-17 (2^22 pushforward: chunked predict + O(N log N) pareto2d_idx required)
+# GP density-cloud rendering gotchas
 
 ## Scaling the pushforward past 2^20 needs two mechanical fixes (2026-07-10)
 Bumping `N` in `gp_predict_foilsflash_perpot_cloud.py` beyond 2^20 hits two
@@ -35,7 +42,7 @@ unevaluated probe candidates**. Any row is launchable via forced `--x-point`.
 There are now two foilsflash cloud renderers; the deck (`docs/foilsflash_talk.html`) uses the SECOND:
 - `gp_predict_foilsflash_cloud.py` → `docs/foilsflash_predicted_cloud.png`: y-axis = per-event MEAN
   flash. **SUPERSEDED / do not use for the deck** — the mean is blind to the flash lever (see
-  [[bo-foilsflash]] metric bug). Left on disk for reference only.
+  [bo-foilsflash](/projects/bo-foilsflash.md) metric bug). Left on disk for reference only.
 - `gp_predict_foilsflash_perpot_cloud.py` → `docs/foilsflash_perpot_cloud.png`: y-axis = **total
   flash edep per POT** (the correct metric). Self-contained: joins each config's `summary.json`
   `flash_edep_total_MeV` + `state/elebeam_flash_outputs.txt` line-count ×110000 ×(1/11.53
@@ -75,8 +82,8 @@ GP-fit, data) all returned **NOT a bug**; the band faithfully shows the GP found
   v3-style box mismatch).
 - **NOT a data bug (data agent).** 48 `flash_edep` all clean, max/min=1.30 (no ×1000
   prescale discontinuity), cross-campaign harvest identical (`flash_total/flash_events`,
-  nPrescale=1), zero residual rows from [[edepana-saw-events-scientific-notation-parse]]
-  or [[foilsflash-tarball-mode-key-omission]]. Dot CoV 5.1% (production ff02/ff03 rows
+  nPrescale=1), zero residual rows from [edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md)
+  or [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md). Dot CoV 5.1% (production ff02/ff03 rows
   3.5–4.3%; smoke 14.8% at ~700 flash events — low-stats, not biased). **Linear fit of
   flash on all 6 knobs R²=0.17** → only ~17% of flash variance is geometry; the rest
   is per-eval noise on a near-flat response.
@@ -99,7 +106,7 @@ length-scales (`[2.27,1.13,1.31,0.55,0.54,7.2]`, none railed), noise floored at 
 perfect interpolation, pushforward std = **104% of the dot std** → it DOES envelope
 its dots. Same renderer, same Sobol grid, wide cloud. Code can't be the cause when one
 axis works and the other doesn't → the flat flash band is a property of the flash
-DATA (weak geometry dependence), corroborating the [[bo-foilsflash]] null result.
+DATA (weak geometry dependence), corroborating the [bo-foilsflash](/projects/bo-foilsflash.md) null result.
 
 **How many σ are the dots from the cloud? ~1σ (quantified 2026-06-29).** The
 "wide dots vs thin band" is purely a mean-only render: the visible band (GP-MEAN
@@ -144,7 +151,7 @@ Three-fork team re-measured the prodtarget6d cloud/star mismatch on the **curren
 - **latent-only** `observation_noise=False`: z(R01_07)=**3.42**, pt6d05R01_05=**6.41**, **17** rows >3σ.
 The previously-quoted "z=2.57 / 5.39 / 4 rows >3σ" set reproduces under **neither** convention — it was an internally-inconsistent mix plus fit stochasticity; **do not quote z to that precision.** What is **robust under both conventions**: `pt6d05R01_05` is unambiguously the **largest** mu-axis outlier; `pt6d07R01_07` is a **modest** surprise ranking ~3rd–4th, **never the biggest**; top-3 latent ranking = pt6d05R01_05 > pt6d04R00_00 > pt6d05R00_07. The deck's old "+3.2σ, only such surprise" R01_07 claim is **stale and was removed from the deck 2026-06-17**.
 
-**Do not confuse this LOO z with measurement noise.** The LOO z is *GP-prediction surprise*. The separate measurement-Poisson σ on `mu_per_POT` is ~3% rel (√N/POT on the ~1000-count VD numerator; see [[bo-noise-budget]]). As a pure measurement fluctuation the champion is **+6.6 Poisson-σ above the 2.0e-3 bulk** (real high-t-corner signal) but only **+1.2 Poisson-σ over runner-up** pt6d07R00_03 (2.402e-3) → the **+4% #1 lead is statistically unresolved** at 500k POT; a confirmation re-run is warranted before trusting the ranking. Data-integrity fork separately CONFIRMED the eval is clean (90/100 jobs landed, denominator from landed files so unbiased, geometry built correctly, internally exact).
+**Do not confuse this LOO z with measurement noise.** The LOO z is *GP-prediction surprise*. The separate measurement-Poisson σ on `mu_per_POT` is ~3% rel (√N/POT on the ~1000-count VD numerator; see [bo-noise-budget](/concepts/bo-noise-budget.md)). As a pure measurement fluctuation the champion is **+6.6 Poisson-σ above the 2.0e-3 bulk** (real high-t-corner signal) but only **+1.2 Poisson-σ over runner-up** pt6d07R00_03 (2.402e-3) → the **+4% #1 lead is statistically unresolved** at 500k POT; a confirmation re-run is warranted before trusting the ranking. Data-integrity fork separately CONFIRMED the eval is clean (90/100 jobs landed, denominator from landed files so unbiased, geometry built correctly, internally exact).
 
 **Root cause of the champion's out-of-cloud surprise = the pt6d07 t-upper box raise 7→8 (2026-06-18).** The champion sits at t=(7.15,7.51,7.71) — entirely inside the t>7 region that NO eval could reach before pt6d07 (cap was 7.0). Only **17 of 112** rows are in this new region and it carries genuine signal: mean μ = **2.295e-3 (new, t>7) vs 2.186e-3 (old, ≤7) = +5%**. The top-2 μ rows (champion 2.493 @tmax=7.71; pt6d07R00_03 2.402 @tmax=7.91) are BOTH new-region. The GP mean over this sparse new corner extrapolates from the 95 old-regime rows that anchor a lower surface → reverts down → under-predicts the champion → it reads as a +z surprise AND falls right of the mean-pushforward cloud edge. So the box raise is the DIRECT cause for *this* champion. **Two caveats:** (a) it is NOT the whole "surprise" story — the largest forward-LOO outlier `pt6d05R01_05` is an *old*-regime pick pinned at t1=7.00 (the old cap edge); box-EDGE under-sampling produced surprises before the raise too, the raise just relocated the binding edge. (b) The pt6d07 end-plate lug clamp (`lPlate[0]=lPlate[-1]=tPlate`, 2 of 35 plates) is a negligible μ effect — the μ lift tracks tmax, not the clamp. General mechanism: GP mean reverts at any under-sampled box edge; the 7→8 raise is the latest instance.
 
@@ -152,7 +159,7 @@ The previously-quoted "z=2.57 / 5.39 / 4 rows >3σ" set reproduces under **neith
 
 **Renderer-honesty fork — acq-heatmap star coverage (2026-06-17).** Quantified fraction of pt6d07 stars landing in a histogram bin above the 50th-pct of nonzero bins: density baseline **24%**, shipped **acq-heatmap 65%**, PowerNorm(γ=0.3) **24%** (no-op — only recolors empty bins, doesn't add coverage), importance-Sobol **65% (71% all-board)** but self-referential so not a more *honest* panel. **Verdict: keep the deck's density + acq-heatmap pairing.** The residual ~35% uncovered pt6d07 stars are the mean-range-compression / corner mean-bias — no renderer can fix it.
 
-**Layer-3 fixability fork — the corner mean-bias is NOT a fixable model defect (2026-06-17). Layer-3 is RETIRED, do not attempt.** Forward-LOO on the 14 high-t corner picks (t≥7.5): baseline default SingleTaskGP gives mu LOO-z mean +0.87, range [−2.20, +3.42] (the +3.42 max IS pt6d07R01_07 — reproduces the surprise). Bias is **mu-only**; dose LOO-z is well-calibrated (mean +0.04, range [−1.02, +1.77]). **Mechanism:** fitted mu noise = **0.304 in standardized units** (σ_noise≈0.55) — the GP attributes ~30% of standardized mu-variance to noise → heavy smoothing → corner extrapolations revert to global mean → genuine corner gains read as +Nσ. Lengthscales do NOT rail (mu dims [0.52,0.72,0.60,0.73,0.39,0.70], all interior) so this is NOT under-identification, and the dose −log10 span (0.624) is NOT degenerate (so the [[botorch-tiny-output-log-training]] incident does not apply here — dose is the well-behaved axis). **No lever helps; several hurt:** ARD Matern + GammaPrior(3,6) lengthscale → mu |max|z 6.88 (2× worse, shorter LS → sharper reversion); noise_lb=1e-6 → 6.85 (worse); Kumaraswamy input warping w/o normalize → 29.35 (catastrophic, destroyed dose channel). Default kernel is the best of everything tested. **Conclusion: the corner picks are genuine physics surprises the GP cannot anticipate from interior data** — the 0.30 fitted mu-noise is real per-config Poisson scatter, the high-t corner is unsupported, the GP correctly reverts to mean. The ONLY thing that shrinks corner z-scores is more evals in the corner (the picker is already doing this). Layer-1 acq-heatmap (shipped) is the right and final response; chasing mean-bias via kernel tuning would only inflate the surprises.
+**Layer-3 fixability fork — the corner mean-bias is NOT a fixable model defect (2026-06-17). Layer-3 is RETIRED, do not attempt.** Forward-LOO on the 14 high-t corner picks (t≥7.5): baseline default SingleTaskGP gives mu LOO-z mean +0.87, range [−2.20, +3.42] (the +3.42 max IS pt6d07R01_07 — reproduces the surprise). Bias is **mu-only**; dose LOO-z is well-calibrated (mean +0.04, range [−1.02, +1.77]). **Mechanism:** fitted mu noise = **0.304 in standardized units** (σ_noise≈0.55) — the GP attributes ~30% of standardized mu-variance to noise → heavy smoothing → corner extrapolations revert to global mean → genuine corner gains read as +Nσ. Lengthscales do NOT rail (mu dims [0.52,0.72,0.60,0.73,0.39,0.70], all interior) so this is NOT under-identification, and the dose −log10 span (0.624) is NOT degenerate (so the [botorch-tiny-output-log-training](/concepts/botorch-tiny-output-log-training.md) incident does not apply here — dose is the well-behaved axis). **No lever helps; several hurt:** ARD Matern + GammaPrior(3,6) lengthscale → mu |max|z 6.88 (2× worse, shorter LS → sharper reversion); noise_lb=1e-6 → 6.85 (worse); Kumaraswamy input warping w/o normalize → 29.35 (catastrophic, destroyed dose channel). Default kernel is the best of everything tested. **Conclusion: the corner picks are genuine physics surprises the GP cannot anticipate from interior data** — the 0.30 fitted mu-noise is real per-config Poisson scatter, the high-t corner is unsupported, the GP correctly reverts to mean. The ONLY thing that shrinks corner z-scores is more evals in the corner (the picker is already doing this). Layer-1 acq-heatmap (shipped) is the right and final response; chasing mean-bias via kernel tuning would only inflate the surprises.
 
 ## The frontier reaching >1.18 norm (sob>3.91) is GP OVER-EXTRAPOLATION, not real (2026-06-23)
 The cloud's Pareto-frontier line extends past the measured max (3.91 = 1.18 norm)
@@ -173,7 +180,7 @@ let the GP confidently ramp the mean there. The botorch picker GP avoids this vi
 its GammaPrior regularizing the lengthscale shorter (caps ~3.83). The botorch
 PICKER GP (Standardize + stronger learned noise) reverts to mean and caps
 sampled predictions at ~3.83 — same data, different extrapolation. **Empirically
-disproven as achievable:** the pareto_sob run ([[pareto-sob-picker]]) built the
+disproven as achievable:** the pareto_sob run ([pareto-sob-picker](/concepts/pareto-sob-picker.md)) built the
 GP's top-predicted points → measured 3.69–3.84, NEVER above 3.91. **Not a code
 bug** (the cloud is the GP-mean pushforward by definition) but MISLEADING — the
 frontier implies reachable sob>3.91 that doesn't exist. **PROPER FIX (APPLIED 2026-06-23, `make_gp`):** `Matern(length_scale=[0.3]*NDIM,
@@ -222,13 +229,13 @@ ON the cloud. The prodtarget6d GP **cannot fit its own training points** — pul
 them toward the mean by ~2.3% (champion dragged DOWN 6%, 2.493→2.343e-3), fits
 obs-noise 5.1e-5 (~2.3% of μ, vs ipa 0.6%). So prodtarget6d stars scatter off the
 cloud because the GP UNDERFITS, not (only) framing/compression. **Two candidate
-causes:** (1) μ_per_POT genuinely ~3% Poisson-noisy ([[bo-noise-budget]]) → GP
+causes:** (1) μ_per_POT genuinely ~3% Poisson-noisy ([bo-noise-budget](/concepts/bo-noise-budget.md)) → GP
 correctly smooths, stars are noisy draws; (2) the 6D quadratic-profile
 parameterization can't represent the μ surface → GP dumps unexplained signal into
 noise. **RESOLVED 2026-06-23 (team-tested): it's CORRECT behavior — real ~3% measurement
 noise, NOT misspecification.** (My earlier "favors misspecification" guess above
 was WRONG.) Decisive tests: (a) fitted GP noise = **3.1% of μ**, exactly the
-μ_per_POT Poisson floor (~3% at 500k POT, [[bo-noise-budget]]); (b) forcing
+μ_per_POT Poisson floor (~3% at 500k POT, [bo-noise-budget](/concepts/bo-noise-budget.md)); (b) forcing
 noise→1e-6 drops in-sample residual 2.27%→**0.00%** — the GP CAN interpolate, it
 correctly CHOOSES not to because ~3% of the μ scatter is genuine noise; (c) ARD
 refuted — SingleTaskGP already uses ARD Matern-5/2, lengthscales short/non-railed
@@ -360,7 +367,7 @@ exclusion, not kernel under-fit.
 
 Deeper issue: `_ncrit` measures tessellated-solid self-intersection only.
 After the 2026-05-21 G4TwistedBox dispatcher landed
-([[tessellated-solid-facet-orientation]] / `tsda.helical.useTwistedBox`),
+([tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) / `tsda.helical.useTwistedBox`),
 the constraint is moot for twisted-box runs (analytic solid, no facets).
 The gate currently filters real twisted-box results en masse.
 
@@ -530,13 +537,13 @@ lives on the same target manifold as the magenta v2 cloud.
 earlier same-day `tsda.rin` claim):** the dominant off-manifold knob is the
 **helical solid implementation** — v111 was measured pre-2026-05-21 under
 the broken tessellated `G4TessellatedSolid` (see
-[[tessellated-solid-facet-orientation]]). Stuck-track absorption at facet
+[tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md)). Stuck-track absorption at facet
 self-intersections killed background before it reached the calo, biasing
 v111's calo low by ~2×. v2 runs under the twisted-box dispatcher
 (`tsda.helical.useTwistedBox = true` default since 2026-05-21).
 
 **Quantitative match:** the helical041a A/B re-run documented in
-[[tessellated-solid-facet-orientation]] shows the same knobs giving
+[tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) shows the same knobs giving
 **tessellated calo=2.97e-6** vs **twisted-box calo=6.49e-6** — a **2.2×
 inflation** that matches the v111-to-v2 offset exactly. The tessellated
 v111 underreports calo by the same multiplicative factor.
@@ -559,7 +566,7 @@ leaderboard is the inverse of what the "absorber annulus" story predicts.
 
 **Action implication:** rin promotion is NOT recommended. rin is the only
 defense against silent disc/plug sibling overlap
-([[tsda-disc-helical-sibling-overlap]]); promoting it back to a free knob
+([tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md)); promoting it back to a free knob
 re-opens the failure surface that drove the leaderboard purge. Current top-3
 champions live at rin∈[111, 149] — they'd fail an `rin=80` pin. Sequencing
 remains task #147 (hl4) → #146 (COL5).
@@ -590,7 +597,7 @@ Source files: `autoresearch_bo_michael.py:380` (HOLE_RADIUS pin),
 red dashed line on the standard cloud → `gp_predicted_helical_cloud_rin80_overlay.png`.
 Gotcha: must invoke with `/usr/bin/python3` or the `.venv-botorch` interpreter —
 `.venv-graph` has sklearn but NOT matplotlib (per
-[[graph-runner]]:78-82), so the cloud_plot import dies with
+[graph-runner](/drivers/graph-runner.md):78-82), so the cloud_plot import dies with
 `ModuleNotFoundError: No module named 'matplotlib'`.
 
 Implication: when reading the PNGs, **magenta v2 stars** and
@@ -766,8 +773,8 @@ corner. Both observations are simultaneously true.
 **Harvest sanity (parallel agent probe, 2026-06-06).** All 4 outliers
 healthy: `stopping_factor≈0.158`, `ce_simulated_events≈465k-497k`,
 `calo_files_seen=183-200`, `calo_total=53-70` (low but nonzero — not
-graph015 calo=0, not [[calo-constant-across-helical]] bit-identical, not
-[[stage-out-rename-race]] partial). Genuine geometry sweet spots — all 4
+graph015 calo=0, not [calo-constant-across-helical](/incidents/calo-constant-across-helical.md) bit-identical, not
+[stage-out-rename-race](/incidents/stage-out-rename-race.md) partial). Genuine geometry sweet spots — all 4
 share signature `rOut_up=250, rOut_dn=250, hT_up=1.0, f_up=0.0` (thick
 maxed-radius upstream foils, zero up-extras, varying downstream). Basin
 contains ~5 of 117 leaderboard rows; nearest neighbors at L2≥0.26 have
@@ -784,7 +791,7 @@ but is useless for the 4 low-calo outliers.
 ### Foils cloud PNG file-map (2026-06-04) — which script writes which deck image
 (Slide numbers below refer to the PRE-SPLIT 26-slide deck, archived same-day
 to `docs/foils_talk_full.md` when the concise 8-slide `docs/foils_talk.md`
-split off — see [[refresh-foils-slides]].)
+split off — see [refresh-foils-slides](/drivers/refresh-foils-slides.md).)
 That pre-split deck embeds TWO near-identical-looking foils clouds
 from confusingly-named files; disambiguated by reading each PNG's embedded
 title:
@@ -808,7 +815,7 @@ title:
   the v2 box) — intended, shows where v3 reached beyond the envelope.
 
 ## Cross-links
-- Related: [[bfield-at-helical-plug]], [[bo-helical]], [[batch-bo]], [[refresh-foils-slides]], [[bo-foils]], [[bo-noise-budget]], [[botorch-tiny-output-log-training]], [[pareto-sob-picker]]
+- Related: [bfield-at-helical-plug](/concepts/bfield-at-helical-plug.md), [bo-helical](/projects/bo-helical.md), [batch-bo](/concepts/batch-bo.md), [refresh-foils-slides](/drivers/refresh-foils-slides.md), [bo-foils](/projects/bo-foils.md), [bo-noise-budget](/concepts/bo-noise-budget.md), [botorch-tiny-output-log-training](/concepts/botorch-tiny-output-log-training.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md)
 - Source files: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/overlay_gp_predictions_helical_mpl.py`,
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_helical.py`,
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/cloud_plot.py`,
@@ -853,7 +860,7 @@ mtime tracks impl:
 The `.patched-twistedbox` sidecar (59.8 MB, built 2026-05-20 23:19) was a
 ready-to-ship build of the stacked-G4TwistedBox lib that **was not actually
 deployed** until the 2026-05-26 dispatcher repackage. Consistent with
-[[tessellated-solid-facet-orientation]] Key facts line 193-198:
+[tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) Key facts line 193-198:
 *"The production Code_helical_base.tar.bz2 is the OLD tessellated lib
 (swapped in for the helical050a_n5000 test on 2026-05-21, not yet swapped
 back)"* and the defensive HELICAL_NSTEPS 100 → 5000 → 2000 flips were
@@ -879,17 +886,17 @@ Only FT08R00_00 (geom mtime 2026-05-26 17:20) onward carries the key.
   (FT01–FT07, SR/QR/PC/F01/NG/CB/P cohorts). These were run under the SAME
   broken tessellated lib, but the scan_logs gate + nsteps=5000→2000 ceiling
   was supposed to reject configs whose N_crit exceeded the nsteps budget.
-  scan_logs imperfections (per [[scan-broken-codes-too-narrow]] and the
+  scan_logs imperfections (per [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) and the
   retro-scan flip in tasks #143-144) mean some are still tainted at lower
   severity than the pre-May-21 cohort.
 - **Post-2026-05-26 dispatcher-era rows:** ~12 (FT08, TWB A/B pairs) —
   explicit per-row tracer via `useTwistedBox` key; the only era with
   guaranteed-clean twisted-box.
-- **mmackenz priors** ([[mmackenz-priors]] — 10 rows `v100`–`v109`, `v111` via
+- **mmackenz priors** ([mmackenz-priors](/datasets/mmackenz-priors.md) — 10 rows `v100`–`v109`, `v111` via
   `HelicalMode.load_priors()` at `autoresearch_bo_michael.py:415`) are
   tessellated-era. The v111 "beyond Pareto" anomaly is the tessellated-vs-
   twisted-box 2.2× calo offset documented in
-  [[tessellated-solid-facet-orientation]], not an off-manifold geometry.
+  [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md), not an off-manifold geometry.
 
 **GP training-set implication:** the dominant ~130/175 rows are tessellated
 (broken-lib regime, modulated by N_crit gating after 2026-05-21). The
@@ -897,7 +904,7 @@ twisted-box regime is the small minority (~12 dispatcher-era rows). GP cloud
 predicted calo therefore reflects mostly the tessellated regime; v111
 "sitting below the Pareto" is consistent with v111 being in that same
 regime, not below it. Cross-era twisted-box rows (FT08, TWB) read ~2.2×
-higher calo per [[tessellated-solid-facet-orientation]] TWB01 A/B and
+higher calo per [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) TWB01 A/B and
 helical041a tess-vs-twist measurement.
 
 **Operational consequence:** for any cross-era leaderboard comparison,

@@ -1,12 +1,19 @@
-# closed-loop barrier-timeout + zero-rows early-exit false-positive
+---
+type: incident
+title: closed-loop barrier-timeout + zero-rows early-exit false-positive
+description: foilsg03 R0 exited at 240-min barrier timeout with only 2/10 children
+  resolved (both concat-failed); `decide_next` "0 new rows → all failed → exit"
+  guard misreads barrier-timeout as all-failed; 8 orphan children kept running,
+  rows landed, but no R1 picker; fix = gate exit on `completed == q`
+status: resolved
+status_note: fix landed 2026-06-12 (corrected zero_rows gate + liveness-wait barrier
+  [no pacing timeout; lone 24h backstop `--barrier-max-min`] + dead-pid detection
+  + stop_seen propagation); design narrative + simplification addendum in `docs/closed-loop-barrier-fix.md`;
+  all tests green
+timestamp: '2026-06-12'
+---
 
-**Type:** incident
-**Status:** resolved — fix landed 2026-06-12 (corrected zero_rows gate +
-liveness-wait barrier [no pacing timeout; lone 24h backstop
-`--barrier-max-min`] + dead-pid detection + stop_seen propagation);
-design narrative + simplification addendum in
-`docs/closed-loop-barrier-fix.md`; all tests green
-**Updated:** 2026-06-12
+# closed-loop barrier-timeout + zero-rows early-exit false-positive
 
 ## Summary
 
@@ -41,12 +48,12 @@ subsequent round was picked.
   spawned, so the campaign stalls at R0 even though the data is there.
 - **Concat-stage failures (2/10 at R0)**: `[graph] terminating
   foilsg03R00_{03,08}: stage concat failed (failed_stages=['concat'])`.
-  Likely the [[concat-xrootd-fileopen-postendjob]] failure mode —
+  Likely the [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md) failure mode —
   xrootd FileOpenError under high concurrent IO. Not the root cause of
   the campaign loss, but it was the trigger for the false-positive
   early-exit (those 2 quick failures plus 8 slow successes = "0 rows by
   deadline").
-- **Distinct from**: [[closed-loop-final-round-orphan-children]] which
+- **Distinct from**: [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md) which
   is about the *final* round exiting cleanly while a child is still
   running. This is the *first* round exiting on a barrier timeout
   whose "0 rows" signal is then misread as "all failed."
@@ -56,7 +63,7 @@ subsequent round was picked.
 - **Don't kill the orphans** — they will finish and contribute leaderboard
   rows. Relaunch under a new `--name-prefix` (e.g. `foilsg04`) after the
   orphans land. Reusing `foilsg03` triggers
-  [[closed-loop-stale-cluster-silent-no-launch]].
+  [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md).
 - **Raise barrier timeout** for the next launch:
   `--barrier-timeout-min 360` (or 480 under heavy grid contention) so the
   zero-rows guard isn't tripped by slow successes.
@@ -72,7 +79,7 @@ subsequent round was picked.
 foilsg05 was launched with `--barrier-timeout-min 360` (raised per foilsg03
 recommendation). **Same outcome at the higher cap**:
 
-- 7/10 children fast-failed at `concat` (same [[stage-out-rename-race]] —
+- 7/10 children fast-failed at `concat` (same [stage-out-rename-race](/incidents/stage-out-rename-race.md) —
   10-min rename-quiesce cap exceeded under heavy /pnfs contention).
 - 3 survivors (R00_05, _06, _08) **still in `mustops_ce` stage** at the
   360-min mark — 487 grid jobs inflight across the three clusters when the
@@ -83,7 +90,7 @@ recommendation). **Same outcome at the higher cap**:
   like foilsg03's 8 orphans).
 - Grid context: 1222 jobs / 46 running / 1174 idle — workers severely
   starved (same picture as the recurrence section in
-  [[stage-out-rename-race]]).
+  [stage-out-rename-race](/incidents/stage-out-rename-race.md)).
 - **Implication**: a per-round wall-clock cap can't be the only guard.
   Even 6h is insufficient when stage-out workers are saturated. The
   code fix (gate exit on `completed == q`, not "0 rows") is now load-
@@ -91,18 +98,18 @@ recommendation). **Same outcome at the higher cap**:
   (foilsg04 is NOT an instance: its all-10 wipeout was the RCDS
   disk-quota failure — all children genuinely failed fast, so the
   zero-rows exit there was *correct* behavior, see
-  [[jobsub-disk-quota-stderr-swallowed]].)
+  [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md).)
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]] (barrier source-of-truth),
-  [[closed-loop-final-round-orphan-children]] (orphan pattern at end vs
-  here at start), [[closed-loop-stale-cluster-silent-no-launch]]
+- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (barrier source-of-truth),
+  [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md) (orphan pattern at end vs
+  here at start), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)
   (why reusing the prefix doesn't work),
-  [[concat-xrootd-fileopen-postendjob]] (likely cause of the 2 quick
-  failures that triggered the misread), [[closed-loop-parent-signal-kill-midlaunch]], [[foilsg-grid-tarball-scalar-holeradius-fallback]], [[pipeline-poll-rc120-atexit-death]]
+  [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md) (likely cause of the 2 quick
+  failures that triggered the misread), [closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md), [pipeline-poll-rc120-atexit-death](/incidents/pipeline-poll-rc120-atexit-death.md)
 - Source files: `graph/closed_loop.py` `barrier_round`,
   `graph/closed_loop.py` `decide_next` zero-rows branch
-- Project: [[bo-foilsg]] (foilsg03 launch that hit this)
+- Project: [bo-foilsg](/projects/bo-foilsg.md) (foilsg03 launch that hit this)
 
 ## Open questions / TODO
 - Patch `decide_next` to gate the early-exit on `completed == q` (not on
@@ -129,7 +136,7 @@ recommendation). **Same outcome at the higher cap**:
     deep review)**: children are Popen'd with pid recorded
     (`closed_loop.py:448`) but the barrier never checks process liveness.
     A child that dies without terminal checkpoint / leaderboard row /
-    broken.txt (the [[closed-loop-sqlite-checkpoint-transient-corruption]]
+    broken.txt (the [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md)
     shape — 10/10 crashed at put_writes, parent hung with completed=0)
     stays "pending" forever. Raising the barrier cap to 24h via adaptive
     doubling turns that 4h hang into a 24h-per-round zombie. Required

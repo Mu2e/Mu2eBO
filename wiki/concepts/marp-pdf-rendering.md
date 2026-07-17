@@ -1,13 +1,20 @@
-# Marp PDF rendering gotchas
+---
+type: concept
+title: Marp PDF rendering gotchas
+description: marp-cli PDF needs explicit `CHROME_PATH` (or it falls to Firefox +
+  "Unknown system error -122"); CSS-grid side-by-side escapes the slide rect — use
+  borderless `<table>` instead
+status: active
+timestamp: '2026-07-12'
+updated_note: no-input-file stdin hang
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-12 (no-input-file stdin hang)
+# Marp PDF rendering gotchas
 
 ## Summary
 Two non-obvious failures when rendering `docs/*_talk.md` decks to PDF via
 `npx @marp-team/marp-cli`. Both bit during the
-[[bo-prodtarget]] methodology deck and cost ~30 min each.
+[bo-prodtarget](/projects/bo-prodtarget.md) methodology deck and cost ~30 min each.
 
 ## Key facts
 
@@ -93,7 +100,7 @@ Two non-obvious failures when rendering `docs/*_talk.md` decks to PDF via
   - Likely the **rc=120 poll deaths** (cephfs writeback EDQUOT propagating
     to subprocess fd state under memory pressure — same `-122` errno that
     npm reported, same root volume); see
-    [[pipeline-poll-rc120-atexit-death]].
+    [pipeline-poll-rc120-atexit-death](/incidents/pipeline-poll-rc120-atexit-death.md).
   **Diagnostic commands:**
   `getfattr -n ceph.quota.max_bytes /exp/mu2e/data/users/oksuzian`
   → max_bytes (cap)
@@ -109,7 +116,7 @@ Two non-obvious failures when rendering `docs/*_talk.md` decks to PDF via
   `for d in /exp/mu2e/data/users/oksuzian/*/; do b=$(getfattr -n
   ceph.dir.rbytes --only-values "$d" 2>/dev/null); awk -v b="$b" 'BEGIN{printf
   "%.2f GB  '"$d"'\n", b/1024/1024/1024}'; done | sort -rn`
-  (Distinct from [[jobsub-disk-quota-stderr-swallowed]], which is OSError 122
+  (Distinct from [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md), which is OSError 122
   inside jobsub_lite RCDS publish to /pnfs — same errno, different volume.)
   - **Workaround when even the /tmp cache redirect still fails** (observed
     2026-06-13, npm errno -122 persisting after `npm_config_cache=/tmp/...`
@@ -142,7 +149,7 @@ Two non-obvious failures when rendering `docs/*_talk.md` decks to PDF via
   slide section.
 
 ## Cross-links
-- Related: [[refresh-foils-slides]] (the equivalent script for foils deck;
+- Related: [refresh-foils-slides](/drivers/refresh-foils-slides.md) (the equivalent script for foils deck;
   does not yet set CHROME_PATH — relied on a different cache state)
 - Source files: `docs/prodtarget_talk.md`, `docs/foils_talk.md`
 

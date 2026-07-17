@@ -1,8 +1,15 @@
-# closed-loop SqliteSaver checkpoint transient corruption
+---
+type: incident
+title: closed-loop SqliteSaver checkpoint transient corruption
+description: foilsf08R00 10/10 children crashed at SqliteSaver.put_writes with "file
+  is not a database" ~30-45min after launch; post-crash integrity_check passes (transient
+  WAL-side, not on-disk); parent hung at barrier 3h with completed=0; likely stale-WAL
+  or CephFS lock-jitter despite SQLITE_TIMEOUT_S=30
+status: resolved
+timestamp: '2026-06-28'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-28
+# closed-loop SqliteSaver checkpoint transient corruption
 
 ## Summary
 foilsf08R00 (first live qlnei run, 10 parallel `graph.run` children writing the shared `graph_data/checkpoints.sqlite` via langgraph `SqliteSaver.put_writes`) ALL 10 children crashed at roughly the same wall-clock with `sqlite3.DatabaseError: file is not a database` (9 children) or `database disk image is malformed` (R00_08). Parent then sat in the barrier-poll loop for ~3h with `completed=0` because it could not read terminal state for any child. After the crash, `PRAGMA integrity_check` and `.tables` against the *same* file pass — so the corruption was *transient at write time*, not a permanent on-disk corruption.
@@ -80,18 +87,18 @@ The "Verified root cause" block below was **partially refuted** by a follow-up 3
 - `SqliteSaver` (`langgraph-checkpoint-sqlite 3.1.0`) is single-conn, `check_same_thread=False`, lock = `threading.Lock` — gives zero cross-process protection. Its own docstring (`sqlite/__init__.py:49-53`) warns "meant for lightweight, synchronous use cases".
 - `setup()` runs `PRAGMA journal_mode=WAL` on first cursor (`sqlite/__init__.py:141`) — so every process is in WAL the moment it touches the saver. No fallback to rollback-journal mode without intercepting setup().
 - Disk forensics match the WAL-divergence story exactly: main `.sqlite` mtime stuck at 07:50 (last clean checkpoint, prior day), `-wal` mtime 15:51 (486 KB), `-shm` mtime 17:49, crashes at 19:19. Main file passes `integrity_check` because the WAL never flushed — it just diverged across processes and was abandoned.
-- foilsf01-07 success history is consistent: corruption is probabilistic, depends on cache eviction + `wal_autocheckpoint=1000` page pressure; q=10 hits it within ~30-45 min reliably. Prior wiki "WAL safety smoke" (25 writes / 30s in 2026-05-21 resolved bullet of [[closed-loop-bo-design]]) was 3 orders below the load that trips it — that "resolved" claim is overconfident.
+- foilsf01-07 success history is consistent: corruption is probabilistic, depends on cache eviction + `wal_autocheckpoint=1000` page pressure; q=10 hits it within ~30-45 min reliably. Prior wiki "WAL safety smoke" (25 writes / 30s in 2026-05-21 resolved bullet of [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)) was 3 orders below the load that trips it — that "resolved" claim is overconfident.
 
 ## Fix proposals (ranked)
 1. **Move `CHECKPOINT_DB` off CephFS to node-local** (`/tmp/<user>/checkpoints.sqlite` or `/scratch/...`). Edit `graph/config.py:9` only. Minimum sufficient fix; tradeoff is DB lost on host migration (acceptable — only needs to live one run).
 2. **Drop WAL → `journal_mode=DELETE` + `synchronous=FULL`**. Must intercept `SqliteSaver.setup()` or open DB and never call setup (table-create script forces WAL on first cursor). Slower but Ceph-safe. Combine with #1 for belt-and-braces.
-3. **Per-process DB + barrier-via-filesystem-state**. Larger refactor; kills the LangGraph-outer-graph deletion-test rationale ([[closed-loop-bo-design]] "Driver shape" entry).
+3. **Per-process DB + barrier-via-filesystem-state**. Larger refactor; kills the LangGraph-outer-graph deletion-test rationale ([closed-loop-bo-design](/concepts/closed-loop-bo-design.md) "Driver shape" entry).
 
 ## Reproducibility check (cheap, no grid)
 50-line `tests/test_wal_multiwriter_stress.py`: spawn 11 `multiprocessing.Process` workers each calling `SqliteSaver.put_writes()` against `graph_data/test_stress.sqlite` for 1000 iterations. Run twice — once on `/exp/mu2e/app` (expect corruption in minutes), once on `/tmp` (expect zero failures). <30 min wall.
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]] (existing WAL + lock-timeout design; this incident is a counterexample to "WAL + 30s timeout absorbs Ceph jitter"), [[qlnei-sob-only-picker]] (first live test, where this surfaced), [[venv-relocated-to-data-volume]] (Ceph is the underlying FS), [[closed-loop-stale-cluster-silent-no-launch]]
+- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (existing WAL + lock-timeout design; this incident is a counterexample to "WAL + 30s timeout absorbs Ceph jitter"), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md) (first live test, where this surfaced), [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md) (Ceph is the underlying FS), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)
 - Source files: `.venv-graph/lib/python3.11/site-packages/langgraph/checkpoint/sqlite/__init__.py:468` (the failing call), `graph/config.py:139` (`SQLITE_TIMEOUT_S = 30.0`)
 
 - **All modes share the SAME `CHECKPOINT_DB`** — `graph/config.py:9` `CHECKPOINT_DB = GRAPH_DATA / "checkpoints.sqlite"` is hardcoded with no mode keying. Both `graph/run.py:75` and `graph/closed_loop.py:90,181-183` open this exact path. So if a `prodtarget` closed-loop and a `foilsf` closed-loop run simultaneously they will hammer the same WAL with 2× the writer count (2 parents + 20 children). Tonight's foilsf08 crash was NOT caused by a parallel prodtarget run (no prodtarget activity in `closed_loop_logs/` today), but the design hazard is real for the next parallel campaign — consider per-mode DB paths.
@@ -100,4 +107,4 @@ The "Verified root cause" block below was **partially refuted** by a follow-up 3
 - Reproduce: relaunch foilsf08 with a fresh `checkpoints.sqlite` and same picker — does it recur? If yes, qlnei or shared-DB is the issue. If no, it was the stale-WAL theory.
 - Consider: switch checkpoints.sqlite from CephFS to a node-local tmpfs path (the file is single-host anyway; only need durability across one closed-loop run).
 - Consider: add a parent-side health check that times the barrier-poll out earlier when ALL children are reporting `completed=0` after their typical end-to-end ETA + 1h.
-- Document the operator runbook for "checkpoint crash mid-round" in [[closed-loop-runner]] once the fix is in.
+- Document the operator runbook for "checkpoint crash mid-round" in [closed-loop-runner](/drivers/closed-loop-runner.md) once the fix is in.

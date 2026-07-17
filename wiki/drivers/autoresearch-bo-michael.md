@@ -1,11 +1,17 @@
+---
+type: driver
+title: autoresearch_bo_michael.py — driver
+description: '`propose | evaluate | preflight` (7 modes; michael/helical + show-priors
+  retired 2026-07-12)'
+status: active
+timestamp: '2026-07-12'
+updated_note: live-verb map from size-reduction survey
+---
+
 # autoresearch_bo_michael.py — driver
 
-**Type:** driver
-**Status:** active
-**Updated:** 2026-07-12 (live-verb map from size-reduction survey)
-
 ## Summary
-Main driver for [[bo-michael]]. Implements the four-step BO loop as
+Main driver for [bo-michael](/projects/bo-michael.md). Implements the four-step BO loop as
 subcommands, each independently runnable.
 
 ## Key facts
@@ -19,18 +25,18 @@ subcommands, each independently runnable.
   `graph/pipeline_io.propose_one` (standalone `graph.run` without
   `--x-point`); closed-loop rounds never touch it — all pickers go through
   `botorch_predict.py`, which has its own Sobol cold-start. There are now
-  9 BOMode subclasses (one per [[mode-registry-childtracker-design]] mode),
+  9 BOMode subclasses (one per [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md) mode),
   not the original two.
 - **Subcommands:**
   - `show-priors --top K` — print top-K mmackenz priors by current α (no GP fit)
   - `propose <config_name>` — seed GP from priors+history, ask one candidate,
     render `bo_michael_proposals/<config_name>_geom.txt`
   - `evaluate <config_name> <summary.json>` — record completed run in
-    `leaderboard_bo_michael.tsv` (see [[leaderboards]])
-  - `preflight <config_name>` — see [[preflight]]
+    `leaderboard_bo_michael.tsv` (see [leaderboards](/datasets/leaderboards.md))
+  - `preflight <config_name>` — see [preflight](/drivers/preflight.md)
 - **GP config:** `Optimizer(GP, EI, n_initial_points=0, random_state=42)`
-- **α flag:** `--alpha 1e5` default ([[scalarized-objective]])
-- **Search space:** see [[bo-michael]] / [[bo-helical]] (per mode)
+- **α flag:** `--alpha 1e5` default ([scalarized-objective](/concepts/scalarized-objective.md))
+- **Search space:** see [bo-michael](/projects/bo-michael.md) / [bo-helical](/projects/bo-helical.md) (per mode)
 - **Architecture:** `BOMode(ABC)` with 7 adapters (michael + helical retired
   2026-07-12; the file keeps its historical name). Each subclass owns its
   pinned constants + 4 abstract methods (`load_priors`, `_geom_text`,
@@ -48,7 +54,7 @@ subcommands, each independently runnable.
 - **Deleted 2026-07-12:** `show-priors` verb + all `print_top` display methods
   (zero callers); the `--strategy` cl_min/mean/max flag (ADR-0001); `F_MAX`/
   `HT_FLOOR` class attrs (their 0.95/0.002 caps live in `modes.SPECS`).
-- **Summary-extraction seam (2026-06-07 for [[bo-prodtarget]]):**
+- **Summary-extraction seam (2026-06-07 for [bo-prodtarget](/projects/bo-prodtarget.md)):**
   `BOMode.extract_metrics(summary) -> (sob, calo)` with default that reads
   the 4-stage harvest schema (`s_over_sqrt_b`, `calo_per_pot`). Override
   only in modes whose pipeline writes a different schema —
@@ -75,7 +81,7 @@ subcommands, each independently runnable.
   6. `graph/closed_loop.py:_DRY_RUN_KNOB_LABELS` (optional — falls back to
      `x{i}`, no crash);
   7. the off-repo picker shim `gp_predict_<name>.py` in
-     [[mmackenz-table-plots-dir]] (binds `MODES["<name>"]`, delegates to
+     [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md) (binds `MODES["<name>"]`, delegates to
      `build_space` so it auto-tracks the dims).
   8. **qnehvi ONLY:** add the mode to `botorch_predict.py`'s **inlined
      `MODE_SPECS` dict** (`botorch_predict.py:62`) — `{lo,hi,int_dims}` lists.
@@ -102,10 +108,10 @@ subcommands, each independently runnable.
   `bo_foils_preflight/`, not a foilsf-named dir.
 
 ## Cross-links
-- Projects: [[bo-michael]], [[bo-helical]], [[bo-foils]] (modes registered in `MODES`)
-- Predecessor driver: [[autoresearch-bo]]
-- Priors: [[mmackenz-priors]]
-- Helper: [[preflight]]
-- Consumed by: [[pipeline]], [[graph-runner]], [[closed-loop-runner]]
-- Regression tests: [[tests]]
-- Known render bug: [[geom-run1a-vs-run1b]]
+- Projects: [bo-michael](/projects/bo-michael.md), [bo-helical](/projects/bo-helical.md), [bo-foils](/projects/bo-foils.md) (modes registered in `MODES`)
+- Predecessor driver: [autoresearch-bo](/drivers/autoresearch-bo.md)
+- Priors: [mmackenz-priors](/datasets/mmackenz-priors.md)
+- Helper: [preflight](/drivers/preflight.md)
+- Consumed by: [pipeline](/drivers/pipeline.md), [graph-runner](/drivers/graph-runner.md), [closed-loop-runner](/drivers/closed-loop-runner.md)
+- Regression tests: [tests](/drivers/tests.md)
+- Known render bug: [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md)

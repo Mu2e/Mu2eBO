@@ -1,8 +1,13 @@
-# Pion degrader — topology toggle
+---
+type: concept
+title: Pion degrader — topology toggle
+description: pion degrader Al plate; topology toggle (in-beam vs parked)
+status: active
+status_note: (pin under review)
+timestamp: '2026-05-15'
+---
 
-**Type:** concept
-**Status:** active (pin under review)
-**Updated:** 2026-05-15
+# Pion degrader — topology toggle
 
 ## Summary
 A 1.75 cm Al plate that can be rotated in/out of the beam line. When IN
@@ -25,6 +30,6 @@ small perturbations, so flipping this changes which prior cluster is relevant.
   `rin∈[130,135], hL4∈[7.5,10], hole=21.5`, leaving room for BO to interpolate.
 
 ## Cross-links
-- Related: [[tsda]]
-- Used in: [[bo-michael]]
-- Best degrader-ON candidate: mmackenz v39 (see [[mmackenz-priors]])
+- Related: [tsda](/concepts/tsda.md)
+- Used in: [bo-michael](/projects/bo-michael.md)
+- Best degrader-ON candidate: mmackenz v39 (see [mmackenz-priors](/datasets/mmackenz-priors.md))

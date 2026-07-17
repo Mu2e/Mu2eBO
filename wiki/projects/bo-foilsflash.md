@@ -1,27 +1,47 @@
-# bo-foilsflash — foils geometry vs electron-beam-flash tracker edep (DS-on)
+---
+type: project
+title: bo-foilsflash — foils geometry vs electron-beam-flash tracker edep (DS-on)
+description: '6D BO over the foilsf extra-foil geometry vs tracker StrawGasStep
+  edep from the ELECTRON-beam early-flash peak (DS-on), replacing foilsf''s calo
+  objective; clone of [[bo-ipa]] structure (elebeam_flash stage resamples EleBeamCat);
+  early NULL (foilsflash02/03) was a METRIC BUG (per-event mean, blind to rate)
+  — OVERTURNED 2026-06-30: under flash-per-POT foils are a STRONG lever (2.5×, R²=0.89,
+  no sob trade-off); objective WIRED + `foilsflash04` relaunched 2026-07-01 (qNEHVI
+  q=10×3, ELEBEAM_NJOBS=200)'
+status: active
+status_note: '**CHAMPION: foilsflash11R00_07 (sob 3.31, flash 5.976e-7), 2026-07-10**
+  — first strict domination of the 5-week champion ff05R00_04 (3.28/6.277e-7); parego
+  pick, hT_up at the 4 µm floor; flash margin 1.9σ (confirm via one-off ELEBEAM_NJOBS=400
+  re-eval). 11 campaigns + transplant, 233 rows. Standard config since 2026-07-10:
+  elebeam=100 (default env), HT_FLOOR=0.002, picker hybrid, default_loc=tape for
+  elebeam. Historical: flash-per-POT objective wired 2026-07-01 after the per-event-mean
+  METRIC BUG null was overturned (foils are a strong flash lever: R²=0.89, 2.5×
+  range). - **NOT saturated — new BO sob record 2026-07-16: foilsflash18R01_00 sob=3.86
+  @ flash 9.07e-7** (geom rOut 79.1/119.8, 2·hT 142/282 µm, f 0.176/0.201 — a "ceiling"
+  recipe: thin IN-BEAM upstream degrading the beam). **#2 all-time behind only the
+  3.90 transplant**, and the FIRST BO-found point ABOVE the ff13/14 3.84 exploit
+  ceiling. Found by the PRODUCTION 0.10 hybrid picker on the campaign RIGHT AFTER
+  ff16/ff17 (20 evals, two independent pickers) "confirmed saturation" — a live
+  caution against single-campaign saturation calls. NOT decisive: 3.86 vs 3.84 ≈
+  **1.3σ** at σ_sob 0.4% → needs a 400-job confirm re-eval before champion status
+  (same flat-top-tie discipline as the 3.31 flash champion). Line is **near-saturated,
+  not saturated**.'
+timestamp: '2026-07-17'
+updated_note: foilsflash18 new BO sob record 3.86; near-saturated not saturated
+---
 
-**Type:** project
-**Status:** active — **CHAMPION: foilsflash11R00_07 (sob 3.31, flash 5.976e-7), 2026-07-10** — first strict domination of the 5-week champion ff05R00_04 (3.28/6.277e-7); parego pick, hT_up at the 4 µm floor; flash margin 1.9σ (confirm via one-off ELEBEAM_NJOBS=400 re-eval). 11 campaigns + transplant, 233 rows. Standard config since 2026-07-10: elebeam=100 (default env), HT_FLOOR=0.002, picker hybrid, default_loc=tape for elebeam. Historical: flash-per-POT objective wired 2026-07-01 after the per-event-mean METRIC BUG null was overturned (foils are a strong flash lever: R²=0.89, 2.5× range).
-- **NOT saturated — new BO sob record 2026-07-16: foilsflash18R01_00 sob=3.86 @ flash 9.07e-7**
-  (geom rOut 79.1/119.8, 2·hT 142/282 µm, f 0.176/0.201 — a "ceiling" recipe: thin IN-BEAM
-  upstream degrading the beam). **#2 all-time behind only the 3.90 transplant**, and the FIRST
-  BO-found point ABOVE the ff13/14 3.84 exploit ceiling. Found by the PRODUCTION 0.10 hybrid picker
-  on the campaign RIGHT AFTER ff16/ff17 (20 evals, two independent pickers) "confirmed saturation" —
-  a live caution against single-campaign saturation calls. NOT decisive: 3.86 vs 3.84 ≈ **1.3σ**
-  at σ_sob 0.4% → needs a 400-job confirm re-eval before champion status (same flat-top-tie
-  discipline as the 3.31 flash champion). Line is **near-saturated, not saturated**.
-**Updated:** 2026-07-17 (foilsflash18 new BO sob record 3.86; near-saturated not saturated)
+# bo-foilsflash — foils geometry vs electron-beam-flash tracker edep (DS-on)
 
 ## Summary
 A new BO line that optimizes the **same foilsf 6D extra-foil geometry** and the
-**same S/√B signal** as [[bo-foils]], but swaps the second objective from the
+**same S/√B signal** as [bo-foils](/projects/bo-foils.md), but swaps the second objective from the
 Run1B calo-stop background to the **tracker StrawGasStep ionizing edep from the
 ELECTRON-beam EARLY-FLASH peak with DS ON**. Physics rationale: the stopping-
 target foils sit in the DS beam path, so they scatter/absorb flash electrons →
 flash tracker occupancy should be responsive to the foil geometry. Goal: foil
 stacks that keep high S/√B while minimizing electron-flash tracker occupancy.
 Wired + offline-verified 2026-06-27 (live grid smoke pending). Structurally a
-clone of the [[bo-ipa]] mode (foils-family geometry + alternate 2nd-objective
+clone of the [bo-ipa](/projects/bo-ipa.md) mode (foils-family geometry + alternate 2nd-objective
 stage + tracker-edep gallery harvest).
 
 ## Key facts
@@ -65,7 +85,7 @@ stage + tracker-edep gallery harvest).
     thread_id=closed-be3f5920. Log `graph_data/foilsflash04_parent.log`.
     **COMPLETE 2026-07-01:** parent exited clean after `decide_next[r2]`; **28 evals landed**
     (R00 10 / R01 9 / R02 9; 2 lost to `mu2ejobsub` submit rc=1 — R01_06 + one R02, see
-    [[jobsub-disk-quota-stderr-swallowed]]). Leaderboard now 80 rows (52 warm-start + 28).
+    [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md)). Leaderboard now 80 rows (52 warm-start + 28).
     - **FINAL Pareto front (7 non-dominated, sob↑ / flash↓):** R01_09 (3.06, 6.11e-7 = flash FLOOR) ·
       R01_05 (3.23, 6.42e-7) · **R00_00 (3.37, 6.43e-7)** · R01_07 (3.49, 6.71e-7) · R01_04 (3.57, 7.02e-7) ·
       R02_09 (3.70, 8.27e-7) · **R02_02 (3.75, 1.05e-6 = sob CEILING)**. Spans **sob 3.06→3.75** vs
@@ -75,10 +95,10 @@ stage + tracker-edep gallery harvest).
       The real, resolved win is **sob 3.37 vs 3.11 ≈ 22σ** at σ_sob 0.4%. So the honest claim is "same flash
       floor (within noise), decisively higher S/√B" — do NOT say foils *lowered* the flash below the default
       (the default already sits at the floor; see the R0-result bullet). Per-point σ: sob **0.4%**,
-      flash-per-POT **~2%** @200 elebeam jobs (see [[bo-noise-budget]]).
+      flash-per-POT **~2%** @200 elebeam jobs (see [bo-noise-budget](/concepts/bo-noise-budget.md)).
     - Cloud regenerated **n=73** (ff02/03/04), range 2.66×; deck `docs/foilsflash_talk.{md,html}` refreshed.
     - Post-campaign code DONE 2026-07-01: elebeam_flash parallelization + submit stderr-leak fix (see
-      [[closed-loop-runner]], [[jobsub-disk-quota-stderr-swallowed]]).
+      [closed-loop-runner](/drivers/closed-loop-runner.md), [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md)).
     - **Low-stats SMOKE4 rows EXCLUDED from the leaderboard 2026-07-02 (81→78 lines, 77 data rows).**
       The 3 `foilsflashSMOKE4` rows ran at `elebeam_flash` epj=**2500** (44× fewer flash events → ~12%
       flash-per-POT CoV vs ~2% prod) and low sob (1.85–2.85, below the 3.06–3.75 prod range). **GOTCHA:
@@ -94,7 +114,7 @@ stage + tracker-edep gallery harvest).
     **ff04 R00_00 (3.37 / 6.43e-7)** (within the ~2% flash noise). The deployed default already sits near the
     flash floor → diminishing returns on more flash evals; this line can wind down. Leaderboard now 125 rows.
     Campaign doubled as a throughput probe: **q=20 gave ~40% more evals/h than q=10 and measured the grid's
-    ~1,250-concurrent ceiling** — see [[bo-noise-budget]]. (ff05's parallelization stays reverted.)
+    ~1,250-concurrent ceiling** — see [bo-noise-budget](/concepts/bo-noise-budget.md). (ff05's parallelization stays reverted.)
   - **Best-of-both point across ALL campaigns = `foilsflash05R00_04` (sob 3.28 / flash 6.28e-7), 2026-07-03.**
     Edges the earlier ff04 R00_00 (3.37 / 6.43e-7) on flash at comparable sob. NOTE it comes from ff05 — the
     campaign that was KILLED (parallelization backfire) — but its 9 R0 rows are VALID evals: ff05 died in the
@@ -138,7 +158,7 @@ stage + tracker-edep gallery harvest).
     top-3 sob designs (ff03R02_09, ff06R00_18 3.77 / ff06R00_03 3.76 — two independent campaigns)
     all share it: hT_up pinned at the 0.01 bound (20 µm), f_up large (0.63-0.90), dn near-solid
     (f 0.05-0.16) at 275-335 µm; flash cost +46-54% vs deployed. Deck slide "Anatomy of the
-    max-S/√B point" tabulates them. **CROSS-LINE VALIDATION vs [[bo-foils]]** (foils_talk slide 7,
+    max-S/√B point" tabulates them. **CROSS-LINE VALIDATION vs [bo-foils](/projects/bo-foils.md)** (foils_talk slide 7,
     foilsf17R01_07 sob=3.91): the two lines' max-sob designs AGREE quantitatively downstream
     (~110 mm near/fully-solid discs at ~0.28-0.33 mm — independent objectives, same answer) and
     diverge ONLY upstream, in the direction each 2nd objective predicts: foils keeps an in-beam
@@ -152,9 +172,9 @@ stage + tracker-edep gallery harvest).
     +72% vs floor, and +9% flash for +0.13 sob vs the 3.77 corner points. Prediction validated
     on both axes: the in-beam upstream degrader (0.126 mm annulus rIn 20) buys ~+0.13 sob and
     is exactly what the flash objective forbids. Eval used 175/181 flash files (6 on a dead
-    pnfs pool — see [[harvest-pyroot-nfs-rpc-hang]]).
+    pnfs pool — see [harvest-pyroot-nfs-rpc-hang](/incidents/harvest-pyroot-nfs-rpc-hang.md)).
   - **foilsflash09 (q=10×1, 2026-07-08, `--picker hybrid`; 10/10, 0 losses)** — first live hybrid
-    (qnehvi+qnparego) run; validated in [[saturation-is-acquisition-relative]]. **Optimizer self-found
+    (qnehvi+qnparego) run; validated in [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md). **Optimizer self-found
     sob=3.82** (flash 1.04e-6) — the campaign-found ceiling had been stuck at 3.77 across 7 prior
     qNEHVI campaigns; the jump is attributed to the SOBX01=3.90 transplant now being in the 206-row
     training set, re-shaping GP beliefs so acquisition pushed the upstream-degrader region. Batch
@@ -188,7 +208,7 @@ stage + tracker-edep gallery harvest).
   `format_row` (col `flash_edep`), `load_history_row`.
   The flash edep rides in the generic `Point.calo` slot (same trick as ipa's trk_edep).
 - **NULL RECONCILED with Edmonds 2017 (DocDB-10898, 2026-06-29) — we varied the WRONG knob for flash.**
-  Edmonds already studied target-hole vs flash ([[edmonds-target-hole-docdb10898]]):
+  Edmonds already studied target-hole vs flash ([edmonds-target-hole-docdb10898](/external/edmonds-target-hole-docdb10898.md)):
   the flash's parent particles originate **centrally** in the target (RMS_x≈24 mm), so
   the proven flash lever is a **CENTRAL hole in the main stopping target** (R≈18–21.5 mm,
   ~30% flash & tracker-dose reduction all-times, SES unchanged, 2–3% stop loss at fixed
@@ -214,12 +234,12 @@ stage + tracker-edep gallery harvest).
      the operator's intuition): hT_up −0.25, hT_dn −0.30 (more material → slightly LESS
      flash = mild absorber, ~equal up/down); f_up +0.27, f_dn +0.05 (more hole = less
      material → more flash); rOut_up −0.03, rOut_dn +0.16. R²(flash~6 knobs)=0.17 → the
-     ~1.6% real variation is below the ~4% per-eval flash noise ([[bo-noise-budget]]).
+     ~1.6% real variation is below the ~4% per-eval flash noise ([bo-noise-budget](/concepts/bo-noise-budget.md)).
   3. **The only genuine up/down asymmetry is tiny:** only DOWNSTREAM material sits
      between target and tracker, so only it can shield created flash — the single
      strongest (still weak) correlate is downstream central-core material (−0.40);
      upstream extras had no core material in any sampled trial. Below noise, doesn't
-     change the null. See [[edmonds-target-hole-docdb10898]].
+     change the null. See [edmonds-target-hole-docdb10898](/external/edmonds-target-hole-docdb10898.md).
   - **All-solid-extras estimate (2026-06-29):** filling ALL extra-foil holes (f=0) does
     NOT give Edmonds' +30%. Data (16 most-solid vs 16 most-holed evals): solid = **−3.3%**
     flash; GP prediction (f=0 vs f=0.95, other knobs at median): **−0.1%**. Both ~0 and
@@ -241,7 +261,7 @@ stage + tracker-edep gallery harvest).
     is broken/insensitive — the lever was never operated. Clean validation = run solid-base
     vs central-hole-base (R~18-21.5 mm, mass held by disk count) and check we recover
     Edmonds' ~-30%; same A/B is the real flash lever. Needs a base-`holeRadius` knob (not in
-    current mode). See [[edmonds-target-hole-docdb10898]].
+    current mode). See [edmonds-target-hole-docdb10898](/external/edmonds-target-hole-docdb10898.md).
 - **elebeam_flash SEED is shared across configs — GOTCHA for replicas + flash correlations (2026-06-30).**
   `pipeline_templates/elebeam_flash/template.fcl` pins `services.SeedService.baseSeed: 1` and
   `physics.filters.beamResampler.mu2e.MaxEventsToSkip: 319542`, and the submit run_number is
@@ -256,7 +276,7 @@ stage + tracker-edep gallery harvest).
   `graph/config.py` foilsflash block) raises elebeam_flash njobs. High-stats matched A/B
   (NOHOLEhi/HOLEDhi at 400 jobs) launched 2026-06-30 to resolve the residual −6%.
   **STANDARD (user decision 2026-07-09): future campaigns run at the DEFAULT 100 — do NOT
-  set the env var.** σ_flash measured 2.52% @100 jobs (vs 1.84% @200; see [[bo-noise-budget]]),
+  set the env var.** σ_flash measured 2.52% @100 jobs (vs 1.84% @200; see [bo-noise-budget](/concepts/bo-noise-budget.md)),
   negligible against the ~70% flash dynamic range; the =200 in ff08/09/10 launch commands was
   stats-run inheritance that double-spent 85% of grid-hours. Reserve ≥200 for one-off
   high-stats/replica runs only.
@@ -288,7 +308,7 @@ stage + tracker-edep gallery harvest).
   The high-stats A/B mean was ~flat (−3.8%, noise), BUT the flash-event COUNT is decisive:
   solid 133,967 vs holed 101,403 flash events from the SAME ~40M input (361 vs 362 equal
   jobs) → **hole −24% flash RATE at ~67σ** (Poisson), **−21.5% TOTAL flash MeV/input**. Same
-  DIRECTION and comparable magnitude as Edmonds' ~30% ([[edmonds-target-hole-docdb10898]]).
+  DIRECTION and comparable magnitude as Edmonds' ~30% ([edmonds-target-hole-docdb10898](/external/edmonds-target-hole-docdb10898.md)).
   Mechanism: solid on-axis central target material SCATTERS/SHOWERS beam electrons into the
   tracker → more flash-depositing events; the hole lets the on-axis beam pass → fewer. (Same
   source/scatterer sign as Edmonds — the earlier "opposite-sign absorber" story was WRONG.)
@@ -350,7 +370,7 @@ stage + tracker-edep gallery harvest).
   central hole (verified: `{75×37}` radii, `{hole×37}` holeRadii; `parse_geom` safe at
   expected_len=37; default run unchanged at 49 foils). Used for the no-hole flash A/B
   (foilsflashNOHOLE00 hole=0 vs foilsflashHOLED00 hole=21.5) to test Edmonds' +30%
-  ([[edmonds-target-hole-docdb10898]]).
+  ([edmonds-target-hole-docdb10898](/external/edmonds-target-hole-docdb10898.md)).
 - **NO-HOLE A/B RESULT (2026-06-30) — does NOT reproduce Edmonds' +30%; METRIC MISMATCH is the deepest root cause of the whole null.**
   Matched 37-foil pair, no extras, single eval each (~4 h grid):
   | config | base rIn | flash_edep/event | sob | muminus_stops |
@@ -381,7 +401,7 @@ stage + tracker-edep gallery harvest).
     dominated by off-axis electrons that don't sample the central r<21.5 mm hole; (b) our
     `EleBeamCat` electron component is a SUBSET of Edmonds' full-species "flash" frame, so it
     needn't carry his full −30%. Remaining to pin the small effect + sign: **replicas**
-    (elebeam_flash ~4-8× per config → σ~2%). See [[edmonds-target-hole-docdb10898]].
+    (elebeam_flash ~4-8× per config → σ~2%). See [edmonds-target-hole-docdb10898](/external/edmonds-target-hole-docdb10898.md).
 - **Cloud "narrow band vs wide dots" is NOT a bug (3-agent audit 2026-06-29).** The
   `gp_predict_foilsflash_cloud.py` density looks like a thin flash band while the 48
   dots scatter ~3× wider — this is the honest signature of the null result, NOT a
@@ -390,7 +410,7 @@ stage + tracker-edep gallery harvest).
   band; dots are isolated interpolation spikes (in-sample resid ~0.1%). Decisive
   control: the sob GP through the same pipeline gives a full-width cloud. flash R²(6
   knobs)=0.17 (only 17% of flash variance is geometry). Full mechanics + the one
-  cosmetic x-clip fix (`:102` x-range 3.4→3.9) in [[gp-cloud-rendering]].
+  cosmetic x-clip fix (`:102` x-range 3.4→3.9) in [gp-cloud-rendering](/concepts/gp-cloud-rendering.md).
 - **Grid chain** (`graph/config.py`): `mubeam → concat → mustops_ce → elebeam_flash`
   — NO `run1b_mubeam` (no calo channel, like ipa). mubeam+concat+mustops_ce give
   S/√B; `elebeam_flash` gives the flash edep.
@@ -428,18 +448,18 @@ stage + tracker-edep gallery harvest).
   `EleBeamResampler`) — the `EarlyDetStepSequence` ends in `compressDetStepMCs`,
   which is already the first candidate tag in the ipa gallery extractor, so harvest
   reuses `pipeline.py:_extract_trk_edep_per_pot` VERBATIM (new "Step 7" block).
-- **Musing**: patched `Offline_helical/setup_local.sh` (same as [[bo-foils]] /
+- **Musing**: patched `Offline_helical/setup_local.sh` (same as [bo-foils](/projects/bo-foils.md) /
   foilsf) — it varies foil geometry so it NEEDS the holeRadii-vector patch. The
   geom emits the 49-entry `stoppingTarget.holeRadii` vector + poison-pill scalar
   `holeRadius = 1.0e6` (a scalar-fallback worker crashes loudly in G4Tubs rather
   than silently building uniform holes — see
-  [[foilsg-grid-tarball-scalar-holeradius-fallback]]).
+  [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)).
 - **Offline-verified 2026-06-27**: 91 unit tests pass; `propose` writes a faithful
   geom (49 holeRadii + 1e6 scalar); `closed_loop --dry-run` emits in-box picks with
   the 6 foilsf labels; botorch `MODE_SPECS["foilsflash"]` = foilsf box.
 
 ## First empirical result (foilsflashSMOKE4, 3 geoms, 2026-06-27) — line VALIDATED + flash IS geometry-sensitive
-End-to-end works after the [[foilsflash-tarball-mode-key-omission]] fix.
+End-to-end works after the [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md) fix.
 **3-geom go/no-go = GO: flash_edep varies ~29% across the 3 Sobol geoms** →
 foils measurably affect early-flash tracker occupancy (not flat):
 | cfg | sob | flash_edep MeV/ev | flash_events |
@@ -524,7 +544,7 @@ electron-flash lever, and there is NO sob-vs-flash trade-off.**
 
 ## Harvest gotcha at production scale (2026-06-28)
 The big `mustops_ce` (100×75k → EdepAna sees ~2.7M CE events) tripped
-[[edepana-saw-events-scientific-notation-parse]]: EdepAna prints the count in
+[edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md): EdepAna prints the count in
 scientific notation past 1M events, which the old `Saw (\d+) events` regex missed
 → `harvest_exception` zero rows on every child. Fixed in `pipeline.py` (regex now
 accepts sci-notation); harvest is a fresh subprocess so in-flight children self-heal.
@@ -551,7 +571,7 @@ concurrently (stage nodes block in subprocess I/O, GIL released) → hides elebe
 STRAND the harvest fan-in join if a branch fails; needs failure-handling moved into
 harvest + a mode-gated per-mode DAG spec (replace flat GRID_STAGES linear `zip` chain +
 the `GRID_STAGES[0]` single-head in build.py:53-72). Touches Pregel join / SqliteSaver /
-barrier ([[closed-loop-bo-design]]). Worth ~10 wall-h/campaign but risky — do only if
+barrier ([closed-loop-bo-design](/concepts/closed-loop-bo-design.md)). Worth ~10 wall-h/campaign but risky — do only if
 campaigns get frequent, with full 91-test + barrier dry-run coverage.
 
 **Lever 3 — multithread harvest (SKIP; only 1.6×, redundant after lever 1).** EdepAna is
@@ -573,7 +593,7 @@ half-thickness; writes `docs/foilsflash_predicted_cloud.png`). Render:
 No commit/push (operator reviews, like foils/ipa).
 
 ## Cross-links
-- Related: [[bo-foils]], [[bo-ipa]], [[foilsg-grid-tarball-scalar-holeradius-fallback]]
+- Related: [bo-foils](/projects/bo-foils.md), [bo-ipa](/projects/bo-ipa.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)
 - Source files: `autoresearch_bo_michael.py` (FoilsFlashMode),
   `pipeline_templates/elebeam_flash/template.fcl`, `pipeline.py` (STAGES + Step 7),
   `graph/config.py` (chain/musing/targets), `mmackenz_table_plots/gp_predict_foilsflash.py`
@@ -640,7 +660,7 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
   distribution of the foilsflash02 `EarlyEleBeamFlash` StrawGasStep hits (outputs already
   on /pnfs) → tells us WHERE the flash lands → picks the absorber: small r → IPA
   (r~300), large r → OPA (r 454–728).
-- **`ipaflash` (cheapest pivot, recommended):** reuse the existing [[bo-ipa]] 5-D IPA-cone
+- **`ipaflash` (cheapest pivot, recommended):** reuse the existing [bo-ipa](/projects/bo-ipa.md) 5-D IPA-cone
   geometry + the already-built+validated `elebeam_flash` stage; only a new mode subclass
   (IPA geom + flash `extract_metrics`). The IPA is a continuous poly cone BETWEEN target
   and tracker (r~300), CE-transparent, and bo-ipa showed it intercepts particles there →
@@ -649,8 +669,8 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
   the flash is wide-angle, but needs a new geometry parameterization.
 
 ## Resolved / TODO
-- RESOLVED: tarball mode-key omission ([[foilsflash-tarball-mode-key-omission]]), the
-  EdepAna sci-notation parse ([[edepana-saw-events-scientific-notation-parse]]), the live
+- RESOLVED: tarball mode-key omission ([foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md)), the
+  EdepAna sci-notation parse ([edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md)), the live
   smoke (foilsflashSMOKE4 PASS), the geometry-sensitivity go/no-go (answered: NULL — see
   RESULT), auxinput path (worked on real submit).
 - OPEN (operator decision): close the line as a clean null, OR run the radial check →
@@ -668,7 +688,7 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
 - **foilsflash10 = the widened-box probe (2026-07-09, q=8×1 hybrid, HT_FLOOR 0.01→0.002)**:
   launch itself validated the hypothesis-shape — the picker immediately railed 6/8 children at
   the NEW 0.002 floor (hT_up=0.002 on 5, one both-sides). Round then hit the
-  [[elebeamcat-tape-migration-elebeam-wipeout]] incident: all elebeam jobs died (EleBeamCat
+  [elebeamcat-tape-migration-elebeam-wipeout](/incidents/elebeamcat-tape-migration-elebeam-wipeout.md) incident: all elebeam jobs died (EleBeamCat
   moved to tape that morning), 0 rows landed despite VALID sob in every summary.json.
   **FINAL VERDICT (2026-07-10, all 7 rows recovered with real flash): sub-20 µm buys
   NOTHING on either objective.** sob: best 3.78 < the 3.82 rail. flash: the 4 µm points
@@ -704,7 +724,7 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
 - **Next-line candidate (2026-07-10): `bo-foilshole` — central stopping-target hole.**
   This line varied the OUTER envelope and bought ~5% flash at best; a CENTRAL hole
   (R≈18-21 mm) cuts flash ~30% + tracker dose ~30% at unchanged SES per
-  [[edmonds-target-hole-docdb10898]] (flash parents are central, RMS 24 mm). Non-obvious
+  [edmonds-target-hole-docdb10898](/external/edmonds-target-hole-docdb10898.md) (flash parents are central, RMS 24 mm). Non-obvious
   enabler: the foilsg **holeRadii-vector patch** (per-foil holeRadius already parseable by
   our patched StoppingTargetMaker + shipped in the grid tarball) means a central-hole knob
   is likely near-FREE geometrically — needs only a mode whose extras write per-foil inner
@@ -712,7 +732,7 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
   footprint) this is plausibly 5-10× more flash headroom than anything left in this box.
 
 - **foilsflash12 (2026-07-10, q=10×1 hybrid): FIRST FULL-STACK CAMPAIGN — speed stack delivered.**
-  10/10 rows (244 total; two mid-round [[harvest-pyroot-nfs-rpc-hang]] recurrences recovered
+  10/10 rows (244 total; two mid-round [harvest-pyroot-nfs-rpc-hang](/incidents/harvest-pyroot-nfs-rpc-hang.md) recurrences recovered
   in-flight), 10/10 elebeam presubmits fired, tarball cache + input probe live throughout.
   **Real eval wall: median 214 min (168 min best)** vs the 5.4 h pre-stack baseline ≈ **40%
   faster at ~half the grid footprint** (outliers 477-496 min were the two NFS-hang recoveries
@@ -749,4 +769,3 @@ still likely needs a continuous CE-transparent absorber in the DS flash path (IP
   R01_00); R01_05 3.69@7.78e-7 (new low-flash mark at high sob). Campaign total 20/20 evals
   despite the kill/recovery detour; R1 children ran the switchover harvest in production.
   The 7.8-9.5e-7 × 3.66-3.84 region — empty three days ago — is now densely mapped.
-

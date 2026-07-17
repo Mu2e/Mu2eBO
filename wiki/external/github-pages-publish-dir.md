@@ -1,8 +1,14 @@
-# github-pages-publish-dir — GitHub Pages branch-deploy folder restriction
+---
+type: external
+title: github-pages-publish-dir — GitHub Pages branch-deploy folder restriction
+description: GitHub Pages branch-deploy folder dropdown hardcodes `/(root)` and
+  `/docs` only; arbitrary names like `/talks` require switching source to GitHub
+  Actions
+status: active
+timestamp: '2026-05-30'
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-05-30
+# github-pages-publish-dir — GitHub Pages branch-deploy folder restriction
 
 ## Summary
 GitHub Pages "Deploy from a branch" mode does NOT let you pick an arbitrary
@@ -41,7 +47,7 @@ needs a workflow file.
   footer must span the whole slide.
 
 ## Cross-links
-- Related: [[slack-file-upload-flow]] (parallel pattern of "external
+- Related: [slack-file-upload-flow](/external/slack-file-upload-flow.md) (parallel pattern of "external
   hosting workflow we set up once and forget")
 - External: [GitHub Pages docs](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
 

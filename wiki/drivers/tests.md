@@ -1,8 +1,14 @@
-# Self-tests (`tests/`)
+---
+type: driver
+title: Self-tests (`tests/`)
+description: '`tests/test_closed_loop.py` + `test_audit_fixes.py` + `test_nodes.py`;
+  91 tests, no grid contact; `PYTHONPATH= .venv-graph/bin/python -m unittest discover
+  -s tests -v`'
+status: active
+timestamp: '2026-06-05'
+---
 
-**Type:** driver
-**Status:** active
-**Updated:** 2026-06-05
+# Self-tests (`tests/`)
 
 ## Summary
 Regression tests for the Python drivers in this project. Two files today;
@@ -31,7 +37,7 @@ foils v2 6D round-trip suite and the shared env-source helper.
     round-trip, 49-entry vectors) and `TestRunSourcedBash` (5 cases over
     `graph/sourced_bash.py:run_sourced_bash` — success/retry/exhaust/
     banner-blocks-retry/timeout-not-retried; mocks `sb.subprocess.run` +
-    `sb.time.sleep`). See [[sourced-env-stderr-swallowed]].
+    `sb.time.sleep`). See [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md).
 - **Off-tree module import recipe.** `gp_predict_helical.py` lives at
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/`
   (NOT in this git repo). To unit-test it, load via
@@ -79,10 +85,10 @@ foils v2 6D round-trip suite and the shared env-source helper.
   trap will recur for any future mode addition.
 
 ## Cross-links
-- Related: [[closed-loop-runner]], [[graph-runner]],
-  [[autoresearch-bo-michael]], [[pipeline]]
-- Pins fixes for: [[events-per-job-mid-flight-edit]] (poll+list-outputs
-  SHA-check extension), [[scan-broken-codes-too-narrow]] (broken-unknown
+- Related: [closed-loop-runner](/drivers/closed-loop-runner.md), [graph-runner](/drivers/graph-runner.md),
+  [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [pipeline](/drivers/pipeline.md)
+- Pins fixes for: [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md) (poll+list-outputs
+  SHA-check extension), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) (broken-unknown
   parse exception)
 - Source files: `tests/test_closed_loop.py`, `tests/test_audit_fixes.py`
 - Off-tree under test:

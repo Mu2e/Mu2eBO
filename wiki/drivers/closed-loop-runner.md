@@ -1,8 +1,14 @@
-# closed-loop-runner — multi-round Pareto-pick BO driver
+---
+type: driver
+title: closed-loop-runner — multi-round Pareto-pick BO driver
+description: 'multi-round Pareto-pick BO driver: wraps q parallel graph-runner children,
+  refits GP between rounds'
+status: active
+timestamp: '2026-07-15'
+updated_note: pgrep-self-match PID trap; foilsflash18 launched on production defaults
+---
 
-**Type:** driver
-**Status:** active
-**Updated:** 2026-07-15 (pgrep-self-match PID trap; foilsflash18 launched on production defaults)
+# closed-loop-runner — multi-round Pareto-pick BO driver
 
 > **Validate a NEW picker with a SMALL round, not full-stats q=10** (lesson
 > from foilsflash09, 2026-07-08). A picker only changes the PROPOSAL step; the
@@ -15,7 +21,7 @@
 
 ## Summary
 Multi-round closed-loop runner that wraps q parallel
-[[graph-runner]] children per round, refits the GP between rounds, and loops
+[graph-runner](/drivers/graph-runner.md) children per round, refits the GP between rounds, and loops
 until budget/convergence/operator stop. Replaces the prior operator-paced
 loop (human computes 5 Pareto picks → launches 5 chains by hand → waits 2 h
 → refits → repeats) with a checkpointed LangGraph driver. Helical mode only
@@ -30,7 +36,7 @@ in this phase.
   parent exits clean, 9 launched / 0 rows / 0 grid jobs / ~75 min). Abort
   leaves in-flight children ORPHANED (they self-terminate at their own
   failed submit here; a healthier abort scenario would leave them running —
-  same orphan shape as [[closed-loop-final-round-orphan-children]]).
+  same orphan shape as [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md)).
 - **`--rolling` FULLY VALIDATED end-to-end (foilsflash16, 2026-07-14):**
   10/10 rows, 0 failures, parent exited via `rolling_done` (budget spent,
   pool drained). Every mechanism fired live: first-resolution barrier exit,
@@ -42,20 +48,20 @@ in this phase.
   small at max_evals=2q (only 5 replenishes + a full-cost drain tail);
   the +30–50% projection needs production scale (many waves, larger q)
   where drain cost amortizes. Best new row sob 3.83 (R00_02); the 10 rows
-  double as the held-out GP test set ([[ml-stack-review-2026-07]]). (The
+  double as the held-out GP test set ([ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)). (The
   "saturated" read here was PREMATURE — ff18 later found sob 3.86, a new BO
-  record; see [[bo-foilsflash]].)
+  record; see [bo-foilsflash](/projects/bo-foilsflash.md).)
   **Rolling q=5/max-evals-10 campaign wall is REPRODUCIBLE ~8h** across three
   runs: ff16 8h16m, ff17 8h00m, ff18 8h19m (10 evals each, first rows ~4h in).
   Use ~8h for scheduling a foilsflash rolling mini-campaign.
 - **`AUTORESEARCH_BOTORCH_VENV` (2026-07-14, 5c5b4fb):** env seam overriding
   the picker-subprocess venv DIRECTORY (default `.venv-botorch` = botorch
   0.10; set `.venv-botorch-new` = 0.18 defaults) — for live picker A/Bs
-  without touching the default path. See [[ml-stack-review-2026-07]].
+  without touching the default path. See [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md).
 - **KEEP barrier mode — do NOT remove rounds yet (decision 2026-07-16).**
   Tempting to delete the `else` branches now that ff16-19 all run `--rolling`,
   but: (1) rolling has an OPEN correctness bug
-  ([[rolling-no-row-streak-false-increment]]) in the rolling-only abort logic —
+  ([rolling-no-row-streak-false-increment](/incidents/rolling-no-row-streak-false-increment.md)) in the rolling-only abort logic —
   don't retire the validated fallback while the replacement has an unfixed
   defect; (2) rolling is ~1 week / 4 campaigns old vs barrier's months of
   incident-hardening; (3) **rounds is NOT dead code** — `max_evals` DEFAULTS to
@@ -63,7 +69,7 @@ in this phase.
   load-bearing for the budget even in rolling runs. Net removal payoff is only
   ~4 branch-pairs + round_idx plumbing — modest, not urgent.
   **Gate UPDATE 2026-07-16:** the streak bug is FIXED (b98d5da,
-  [[rolling-no-row-streak-false-increment]]) — that blocker is cleared, but the
+  [rolling-no-row-streak-false-increment](/incidents/rolling-no-row-streak-false-increment.md)) — that blocker is cleared, but the
   fixed name-based accounting has NEVER run live (ff19 killed pre-fix). Remaining
   gate = ONE clean live rolling campaign on the fixed code, then barrier can go.
   Removal also needs a budget-interface change (`max_evals` defaults from
@@ -82,7 +88,7 @@ in this phase.
   rowless resolutions aborts (foilsX04 shape). 24h barrier backstop ENDs the
   run loudly under rolling (a hung-alive child would pin a slot forever).
   Default (no flag) is byte-identical to barrier mode. Expected +30-50%
-  evals/day (kills the slowest-of-q tail — see [[bo-noise-budget]] lever #4).
+  evals/day (kills the slowest-of-q tail — see [bo-noise-budget](/concepts/bo-noise-budget.md) lever #4).
   First live campaign should A/B a small `--max-evals` run before betting a
   full line on it.
 - **Round wall-clock (measured 2026-06-18/19, q=10):** foils **~3 h/round** (foilsf18 R0 2h50m).
@@ -189,7 +195,7 @@ in this phase.
       *right direction*).
       **Second-order cost — the submit-lock serializes the presubmit burst.** With q=10 children each now
       doing TWO early submits (elebeam presubmit + mubeam), the per-`pipeline.py` submit-lock
-      ([[concurrent-token-contention]]) processes all 10 elebeam presubmits (each a 200-job `mu2ejobsub`,
+      ([concurrent-token-contention](/incidents/concurrent-token-contention.md)) processes all 10 elebeam presubmits (each a 200-job `mu2ejobsub`,
       ~4 min) AHEAD of the mubeam submits — observed elebeam presubmits at 00:33/00:37/00:41/00:45/00:49/00:53
       (~4 min apart), delaying each child's mubeam (→ sob-chain start) by ~20 min. So the realized saving is
       **~40-50 min/eval, NOT the full ~70-90 min** (the flash run is removed from the critical path, but the
@@ -231,7 +237,7 @@ in this phase.
   Before a child's FIRST `mu2ejobsub` (hence before any cluster shows in `jobsub_q`) it must complete
   (a) preflight (~15–20 min real G4 init) AND (b) a per-child **Code.tar.bz2 rebuild** — the submit does
   `tar xjf Code_helical_holeradii.tar.bz2` then re-bzips it to the 677 MB `Code.tar.bz2` (this is both the
-  cold-start cost and the source of the [[data-quota-exhausted-grid-accumulation]] bulk). Under the submit-lock
+  cold-start cost and the source of the [data-quota-exhausted-grid-accumulation](/incidents/data-quota-exhausted-grid-accumulation.md) bulk). Under the submit-lock
   these serialize across children. So "N children launched, 0 jobs in `jobsub_q`" 20 min in = healthy setup
   phase, NOT failure. Confirm via the child's `graph_logs/submit_mubeam_*.log` mtime (should be current, e.g.
   showing the `tar cf - Code/ | bzip2` step). First clusters appear ~5–10 min after preflight passes.
@@ -253,7 +259,7 @@ in this phase.
   command (no launch text in argv), the bracket trick DOES work for `pgrep -f` — a monitor polling
   `pgrep -f "graph[.]run.*foilsflash08"` matched exactly the 20 real children and not its own shell
   (argv has literal `graph[` where the regex needs `graph.`); beware lookalike substrings though
-  (`[.]` would still match a literal `.` elsewhere, e.g. paths). Distinct from the genuine [[closed-loop-parent-signal-kill-midlaunch]]
+  (`[.]` would still match a literal `.` elsewhere, e.g. paths). Distinct from the genuine [closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md)
   death (there the parent is truly gone AND children die too); here children were all `Sl`-alive
   with grid clusters running, the tell that the parent-negative was a pgrep artifact.
 - **Log-watch grep trap (2026-07-10)**: the parent's JSON heartbeat lines
@@ -273,7 +279,7 @@ in this phase.
   at the top of every round and **hard `sys.exit(2)` if `getToken` fails**
   (continuing past expiry just orphans clusters). Operator runs `kinit`,
   re-invokes with the same `--thread-id`; the outer checkpoint resumes
-  from `renew_token`. See [[kerberos-mid-run-expiry]].
+  from `renew_token`. See [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md).
 - **Children are subprocesses, not LangGraph `Send()` branches.** Each pick
   becomes `python -m graph.run --thread-id <name> --config-name <name>
   --x-point dx,dy,hl,ang --no-mock --mode <mode>` via
@@ -291,9 +297,9 @@ in this phase.
   accident (`max(extra_rIn)=50 == min(extra_rOut)=50`, so `rIn>=rOut` is
   measure-zero). **Any range change that breaks that coincidence (e.g.
   widening `rIn_dn` past 50) MUST first add is_buildable filtering to the
-  picker, or reparameterize to remove the infeasible region.** See [[bo-foils]].
+  picker, or reparameterize to remove the infeasible region.** See [bo-foils](/projects/bo-foils.md).
 - **Barrier polls the SqliteSaver checkpoint, NOT the leaderboard TSV.**
-  Per `[[closed-loop-bo-design]]` revision #3: the TSV is a derived
+  Per `[closed-loop-bo-design](/concepts/closed-loop-bo-design.md)` revision #3: the TSV is a derived
   end-of-harvest artifact, so using it as the barrier source-of-truth
   conflates "child crashed mid-harvest" with "child still running." A child
   is treated as resolved when ANY of: (a) its leaderboard row appears, (b)
@@ -301,7 +307,7 @@ in this phase.
   is empty (terminal checkpoint), (d) **its process is dead with none of
   a-c after one poll tick of grace** (added 2026-06-12; catches the
   foilsf08 crash shape — see
-  [[closed-loop-sqlite-checkpoint-transient-corruption]]). Leaderboard read
+  [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md)). Leaderboard read
   goes through `bo.MODES[mode].load_history()` which acquires the `flock`
   lock added in task #90.
 - **Barrier waits on child process liveness, NOT a wall-clock window
@@ -314,7 +320,7 @@ in this phase.
   parses). The zero-rows early-exit in `decide_next` fires only when ALL of
   this round's `launched_names` resolved AND no new leaderboard rows landed;
   a backstop trip with pending children carries the round forward. Fix
-  history + landmines in [[closed-loop-barrier-timeout-zero-rows-falsepos]]
+  history + landmines in [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md)
   and `docs/closed-loop-barrier-fix.md`.
 - **CLI**:
   ```
@@ -364,7 +370,7 @@ in this phase.
      `{prefix}R00_{j}` names that are already in the leaderboard;
      `assign_names` marks them completed, `launch_children` skips all q, the
      barrier resolves with 0 children, and the zero-row safety gate ENDs
-     immediately (same shape as [[foilsx04-all-preflight-ambiguous]]).
+     immediately (same shape as [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)).
   **Correct continuation:** a new prefix (e.g. `foilsY01`→`foilsY02`). The new
   campaign seeds from prior rows via `load_history` (+ `load_priors`), so the
   GP starts informed — verified by `history_len_before=3` picking up
@@ -427,12 +433,12 @@ in this phase.
     with normalized-L2-distance gate. The foilsX04 zero-row fix is
     still required either way — it's about not advancing a counter on
     a degenerate round, independent of what the counter means.
-- **q-pick spacing** (`[[closed-loop-bo-design]]` revision #7): even-spaced
+- **q-pick spacing** (`[closed-loop-bo-design](/concepts/closed-loop-bo-design.md)` revision #7): even-spaced
   ranks along a short Pareto frontier yield near-degenerate picks.
   `gp_predict_helical.compute_explore_picks` is *supposed* to enforce a
   normalized-L2 ≥ `min_spacing` gate (default 0.05) and fall back to fewer
   than q picks if the frontier is too clustered. Future migration to
-  skopt-native CL-min (`[[batch-bo]]`) is the cleaner long-term fix.
+  skopt-native CL-min (`[batch-bo](/concepts/batch-bo.md)`) is the cleaner long-term fix.
   - **2026-05-29 simplify-audit fixed**: `compute_explore_picks`
     (gp_predict_helical.py:347) had `min_spacing` declared in the
     signature but the call to `_select_picks(par_idx, s['Xd_all'], q,
@@ -441,7 +447,7 @@ in this phase.
     `CLOSED_LOOP_MIN_PICK_SPACING`. Fix: pass `min_spacing` through.
     Past leaderboard rounds are tighter-clustered than their
     `--min-spacing` setting suggests.
-- **WAL gate** (`[[closed-loop-bo-design]]` revision #1, #6): the outer
+- **WAL gate** (`[closed-loop-bo-design](/concepts/closed-loop-bo-design.md)` revision #1, #6): the outer
   graph and q children all write to the same
   `graph_data/checkpoints.sqlite`. WAL is set explicitly in both
   `graph/run.py` and `graph/closed_loop.py` after every connect. Verified
@@ -483,7 +489,7 @@ in this phase.
   checkpoint yet — indistinguishable from a terminal state by `.next`
   alone. Fix in `_child_terminal_via_checkpoint`: require
   `snap.next` empty AND `snap.values` non-empty AND `metadata.step >= 1`.
-  See [[barrier-false-positive-round1]] for the resolution. The
+  See [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) for the resolution. The
   `--max-rounds 1` workaround in `/closed-loop-launch` is no longer
   strictly required but kept as a conservative default.
 - **2026-05-24 (same day): second barrier false-positive on FT06**, also
@@ -495,7 +501,7 @@ in this phase.
   and `children` had 8 round-1 names → `8 >= 8` True on first tick →
   break before checking any round-1 child. Fix: replace count comparison
   with `if all(n in completed for n in children)`. See
-  [[barrier-false-positive-round1]] for both bugs. **Until a clean
+  [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) for both bugs. **Until a clean
   `--max-rounds 2` real-run validates the combined fix, keep
   `/closed-loop-launch`'s `--rounds 1` default in place.**
 - **2026-05-25 helicalPC02 (`--pessimistic-calo --max-rounds 2`) surfaced
@@ -552,7 +558,7 @@ in this phase.
   run the outstage held exactly one dir `00000.6d475c59` (hash-suffix)
   that never got renamed because the underlying art job died with the
   known xrootd `[3012] Pool unavailable` `FileOpenError` in PostEndJob
-  (see [[concat-xrootd-fileopen-postendjob]]). **Key insight:**
+  (see [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md)). **Key insight:**
   jobsub_lite only renames hash→bare on **zero-exit** jobs. A
   perma-hash dir means EITHER rename-in-flight OR FAILED-and-rename-
   skipped — counting hash as settled risks declaring success on a
@@ -607,7 +613,7 @@ grid queue was empty.
      flagged SAT by R04, yet ran all 10 rounds — R03–R09 ≈ 7×~80min wasted. Wire
      the `saturation_report.py` SAT verdict (or "no round-best improvement in k
      rounds") as an auto-stop; gate on "≥N evals AND no-improvement" to dodge the
-     [[barrier-false-positive-round1]] / [[foilsx04-all-preflight-ambiguous]]
+     [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) / [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)
      false-positive history. NOT currently wired (`CLOSED_LOOP_MAX_ROUNDS`
      budget is the only stop).
   2. **Bigger q, fewer rounds (qNEHVI only) — but with TWO ceilings.** Wall
@@ -623,11 +629,11 @@ grid queue was empty.
      2.017, so collapsing to 1–2 rounds degenerates the run into batch-Sobol
      (no GP steering). Keep **rounds ≥ ~4**. Also `90s stagger × q` front-loads
      each round's launch (q=8 → ~12 min just launching). cl_min boundary-
-     collapses at high q ([[batch-bo]]) but qNEHVI doesn't — so qNEHVI runs go
+     collapses at high q ([batch-bo](/concepts/batch-bo.md)) but qNEHVI doesn't — so qNEHVI runs go
      wide-and-shallow within these two ceilings (practical sweet spot ~q=8–12 ×
      4 rounds, grid-quota permitting).
   3. **Memory → schedulability.** Smaller VmPeak → smaller mem request → more
-     eligible slots → less queue wait. FTFP_BERT's −45% VmPeak ([[g4-speed-knobs]])
+     eligible slots → less queue wait. FTFP_BERT's −45% VmPeak ([g4-speed-knobs](/concepts/g4-speed-knobs.md))
      attacks the #1 bottleneck — turnaround justification for the flip, not just
      OOM-safety.
   4. **Structural:** the 4-stage serial chain (incl. a full grid round-trip for
@@ -637,10 +643,10 @@ grid queue was empty.
     (~50 min/10-round campaign); safe to drop to 120s (write rate ~0.01/s).
 
 ## Cross-links
-- Related: [[tests]], [[graph-runner]], [[closed-loop-bo-design]], [[bo-helical]],
-  [[batch-bo]], [[autoresearch-bo-michael]], [[scalarized-objective]],
-  [[kerberos-mid-run-expiry]], [[g4-speed-knobs]]
-- Regression tests: [[tests]]
+- Related: [tests](/drivers/tests.md), [graph-runner](/drivers/graph-runner.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-helical](/projects/bo-helical.md),
+  [batch-bo](/concepts/batch-bo.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [scalarized-objective](/concepts/scalarized-objective.md),
+  [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md), [g4-speed-knobs](/concepts/g4-speed-knobs.md)
+- Regression tests: [tests](/drivers/tests.md)
 - Source files: `graph/closed_loop.py`,
   `graph/config.py` (CLOSED_LOOP_* constants),
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_helical.py`
@@ -665,7 +671,7 @@ grid queue was empty.
   anchored on **leaderboard outcomes** (rows that actually landed)
   not GP-proposed coords (which jitter across Sobol cells even at
   saturation — see the 2026-05-29 audit above).
-- Numbers in `[[bo-helical]]` ("HV +1.6% / hit-rate 62%→38%") come from
+- Numbers in `[bo-helical](/projects/bo-helical.md)` ("HV +1.6% / hit-rate 62%→38%") come from
   one-off `/tmp/pareto_saturation.py` (W=20 window, 2D HV via
   axis-aligned rectangle stacking). Promoted 2026-05-29 to
   `autoresearch_grid/mmackenz_table_plots/saturation_report.py`
@@ -686,7 +692,7 @@ grid queue was empty.
     N−1"). The HV / PF-size / hit-rate panels ARE valid (eval-indexed,
     campaign-agnostic). For a true saturation curve use a SINGLE-campaign
     prefix (a 10-round run like foilsY05 is the right analog, as foilsX07 was
-    for v1). See [[bo-foils]].
+    for v1). See [bo-foils](/projects/bo-foils.md).
   Validated
   2026-05-29: bo-helical-v2 fires SATURATED at R02 (hit-rate 70%→15%,
   Δbest=-1.02 vs ε·anchor=0.0042); bo-foils-v1 stays not-saturated
@@ -703,7 +709,7 @@ grid queue was empty.
   hit-rate 55%→0% (post-X07 R06, slide 14 hand-authored) back up to
   **65%** while Δbest stayed negative for 8 consecutive rounds (R02–R09)
   and VERDICT remained SATURATED. The diversity-overlay finding (qNEHVI
-  scatters into corners, [[batch-bo]]) is the *cause*, not a
+  scatters into corners, [batch-bo](/concepts/batch-bo.md)) is the *cause*, not a
   contradiction. **Trust per-round Δbest plateau for the SAT verdict;
   treat the rolling hit-rate as a diversity indicator, not a saturation
   indicator.** Hand-authored hit-rate numbers in slide decks decay
@@ -723,4 +729,4 @@ grid queue was empty.
   round's grid stages can still outlive the renewed ticket if a stage
   hangs near the 25 h krb5 limit; consider a sibling watchdog cron that
   `kinit -R`s every ~12 h independent of the closed loop. See
-  [[kerberos-mid-run-expiry]].
+  [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md).

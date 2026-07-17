@@ -1,23 +1,28 @@
-# preflight — local G4 init feasibility check
+---
+type: driver
+title: preflight — local G4 init feasibility check
+description: local `mu2e -n 1` G4 init feasibility check
+status: active
+timestamp: '2026-06-13'
+updated_note: fatal-abort gate + holeRadii canary + as-built GDML geometry assertion
+  added after the foilsg uniform-hole incident; documented foils-only GDML emission
+  scope
+---
 
-**Type:** driver
-**Status:** active
-**Updated:** 2026-06-13 (fatal-abort gate + holeRadii canary + as-built
-GDML geometry assertion added after the foilsg uniform-hole incident;
-documented foils-only GDML emission scope)
+# preflight — local G4 init feasibility check
 
 > **2026-06-13 — preflight is now a 4-layer gate (foils family):**
 > 1. **Fatal-abort check** (`G4_FATAL_RX`): GeomSolids00xx / `*** Fatal
 >    Exception ***` / "Aborting execution" FAIL unconditionally — before
->    `past_init` can mask them ([[preflight-past-init-false-pass]]).
+>    `past_init` can mask them ([preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)).
 > 2. **holeRadii canary**: geom requests `stoppingTarget.holeRadii` but
 >    output lacks "holeRadii vector active" → FAIL (unpatched env,
->    [[foilsg-grid-tarball-scalar-holeradius-fallback]]).
+>    [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)).
 > 3. **As-built GDML assertion** (foils/foilsf/foilsg): surfacecheck FCL
 >    also sets `physics.producers.g4run.debug.writeGDML` →
 >    `preflight_geom.gdml` in the workdir;
 >    `verify_stopping_target_gdml()` parses the `Foil_NN` tubes with
->    plain XML (NOT ROOT TGDMLParse — [[root-gdml-forward-volume-ref]])
+>    plain XML (NOT ROOT TGDMLParse — [root-gdml-forward-volume-ref](/incidents/root-gdml-forward-volume-ref.md))
 >    and compares per-foil rIn/rOut/fullThickness against the geom file
 >    (tol 1e-3 mm, GDML z = FULL length, lunit-aware, repeat-last
 >    halfThickness semantics). Any mismatch or missing GDML → FAIL.
@@ -46,7 +51,7 @@ documented foils-only GDML emission scope)
 >    extracts StoppingTargetMother + its 49 foils into a ~25 KB standalone
 >    GDML whose world volume IS the foil mother (leaves emitted before the
 >    mother so ROOT TGDMLParse doesn't segfault on forward refs — see
->    [[root-gdml-forward-volume-ref]]).
+>    [root-gdml-forward-volume-ref](/incidents/root-gdml-forward-volume-ref.md)).
 >    This is the value-level guarantee the canary can't give: the
 >    geometry G4 built IS the geometry x describes.
 > 4. Managed-volume surface-check overlap scan (pre-existing).
@@ -77,7 +82,7 @@ documented foils-only GDML emission scope)
 Runs a single `mu2e -n 1` locally (Musing setup) on a BO proposal's geom file
 to verify that Geant4 geometry construction succeeds before paying for grid
 submission. Catches overlapping-volume errors, bad placements, and
-missing-include-chain issues. Subcommand of [[autoresearch-bo-michael]].
+missing-include-chain issues. Subcommand of [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md).
 
 ## Key facts
 - **Path:** `autoresearch_bo_michael.py cmd_preflight`
@@ -119,12 +124,12 @@ missing-include-chain issues. Subcommand of [[autoresearch-bo-michael]].
   helical plug (`TSdAHelicalTube`) is constructed using the **stock** Offline
   code, not the patched library that grid jobs use. Helical-plug-specific
   bugs (e.g. the negative-volume defect — see
-  [[tessellated-solid-facet-orientation]]) are therefore invisible to
+  [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md)) are therefore invisible to
   preflight. To fix: source the local muse setup before running `mu2e -n 1`,
   or extract `Code_helical_base.tar.bz2` and source its `setup.sh`. Until
   then, helical-plug failures only surface in grid worker logs (and the
   end-of-workflow scan_logs node).
 
 ## Cross-links
-- Used by: [[autoresearch-bo-michael]], [[graph-runner]] (per-iteration preflight node)
-- Surfaced bug: [[geom-run1a-vs-run1b]]
+- Used by: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [graph-runner](/drivers/graph-runner.md) (per-iteration preflight node)
+- Surfaced bug: [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md)

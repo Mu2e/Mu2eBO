@@ -1,14 +1,15 @@
 ---
-name: stage-out-rename-race
-description: pipeline.py list-outputs FileNotFoundError when /pnfs hash-suffix dirs rename to bare-index mid-glob
 type: incident
+title: Stage-out rename race on list-outputs
+description: pipeline.py list-outputs FileNotFoundError when /pnfs hash-suffix dirs
+  rename to bare-index mid-glob
+status: recurring
+status_note: 10-min rename-quiesce cap exceeded under heavy grid contention (foilsg03
+  R0 2026-06-10 → foilsg05 R0 2026-06-11, **6/10 children lost** at higher hit rate)
+timestamp: '2026-06-11'
 ---
 
 # Stage-out rename race on list-outputs
-
-**Type:** incident
-**Status:** recurring — 10-min rename-quiesce cap exceeded under heavy grid contention (foilsg03 R0 2026-06-10 → foilsg05 R0 2026-06-11, **6/10 children lost** at higher hit rate)
-**Updated:** 2026-06-11
 
 ## Summary
 After a grid stage finishes, its outstage tree under
@@ -41,7 +42,7 @@ list-outputs sees a clean tree.
   Phase 2b `--force`/idempotency guards added that morning **did not help**:
   guards only fire when `<stage>_outputs.txt` exists, but the race triggers
   on the *first* list-outputs of a fresh cluster, before any outputs file is
-  written. `route_after_stage` (see [[graph-runner]]) marked
+  written. `route_after_stage` (see [graph-runner](/drivers/graph-runner.md)) marked
   `stages.mubeam.status="failed"` and terminated the iteration. Recovery was
   manual: rename settled within seconds, then drove the remaining three
   stages + harvest via `pio.run_stage`/`run_harvest` directly. Phase 2c
@@ -83,8 +84,8 @@ list-outputs sees a clean tree.
   a `RESUME_*` or `RECOVER_*` for the same config is not a real failure.
 
 ## Cross-links
-- Related: [[stage-out-lag]], [[concurrent-token-contention]], [[grid-job-completion-check]],
-  [[concat-xrootd-fileopen-postendjob]], [[stage-out-lag]], [[bo-helical]], [[foilsg-grid-tarball-scalar-holeradius-fallback]], [[harvest-pyroot-nfs-rpc-hang]], [[poll-deadlock-missing-outstage-dirs]]
+- Related: [stage-out-lag](/incidents/stage-out-lag.md), [concurrent-token-contention](/incidents/concurrent-token-contention.md), [grid-job-completion-check](/incidents/grid-job-completion-check.md),
+  [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md), [stage-out-lag](/incidents/stage-out-lag.md), [bo-helical](/projects/bo-helical.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md), [harvest-pyroot-nfs-rpc-hang](/incidents/harvest-pyroot-nfs-rpc-hang.md), [poll-deadlock-missing-outstage-dirs](/incidents/poll-deadlock-missing-outstage-dirs.md)
 - Source: `pipeline.py:list_outputs` (function), `pipeline.py:cmd_list_outputs`,
   `pipeline.py:stage_hardlink_farm` (line 260, the `os.link` call that fails
   on stale paths during submit-concat)
@@ -140,7 +141,7 @@ without quiescence** under heavy contention:
   outstages rename cleanly within the 10 min window — pure stage-out
   rate-jitter under load, not a per-config issue.
 - **Triggered the foilsg03 false-positive early-exit** (see
-  [[closed-loop-barrier-timeout-zero-rows-falsepos]]): these 2 quick
+  [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md)): these 2 quick
   failures plus 8 slow successes = "0 new rows by 240-min barrier" →
   `decide_next` killed the campaign.
 - Lesson: the 10-min cap is **not enough** under heavy grid contention.
@@ -157,7 +158,7 @@ here. **Wrong.** Verified 2026-06-12: foilsg05R00_00's mubeam job logs show
 `G4Tubs: Invalid values for radii in solid: Foil_00, pRMin=52.39, pRMax=50`
 → all 200 jobs crashed at G4 init → outstage dirs stay in hash form
 *because the jobs failed*, not because the rename pass lagged. Root cause
-is [[foilsg-grid-tarball-scalar-holeradius-fallback]] (grid tarball lacks
+is [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md) (grid tarball lacks
 the holeRadii-vector patch; scalar-mean fallback exceeds group-0 rOut).
 
 **Diagnostic discriminator for next time** (the two failure modes share

@@ -1,8 +1,20 @@
-# Barrier false-positive on round >= 1 (closed-loop)
+---
+type: incident
+title: Barrier false-positive on round >= 1 (closed-loop)
+description: closed-loop FT05 round-1 children mis-resolved by `saver.get_tuple.next`;
+  silent premature convergence; use `--max-rounds 1` until fixed
+status: resolved
+timestamp: '2026-06-05'
+updated_note: 'CORRECTED foilsZ06 attribution: NOT a LangGraph replay bug — root
+  cause was a stale `graph_data/STOP_CLOSED_LOOP` flag file left from a prior interrupted
+  bash chain; barrier''s STOP_FLAG exit branch did not print, so the trigger was
+  invisible. Forensic SqliteSaver dump confirmed single linear checkpoint chain,
+  no replay. Latent vacuous-`all([])==True` trap on empty `children` dict is fixed
+  by adding `launched_names` field + hard guard in `node_barrier`. STOP_FLAG and
+  timeout branches now also print before exit.'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-05 (CORRECTED foilsZ06 attribution: NOT a LangGraph replay bug — root cause was a stale `graph_data/STOP_CLOSED_LOOP` flag file left from a prior interrupted bash chain; barrier's STOP_FLAG exit branch did not print, so the trigger was invisible. Forensic SqliteSaver dump confirmed single linear checkpoint chain, no replay. Latent vacuous-`all([])==True` trap on empty `children` dict is fixed by adding `launched_names` field + hard guard in `node_barrier`. STOP_FLAG and timeout branches now also print before exit.)
+# Barrier false-positive on round >= 1 (closed-loop)
 
 ## Summary
 First `--max-rounds 2` real closed-loop run (`helicalFT05`, q=8) silently
@@ -35,7 +47,7 @@ in logs; isn't.
 - **Suspected mechanism:** `node_barrier` resolves a child if ANY of
   (a) leaderboard row, (b) `broken.txt`, (c)
   `saver.get_tuple(child_thread_id).next` is empty (per
-  [[closed-loop-runner]]). For freshly-spawned round-1 children whose
+  [closed-loop-runner](/drivers/closed-loop-runner.md)). For freshly-spawned round-1 children whose
   SqliteSaver checkpoint hasn't yet been written (or is read while a
   preflight-only checkpoint exists), `.next` likely evaluates to empty
   and the child is mis-classified as terminal.
@@ -51,7 +63,7 @@ in logs; isn't.
 ## Cross-links
 - Source files: `graph/closed_loop.py` (node_barrier + refit_and_check),
   `graph/config.py` (CLOSED_LOOP_BARRIER_* constants)
-- Related: [[closed-loop-runner]], [[closed-loop-bo-design]], [[closed-loop-thread-id-checkpoint-collision]], [[foilsx04-all-preflight-ambiguous]], [[closed-loop-final-round-orphan-children]], [[closed-loop-stale-cluster-silent-no-launch]]
+- Related: [closed-loop-runner](/drivers/closed-loop-runner.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md), [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)
 - Log: `graph_data/closed_loop_logs/closed_helicalFT05_r0.log`
 - Affected children: `helicalFT05R01_00` through `helicalFT05R01_07`
 
@@ -118,7 +130,7 @@ nakedly on the next multi-round run.
 
 `foilsZ06` (qLogNEHVI, q=10×5) launched 2026-06-05 17:43 with the spack-cache
 fix in place. R00: ALL 10 children PASS preflight (spack fix verified, see
-[[foilsx04-all-preflight-ambiguous]]). Parent exited at 17:57 via `zero_rows=True`
+[foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)). Parent exited at 17:57 via `zero_rows=True`
 with `completed=0` — never refit, never launched R01.
 
 **Actual root cause:** `graph_data/STOP_CLOSED_LOOP` (0 bytes, mtime 14:55)

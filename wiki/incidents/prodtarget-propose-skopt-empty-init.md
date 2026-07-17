@@ -1,15 +1,16 @@
 ---
-name: prodtarget-propose-skopt-empty-init
-description: ProdTargetMode propose dies in skopt with "Random evaluations exhausted and no model has been fit" because n_initial_points=0 + zero priors leaves Optimizer with nothing to do
 type: incident
+title: autoresearch_bo_michael.py propose dies on prodtarget mode (no priors)
+description: ProdTargetMode propose dies in skopt with "Random evaluations exhausted
+  and no model has been fit" because n_initial_points=0 + zero priors leaves Optimizer
+  with nothing to do
 status: resolved
+status_note: '2026-06-07'
+timestamp: '2026-06-07'
+updated_note: fix landed — N_INITIAL_POINTS class-attr seam
 ---
 
 # autoresearch_bo_michael.py propose dies on prodtarget mode (no priors)
-
-**Type:** incident
-**Status:** resolved 2026-06-07
-**Updated:** 2026-06-07 (fix landed — N_INITIAL_POINTS class-attr seam)
 
 ## Summary
 First-time `--mode prodtarget propose pt001` raises
@@ -33,7 +34,7 @@ nothing random to draw, hence the error.
 - Confirmed: `prodtarget propose` startup logs
   `[prodtarget] seeding GP: 0 priors + 0 history + 0 pending (in-flight)`
   immediately before the crash — empty all the way down.
-- The wiki [[bo-prodtarget]] "Cold-start decision" section explicitly
+- The wiki [bo-prodtarget](/projects/bo-prodtarget.md) "Cold-start decision" section explicitly
   argued to **skip Sobol seeding** based on a precedent analogy with
   other modes; this is the operational cost of that choice (the other
   modes have priors, prodtarget doesn't, so the analogy doesn't hold).
@@ -100,7 +101,7 @@ Captured the non-obvious rejection reasons for future reference:
 1. **Bump `n_initial_points`** for prodtarget mode only: **REJECTED**.
    Penalty-tell budget drain (above) makes K=q fragile; safe K >=
    `PROPOSE_MAX_RETRY * q` = 40, which contradicts the wiki cold-start
-   "Sobol is expensive" rationale in [[bo-prodtarget]].
+   "Sobol is expensive" rationale in [bo-prodtarget](/projects/bo-prodtarget.md).
 
 2. **Manual seed `Optimizer.tell(x_default, y=fake)`**: **REJECTED**.
    y-scaling hazard: prodtarget `obj = mu_per_POT` is O(1e-4), but other
@@ -128,7 +129,7 @@ Captured the non-obvious rejection reasons for future reference:
      the run; the precheck is unambiguous and durable across skopt
      version bumps (no string-matching the error message).
    - **Seed convention**: `random_state = 42 ^ len(opt.Xi)` (xor, not
-     pow — see [[botorch-predict-seed-pow-vs-xor]]). Round 0 → seed=42,
+     pow — see [botorch-predict-seed-pow-vs-xor](/incidents/botorch-predict-seed-pow-vs-xor.md)). Round 0 → seed=42,
      matches `Optimizer(random_state=42)` for reproducibility.
    - **Rejection-rate sanity check for prodtarget**: joint constraint
      (`min(rOut)>=3` AND `lPlate>=tPlate+0.5` at all 3 knots) accepts
@@ -141,7 +142,7 @@ Implementation site: `autoresearch_bo_michael.py:268-279`
 in `ProdTargetMode`, so any future zero-prior mode benefits.
 
 ## Cross-links
-- Related: [[bo-prodtarget]] (cold-start decision section), [[batch-bo]], [[langgraph-checkpoint-numpy-int64]]
+- Related: [bo-prodtarget](/projects/bo-prodtarget.md) (cold-start decision section), [batch-bo](/concepts/batch-bo.md), [langgraph-checkpoint-numpy-int64](/incidents/langgraph-checkpoint-numpy-int64.md)
 - Source: `autoresearch_bo_michael.py:269` (ask_buildable),
   `.venv-graph/.../skopt/optimizer/optimizer.py:490`
 

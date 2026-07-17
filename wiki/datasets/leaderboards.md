@@ -1,8 +1,12 @@
-# Leaderboards — TSV result history
+---
+type: dataset
+title: Leaderboards — TSV result history
+description: TSV history files for each BO driver
+status: active
+timestamp: '2026-07-17'
+---
 
-**Type:** dataset
-**Status:** active
-**Updated:** 2026-07-17
+# Leaderboards — TSV result history
 
 ## Summary
 One TSV per BO driver, append-only, recording every evaluated configuration
@@ -20,15 +24,15 @@ along with the metrics and scalarized objective. Used both as the BO history
   Rows contaminated by silent disc/plug sibling overlap; was consumed as
   legacy training data by `mmackenz_table_plots/gp_predict_helical.py`
   (HELICAL_LEGACY) until HelicalMode's deletion (2026-07-12) broke that
-  script's driver import (see [[bo-helical]]); kept as a frozen archive.
+  script's driver import (see [bo-helical](/projects/bo-helical.md)); kept as a frozen archive.
   **2026-05-27 cleanup**: dropped 213→175 main rows (38 quarantined), and
   47→44 for the legacy 5D file (3 quarantined). See sidecar entries below.
 - **`leaderboard_bo_helical_v2.tsv`** — current canonical helical leaderboard
-  (4D Option-A coupling). Actively appended by [[graph-runner]] iterations.
+  (4D Option-A coupling). Actively appended by [graph-runner](/drivers/graph-runner.md) iterations.
 - **`leaderboard_bo_foilsg.broken.tsv`** (created 2026-06-12) — ENTIRE
   62-row foilsg leaderboard quarantined: every row was measured on
   uniform-hole geometry (unpatched StoppingTargetMaker scalar fallback —
-  see [[foilsg-grid-tarball-scalar-holeradius-fallback]]); the f_g knob
+  see [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)); the f_g knob
   columns describe geometry that was never built. The fresh
   `leaderboard_bo_foilsg.tsv` starts empty for the post-fix foilsg07
   restart. **Future loaders MUST NOT seed the per-group-hole GP with these
@@ -36,7 +40,7 @@ along with the metrics and scalarized objective. Used both as the BO history
   as samples of the uniform-hole family.
 - **`leaderboard_bo_helical_v2.broken.tsv`** + **`leaderboard_bo_helical.broken.tsv`**
   (created 2026-05-27, re-created after the 2026-05-21 deletion) — sidecar
-  quarantine of all rows flagged by the [[scan-broken-codes-too-narrow]]
+  quarantine of all rows flagged by the [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md)
   full census (LikelyGeomOverlap > 100). 38 rows in the v2 sidecar
   (helicalL01–L05, helical037a/041a/050a/051a/052a, helicalH2, graph007–024,
   graph027, helicalNG02/05, helicalRA01–04, helicalPC01R00_02,
@@ -50,7 +54,7 @@ along with the metrics and scalarized objective. Used both as the BO history
 - **Backup convention**: pre-cleanup snapshots at
   `<file>.tsv.bak.YYYYMMDD_HHMMSS` (2026-05-27 backups timestamped
   `20260527_121530`).
-- **`leaderboard_bo_michael.tsv`** — [[bo-michael]] history
+- **`leaderboard_bo_michael.tsv`** — [bo-michael](/projects/bo-michael.md) history
   - Columns: `config tsda_rin tsda_halfLength4 holeRadius col5 sob calo alpha obj`
   - Created on first append; header is locked once written
 - **Foils mode → leaderboard mapping (load-bearing; `autoresearch_bo_michael.py:685,935`):**
@@ -71,5 +75,5 @@ along with the metrics and scalarized objective. Used both as the BO history
   recompute `obj` for any α post-hoc without re-running.
 
 ## Cross-links
-- Consumed by: [[bo-michael]] (`load_history`), [[bo-foil]],
-  [[bo-helical]], [[graph-runner]]
+- Consumed by: [bo-michael](/projects/bo-michael.md) (`load_history`), [bo-foil](/projects/bo-foil.md),
+  [bo-helical](/projects/bo-helical.md), [graph-runner](/drivers/graph-runner.md)

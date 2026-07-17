@@ -1,8 +1,15 @@
-# Architecture friction survey (2026-07)
+---
+type: concept
+title: Architecture friction survey (2026-07)
+description: 'friction map: mode dispatched at ~20 sites/6 files (silent `.get`
+  defaults), 5 barrier truth-sources, leaderboard schema in ~9 string literals,
+  pipeline.py/botorch_predict.py zero tests; candidates 1+2 picked → design page'
+status: active
+timestamp: '2026-07-12'
+updated_note: 'size-reduction sweep executed: −348 production lines, 10 commits'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-12 (size-reduction sweep executed: −348 production lines, 10 commits)
+# Architecture friction survey (2026-07)
 
 ## Summary
 Codebase-wide friction map produced by the 2026-07-06 `/improve-codebase-architecture`
@@ -25,7 +32,7 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
 - **6 hand-listed preflight mode-tuples** in `autoresearch_bo_michael.py`:
   `:2187` (8), `:2195` (6), `:2299` (4), `:2332` (2), `:2352` (7), `:2386` (6).
   `:2352` vs `:2386` differ only by prodtarget6d — latent inconsistency of the
-  [[preflight-mode-tuple-prodtarget6d-omission]] class.
+  [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md) class.
 - `_presniff_mode` (argv scan to stamp AUTORESEARCH_MODE before `graph.config` import)
   is duplicated: `graph/run.py:28-38` and `graph/closed_loop.py:61-83`. foilsflash-specific
   env branches hardcoded at `pipeline.py:265-274` and `graph/config.py:140-151`.
@@ -100,7 +107,7 @@ only trivial imports, and no template pair is a sed-variant. Don't re-run that
 angle. The one non-size follow-up it found: `tools/refresh_foils_*` (3 scripts,
 last touched `90f3e7f` "foils v2") still hardcode `leaderboard_bo_foils_v1.tsv`
 + `docs/foils_talk.md` while the live foils line is v3 and the active deck is
-foilsflash — a staleness bug already logged at [[refresh-foils-slides]]:77;
+foilsflash — a staleness bug already logged at [refresh-foils-slides](/drivers/refresh-foils-slides.md):77;
 KEEP (skill + wiki reference them), fix only if the foils deck is still built.
 
 Candidates 3-5 (leaderboard schema, typed subprocess protocol, unified harvest)
@@ -120,13 +127,13 @@ still unpicked.
   still skipped: pinned by `test_audit_fixes.py:268-284` source-regex ordering.
 
 ## Cross-links
-- Related: [[closed-loop-bo-design]], [[bo-modes]], [[mode-registry-childtracker-design]], [[simplification-audit-2026-07]]
-- Incident evidence: [[foilsflash-tarball-mode-key-omission]], [[preflight-mode-tuple-prodtarget6d-omission]], [[foilsg-grid-tarball-scalar-holeradius-fallback]], [[barrier-false-positive-round1]], [[closed-loop-barrier-timeout-zero-rows-falsepos]], [[closed-loop-final-round-orphan-children]], [[foilsx04-all-preflight-ambiguous]], [[closed-loop-stale-cluster-silent-no-launch]], [[preflight-past-init-false-pass]], [[events-per-job-mid-flight-edit]]
+- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-modes](/concepts/bo-modes.md), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md), [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+- Incident evidence: [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md), [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md), [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md), [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md), [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md), [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md)
 - Source files: `pipeline.py:98`, `autoresearch_bo_michael.py:1854`, `graph/config.py:35`, `graph/closed_loop.py:168`, `botorch_predict.py:63`
 
 ## Open questions / TODO
 - RESOLVED 2026-07-06: user picked candidates 1+2; design crystallized in
-  [[mode-registry-childtracker-design]] (+ ADR-0001/0002, root CONTEXT.md).
+  [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md) (+ ADR-0001/0002, root CONTEXT.md).
   The botorch-venv question dissolved: botorch_predict.py:46 already imports
   the driver — only skopt-dependent build_space is off-limits, so bounds as
   plain ModeSpec data need no JSON snapshot.

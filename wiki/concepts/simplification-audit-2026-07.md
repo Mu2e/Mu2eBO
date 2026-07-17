@@ -1,8 +1,15 @@
-# Simplification audit 2026-07 — verified delete/keep map
+---
+type: concept
+title: Simplification audit 2026-07 — verified delete/keep map
+description: 'verified delete/keep map: ~490 L safe to delete (streamlit overlay,
+  helical slides script, cl_min test class, format_row dedup, dead preflight branch);
+  >half of plausible deletions OVERTURNED with recorded refutations (prodtarget/foilsg/ipa
+  live, deck-trio destructive, skopt build_space is the lockstep truth source)'
+status: active
+timestamp: '2026-07-17'
+---
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-07-17
+# Simplification audit 2026-07 — verified delete/keep map
 
 ## Summary
 Multi-agent audit (2026-07-16/17, 34 agents: 5 finder lenses → adversarial
@@ -42,7 +49,7 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
 ## Key facts — OVERTURNED (do NOT re-propose; the refutations)
 - **prodtarget/foilsg/ipa mode blocks**: paused lines, not dead — pt6d18
   completed 2026-06-29; foilsg tarball incident was remediated (foilsgV01
-  validation row 2026-06-12); [[ml-stack-review-2026-07]] plans the NEXT
+  validation row 2026-06-12); [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md) plans the NEXT
   campaigns (botorch-0.18 at high-d) on exactly these lines; `test_modes.py`
   pins their SPECS entries; the 2026-07-12 retirement sweep KEPT them
   deliberately. Also `gp_loo_benchmark.py` scores their leaderboard archives.
@@ -128,10 +135,10 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
   `botorch_predict.py:387,475`.
 
 ## Cross-links
-- Related: [[architecture-friction-survey-2026-07]] (predecessor survey; its
-  candidates 1+2 landed, 3-5 re-counted here), [[ml-stack-review-2026-07]]
-  (skopt/venv/0.18 context), [[mode-registry-childtracker-design]] (landed
-  refactor this audit re-counts against), [[aitools-skills-symlink-dependency]]
+- Related: [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) (predecessor survey; its
+  candidates 1+2 landed, 3-5 re-counted here), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
+  (skopt/venv/0.18 context), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md) (landed
+  refactor this audit re-counts against), [aitools-skills-symlink-dependency](/external/aitools-skills-symlink-dependency.md)
   (found by this audit)
 - Source files: verdicts archived in the workflow output; key refs inline above.
 
@@ -159,10 +166,10 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
 - **Round 3 EXECUTED 2026-07-17** (user-approved "do the remaining items"):
   (a) deck-trio RETIRED as a coordinated pass — 3 tools + 4 truly-orphaned
   PNGs deleted (3 of the 7 script-managed PNGs KEPT: cited by wiki concept
-  pages), local [[refresh-foils-slides]] command deleted, refresh-deck user skill
+  pages), local [refresh-foils-slides](/drivers/refresh-foils-slides.md) command deleted, refresh-deck user skill
   + refresh-foils-talk project skill re-worded, wiki driver page superseded;
   (b) aitools RELOCATED to /exp/mu2e/app/users/oksuzian/aitools, 12 symlinks
-  re-pointed ([[aitools-skills-symlink-dependency]] resolved); (c) graph.run
+  re-pointed ([aitools-skills-symlink-dependency](/external/aitools-skills-symlink-dependency.md) resolved); (c) graph.run
   --mock/--no-mock now REQUIRED (bare launch errors instead of silently
   synthesizing fake metrics; closed_loop children already passed --no-mock);
   (d) data sediment purged (37 files + 4 retired workspace dirs; foilsg

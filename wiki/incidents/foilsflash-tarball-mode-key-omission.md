@@ -1,8 +1,16 @@
-# foilsflash mubeam GeomSolids crash — MUSE_TARBALL_BY_MODE mode-key omission
+---
+type: incident
+title: foilsflash mubeam GeomSolids crash — MUSE_TARBALL_BY_MODE mode-key omission
+description: foilsflashSMOKE3 all mubeam jobs G4Tubs-crashed (Foil_00 pRMin=1e6);
+  foilsflash missing from pipeline.py MUSE_TARBALL_BY_MODE → unpatched Code_helical_base
+  → stock StoppingTargetMaker hit the poison-pill scalar holeRadius=1e6; preflight
+  passed (patched local env ≠ grid tarball); +3 preflight consumer tuples omitted
+  foilsflash; fixed 2026-06-27
+status: resolved
+timestamp: '2026-06-27'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-27
+# foilsflash mubeam GeomSolids crash — MUSE_TARBALL_BY_MODE mode-key omission
 
 ## Summary
 The first foilsflash live smoke (foilsflashSMOKE3, 2026-06-27) had **all 40 mubeam
@@ -13,7 +21,7 @@ fell through to the `michael` default `Code_helical_base.tar.bz2` (UNPATCHED sto
 `StoppingTargetMaker`). The stock maker reads the **poison-pill scalar
 `stoppingTarget.holeRadius = 1.0e6`** (emitted alongside the per-foil `holeRadii`
 vector) instead of the vector → G4Tubs pRMin=1e6 > pRMax → fatal. The poison pill
-did its intended job ([[foilsg-grid-tarball-scalar-holeradius-fallback]]): crash
+did its intended job ([foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)): crash
 loudly instead of silently building uniform holes.
 
 ## Key facts
@@ -21,11 +29,11 @@ loudly instead of silently building uniform holes.
   (pipeline.py:~98). foilsflash varies the foil holeRadii vector → needs the
   patched `Code_helical_holeradii.tar.bz2` (patched `libmu2e_GeometryService.so`),
   exactly like foils/foilsf/foilsg.
-- **Why preflight didn't catch it ([[preflight-past-init-false-pass]]):** preflight
+- **Why preflight didn't catch it ([preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)):** preflight
   runs LOCALLY under the patched `Offline_helical` musing (holeRadii honored) → it
   reported PASS; the GRID worker ships a SEPARATE tarball (the unpatched one) →
   crashed. Local-preflight-vs-grid-tarball env divergence (cf
-  [[prodtarget-env-divergence]]). Also the per-foil **GDML as-built assertion**
+  [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md)). Also the per-foil **GDML as-built assertion**
   (autoresearch_bo_michael.py:~2289) that WOULD verify foil radii had `foilsflash`
   omitted from its mode tuple, so it never ran (and even if it had, it runs in the
   patched preflight env, so it'd pass — the bug is grid-only).
@@ -45,14 +53,14 @@ loudly instead of silently building uniform holes.
   methods but NOT mode-key/tuple membership — every `*_BY_MODE` dict and every
   `mode.name in (...)` tuple across pipeline.py + autoresearch_bo_michael.py +
   graph/config.py must be audited. Same trap as
-  [[preflight-mode-tuple-prodtarget6d-omission]]. Audit grep:
+  [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md). Audit grep:
   `grep -nE '"foilsf"' pipeline.py graph/*.py autoresearch_bo_michael.py` and check
   each hit includes the new mode.
 
 ## Cross-links
-- Related: [[bo-foilsflash]], [[foilsg-grid-tarball-scalar-holeradius-fallback]],
-  [[preflight-past-init-false-pass]], [[preflight-mode-tuple-prodtarget6d-omission]],
-  [[prodtarget-env-divergence]]
+- Related: [bo-foilsflash](/projects/bo-foilsflash.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md),
+  [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md), [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md),
+  [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md)
 - Source files: `pipeline.py` (MUSE_TARBALL_BY_MODE),
   `autoresearch_bo_michael.py` (preflight consumer tuples ~2289/2342/2376)
 

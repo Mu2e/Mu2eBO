@@ -1,8 +1,14 @@
-# G4NIELCalculator constructor segfaults at SD-construction time
+---
+type: incident
+title: G4NIELCalculator constructor segfaults at SD-construction time
+description: G4NIELCalculator ctor's `SetNIELCalculator(this)` singleton write segfaults
+  at SD-construction (pre-physics-list, Mu2eG4MT); fix is inline ComputeNIEL body
+  + direct `G4ICRU49NuclearStoppingModel::ComputeDEDXPerVolume` call
+status: resolved
+timestamp: '2026-06-07'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-07
+# G4NIELCalculator constructor segfaults at SD-construction time
 
 ## Summary
 Building `ProductionTargetNIELSD` (Path B) as a thin wrapper around
@@ -50,8 +56,8 @@ underlying `G4ICRU49NuclearStoppingModel::ComputeDEDXPerVolume` directly.
   (e.g. plate 7 = 4×10⁻⁵ MeV summed over 50 events).
 
 ## Cross-links
-- Related: [[dpa-scoring]] (Path B section documents this constraint),
-  [[stickman-sd-unwired]]
+- Related: [dpa-scoring](/concepts/dpa-scoring.md) (Path B section documents this constraint),
+  [stickman-sd-unwired](/incidents/stickman-sd-unwired.md)
 - Source files:
   - `autoresearch_muse_prodtarget/Offline/Mu2eG4/src/ProductionTargetNIELSD.cc`
     (the inlined ComputeNIEL is the load-bearing snippet)

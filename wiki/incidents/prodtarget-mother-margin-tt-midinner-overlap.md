@@ -1,8 +1,15 @@
-# ProdTargetMode MOTHER_MARGIN_MM=20 → TT_MidInner overlap (RETRACTED)
+---
+type: incident
+title: ProdTargetMode MOTHER_MARGIN_MM=20 → TT_MidInner overlap (RETRACTED)
+description: '**RETRACTED 2026-06-07**: diagnostic showed bigmother does NOT cause
+  TT_MidInner overlap with real POT.fcl; original overlap was DS2 extension block
+  (since removed); margin=4 change is harmless but cause story was wrong'
+status: superseded
+status_note: (RETRACTED 2026-06-07 — cause story wrong; see Summary)
+timestamp: '2026-06-07'
+---
 
-**Type:** incident
-**Status:** superseded (RETRACTED 2026-06-07 — cause story wrong; see Summary)
-**Updated:** 2026-06-07
+# ProdTargetMode MOTHER_MARGIN_MM=20 → TT_MidInner overlap (RETRACTED)
 
 ## Summary
 
@@ -32,14 +39,14 @@ at `autoresearch_bo_michael.py:1053`.
   (`tracker.inDS2Vacuum=true` + `ds2.halfLength=3825` + `hasServicePipes=false`)
   that `ProdTargetMode.render_proposal` emitted at that time. That block
   is the documented STMUpstream/TT_MidInner trigger
-  ([[stickman-inds2vacuum-stmupstream-overlap]]) and was removed earlier
+  ([stickman-inds2vacuum-stmupstream-overlap](/incidents/stickman-inds2vacuum-stmupstream-overlap.md)) and was removed earlier
   on 2026-06-07. Removing it was the real fix.
 - The 3/3 preflight retries this session that I attributed to bigmother
   were actually caused by a self-inflicted `hasVirtualDetector=false`
   hack I added mid-debug. Reverted.
 - The preflight FCL itself fails on prodtarget mode AND on stock
   MDC2025aq for an unrelated reason — see
-  [[preflight-fcl-genparticle-missing]].
+  [preflight-fcl-genparticle-missing](/incidents/preflight-fcl-genparticle-missing.md).
 
 ## Lessons (worth keeping)
 
@@ -55,9 +62,9 @@ at `autoresearch_bo_michael.py:1053`.
 
 ## Cross-links
 
-- Related: [[stickman-inds2vacuum-stmupstream-overlap]] (the actual
+- Related: [stickman-inds2vacuum-stmupstream-overlap](/incidents/stickman-inds2vacuum-stmupstream-overlap.md) (the actual
   cause of the original overlap)
-- Related: [[preflight-fcl-genparticle-missing]] (why preflight gate is
+- Related: [preflight-fcl-genparticle-missing](/incidents/preflight-fcl-genparticle-missing.md) (why preflight gate is
   unusable for prodtarget mode; not the same bug as this retracted one)
 - Source: `autoresearch_bo_michael.py:1053` (reverted to
   `MOTHER_MARGIN_MM=20.0`)

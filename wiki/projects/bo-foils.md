@@ -1,14 +1,17 @@
 ---
-name: bo-foils
-description: 5D BO over +12 extras (≤6 upstream, ≤6 downstream) of the 37-foil stopping-target base; no helical plug
 type: project
+title: bo-foils — 5D extras-only stopping-target foil-stack BO
+description: 5D BO over +12 extras (≤6 upstream, ≤6 downstream) of the 37-foil stopping-target
+  base; no helical plug
+status: active
+status_note: (v3-only picker since 2026-06-06; foilsf01/02/03/06/07/08/09/10 complete
+  + honest foilsf11/12/14, sob front 3.88→3.90 pre-fix and 3.85 honest plateau,
+  SATURATED)
+timestamp: '2026-06-18'
+updated_note: foilsf17 broke honest ceiling 3.83→3.91, Pareto-dominant; NOT saturated
 ---
 
 # bo-foils — 5D extras-only stopping-target foil-stack BO
-
-**Type:** project
-**Status:** active (v3-only picker since 2026-06-06; foilsf01/02/03/06/07/08/09/10 complete + honest foilsf11/12/14, sob front 3.88→3.90 pre-fix and 3.85 honest plateau, SATURATED)
-**Updated:** 2026-06-18 (foilsf17 broke honest ceiling 3.83→3.91, Pareto-dominant; NOT saturated)
 
 ## Honest-only sob ceiling — NOT saturated; foilsf17 broke 3.83 → 3.91 (2026-06-18)
 Cumulative best sob by round end (honest qnehvi campaigns, calo>0):
@@ -33,7 +36,7 @@ test). NOTE: the honest cloud renderer's `re.match("foilsf1[14]")` filter still
 EXCLUDES foilsf17 — widen it to include foilsf17 (same post-tarball-fix honest
 holes) before the slide-4 champion will reflect 3.91. **Mode trap that delayed
 this:** foilsf15/16 were launched `--mode foils` (v2) by mistake and never
-touched this v3 search — see [[leaderboards]] prefix≠mode gotcha.
+touched this v3 search — see [leaderboards](/datasets/leaderboards.md) prefix≠mode gotcha.
 
 **foilsf17 lifted the WHOLE honest front, and the top is geometrically diverse
 (2026-06-18).** Recomputed honest-set (foilsf1[147], calo>0, n=60) calo-budget
@@ -54,7 +57,7 @@ champion; its picks clustered in the low-calo front (e.g. 1.31e-5 @ 3.32), i.e.
 qNEHVI spent the budget **mapping the Pareto front, not re-exploiting the
 high-sob corner** — so the champion's neighborhood was barely retested. Champion
 unchanged: foilsf17R01_07 3.91. **To actually test whether 3.91 is the ceiling,
-use the sob-only `qlnei` picker** ([[qlnei-sob-only-picker]]) which climbs sob
+use the sob-only `qlnei` picker** ([qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)) which climbs sob
 instead of spreading HV; a multi-objective qnehvi campaign is the wrong tool for
 confirming a sob-max ceiling once the front is already mapped.
 
@@ -79,9 +82,9 @@ Honest-set sob: max 3.91 is the ONLY row ≥3.88; the next nine are 3.79–3.84
 0.015) above the cluster mean — too far to be cluster noise, but as a SINGLE
 measurement it carries its own ±0.015, so its true value is plausibly ~3.89–3.93.
 **Empirical ceiling ≈ 3.84–3.91, no evidence of a real mean above ~3.84 except
-that one point.** The pareto_sob run ([[pareto-sob-picker]]) building the GP's 20
+that one point.** The pareto_sob run ([pareto-sob-picker](/concepts/pareto-sob-picker.md)) building the GP's 20
 best-bet geometries measured ≤3.84 — bounds the achievable max well below the
-cloud's spurious 4.22 GP-extrapolation ([[gp-cloud-rendering]]). Implication: a
+cloud's spurious 4.22 GP-extrapolation ([gp-cloud-rendering](/concepts/gp-cloud-rendering.md)). Implication: a
 high-stats re-measurement of foilsf17R01_07 would be worth it to confirm 3.91 is
 real vs an up-fluctuation of a ~3.84 geometry.
 
@@ -108,7 +111,7 @@ rows are sob-only (calo=0).
 flat/degenerate plateau because: (1) the 12 BO'd extras are a sub-dominant
 perturbation on the pinned base-37 (shallow sob landscape over extras geometry);
 (2) parameter sloppiness — stiff vs sloppy knob-combinations, sob ~flat along
-sloppy directions; (3) σ(sob)≈0.4% ([[bo-noise-budget]]) makes the 3.81–3.91 top
+sloppy directions; (3) σ(sob)≈0.4% ([bo-noise-budget](/concepts/bo-noise-budget.md)) makes the 3.81–3.91 top
 cluster only a few σ apart → the ranking among the top-3 is partly noise (cf the
 prodtarget champion +1.2 Poisson-σ over runner-up); (4) it's a Pareto front
 (curve), so "top-3 by sob" just samples 3 points near the high-sob end at
@@ -124,12 +127,12 @@ monotonic in hT (thin 3.52→thick 2.33), rOut (100–150mm 3.61→200–250mm 2
 hole-f (0.1–0.3 →3.15, 0.7–0.9 →2.46); ce_seen/muminus_stops/calo track geometry
 per-config; harvest attribution clean (each config reads its OWN /pnfs outstage
 cluster — sampled 3 distinct cluster IDs, no rename-race/thread-collision); the
-[[harvest-denominator-bug]] loss-aware denominator fix is in place. So the flat
+[harvest-denominator-bug](/incidents/harvest-denominator-bug.md) loss-aware denominator fix is in place. So the flat
 top is a genuine optimum plateau, not metric insensitivity/mis-attribution.
 **Config-BUILD fidelity also audited clean (2026-06-27 agent):** geom files encode
 each config's DISTINCT geometry (holeRadii↔f exact to all digits, geometries differ
 sharply between configs, no name-swap); foilsf is STRUCTURALLY IMMUNE to the
-[[foilsg-grid-tarball-scalar-holeradius-fallback]] silent-uniform-hole bug because
+[foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md) silent-uniform-hole bug because
 it emits a **poison-pill scalar `holeRadius=1.0e6`** (autoresearch_bo_michael.py
 ~:793) alongside the real per-foil vector — a fallback worker CRASHES loudly in
 G4Tubs instead of silently building uniform holes; per-config ce_seen/mu_stops
@@ -168,8 +171,8 @@ geometries hit the same sob. The optimum is a broad MANIFOLD, not a point.
 > descriptions like "ring rIn=29.1" (deck slides 5-7) are wrong; actual
 > holes were 21.5 everywhere. The GP learned ~zero signal on the f dims
 > (no bias, just two wasted dimensions). Root cause + detection chain:
-> [[foilsg-grid-tarball-scalar-holeradius-fallback]] +
-> [[preflight-past-init-false-pass]]. Whether per-foil holes can beat
+> [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md) +
+> [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md). Whether per-foil holes can beat
 > 3.89 is now an OPEN question pending the patched tarball.
 > **Empirical confirmation (2026-06-13 pair test):** 694 row-pairs nearly
 > identical in (rOut_up, rOut_dn, hT_up, hT_dn) (normalized L2 < 0.05)
@@ -232,7 +235,7 @@ geometries hit the same sob. The optimum is a broad MANIFOLD, not a point.
 > holes, classic geometry, ~3.81–3.85 just under the 3.89 plateau. The R0
 > high-f picks were exploration, NOT a real picker disagreement.
 > (foilsf12 ran qlnei because qNEHVI now times out on the post-fix
-> non-degenerate calo front — see [[qlnei-sob-only-picker]].)
+> non-degenerate calo front — see [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md).)
 > **Salvage path (rationale, recorded before application):** every v3 row
 > is a VALID measurement of the corrected geometry at `f′ = 21.5/rOut`
 > (that's what was actually built). Relabeling `f_up → 21.5/rOut_up`,
@@ -245,15 +248,15 @@ geometries hit the same sob. The optimum is a broad MANIFOLD, not a point.
 > mean, so per-row inversion is ambiguous — hence the .broken.tsv
 > quarantine there.)
 
-(**foilsf08 + foilsf09 COMPLETE** 2026-06-09: foilsf08R00 first qlnei live run crashed all 10 children at SqliteSaver.put_writes — root-caused to cmd_evaluate rejecting calo=None when AUTORESEARCH_NO_RUN1B=1 (see [[closed-loop-sqlite-checkpoint-transient-corruption]]); fixed at `autoresearch_bo_michael.py:1338`; foilsf08R00 10 configs recovered via direct CLI evaluate (sob 3.75-3.89, calo=0 since run1b_mubeam dropped). **foilsf09 (qlnei, 2 rounds × 10 = 20 evals) clean end-to-end**: R0 sob 3.87-3.90, R1 sob 3.88-3.89 — qlnei picker now validated, and the 7th saturation campaign confirms front pinned at sob ≈3.88-3.89 with no calo channel.) (**foilsf07 COMPLETE** 2026-06-08: 5 rounds × 10 = 50 evals, leaderboard 247→297. New entry **foilsf07R00_00 sob=3.88 @ calo=2.15e-5** (rO_up=111.5 hT=0.060 rIn=39.0, rO_dn=114.5 hT=0.132 rIn=46.7) enters top-3 #2 (displaces foilsf06R04_04 to #3). Champion #1 foilsf03R01_09 sob=3.89 unchanged. **5 independent campaigns now saturate at sob≈3.88-3.89**; no hT<0.05 region champion despite widened floor.) (**foilsf06 COMPLETE** 2026-06-07: 5 rounds × 10 = 50 evals, leaderboard 197→247. New entry **foilsf06R04_04 sob=3.88 @ calo=2.13e-5** ties foilsf02R00_03 for top-3 #2. Champion #1 foilsf03R01_09 sob=3.89 still holds. **4 independent campaigns (foilsZ02/foilsf02/foilsf03/foilsf06) now converge at sob≈3.88-3.89** on the same geometry family (rOut≈115-137 mm, upstream hT≈0.05-0.10 mm, downstream hT≈0.11-0.20 mm). Picker explored widened 0.01-0.05 region: 5/50 foilsf06 picks at hT=0.010 floor (2 Sobol R00 + 3 GP-driven R01/R02), all scoring sob=2.4-3.8 (slightly worse calo at hT=0.01 than near hT=0.05); GP R01-R03 pivoted UP to hT≈0.08 confirming saturation at sob≈3.89 is genuine not bound-artefact.) (**top-3 sob convergence to single geometry family confirmed**: rank-1 foilsf03R01_09 sob=3.890, rank-2 foilsf02R00_03 sob=3.880, rank-3 foilsZ02R07_02 sob=3.870 — all within 0.5%, picked across 3 independent campaigns (foilsZ02/foilsf02/foilsf03), all with **upstream hT pinned at lower bound 0.050 mm**, rOut ≈ 115–137 mm, downstream slightly thicker (0.11–0.14 mm). The 0.05 floor was set at `autoresearch_bo_michael.py:913` `Real(0.05, 1.0, name="extra_halfThickness_up")` — chosen to sit just-below base hT=0.0528 mm (line 668), NOT physics-motivated. Upstream is binding (extras degrade beam → less mass = less scatter/early-stop = higher S); downstream is non-binding (picker chose 0.11–0.14, the floor doesn't bite). **2026-06-06: hT floor LOWERED 0.05 → 0.01 mm on BOTH FoilsMode (lines 729-730) and FoilsFracMode (lines 913-914)**. **2026-06-07 followup: foilsf05 (post-floor-change, 197 total rows after R00+R01) made ZERO picks below hT=0.05; two picks LANDED at hT_up=0.050 exactly (the old floor)** — the GP didn't refuse to go lower, it actively chose to STAY at the boundary because the training data says that's where champions are. Root cause is NOT "no data → no gradient" NOR length-scale rail-out NOR batch-diversity — those were red herrings. **ACTUAL ROOT CAUSE (2026-06-07 subagent investigation): bounds are duplicated between `autoresearch_bo_michael.py:913-914` (FoilsFracMode.build_space, the BO-mode declaration) AND `botorch_predict.py:74` (MODE_SPECS["foilsf"]["lo"], the qLogNEHVI picker's `optimize_acqf(bounds=...)` argument).** I edited only the first file when widening 0.05→0.01; the second file is STALE at 0.05. `optimize_acqf` therefore physically cannot propose hT<0.05 — the two picks at hT_up=0.050 EXACTLY are the picker hitting its (stale) lower bound, not "the GP choosing to stay." `Normalize(bounds=bounds)` at `botorch_predict.py:147` also uses the stale bounds. **Fix:** sync `botorch_predict.py:74` `[0.05, 0.05]` → `[0.01, 0.01]` to match `autoresearch_bo_michael.py:913`. **Lesson: MODE_SPECS in botorch_predict.py is a SEPARATE source-of-truth for picker bounds; any build_space() change must be mirrored there.** **VERIFIED 2026-06-07: post-fix campaign foilsf06 round-0 immediately picked 2 of 10 at hT_up=0.010 EXACTLY (the new floor) — foilsf06R00_01 sob=3.78 @ 2.17e-5 and foilsf06R00_07 sob=3.79 @ 2.28e-5. Confirms (a) picker now respects widened bound, (b) low hT IS a real Pareto-front region (not a dead zone), but (c) those first qLogNEHVI picks at hT=0.01 trade slightly higher calo for similar sob — not yet beating the 3.89 champion. **R01 GP refit (with hT=0.01 evidence now in training data) PIVOTED UP to hT_up ~0.08, NOT further down** — top R01 picks foilsf06R01_00 sob=3.86 @ 2.12e-5 (hT_up=0.078) and foilsf06R01_04 sob=3.85 @ 1.94e-5 (hT_up=0.086). Interpretation: the GP, after seeing the slightly-worse calo at hT=0.01, learned that **0.05 was already near-optimal** and is now searching slightly ABOVE it. Strong evidence the original 0.05 floor was not leaving sob on the table; saturation at sob≈3.89 is genuine (not a bound artefact). **What this does NOT prove:** that hT<0.05 is a dead region — only that the GP+acquisition extrapolation didn't find it interesting. **To actually test the new region needs a Sobol-seeded restart (or explicit init_points within [0.01, 0.05]) to deposit training data there.** Safe wrt history: each leaderboard row stamps its own hT at submit time (line 858), so old rows unchanged; GP refit absorbs new bounds without bias. **foilsf04 in flight at change time (pid 3786214) snapshotted old bounds at startup — it will finish under 0.05 floor**; clean cutover at next `--name-prefix` launch. CAVEAT: 10 µm Al may be unbuildable; treat any new champion at hT≤0.03 as physics-real-but-unbuildable until engineering confirms. Strong evidence the optimum is real, not single-run artefact; front is **flat at the top** so all three are operationally equivalent. Added as slide 7 "Top 3 by S/√B" to `docs/foils_talk.md`. foilsf03 complete 2026-06-06 ~20:50: 2 rounds × 10 = 20 evals, leaderboard 136→156. **NEW unconstrained sob champion: foilsf03R01_09 sob=3.890 @ calo=2.03e-5** — edges out prior foilsf02R00_03 (sob=3.88 @ 2.2e-5) AND at lower calo. Marginal +0.01 sob, ~10% calo reduction — front genuinely tightening at the unconstrained corner. Calo-budget table champions for B≤1e-6 and B≤1e-5 UNCHANGED (still foilsf01R03_04 0.73 and foilsZ06R00_04 2.90); the gain is corner-only. POLICY FLIP: foilsf picker is now v3-ONLY. `FoilsFracMode.load_priors` at `autoresearch_bo_michael.py:854` returns `[]` — v1 prior + 54 v2 evals intentionally NOT loaded. Operator direction: v2's rIn≤50 regime was suspected of dragging v3 GP toward v2 average; v3-only cloud envelopes the gold stars while v2+v3 does not. Trade-off accepted: GP is under-identified (length_scale rails to 1000 mm upper bound on 67-row v3-only fit); cloud is a diffuse blob — see revised [[gp-cloud-rendering]]. **NEW v3 CHAMPION 2026-06-06**: `foilsf01R04_07` obj=**2.040**/sob=**3.54**/calo=1.50e-5 (f_up=0.49, f_dn=0.32, rOut_up=141.8, rOut_dn=141.3, hT_up=0.130, hT_dn=0.197) — first v3-only-trained pick to top the v3 leaderboard, beating prior champion foilsZ02R02_02 (obj=2.017/sob=3.40, v1+v2+v3 trained). Modest +1.1% obj gain across 5 rounds × 10 children = 50 evals; sob front advanced 3.40→3.54. v1/v2 leaderboards FROZEN. foilsZ07 (v2-leaderboard, 19 rows landed) killed 2026-06-06; foilsf01 ran thread closed-d2b73f22. Naming convention break: foilsZ prefix does NOT enforce v3 mode — check parent's `--mode` flag.)
+(**foilsf08 + foilsf09 COMPLETE** 2026-06-09: foilsf08R00 first qlnei live run crashed all 10 children at SqliteSaver.put_writes — root-caused to cmd_evaluate rejecting calo=None when AUTORESEARCH_NO_RUN1B=1 (see [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md)); fixed at `autoresearch_bo_michael.py:1338`; foilsf08R00 10 configs recovered via direct CLI evaluate (sob 3.75-3.89, calo=0 since run1b_mubeam dropped). **foilsf09 (qlnei, 2 rounds × 10 = 20 evals) clean end-to-end**: R0 sob 3.87-3.90, R1 sob 3.88-3.89 — qlnei picker now validated, and the 7th saturation campaign confirms front pinned at sob ≈3.88-3.89 with no calo channel.) (**foilsf07 COMPLETE** 2026-06-08: 5 rounds × 10 = 50 evals, leaderboard 247→297. New entry **foilsf07R00_00 sob=3.88 @ calo=2.15e-5** (rO_up=111.5 hT=0.060 rIn=39.0, rO_dn=114.5 hT=0.132 rIn=46.7) enters top-3 #2 (displaces foilsf06R04_04 to #3). Champion #1 foilsf03R01_09 sob=3.89 unchanged. **5 independent campaigns now saturate at sob≈3.88-3.89**; no hT<0.05 region champion despite widened floor.) (**foilsf06 COMPLETE** 2026-06-07: 5 rounds × 10 = 50 evals, leaderboard 197→247. New entry **foilsf06R04_04 sob=3.88 @ calo=2.13e-5** ties foilsf02R00_03 for top-3 #2. Champion #1 foilsf03R01_09 sob=3.89 still holds. **4 independent campaigns (foilsZ02/foilsf02/foilsf03/foilsf06) now converge at sob≈3.88-3.89** on the same geometry family (rOut≈115-137 mm, upstream hT≈0.05-0.10 mm, downstream hT≈0.11-0.20 mm). Picker explored widened 0.01-0.05 region: 5/50 foilsf06 picks at hT=0.010 floor (2 Sobol R00 + 3 GP-driven R01/R02), all scoring sob=2.4-3.8 (slightly worse calo at hT=0.01 than near hT=0.05); GP R01-R03 pivoted UP to hT≈0.08 confirming saturation at sob≈3.89 is genuine not bound-artefact.) (**top-3 sob convergence to single geometry family confirmed**: rank-1 foilsf03R01_09 sob=3.890, rank-2 foilsf02R00_03 sob=3.880, rank-3 foilsZ02R07_02 sob=3.870 — all within 0.5%, picked across 3 independent campaigns (foilsZ02/foilsf02/foilsf03), all with **upstream hT pinned at lower bound 0.050 mm**, rOut ≈ 115–137 mm, downstream slightly thicker (0.11–0.14 mm). The 0.05 floor was set at `autoresearch_bo_michael.py:913` `Real(0.05, 1.0, name="extra_halfThickness_up")` — chosen to sit just-below base hT=0.0528 mm (line 668), NOT physics-motivated. Upstream is binding (extras degrade beam → less mass = less scatter/early-stop = higher S); downstream is non-binding (picker chose 0.11–0.14, the floor doesn't bite). **2026-06-06: hT floor LOWERED 0.05 → 0.01 mm on BOTH FoilsMode (lines 729-730) and FoilsFracMode (lines 913-914)**. **2026-06-07 followup: foilsf05 (post-floor-change, 197 total rows after R00+R01) made ZERO picks below hT=0.05; two picks LANDED at hT_up=0.050 exactly (the old floor)** — the GP didn't refuse to go lower, it actively chose to STAY at the boundary because the training data says that's where champions are. Root cause is NOT "no data → no gradient" NOR length-scale rail-out NOR batch-diversity — those were red herrings. **ACTUAL ROOT CAUSE (2026-06-07 subagent investigation): bounds are duplicated between `autoresearch_bo_michael.py:913-914` (FoilsFracMode.build_space, the BO-mode declaration) AND `botorch_predict.py:74` (MODE_SPECS["foilsf"]["lo"], the qLogNEHVI picker's `optimize_acqf(bounds=...)` argument).** I edited only the first file when widening 0.05→0.01; the second file is STALE at 0.05. `optimize_acqf` therefore physically cannot propose hT<0.05 — the two picks at hT_up=0.050 EXACTLY are the picker hitting its (stale) lower bound, not "the GP choosing to stay." `Normalize(bounds=bounds)` at `botorch_predict.py:147` also uses the stale bounds. **Fix:** sync `botorch_predict.py:74` `[0.05, 0.05]` → `[0.01, 0.01]` to match `autoresearch_bo_michael.py:913`. **Lesson: MODE_SPECS in botorch_predict.py is a SEPARATE source-of-truth for picker bounds; any build_space() change must be mirrored there.** **VERIFIED 2026-06-07: post-fix campaign foilsf06 round-0 immediately picked 2 of 10 at hT_up=0.010 EXACTLY (the new floor) — foilsf06R00_01 sob=3.78 @ 2.17e-5 and foilsf06R00_07 sob=3.79 @ 2.28e-5. Confirms (a) picker now respects widened bound, (b) low hT IS a real Pareto-front region (not a dead zone), but (c) those first qLogNEHVI picks at hT=0.01 trade slightly higher calo for similar sob — not yet beating the 3.89 champion. **R01 GP refit (with hT=0.01 evidence now in training data) PIVOTED UP to hT_up ~0.08, NOT further down** — top R01 picks foilsf06R01_00 sob=3.86 @ 2.12e-5 (hT_up=0.078) and foilsf06R01_04 sob=3.85 @ 1.94e-5 (hT_up=0.086). Interpretation: the GP, after seeing the slightly-worse calo at hT=0.01, learned that **0.05 was already near-optimal** and is now searching slightly ABOVE it. Strong evidence the original 0.05 floor was not leaving sob on the table; saturation at sob≈3.89 is genuine (not a bound artefact). **What this does NOT prove:** that hT<0.05 is a dead region — only that the GP+acquisition extrapolation didn't find it interesting. **To actually test the new region needs a Sobol-seeded restart (or explicit init_points within [0.01, 0.05]) to deposit training data there.** Safe wrt history: each leaderboard row stamps its own hT at submit time (line 858), so old rows unchanged; GP refit absorbs new bounds without bias. **foilsf04 in flight at change time (pid 3786214) snapshotted old bounds at startup — it will finish under 0.05 floor**; clean cutover at next `--name-prefix` launch. CAVEAT: 10 µm Al may be unbuildable; treat any new champion at hT≤0.03 as physics-real-but-unbuildable until engineering confirms. Strong evidence the optimum is real, not single-run artefact; front is **flat at the top** so all three are operationally equivalent. Added as slide 7 "Top 3 by S/√B" to `docs/foils_talk.md`. foilsf03 complete 2026-06-06 ~20:50: 2 rounds × 10 = 20 evals, leaderboard 136→156. **NEW unconstrained sob champion: foilsf03R01_09 sob=3.890 @ calo=2.03e-5** — edges out prior foilsf02R00_03 (sob=3.88 @ 2.2e-5) AND at lower calo. Marginal +0.01 sob, ~10% calo reduction — front genuinely tightening at the unconstrained corner. Calo-budget table champions for B≤1e-6 and B≤1e-5 UNCHANGED (still foilsf01R03_04 0.73 and foilsZ06R00_04 2.90); the gain is corner-only. POLICY FLIP: foilsf picker is now v3-ONLY. `FoilsFracMode.load_priors` at `autoresearch_bo_michael.py:854` returns `[]` — v1 prior + 54 v2 evals intentionally NOT loaded. Operator direction: v2's rIn≤50 regime was suspected of dragging v3 GP toward v2 average; v3-only cloud envelopes the gold stars while v2+v3 does not. Trade-off accepted: GP is under-identified (length_scale rails to 1000 mm upper bound on 67-row v3-only fit); cloud is a diffuse blob — see revised [gp-cloud-rendering](/concepts/gp-cloud-rendering.md). **NEW v3 CHAMPION 2026-06-06**: `foilsf01R04_07` obj=**2.040**/sob=**3.54**/calo=1.50e-5 (f_up=0.49, f_dn=0.32, rOut_up=141.8, rOut_dn=141.3, hT_up=0.130, hT_dn=0.197) — first v3-only-trained pick to top the v3 leaderboard, beating prior champion foilsZ02R02_02 (obj=2.017/sob=3.40, v1+v2+v3 trained). Modest +1.1% obj gain across 5 rounds × 10 children = 50 evals; sob front advanced 3.40→3.54. v1/v2 leaderboards FROZEN. foilsZ07 (v2-leaderboard, 19 rows landed) killed 2026-06-06; foilsf01 ran thread closed-d2b73f22. Naming convention break: foilsZ prefix does NOT enforce v3 mode — check parent's `--mode` flag.)
 
 ## Summary
 Third BO mode in `autoresearch_bo_michael.py` (select with `--mode foils`).
 Opens a parallel BO line over the **stopping-target** foil stack, orthogonal
-to [[bo-helical]]'s plug optimization. Motivation: 4D helical Pareto has
+to [bo-helical](/projects/bo-helical.md)'s plug optimization. Motivation: 4D helical Pareto has
 saturated (HV +1.6% over last 76 evals, hit-rate 62%→38%), so the next win
 is a dimensionality lift, not more 4D evals. This mode pins the deployed
-37-foil base (see [[stopping-target-foil-base-spec]]) and explores adding
+37-foil base (see [stopping-target-foil-base-spec](/concepts/stopping-target-foil-base-spec.md)) and explores adding
 up to 6 extras upstream and/or 6 downstream — `n_up + 37 + n_down` total,
 all extras sharing one (rOut, halfThickness) triple. The helical plug is
 **off** (`tsda.helical.build = false`, `hasTSdA = false`) so any movement
@@ -290,7 +293,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
   - Source of truth: `autoresearch_bo_michael.py:FoilsMode.build_space`.
 
 - **Base 37 foils pinned at deployed v02 spec** (NOT the documents-spec
-  "100 µm" number — see [[stopping-target-foil-base-spec]] for the
+  "100 µm" number — see [stopping-target-foil-base-spec](/concepts/stopping-target-foil-base-spec.md) for the
   deployed-vs-design mismatch):
   - `BASE_ROUT_MM = 75.0`, `BASE_HALFTHICK_MM = 0.0528` (≈105.6 µm full),
     `BASE_HOLE_RADIUS_MM = 21.5`, `BASE_N_FOILS = 37`.
@@ -321,8 +324,8 @@ in (sob, calo) is attributable to the +12 envelope alone.
     clamp on search space needed.
   - Logs: `bo_foils_preflight/foilsP0_{AU,AD,AS}.log`.
 
-- **No mmackenz priors** (see [[mmackenz-priors]]). mmackenz's v22-v50 foil-stack runs (consumed by
-  [[bo-michael]]) are 7D over different knobs (rIn / halfLength4 / holeRadius
+- **No mmackenz priors** (see [mmackenz-priors](/datasets/mmackenz-priors.md)). mmackenz's v22-v50 foil-stack runs (consumed by
+  [bo-michael](/projects/bo-michael.md)) are 7D over different knobs (rIn / halfLength4 / holeRadius
   / col5) and don't project onto this extras-only space. In **v1 (5D)**
   `load_priors` returned `[]` outright.
 - **v1→v2 prior reuse (6D migration, uncommitted WIP 2026-06-01):** v2
@@ -347,7 +350,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
   (`--mode foils --q 2 --max-rounds 1 --dry-run` on 2026-05-28) produced 2
   spatially-distinct picks across all 5 knobs.
 
-- **Parallel strategy:** `cl_min` (matches [[batch-bo]] helical default).
+- **Parallel strategy:** `cl_min` (matches [batch-bo](/concepts/batch-bo.md) helical default).
   skopt's `cl_mean` warns about fake-y collapse with mixed Integer+Real
   spaces — `cl_min` uses the running minimum which is more
   collapse-resistant for the n_up/n_down Integer dims.
@@ -385,7 +388,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
   joined the front, R1 gets ~zero HVI credit for resampling it; R1's
   q=10 went to f=0.95 (4 picks, sob~3.1-3.2) and f=0 low-calo end
   (3 picks at calo<1.6e-6). (b) `extra_f_up/dn` rail at
-  length_scale=1000 on every v3 fit (see [[gp-cloud-rendering]]
+  length_scale=1000 on every v3 fit (see [gp-cloud-rendering](/concepts/gp-cloud-rendering.md)
   "Real mechanism" section): GP says f doesn't drive obj, so both
   f-corners look equally promising. (c) foilsf14R00_06 is a **single
   point**, not a basin — neighbors don't replicate, so GP posterior
@@ -411,14 +414,14 @@ in (sob, calo) is attributable to the +12 envelope alone.
   the cron-refreshed v3only cloud).
 
 ## Cross-links
-- Related: [[bo-foilsflash]] (foilsf geometry, flash objective), [[bo-helical]] (parallel BO line; saturation motivated this),
-  [[bo-michael]] (original 7D foil-stack mode this supersedes for
+- Related: [bo-foilsflash](/projects/bo-foilsflash.md) (foilsf geometry, flash objective), [bo-helical](/projects/bo-helical.md) (parallel BO line; saturation motivated this),
+  [bo-michael](/projects/bo-michael.md) (original 7D foil-stack mode this supersedes for
   extras-only),
-  [[stopping-target-foil-base-spec]] (load-bearing base + scalar-holeRadius
+  [stopping-target-foil-base-spec](/concepts/stopping-target-foil-base-spec.md) (load-bearing base + scalar-holeRadius
   gotcha),
-  [[batch-bo]] (cl_min strategy choice),
-  [[closed-loop-bo-design]] (mode-generic barrier/leaderboard plumbing),
-  [[closed-loop-runner]] (driver this rides on), [[bo-foilsflash]], [[bo-foilsg]], [[bo-ipa]], [[bo-prodtarget]]
+  [batch-bo](/concepts/batch-bo.md) (cl_min strategy choice),
+  [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (mode-generic barrier/leaderboard plumbing),
+  [closed-loop-runner](/drivers/closed-loop-runner.md) (driver this rides on), [bo-foilsflash](/projects/bo-foilsflash.md), [bo-foilsg](/projects/bo-foilsg.md), [bo-ipa](/projects/bo-ipa.md), [bo-prodtarget](/projects/bo-prodtarget.md)
 - Source files:
   `autoresearch_bo_michael.py` `FoilsMode` class (~L547),
   `autoresearch_bo_michael.py:379` (HelicalMode.FOIL_COUNT side-fix),
@@ -434,7 +437,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
   in `MODE_SPECS` since .venv-botorch has no skopt; michael's mixed
   Real+Categorical space NOT supported),
   `leaderboard_bo_foils_v1.tsv` (created on first append)
-- External: [[mu2e-overlap-check]] (Phase 0 preflight recipe)
+- External: [mu2e-overlap-check](/external/mu2e-overlap-check.md) (Phase 0 preflight recipe)
 
 - **First closed-loop round (`foilsX01`, 2026-05-28):** all 10 Sobol-bootstrap
   picks PASS preflight end-to-end through the real grid pipeline — confirms
@@ -579,7 +582,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
     big-thick-foil **boundary corner** — vs the champion's moderate rOut≈150 /
     thin hT≈0.05. The low obj is **low SOB (0.6–2.2), not a calo penalty**
     (calo is tiny there): big thick foils stop muons poorly → weak CE signal.
-    This is the LIVE realization of the [[batch-bo]] n=193 note ("CL-min
+    This is the LIVE realization of the [batch-bo](/concepts/batch-bo.md) n=193 note ("CL-min
     spends 8/10 picks on the rOut=250, hT=1, rIn=0 boundary corner —
     mode-collapse to a GP-predicted safe extreme"), amplified by the
     running-min lie getting more pessimistic as low-obj rows accumulate.
@@ -591,7 +594,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
   retry-protected preflight, consolidated env-source). **15/15 evals landed —
   ZERO losses across all 5 rounds** (vs foilsY02's 4 losses), a clean
   production validation of the preflight cvmfs-flake retry
-  ([[sourced-env-stderr-swallowed]]). **No new champion:** best
+  ([sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md)). **No new champion:** best
   foilsY03R01_00 obj=1.899; v2 leader stays foilsY02R03_01 obj=2.00. A
   consolidation run — filled in the 6D space, didn't exceed. Cloud refreshed
   to n=30 (1 prior + 29 foilsY), GP Pareto frontier 75→181. Deck (foils_talk)
@@ -602,13 +605,13 @@ in (sob, calo) is attributable to the +12 envelope alone.
   the v1 obj champion foilsX07R01_03 at 2.178). Per-round best obj:
   R0 1.71 / R1 1.24 / R2 1.88 / **R3 2.00** / R4 0.61 — **R4 regressed hard**
   (obj 0.61/0.44), cl_min wandering into a low-signal corner late (the
-  documented [[batch-bo]] cl_min late-collapse). **11 of 15 evals landed**
+  documented [batch-bo](/concepts/batch-bo.md) cl_min late-collapse). **11 of 15 evals landed**
   (2 lost to the R0 cvmfs preflight flake, R01_01 + an R04 child to harvest
   `metrics_none`). **Caveat: this run used the OLD cached `load_priors`**
   (51 base-hole-mismatched priors) — the parent launched before the prior
   filter fix and holds the cached module, so the picker/prior code change does
   NOT apply mid-campaign (same long-lived-parent nuance as
-  [[sourced-env-stderr-swallowed]]); the next launch uses the corrected
+  [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md)); the next launch uses the corrected
   1-prior version.
 - **v1→v2 priors are base-hole MISMATCHED (bug, found by /code-review
   2026-06-01).** `FoilsMode.load_priors` projects each v1 row to
@@ -688,7 +691,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
     failures, wasted evals. **Fix first:** either (1) reparameterize the hole as
     a FRACTION of rOut (`rIn = f·rOut`, `f∈[0,0.95]` — always valid, scale-free,
     arguably more physical), or (2) add the is_buildable retry loop to
-    `gp_predict_foils.compute_explore_picks`. See [[closed-loop-runner]].
+    `gp_predict_foils.compute_explore_picks`. See [closed-loop-runner](/drivers/closed-loop-runner.md).
   - **The fraction reparam is LOSSLESS — opposite of v1→v2 (2026-06-03).**
     `rIn = f·rOut` is an invertible coordinate change of the SAME geometry, so
     every existing v2 row transfers EXACTLY: `f = rIn/rOut`, rOut/hT unchanged,
@@ -800,7 +803,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
     1.82, R08 1.87, R09 1.95). So the verdict resolves toward **noise spike**,
     not a robust new optimum — 10 rounds of the same picker couldn't re-hit it.
     foilsZ02 final best stays `foilsZ02R02_02` obj=2.017; all-time best remains
-    the v1 `foilsX07R01_03` obj=2.178. Combined with the [[scalarized-objective]]
+    the v1 `foilsX07R01_03` obj=2.178. Combined with the [scalarized-objective](/concepts/scalarized-objective.md)
     α-placeholder finding, the honest read is: **the (sob,calo) front is
     well-mapped/saturated (44 Pareto pts over 346 evals) and 2.017 is not a
     durable advance.** The deck was rewritten α-free accordingly (reports the

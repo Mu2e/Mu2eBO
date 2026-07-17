@@ -1,8 +1,14 @@
-# graph-runner — LangGraph orchestrator for the BO loop
+---
+type: driver
+title: graph-runner — LangGraph orchestrator for the BO loop
+description: LangGraph state-machine orchestrator (Phase 1 mock-grid); Studio +
+  Streamlit overlay
+status: active
+timestamp: '2026-07-08'
+updated_note: headless-log format gotcha
+---
 
-**Type:** driver
-**Status:** active
-**Updated:** 2026-07-08 (headless-log format gotcha)
+# graph-runner — LangGraph orchestrator for the BO loop
 
 > **Monitoring gotcha (2026-07-08):** a headless `graph.run` log contains ONLY
 > `[run] {...}` JSON status lines (config_name / preflight / objective) — node
@@ -48,7 +54,7 @@ mock-grid branch; helical mode only.
   `stage_X` after a checkpoint kill or a hot-reload re-runs submit/poll/list-outputs;
   pipeline.py's submit/list-outputs guards no-op when the cluster file already
   exists (and, for list-outputs, every basename in `<stage>_outputs.txt` still
-  resolves on /pnfs). Override with `--force`. See [[pipeline]].
+  resolves on /pnfs). Override with `--force`. See [pipeline](/drivers/pipeline.md).
 - **Idempotency corollary — rebuilt base tarballs are invisible on resubmit.**
   `write_code_tarball` (`pipeline.py:387-423`) re-extracts `MUSING_BY_MODE`'s
   base tarball into `<stage>/Code/` every time submit runs, BUT submit itself
@@ -165,19 +171,19 @@ mock-grid branch; helical mode only.
   near-zero on clean iterations. `n_logs` in the report counts only workers
   whose `.art` made it to `<stage>_outputs.txt`, not raw outstage dirs —
   matches the scope of data actually being harvested. See
-  [[tessellated-solid-facet-orientation]] for the first issue this caught.
+  [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) for the first issue this caught.
 
 ## Cross-links
-- Related: [[autoresearch-bo-michael]], [[preflight]], [[bo-helical]], [[orchestrator-evaluation-2026-05]], [[closed-loop-runner]]
-- Wrapped by: [[closed-loop-runner]] (multi-round driver spawns q parallel `graph.run` children per round)
-- Per-stage I/O: [[pipeline]] (idempotent submit/poll/list-outputs/harvest)
-- Regression tests: [[tests]]
+- Related: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [preflight](/drivers/preflight.md), [bo-helical](/projects/bo-helical.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [closed-loop-runner](/drivers/closed-loop-runner.md)
+- Wrapped by: [closed-loop-runner](/drivers/closed-loop-runner.md) (multi-round driver spawns q parallel `graph.run` children per round)
+- Per-stage I/O: [pipeline](/drivers/pipeline.md) (idempotent submit/poll/list-outputs/harvest)
+- Regression tests: [tests](/drivers/tests.md)
 - Source files: `graph/build.py`, `graph/nodes.py`, `graph/pipeline_io.py`, `graph_app/streamlit_app.py`
 - Config: `langgraph.json`, `requirements-graph.txt`
 - External: [LangGraph docs](https://langchain-ai.github.io/langgraph/)
 
 ## Open questions / TODO
-- **Multi-round driver lives in [[closed-loop-runner]]** — `graph.run` remains
+- **Multi-round driver lives in [closed-loop-runner](/drivers/closed-loop-runner.md)** — `graph.run` remains
   the single-iteration entrypoint; `graph.closed_loop` wraps q parallel
   `graph.run` children per round and refits the GP between rounds.
 - Supervisor loop to re-invoke pending threads every N min (Phase 3).

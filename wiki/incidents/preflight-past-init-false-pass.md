@@ -1,14 +1,19 @@
-# preflight past_init false-PASS — geometry aborts classified as PASS
+---
+type: incident
+title: preflight past_init false-PASS — geometry aborts classified as PASS
+description: 'preflight classifier returns PASS on fatal GeomSolids0002 aborts:
+  past_init keys on pre-geometry strings (BeginRun/GenParticle) and skips the geom-fail
+  regex; masked the foilsg tarball incident'
+status: resolved
+status_note: 'fix landed 2026-06-12: `G4_FATAL_RX` fails unconditionally on `GeomSolids00\d\d`
+  / `*** Fatal Exception ***` / "Aborting execution" before the past_init logic
+  runs; `G4_GEOM_FAIL_RX` widened to include GeomSolids; holeRadii canary assertion
+  added; 4 regression tests in `tests/test_audit_fixes.py` (`TestPreflightFatalAbortClassification`)
+  including the advisory GeomVol1002 negative case'
+timestamp: '2026-06-12'
+---
 
-**Type:** incident
-**Status:** resolved — fix landed 2026-06-12: `G4_FATAL_RX` fails
-unconditionally on `GeomSolids00\d\d` / `*** Fatal Exception ***` /
-"Aborting execution" before the past_init logic runs; `G4_GEOM_FAIL_RX`
-widened to include GeomSolids; holeRadii canary assertion added; 4
-regression tests in `tests/test_audit_fixes.py`
-(`TestPreflightFatalAbortClassification`) including the advisory
-GeomVol1002 negative case
-**Updated:** 2026-06-12
+# preflight past_init false-PASS — geometry aborts classified as PASS
 
 ## Summary
 
@@ -23,13 +28,13 @@ etc.). When geometry then aborts, `past_init` is already True, so:
 Doubly broken: `G4_GEOM_FAIL_RX` (~:1815) matches
 `GeomMgt000\d|GeomVol1002|placement|outside mother|overlap` but NOT
 `GeomSolids0002` (invalid solid parameters) — same too-narrow-pattern
-class as [[scan-broken-codes-too-narrow]].
+class as [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md).
 
 This is why every foilsg06/foilsg05 child sailed through preflight while
 its log contained the identical
 `G4Exception GeomSolids0002 ... Invalid values for radii in solid:
 Foil_00` + "Aborting execution" that killed the grid jobs
-([[foilsg-grid-tarball-scalar-holeradius-fallback]]). The surface-check
+([foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)). The surface-check
 overlap scan also reported 0 managed overlaps — vacuously, because G4
 aborted before any overlap check ran.
 
@@ -50,10 +55,10 @@ aborted before any overlap check ran.
   GeomVol1002-advisory carve-out.
 
 ## Cross-links
-- Related: [[foilsg-grid-tarball-scalar-holeradius-fallback]] (the failure
-  this masked), [[scan-broken-codes-too-narrow]] (same pattern-too-narrow
-  class), [[foilsx04-all-preflight-ambiguous]] (prior preflight
-  classification gap), [[preflight]], [[foilsflash-tarball-mode-key-omission]], [[preflight-mode-tuple-prodtarget6d-omission]]
+- Related: [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md) (the failure
+  this masked), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) (same pattern-too-narrow
+  class), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md) (prior preflight
+  classification gap), [preflight](/drivers/preflight.md), [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md), [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md)
 - Source files: `autoresearch_bo_michael.py:1938-1990` (classifier),
   `:1815` (`G4_GEOM_FAIL_RX`)
 

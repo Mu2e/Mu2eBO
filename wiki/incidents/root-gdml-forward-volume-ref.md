@@ -1,8 +1,14 @@
-# ROOT TGDMLParse segfaults on forward `<volume>` references
+---
+type: incident
+title: ROOT TGDMLParse segfaults on forward `<volume>` references
+description: ROOT TGDMLParse segfaults on forward `<volume>` refs (children must
+  precede parents); Geant4 reader is order-tolerant, ROOT isn't; subset extractors
+  must DFS post-order
+status: resolved
+timestamp: '2026-06-01'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-01
+# ROOT TGDMLParse segfaults on forward `<volume>` references
 
 ## Summary
 ROOT's GDML reader (`TGDMLParse`) requires every `<volume>` to be defined
@@ -11,7 +17,7 @@ appear earlier in the file than their parents. Geant4's GDML reader is
 order-tolerant; ROOT's is not. A forward reference triggers
 `Error in <TGDMLParse::GetVolume>: Volume X not defined` followed by a
 segfault in `TGDMLParse::VolProcess`. Surfaced when ROOT-loading the
-extracted stopping-target subtree from [[bo-foils]] champion
+extracted stopping-target subtree from [bo-foils](/projects/bo-foils.md) champion
 `foilsX07R01_03`.
 
 ## Key facts
@@ -43,7 +49,7 @@ extracted stopping-target subtree from [[bo-foils]] champion
   is not reliable across Python versions either.
 
 ## Cross-links
-- Related: [[bo-foils]] (champion `foilsX07R01_03` is what triggered
+- Related: [bo-foils](/projects/bo-foils.md) (champion `foilsX07R01_03` is what triggered
   this; GDML lives at
   `bo_foils_proposals/foilsX07R01_03_gdml/`)
 - Source files:
