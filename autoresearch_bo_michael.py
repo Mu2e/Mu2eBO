@@ -1580,16 +1580,17 @@ def verify_stopping_target_gdml(gdml_path, geom_text, tol_mm=1e-3):
 # G4 CheckOverlaps emits lines like
 #   "Overlap is detected for volume <X> ... with [its mother volume] <Y> ..."
 # We only care about overlaps that involve volumes our BO knobs touch:
-#   - TSdA*       (TSdA disc, TSdA4)
-#   - AbsorberPV  (helical-plug placement volume — confirmed via GDML dump)
-#   - AbsorberS   (helical-plug solid name in some Mu2e versions)
+#   - StoppingTargetFoil_*  (foils family)
+#   - ProductionTarget*     (prodtarget family: plates, lugs, spacers, supports)
+# (TSdA/AbsorberPV/AbsorberS prefixes retired 2026-07-17 with the helical
+# plug — every surviving mode pins hasTSdA=false.)
 # Stock Mu2e geometry has ~117 baseline overlap lines (FoilSupportStructure_*
 # with StoppingTargetMother; NorthRailDS3 / SouthRailDS3 with DS3Vacuum;
 # VirtualDetector_EMC_0_Front with StoppingTargetMother). Whitelisting by
 # volume name keeps those out of our failure signal.
 SURFACE_OVERLAP_RX = re.compile(r"Overlap is detected for volume\s+(\S+)")
 SURFACE_OVERLAP_MANAGED = re.compile(
-    r"^(TSdA|AbsorberPV|AbsorberS|StoppingTargetFoil_"
+    r"^(StoppingTargetFoil_"
     r"|ProductionTargetPlate|ProductionTargetLug|ProductionTargetSpacer|ProductionTargetSupport)")
 
 
