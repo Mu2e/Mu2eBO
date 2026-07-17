@@ -1,8 +1,8 @@
-"""Targeted regression tests for the 5 /simplify audit fixes (2026-05-29).
+"""Targeted regression tests for the /simplify audit fixes (2026-05-29).
 
-Each TestClass covers one of the 5 fixes:
+Each TestClass covers one of the fixes (Fix 1's class was deleted 2026-07-17
+with the retired cl_min picker it tested — ADR-0001):
 
-  TestIsBrokenParseException   — gp_predict_helical.py:158 (broken-unknown on bad report)
   TestModeArgChoices           — graph/closed_loop.py:514  (fail-fast on --mode typo)
   TestStageShaCheckCallsites   — pipeline.py:583,589        (poll + list-outputs warn)
   TestRemovePendingBeforeAppend — autoresearch_bo_michael.py:891 (atomic ordering)
@@ -12,10 +12,7 @@ Run from project root:
   .venv-graph/bin/python -m unittest tests.test_audit_fixes -v
 """
 import argparse
-import csv
-import importlib.util
 import io
-import json
 import re
 import subprocess
 import sys
@@ -28,77 +25,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "graph"))
 
-# --- Fix 1: _is_broken parse-exception → True ---------------------------------
-
-GP_HELICAL_PATH = Path(
-    "/exp/mu2e/data/users/oksuzian/autoresearch_grid/"
-    "mmackenz_table_plots/gp_predict_helical.py"
-)
-
-
-def _load_gp_helical():
-    spec = importlib.util.spec_from_file_location("gp_predict_helical", GP_HELICAL_PATH)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-class TestIsBrokenParseException(unittest.TestCase):
-    """Issue #1: malformed report.tsv must be treated as broken-unknown (True),
-    not silent-pass (False). Mirrors the missing-report branch.
-    """
-    @classmethod
-    def setUpClass(cls):
-        if not GP_HELICAL_PATH.exists():
-            raise unittest.SkipTest(f"{GP_HELICAL_PATH} unavailable")
-        cls.gp = _load_gp_helical()
-
-    def setUp(self):
-        # _is_broken is @functools.lru_cache'd — clear between tests so
-        # tempdir + GRID_DATA_ROOT mocks take effect for each call.
-        self.gp._is_broken.cache_clear()
-
-    def _stage(self, body, td, cfg):
-        d = Path(td) / cfg / "scan_logs"
-        d.mkdir(parents=True)
-        (d / "report.tsv").write_text(body)
-        return cfg
-
-    def test_missing_likely_geom_overlap_column(self):
-        # Header lacks "LikelyGeomOverlap" → hdr.index() raises ValueError
-        with tempfile.TemporaryDirectory() as td:
-            cfg = self._stage("stage\tnotacolumn\nmubeam\t0\n", td,
-                              "cfg_parse_err")
-            with mock.patch.object(self.gp, "GRID_DATA_ROOT", Path(td)):
-                self.assertTrue(self.gp._is_broken(cfg),
-                                "parse error must mark broken-unknown")
-
-    def test_truncated_to_header_only_returns_false(self):
-        # Header present, no body rows — len(lines) < 2 branch returns False
-        # (intentional pre-existing behavior; this test pins it so the
-        # exception-broken fix doesn't accidentally widen the gate).
-        with tempfile.TemporaryDirectory() as td:
-            cfg = self._stage("stage\tLikelyGeomOverlap\n", td, "cfg_truncated")
-            with mock.patch.object(self.gp, "GRID_DATA_ROOT", Path(td)):
-                self.assertFalse(self.gp._is_broken(cfg))
-
-    def test_clean_report_not_broken(self):
-        with tempfile.TemporaryDirectory() as td:
-            cfg = self._stage(
-                "stage\tLikelyGeomOverlap\nmubeam\t0\nmustops_ce\t0\n",
-                td, "cfg_clean",
-            )
-            with mock.patch.object(self.gp, "GRID_DATA_ROOT", Path(td)):
-                self.assertFalse(self.gp._is_broken(cfg))
-
-    def test_high_overlap_is_broken(self):
-        with tempfile.TemporaryDirectory() as td:
-            cfg = self._stage(
-                "stage\tLikelyGeomOverlap\nmubeam\t999999\n", td, "cfg_overlap",
-            )
-            with mock.patch.object(self.gp, "GRID_DATA_ROOT", Path(td)):
-                self.assertTrue(self.gp._is_broken(cfg))
-
+# (Fix 1's TestIsBrokenParseException was deleted 2026-07-17: it exercised the
+# retired off-repo gp_predict_helical.py — cl_min picker, ADR-0001. The live
+# broken-detection is _child_is_broken, covered in test_closed_loop.py.)
 
 # --- Fix 2: --mode choices guard ---------------------------------------------
 
@@ -195,7 +124,7 @@ class TestRemovePendingBeforeAppend(unittest.TestCase):
     def test_source_order(self):
         src = (PROJECT_ROOT / "autoresearch_bo_michael.py").read_text()
         m = re.search(
-            r"def cmd_evaluate\(args.*?\n(.*?)(?=\n(?:def |PREFLIGHT_FCL_TEMPLATE))",
+            r"def cmd_evaluate\(args.*?\n(.*?)(?=\n(?:def |G4_GEOM_FAIL_RX))",
             src, re.DOTALL,
         )
         self.assertIsNotNone(m, "cmd_evaluate not found")

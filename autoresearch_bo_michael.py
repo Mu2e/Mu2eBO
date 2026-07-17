@@ -1,32 +1,17 @@
 #!/usr/bin/env python3
-"""Bayesian Optimization for Mu2e geometry: joint S/sqrt(B) − α·calo/POT.
+"""Bayesian Optimization driver for Mu2e geometry searches.
 
-Two modes (select with --mode):
+Modes (select with --mode; bounds live in modes.SPECS, the registry of record):
 
-  michael (default, 4D foil-stack search):
-    tsda_rin           Real    [0.001, 130.0]   mm
-    tsda_halfLength4   Real    [7.5,   12.5]    cm
-    holeRadius         Real    [0.0,   50.0]    mm
-    col5               Cat     {"air","poly"}
-    Pinned: tsda.r4=600, tsda.z0=4195, materialName=StoppingTarget_Al,
-            degrader.build=false, degrader.rotation=120. (mmackenz parked detent)
+  foils         5D/6D extras-only stopping-target envelope (absolute rIn)
+  foilsf        v3 foils: hole radius as FRACTION of rOut (rIn = f*rOut)
+  foilsflash    foilsf geometry vs elebeam-flash tracker edep objective
+  foilsg        12D grouped 49-foil stack (4 z-groups x (rOut, hT, f))
+  ipa           5D Run1A inner proton absorber vs trk_edep objective
+  prodtarget    ~11D Stickman production-target profile search (mu_per_POT)
+  prodtarget6d  6D simplification of prodtarget (no lug knobs, N pinned)
 
-  helical (4D inner-namespace search, all else pinned at v111):
-    tsda.helical.dx          Real [0.01, 5.0]    mm   (ribbon half-width)
-    tsda.helical.dy          Real [40,   400]    mm   (ribbon half-height)
-    tsda.helical.halflength  Real [25,   500]    mm   (z half-length)
-    tsda.helical.angle       Real [60,   720]    deg  (total twist; widened from 540 on 2026-05-21 — 15/47 v2 rows were rail-running ≥525°)
-    Derived (coupled in render_geom; eliminates silent G4 sibling overlaps):
-      tsda.helical.z0 = tsda.z0 + halfLength4 + halflen
-                      → plug upstream face touches disc downstream face
-      tsda.rin        = ceil(sqrt(dx^2+dy^2)) + 2 mm
-                      → disc hole matches plug bounding circle + 2 mm
-    Pinned: TSdA core (hL4=12.5, r4=600, z0=4195), foils (38 × r=125, hole=0),
-            degrader off, COL5Poly, helical material/nsteps.
-    Baseline geom_run1_a.txt + manual TT_MidInner→DS2Vacuum patches (mirrors v111).
-
-Subcommands (both modes):
-  show-priors  : load priors, print top-K by objective (no GP fitting required)
+Subcommands:
   propose      : seed GP, propose next candidate, render geom override file
   evaluate     : after pipeline run, parse summary.json + append to leaderboard
   preflight    : run mu2e -n 1 locally on a proposal to catch G4 init failures
@@ -165,11 +150,27 @@ class BOMode(ABC):
     @abstractmethod
     def parse_geom(self, text: str): ...
 
-    @abstractmethod
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]: ...
+    # Leaderboard row shape shared by every sob/calo-schema mode: knob columns
+    # = KNOB_NAMES, per-position precision = KNOB_FMTS, second-objective column
+    # = CALO_COL. Subclasses that change the knob names (FoilsFracMode: rIn->f)
+    # or the objective column (FoilsFlashMode: flash_edep; IPAMode: trk_edep)
+    # only reset those class attrs — the format/parse code is identical. The
+    # ProdTarget family overrides both methods (different metric columns).
+    KNOB_FMTS: tuple  # no default: a mode without it must fail loudly
+    CALO_COL = "calo"
 
-    @abstractmethod
-    def load_history_row(self, row: dict) -> Point: ...
+    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
+        header = ("config\t" + "\t".join(self.KNOB_NAMES)
+                  + f"\tsob\t{self.CALO_COL}\talpha\tobj\n")
+        knobs = "\t".join(fmt.format(v) for fmt, v in zip(self.KNOB_FMTS, p.x))
+        line = (f"{p.cfg}\t{knobs}"
+                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
+        return header, line
+
+    def load_history_row(self, row: dict) -> Point:
+        return Point(cfg=row["config"],
+                     x=[float(row[c]) for c in self.KNOB_NAMES],
+                     sob=float(row["sob"]), calo=float(row[self.CALO_COL]))
 
     # Search space. The numeric modes share this: skopt dims built from the
     # ModeSpec registry box (modes.SPECS[name].bounds_lo/hi/int_dims) paired
@@ -583,26 +584,8 @@ class FoilsMode(BOMode):
 
         return [radii[0], radii[-1], halfth[0], halfth[-1], rIn_up, rIn_dn]
 
-    # Leaderboard row shape shared by the whole Foils family: knob columns =
-    # KNOB_NAMES, per-position precision = KNOB_FMTS, second-objective column =
-    # CALO_COL. Subclasses that change the knob names (FoilsFracMode: rIn->f) or
-    # the objective column (FoilsFlashMode: calo->flash_edep) only reset those
-    # class attrs — the format/parse code is identical.
+    # Row format/parse inherited from the BOMode generic.
     KNOB_FMTS = ("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}")
-    CALO_COL = "calo"
-
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config\t" + "\t".join(self.KNOB_NAMES)
-                  + f"\tsob\t{self.CALO_COL}\talpha\tobj\n")
-        knobs = "\t".join(fmt.format(v) for fmt, v in zip(self.KNOB_FMTS, p.x))
-        line = (f"{p.cfg}\t{knobs}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        return Point(cfg=row["config"],
-                     x=[float(row[c]) for c in self.KNOB_NAMES],
-                     sob=float(row["sob"]), calo=float(row[self.CALO_COL]))
 
 
 
@@ -761,6 +744,7 @@ class FoilsGroupMode(BOMode):
     KNOB_NAMES = tuple(
         nm for g in range(len(GROUP_SIZES))
         for nm in (f"rOut_g{g}", f"hT_g{g}", f"f_g{g}"))
+    KNOB_FMTS = ("{:.4f}", "{:.6f}", "{:.4f}") * len(GROUP_SIZES)
 
     # 0 priors -> need a Sobol init batch before any GP fit (mirrors
     # ProdTargetMode pattern; see prodtarget-propose-skopt-empty-init incident).
@@ -869,29 +853,6 @@ class FoilsGroupMode(BOMode):
             x.extend([rOut, hT, f])
         return x
 
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        knob_cols = "\t".join(
-            f"rOut_g{g}\thT_g{g}\tf_g{g}" for g in range(len(self.GROUP_SIZES))
-        )
-        header = ("config\t" + knob_cols
-                  + "\tsob\tcalo\talpha\tobj\n")
-        vals = "\t".join(
-            f"{p.x[3*g]:.4f}\t{p.x[3*g+1]:.6f}\t{p.x[3*g+2]:.4f}"
-            for g in range(len(self.GROUP_SIZES))
-        )
-        line = (f"{p.cfg}\t{vals}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        x = []
-        for g in range(len(self.GROUP_SIZES)):
-            x.append(float(row[f"rOut_g{g}"]))
-            x.append(float(row[f"hT_g{g}"]))
-            x.append(float(row[f"f_g{g}"]))
-        return Point(cfg=row["config"], x=x,
-                     sob=float(row["sob"]), calo=float(row["calo"]))
-
 
 
 class IPAMode(BOMode):
@@ -924,6 +885,8 @@ class IPAMode(BOMode):
 
     KNOB_NAMES = ("thickness", "halfLength", "OutRadius0", "OutRadius1",
                   "distFromTargetEnd")
+    KNOB_FMTS = ("{:.4f}",) * 5
+    CALO_COL = "trk_edep"
 
     def is_buildable(self, x) -> bool:
         thickness, halfLength, rOut0, rOut1, _dist = x
@@ -988,25 +951,6 @@ class IPAMode(BOMode):
             out.append(float(m.group(1)))
         return out
 
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config\tthickness\thalfLength\tOutRadius0\tOutRadius1"
-                  "\tdistFromTargetEnd\tsob\ttrk_edep\talpha\tobj\n")
-        thickness, halfLength, rOut0, rOut1, dist = p.x
-        line = (f"{p.cfg}"
-                f"\t{thickness:.4f}\t{halfLength:.4f}\t{rOut0:.4f}\t{rOut1:.4f}"
-                f"\t{dist:.4f}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        return Point(cfg=row["config"],
-                     x=[float(row["thickness"]),
-                        float(row["halfLength"]),
-                        float(row["OutRadius0"]),
-                        float(row["OutRadius1"]),
-                        float(row["distFromTargetEnd"])],
-                     sob=float(row["sob"]),
-                     calo=float(row["trk_edep"]))
 
 
 
@@ -1238,22 +1182,32 @@ class ProdTargetMode(BOMode):
                 lPlate[0], lPlate[mid], lPlate[-1],
                 N]
 
+    # Row machinery shared by the ProdTarget family (mu_per_POT/edep/peak-dose
+    # metric columns, extras side-channel). Subclasses supply only the knob
+    # cells: ProdTarget6D drops l0-l2 and the integer N.
+    def _knob_cells(self, x) -> str:
+        r0, r1, r2, t0, t1, t2, l0, l1, l2, N = x
+        return (f"{r0:.4f}\t{r1:.4f}\t{r2:.4f}"
+                f"\t{t0:.4f}\t{t1:.4f}\t{t2:.4f}"
+                f"\t{l0:.4f}\t{l1:.4f}\t{l2:.4f}"
+                f"\t{int(N)}")
+
+    def _knob_x(self, row: dict) -> list:
+        return [float(row["r0"]), float(row["r1"]), float(row["r2"]),
+                float(row["t0"]), float(row["t1"]), float(row["t2"]),
+                float(row["l0"]), float(row["l1"]), float(row["l2"]),
+                int(float(row["N"]))]
+
     def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config"
-                  "\tr0\tr1\tr2\tt0\tt1\tt2\tl0\tl1\tl2\tN"
-                  "\tmu_per_POT\tedep_per_POT_MeV"
-                  "\tpeak_dose_Gy_per_POT\tpeak_plate_idx"
-                  "\tobj\n")
-        r0, r1, r2, t0, t1, t2, l0, l1, l2, N = p.x
+        header = ("config\t" + "\t".join(self.KNOB_NAMES)
+                  + "\tmu_per_POT\tedep_per_POT_MeV"
+                    "\tpeak_dose_Gy_per_POT\tpeak_plate_idx"
+                    "\tobj\n")
         ex = p.extras or {}
         edep = ex.get("edep_per_POT_MeV", float("nan"))
         peak = ex.get("peak_dose_Gy_per_POT", float("nan"))
         idx = ex.get("peak_dose_plate_idx", -1)
-        line = (f"{p.cfg}"
-                f"\t{r0:.4f}\t{r1:.4f}\t{r2:.4f}"
-                f"\t{t0:.4f}\t{t1:.4f}\t{t2:.4f}"
-                f"\t{l0:.4f}\t{l1:.4f}\t{l2:.4f}"
-                f"\t{int(N)}"
+        line = (f"{p.cfg}\t{self._knob_cells(p.x)}"
                 f"\t{p.sob:.6e}\t{edep:.6e}"
                 f"\t{peak:.6e}\t{int(idx)}"
                 f"\t{p.obj(alpha):.6e}\n")
@@ -1261,13 +1215,8 @@ class ProdTargetMode(BOMode):
 
     def load_history_row(self, row: dict) -> Point:
         extras = self._parse_pt_extras(row)
-        return Point(cfg=row["config"],
-                     x=[float(row["r0"]), float(row["r1"]), float(row["r2"]),
-                        float(row["t0"]), float(row["t1"]), float(row["t2"]),
-                        float(row["l0"]), float(row["l1"]), float(row["l2"]),
-                        int(float(row["N"]))],
-                     sob=float(row["mu_per_POT"]),
-                     calo=0.0,
+        return Point(cfg=row["config"], x=self._knob_x(row),
+                     sob=float(row["mu_per_POT"]), calo=0.0,
                      extras=extras or None)
 
 
@@ -1364,33 +1313,14 @@ class ProdTarget6DMode(ProdTargetMode):
         return [rOut[0], rOut[mid], rOut[-1],
                 tPlate[0], tPlate[mid], tPlate[-1]]
 
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config"
-                  "\tr0\tr1\tr2\tt0\tt1\tt2"
-                  "\tmu_per_POT\tedep_per_POT_MeV"
-                  "\tpeak_dose_Gy_per_POT\tpeak_plate_idx"
-                  "\tobj\n")
-        r0, r1, r2, t0, t1, t2 = p.x
-        ex = p.extras or {}
-        edep = ex.get("edep_per_POT_MeV", float("nan"))
-        peak = ex.get("peak_dose_Gy_per_POT", float("nan"))
-        idx = ex.get("peak_dose_plate_idx", -1)
-        line = (f"{p.cfg}"
-                f"\t{r0:.4f}\t{r1:.4f}\t{r2:.4f}"
-                f"\t{t0:.4f}\t{t1:.4f}\t{t2:.4f}"
-                f"\t{p.sob:.6e}\t{edep:.6e}"
-                f"\t{peak:.6e}\t{int(idx)}"
-                f"\t{p.obj(alpha):.6e}\n")
-        return header, line
+    def _knob_cells(self, x) -> str:
+        r0, r1, r2, t0, t1, t2 = x
+        return (f"{r0:.4f}\t{r1:.4f}\t{r2:.4f}"
+                f"\t{t0:.4f}\t{t1:.4f}\t{t2:.4f}")
 
-    def load_history_row(self, row: dict) -> Point:
-        extras = self._parse_pt_extras(row)
-        return Point(cfg=row["config"],
-                     x=[float(row["r0"]), float(row["r1"]), float(row["r2"]),
-                        float(row["t0"]), float(row["t1"]), float(row["t2"])],
-                     sob=float(row["mu_per_POT"]),
-                     calo=0.0,
-                     extras=extras or None)
+    def _knob_x(self, row: dict) -> list:
+        return [float(row["r0"]), float(row["r1"]), float(row["r2"]),
+                float(row["t0"]), float(row["t1"]), float(row["t2"])]
 
 
 
@@ -1522,28 +1452,6 @@ def cmd_evaluate(args):
           f"obj={p.obj(args.alpha):+.3f}  →  {mode.leaderboard}{pend_tag}")
     return 0
 
-
-PREFLIGHT_FCL_TEMPLATE = """\
-#include "Offline/fcl/standardServices.fcl"
-#include "Production/JobConfig/common/prolog.fcl"
-
-process_name: PreflightG4Init
-source: {{ module_type: EmptyEvent maxEvents: 1 firstRun: 1430 firstSubRun: 0 firstEvent: 1 }}
-
-services: @local::Services.Sim
-physics: {{
-  producers: {{
-    g4run: @local::mu2eg4runDefaultSingleStage
-    genCounter: {{ module_type: GenEventCounter }}
-  }}
-  initPath: [ genCounter, g4run ]
-  trigger_paths: [ initPath ]
-}}
-
-services.GeometryService.inputFile:  "{geom_basename}"
-services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_DSOff.txt"
-services.SeedService.baseSeed: 1
-"""
 
 G4_GEOM_FAIL_RX = re.compile(
     r"G4Exception.*?(GeomMgt000\d|GeomVol1002|GeomSolids00\d\d|placement|outside mother|overlap)",
@@ -1698,27 +1606,22 @@ def cmd_preflight(args):
     geom_basename = f"autoresearch_{name}_geom.txt"
     shutil.copyfile(geom, workdir / geom_basename)
 
-    # One G4 init covers both checks. Helical mode uses surfacecheck.fcl
-    # which enables g4.doSurfaceCheck=true AND exercises the same init path
-    # as preflight.fcl — the prior two-pass design (init, then surface-check)
-    # paid for G4 geometry construction twice. Non-helical modes use the
-    # lighter preflight.fcl since they don't need overlap diagnostics.
-    if _modes.SPECS[mode.name].preflight_fcl == "surfacecheck":
-        overlay_basename = f"autoresearch_{name}_surfacecheck_geom.txt"
-        (workdir / overlay_basename).write_text(
-            SURFACE_CHECK_GEOM_OVERLAY.format(base_geom_basename=geom_basename))
-        fcl_basename = "surfacecheck.fcl"
-        # foils family: also dump the as-built geometry to GDML so the
-        # per-foil assertion below can verify it against the geom file.
-        gdml_lines = (PREFLIGHT_GDML_FCL_LINES
-                      if _modes.SPECS[mode.name].dumps_gdml else "")
-        (workdir / fcl_basename).write_text(
-            SURFACE_CHECK_FCL.format(geom_basename=overlay_basename,
-                                     gdml_lines=gdml_lines))
-    else:
-        fcl_basename = "preflight.fcl"
-        (workdir / fcl_basename).write_text(
-            PREFLIGHT_FCL_TEMPLATE.format(geom_basename=geom_basename))
+    # One G4 init covers both checks: surfacecheck.fcl enables
+    # g4.doSurfaceCheck=true AND exercises the same init path a plain G4-init
+    # preflight would. Every surviving mode sets preflight_fcl="surfacecheck"
+    # (michael's lighter preflight.fcl retired with the mode, 2026-07-12;
+    # pinned by test_modes.test_all_modes_use_surfacecheck_preflight).
+    overlay_basename = f"autoresearch_{name}_surfacecheck_geom.txt"
+    (workdir / overlay_basename).write_text(
+        SURFACE_CHECK_GEOM_OVERLAY.format(base_geom_basename=geom_basename))
+    fcl_basename = "surfacecheck.fcl"
+    # foils family: also dump the as-built geometry to GDML so the
+    # per-foil assertion below can verify it against the geom file.
+    gdml_lines = (PREFLIGHT_GDML_FCL_LINES
+                  if _modes.SPECS[mode.name].dumps_gdml else "")
+    (workdir / fcl_basename).write_text(
+        SURFACE_CHECK_FCL.format(geom_basename=overlay_basename,
+                                 gdml_lines=gdml_lines))
 
     log = mode.preflight_dir / f"{name}.log"
     print(f"[preflight/{mode.name}] cfg={name}  workdir={workdir}  log={log}")
