@@ -1,15 +1,12 @@
-# Phase 1 dependencies for the LangGraph runner.
+# Dependencies for the LangGraph runner (.venv-graph rebuild recipe — see
+# wiki/incidents/venv-relocated-to-data-volume.md).
 # Install into a venv: python3 -m venv .venv-graph && source .venv-graph/bin/activate
 #                      pip install -r requirements-graph.txt
 #
-# These augment (not replace) the system scipy/skopt the BO driver already uses.
+# (langgraph-cli/grandalf/streamlit/plotly/pandas removed 2026-07-17 with the
+# dead Studio/Streamlit dev overlay — nothing else imported them.)
 langgraph>=0.2.50
 langgraph-checkpoint-sqlite>=1.0.0
-langgraph-cli[inmem]>=0.1.50
-grandalf>=0.8
-streamlit>=1.30
-plotly>=5.20
-pandas>=2.0
 # skopt + scipy are imported via autoresearch_bo_michael.py.
 scikit-optimize>=0.10
 scipy>=1.10

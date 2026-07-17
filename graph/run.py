@@ -1,9 +1,8 @@
 """Headless driver: invoke the BO iteration graph once with a SqliteSaver.
 
-Use this when you don't want to run `langgraph dev` — e.g. for a cron-driven
-supervisor or a one-off CLI smoke. Studio cannot attach to this checkpoint
-DB (Studio reads the dev server's in-memory store), but `graph_app/streamlit_app.py`
-will still see the leaderboard rows that this run produces.
+This is the standard entrypoint (the `langgraph dev` Studio/Streamlit overlay
+was retired 2026-07-17) — used directly for one-off chains and spawned per
+child by graph/closed_loop.py.
 
 Usage:
   source .venv-graph/bin/activate
@@ -27,9 +26,8 @@ from presniff import presniff_mode  # noqa: E402
 
 presniff_mode()
 
-# Load .env (LANGSMITH_*, etc.) before any langchain/langgraph import so
-# tracing client picks them up. langgraph.json's "env" field is honored only
-# by `langgraph dev`; the headless runner needs an explicit load.
+# Load .env (LANGSMITH_*, etc.) before any langchain/langgraph import so the
+# tracing client picks them up.
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
