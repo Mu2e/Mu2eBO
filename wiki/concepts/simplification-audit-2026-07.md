@@ -136,9 +136,29 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
 - Source files: verdicts archived in the workflow output; key refs inline above.
 
 ## Open questions / TODO
-- User decision pending on executing the SAFE_DELETE tier (~490 L + dep pins).
-- Coordinated retirement plan for the foils-deck trio (tools + 2 skills +
-  1 command + wiki page must move together).
-- Add requirements-botorch.txt + requirements-botorch-new.txt (~8 lines each).
-- Verify the 2 limit-killed candidates (helical regex alts; cluster.txt literal
-  consolidation) before acting on them.
+- ~~SAFE_DELETE tier~~ **EXECUTED 2026-07-17** (user-approved), commits
+  bdafed9 (schema dedup + preflight branch + cl_min test class, golden-diff
+  byte-identical across all 7 modes), 5ceebd4 (overlay + helical analyzer +
+  5 dep pins), d60d064 (hygiene: .gitignore globs, StageStatus Literal,
+  comment rot), e475eda (WAL harness tracked), 42783bb (this page). Suite
+  158 green (162 − 4 deleted cl_min tests). Merged branch
+  fix-closed-loop-failure-modes deleted locally (origin copy needs user push).
+  Note: the WAL harness has NO TestCase classes — the critic's "fresh clone
+  runs a smaller suite" framing was wrong; it's a manually-run script, but
+  tracking it was still right.
+- **Round 2 EXECUTED 2026-07-17** (commit 320cc2f + local .claude cleanup):
+  helical regex alternatives verified dead inline and trimmed; 5 orphan docs/
+  PNGs + graph/list_threads.sh deleted; requirements-botorch{,-new}.txt ADDED
+  (versions from dist-info audit; records CPU-wheel intent + py3.9 floor +
+  matplotlib-only-on-0.10 constraint). Local .claude config: stale helical-era
+  `closed-loop-launch.md` command + `launch-bo` skill DELETED;
+  `closed-loop-status.md` / `closed-loop-harvest.md` KEPT and re-pointed to
+  foilsflash-era leaderboards/prefixes (their awk column indices $8/$9/$11
+  survive unchanged — foilsflash's 6 knobs land sob/flash/obj at the same
+  positions helical's 4+2 derived columns did).
+- Coordinated retirement plan for the foils-deck trio (tools + refresh-deck
+  user skill + refresh-foils-slides command + wiki page must move together).
+- Still open: cluster.txt literal consolidation (only remaining unverified
+  candidate); data sediment (user call); aitools relocation; --mock default
+  flip; skopt retirement (needs replacement lockstep invariant); venv
+  consolidation (gated on A/B verdict).
