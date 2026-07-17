@@ -2,7 +2,7 @@
 
 **Type:** concept
 **Status:** active
-**Updated:** 2026-07-15 (live picker A/B + pooled 20-row holdout: bases indistinguishable)
+**Updated:** 2026-07-15 (adoption rule: 6D null does not transfer; new high-D lines default to 0.18)
 
 ## Summary
 Point-in-time audit of the ML/stats tooling: acquisition layer (qLogNEHVI /
@@ -154,6 +154,19 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   extrapolation + run-level systematic. Per-point predictions now embedded
   in holdout JSONs (`per_point` field) so future paired tests need no
   re-run; `--holdout-prefix` accepts comma-separated prefixes.
+- **WHY 0.10 is the default: historical accident, not merit.** The venv was
+  built early in the project and never revisited; botorch 0.10 released
+  **2024-03**, so it was already ~a year stale when installed. **ADOPTION
+  RULE (2026-07-15): the 6D null does NOT transfer — do not read it as
+  "0.18 never helps."** The A/B tested the LEAST favorable venue (foilsflash
+  6D, n=274, saturated → data swamps the priors); the Hvarfner defaults are
+  designed to pay at higher d, and **foilsg (12D) / prodtarget (~11D) were
+  never tested**. So: keep 0.10 for the running 6D line (protects
+  reproducibility, no measured gain), but **default any NEW line — especially
+  d≥10 — to 0.18** via `AUTORESEARCH_BOTORCH_VENV`, where there is no
+  reproducibility to protect. Operational tiebreak favors 0.18 regardless:
+  3/274 `ModelFittingError` fits on 0.10 vs 0 on 0.18 (a picker-time fit
+  failure stalls/degrades a round, which the accuracy test doesn't capture).
 - **BOTTOM-LINE ANSWER to "is 0.18 better?": no evidence better, no
   evidence worse** — the upgrade case stays operational (0 fit failures,
   faster, train_Yvar API), not performance. Staying on 0.10 remains

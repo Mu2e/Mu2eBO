@@ -1,0 +1,144 @@
+# Simplification audit 2026-07 — verified delete/keep map
+
+**Type:** concept
+**Status:** active
+**Updated:** 2026-07-17
+
+## Summary
+Multi-agent audit (2026-07-16/17, 34 agents: 5 finder lenses → adversarial
+per-candidate verification → completeness critic) of what code is non-critical.
+48 raw findings → 32 candidates; verification OVERTURNED more than half of the
+plausible-looking deletions — the KEEP reasons below are load-bearing and should
+stop future sessions from re-proposing the same deletions. Verified-safe
+deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
+(user decision pending as of 2026-07-17).
+
+## Key facts — verified SAFE_DELETE (ready to execute)
+- **`graph_app/streamlit_app.py` + `langgraph.json` + `.langgraph_api/`** (~190 L):
+  dev overlay dead since 2026-05-20, hardwired to retired helical TSVs; all
+  production runners call `build_graph()` directly (`graph/run.py:65`,
+  `closed_loop.py:591`), never the module-level `graph` at `build.py:116` that
+  langgraph.json targets. Frees requirements-graph.txt pins streamlit/plotly/
+  pandas/grandalf/langgraph-cli[inmem] (uproot/awkward must STAY —
+  `pipeline.py:1175` prodtarget harvest). Co-change: `graph/run.py:5` docstring.
+- **`slides/analyze_bo_helical.py` + its 2 PNGs** (~145 L): zero references;
+  `slides/slides.tex` has no 'helical' string. (Sibling `analyze_bo.py` is
+  RISKY, not safe — see below.)
+- **`tests/test_audit_fixes.py:31-104` TestIsBrokenParseException + GP_HELICAL_PATH
+  loader** (~70 L): last in-repo reference to the retired off-repo
+  `gp_predict_helical.py` (ADR-0001); live broken-detection is a different
+  implementation with its own coverage (`test_closed_loop.py:324-329`).
+- **format_row/load_history_row dedup** (`autoresearch_bo_michael.py:872-893,
+  991-1009,1367-1393`, ~60 L net): FoilsG/IPA/ProdTarget6D hand-spell what the
+  FoilsMode generic (:594-605) derives from KNOB_NAMES/CALO_COL; verified
+  byte-identical, all callers polymorphic, no test pins the bodies.
+- **`PREFLIGHT_FCL_TEMPLATE` + else-branch** (`autoresearch_bo_michael.py:
+  1526-1546,1718-1721`, ~28 L): unreachable — all 7 modes set
+  `preflight_fcl="surfacecheck"`, pinned by `test_modes.py:132-137`. Co-change:
+  `test_audit_fixes.py:198` uses the literal string as a regex slice anchor.
+- Overflow (unverified but trivial): merged branch `fix-closed-loop-failure-modes`
+  (local+origin, empty vs main since 2026-05-30).
+
+## Key facts — OVERTURNED (do NOT re-propose; the refutations)
+- **prodtarget/foilsg/ipa mode blocks**: paused lines, not dead — pt6d18
+  completed 2026-06-29; foilsg tarball incident was remediated (foilsgV01
+  validation row 2026-06-12); [[ml-stack-review-2026-07]] plans the NEXT
+  campaigns (botorch-0.18 at high-d) on exactly these lines; `test_modes.py`
+  pins their SPECS entries; the 2026-07-12 retirement sweep KEPT them
+  deliberately. Also `gp_loo_benchmark.py` scores their leaderboard archives.
+- **foils-deck refresh trio** (`tools/refresh_foils_slides.sh` + 2 stampers):
+  NOT inert — `refresh_foils_talk_captions.py:104-122` footer-rewrite is
+  marker-free and matches the live `docs/foils_talk.md:6` frontmatter, so
+  **running the trio today would clobber the hand-maintained v3 footer with
+  stale v1 counts and re-render the deck** (it fired 2026-06-17). And the user
+  skill `~/.claude/skills/refresh-deck/SKILL.md:20` still points at the .sh
+  (contradicting the project refresh-foils-talk skill's "don't invoke").
+  Retirement = coordinated change across tools + 2 skills + 1 command + wiki,
+  not a file delete.
+- **`slides/` + `diagram_pipeline.py`**: operator-protected archive
+  (slides.tex "do NOT touch" in 3 instruction files); diagram_pipeline.py is
+  the sole generator of a figure slides.tex embeds; `settings.local.json:54`
+  allowlists it by name. Archive-move would break `analyze_bo.py`'s hardcoded
+  OUT_DIR and violate the operator contract.
+- **skopt retirement**: `build_space()` (`autoresearch_bo_michael.py:181-194`)
+  is the *behavioral source of truth* the lockstep test (`test_modes.py:45,72`)
+  calls for every mode — deleting it removes the SPECS==driver-bounds
+  enforcement. Retirement needs a replacement invariant first, not a delete.
+- **test-state dict literals**: deliberately divergent — 3 distinct state
+  schemas, and key ABSENCE is load-bearing (e.g. `launched_names` omission
+  flips the `closed_loop.py:737-740` zero_rows gate). A factory would silently
+  change test semantics.
+- **sys.path bootstraps (17 sites)**: not copy-paste — 3 different insert
+  targets, 2 deliberate lazy-import guards, and top-of-file ordering sequenced
+  around the presniff env-stamp constraint; the hardcoded root literal is what
+  makes `botorch_predict.py` importable under ANY venv via the
+  AUTORESEARCH_BOTORCH_VENV seam (pip -e would need install into every A/B venv).
+- **dual inline-extractor launchers** (`pipeline.py:1048` vs `:1120`): the
+  sentinel-vs-splitlines divergence is the root-caused ipa03 fix — gallery
+  holds files open and prints AFTER the result; the calo script Close()s
+  everything first and structurally can't hit it.
+- **closed_loop satellite truth-sites** (:436,:460,:523,:706): deliberate
+  decomposition; merging the rolling-streak read into a row-OR-broken
+  predicate would REINTRODUCE the b98d5da streak bug (DONE_BROKEN must count
+  as rowless).
+- **`pipeline.py:276-296` foilsflash knob branch**: migration candidate
+  (→ ModeSpec.stage_knob_overrides, like stage_target_overrides), NOT a
+  deletion — no second copy exists; knobs feed the harvest denominator via
+  the submit stamp.
+- **`.venv-botorch` (0.10)**: production default (`config.py:190`,
+  closed_loop hard-fails without it), the A/B control arm, AND **the only
+  interpreter with matplotlib** — .venv-graph and .venv-botorch-new both lack
+  it, so plot generators run on the 0.10 venv. Consolidation is gated on the
+  A/B verdict and must solve matplotlib first.
+- **requirements-graph.txt**: keep; the real gap is the MISSING
+  requirements-botorch*.txt for both picker venvs (versions live only in wiki
+  prose) — an ADD, not a delete.
+
+## Key facts — RISKY / unverified
+- `slides/analyze_bo.py`: zero code references but `settings.local.json:51`
+  allowlists it and wiki names it the sole reader of frozen
+  `leaderboard_bo.tsv` — delete only with wiki+settings cleanup.
+- `botorch_predict.py:78-95` CURRENT_BOX_ONLY/TMAX_MIN env seam: one-shot
+  pt6d08 experiment, inert for foilsflash; retire with prodtarget wind-down.
+- Unverified (verify agents hit session limit): dead helical regex
+  alternatives in SURFACE_OVERLAP_MANAGED (`autoresearch_bo_michael.py:
+  1672-1685`, ~6 L, finder evidence solid); state-file literal consolidation
+  (`{stage}_cluster.txt` at 8 sites → harvest.py accessor).
+
+## Key facts — critic leads (new, unverified)
+- **~423 L of stale helical/michael-era agent config** still in the live skill
+  listing: `.claude/skills/launch-bo/SKILL.md`, `.claude/commands/
+  closed-loop-launch.md`, `closed-loop-status.md`, + 1 more — can steer future
+  agents to retired flags. Highest-value cleanup after the safe deletes.
+- **`graph/run.py:55-56` defaults `--mock` to True** ("Phase 1 default"): a
+  bare `python -m graph.run --config X` SYNTHESIZES FAKE METRICS. Flip the
+  default or require explicit --mock.
+- `tests/test_wal_multiwriter_stress.py` (230 L) exists ONLY untracked in the
+  working tree — unittest discover runs it locally, a fresh clone silently
+  doesn't. Commit it.
+- `graph/list_threads.sh` (~18 L) referenced only by the stale launch-bo skill.
+- 5 tracked docs/ PNGs (~570 KB) referenced by no deck/script/wiki.
+- Hygiene batch: driver docstring/--help still advertises michael/helical/
+  show-priors (`autoresearch_bo_michael.py:2-37`); `.gitignore` workspace
+  block should be 2 globs (`bo_*_proposals/`, `bo_*_preflight/`); 6 tracked
+  LaTeX intermediates in slides/; `graph/state.py:24` StageStatus Literal
+  declares 'submitted'/'running' (never emitted) and omits 'in_flight'
+  (emitted); ~30 gitignored .bak/.lock sediment files at root; stale
+  retired-feature comments at `pipeline.py:425`, `pipeline_io.py:146-150`,
+  `botorch_predict.py:387,475`.
+
+## Cross-links
+- Related: [[architecture-friction-survey-2026-07]] (predecessor survey; its
+  candidates 1+2 landed, 3-5 re-counted here), [[ml-stack-review-2026-07]]
+  (skopt/venv/0.18 context), [[mode-registry-childtracker-design]] (landed
+  refactor this audit re-counts against), [[aitools-skills-symlink-dependency]]
+  (found by this audit)
+- Source files: verdicts archived in the workflow output; key refs inline above.
+
+## Open questions / TODO
+- User decision pending on executing the SAFE_DELETE tier (~490 L + dep pins).
+- Coordinated retirement plan for the foils-deck trio (tools + 2 skills +
+  1 command + wiki page must move together).
+- Add requirements-botorch.txt + requirements-botorch-new.txt (~8 lines each).
+- Verify the 2 limit-killed candidates (helical regex alts; cluster.txt literal
+  consolidation) before acting on them.

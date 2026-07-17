@@ -2,7 +2,15 @@
 
 **Type:** project
 **Status:** active — **CHAMPION: foilsflash11R00_07 (sob 3.31, flash 5.976e-7), 2026-07-10** — first strict domination of the 5-week champion ff05R00_04 (3.28/6.277e-7); parego pick, hT_up at the 4 µm floor; flash margin 1.9σ (confirm via one-off ELEBEAM_NJOBS=400 re-eval). 11 campaigns + transplant, 233 rows. Standard config since 2026-07-10: elebeam=100 (default env), HT_FLOOR=0.002, picker hybrid, default_loc=tape for elebeam. Historical: flash-per-POT objective wired 2026-07-01 after the per-event-mean METRIC BUG null was overturned (foils are a strong flash lever: R²=0.89, 2.5× range).
-**Updated:** 2026-07-07
+- **NOT saturated — new BO sob record 2026-07-16: foilsflash18R01_00 sob=3.86 @ flash 9.07e-7**
+  (geom rOut 79.1/119.8, 2·hT 142/282 µm, f 0.176/0.201 — a "ceiling" recipe: thin IN-BEAM
+  upstream degrading the beam). **#2 all-time behind only the 3.90 transplant**, and the FIRST
+  BO-found point ABOVE the ff13/14 3.84 exploit ceiling. Found by the PRODUCTION 0.10 hybrid picker
+  on the campaign RIGHT AFTER ff16/ff17 (20 evals, two independent pickers) "confirmed saturation" —
+  a live caution against single-campaign saturation calls. NOT decisive: 3.86 vs 3.84 ≈ **1.3σ**
+  at σ_sob 0.4% → needs a 400-job confirm re-eval before champion status (same flat-top-tie
+  discipline as the 3.31 flash champion). Line is **near-saturated, not saturated**.
+**Updated:** 2026-07-16 (foilsflash18 new BO sob record 3.86; near-saturated not saturated)
 
 ## Summary
 A new BO line that optimizes the **same foilsf 6D extra-foil geometry** and the
@@ -31,6 +39,16 @@ stage + tracker-edep gallery harvest).
     RELATIVE, NOT per-POT"). WRONG — the template overrides `EarlyPrescaleFilter.nPrescale=1`
     (confirmed in the materialized FCL; `pipeline_templates/elebeam_flash/template.fcl:19`), so
     `flash_edep_total_MeV` is the FULL early-flash total and needs NO prescale correction.
+  - **DECK GOTCHA — the headline "foils cut flash N×" is max/min over evals, so it is
+    OUTLIER-SENSITIVE and can grow without any physics gain (2026-07-15).** ff17's exploration
+    (botorch-0.18 picker A/B) sampled a new WORST design (ff17R00_01: flash 1.864e-6 @ sob 1.65),
+    widening the deck range **2.7× → 3.1×** while the FLOOR stayed at 5.999e-7 (ff08R01_10,
+    unchanged) — the achievable cut did not improve. `gp_predict_foilsflash_perpot_cloud.py`
+    computes the range + `n=` in its title from the leaderboard, so the deck text MUST follow the
+    figure; slide 5 now carries an explicit "floor is unchanged" sentence. Cloud row filter is a
+    hardcoded allow-list (`range(2, 18)` + `foilsflashSOBX01`, ~line 44) — **bump it every new
+    campaign or the new rows are silently absent from the plot**; its n reproduces the in-scope
+    leaderboard row count exactly (289 = ff02-17 + transplant; ff15 = 0 rows).
   - **Leaderboard migrated** per-event → per-POT in `flash_edep` col (52 rows, 0 skipped; backup
     `leaderboard_bo_foilsflash.tsv.perevent.bak`). Reproduces the validated cloud/A-B numbers EXACTLY
     (`HOLEDhi`→6.445e-7, `NOHOLEhi`→8.215e-7); per-POT range **6.43e-7→1.63e-6 = 2.53×** vs the flat

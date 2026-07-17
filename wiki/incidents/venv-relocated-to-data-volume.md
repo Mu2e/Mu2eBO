@@ -9,7 +9,7 @@ status: resolved
 
 **Type:** incident
 **Status:** resolved
-**Updated:** 2026-07-08
+**Updated:** 2026-07-16
 
 > **Corollary (2026-07-08): never use git-worktree isolation for agents/tasks
 > in this repo.** `.venv-graph`/`.venv-botorch` are UNTRACKED symlinks at the
@@ -30,6 +30,17 @@ linearly extrapolate from small-venv timing.
 
 ## Key facts
 
+- **`.venv-botorch` is 6.7 GB mostly by accident (audit 2026-07-16):**
+  torch 1.7G + `nvidia/` CUDA wheels 4.1G = 5.8G of GPU support for a
+  picker that is explicitly CPU-only (`botorch_predict.py:34-35` pins
+  `DEVICE=cpu`). The CPU-wheel build (`.venv-botorch-new`, botorch 0.18)
+  is ~973 MB. Retiring the 0.10 venv after the A/B verdict reclaims
+  ~6.7G on the 2TB /data quota that already EDQUOT'd once
+  ([[data-quota-exhausted-grid-accumulation]]).
+- **`.venv-botorch-new` is uv-built without pip** — `pip list` silently
+  returns nothing; audit installed packages via `ls .../site-packages/*.dist-info`.
+  It is also missing from `.gitignore` (lines 5-6 cover only the other
+  two symlinks), so it shows as `??` in git status.
 - **Current layout (2026-05-22):**
   - `/exp/mu2e/app/users/oksuzian/autoresearch/.venv-graph` → symlink
     → `/exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv-graph`

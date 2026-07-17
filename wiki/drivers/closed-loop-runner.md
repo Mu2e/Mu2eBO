@@ -2,7 +2,7 @@
 
 **Type:** driver
 **Status:** active
-**Updated:** 2026-07-13 (rolling failure paths live-validated on foilsflash15 abort)
+**Updated:** 2026-07-15 (pgrep-self-match PID trap; foilsflash18 launched on production defaults)
 
 > **Validate a NEW picker with a SMALL round, not full-stats q=10** (lesson
 > from foilsflash09, 2026-07-08). A picker only changes the PROPOSAL step; the
@@ -41,13 +41,36 @@ in this phase.
   rounds × slowest-of-5 ≈ 9–11 h) → ~10–25% saved. Gain is structurally
   small at max_evals=2q (only 5 replenishes + a full-cost drain tail);
   the +30–50% projection needs production scale (many waves, larger q)
-  where drain cost amortizes. Best new row sob 3.83 (R00_02) — saturated
-  line as expected; the 10 rows double as the held-out GP test set
-  ([[ml-stack-review-2026-07]]).
+  where drain cost amortizes. Best new row sob 3.83 (R00_02); the 10 rows
+  double as the held-out GP test set ([[ml-stack-review-2026-07]]). (The
+  "saturated" read here was PREMATURE — ff18 later found sob 3.86, a new BO
+  record; see [[bo-foilsflash]].)
+  **Rolling q=5/max-evals-10 campaign wall is REPRODUCIBLE ~8h** across three
+  runs: ff16 8h16m, ff17 8h00m, ff18 8h19m (10 evals each, first rows ~4h in).
+  Use ~8h for scheduling a foilsflash rolling mini-campaign.
 - **`AUTORESEARCH_BOTORCH_VENV` (2026-07-14, 5c5b4fb):** env seam overriding
   the picker-subprocess venv DIRECTORY (default `.venv-botorch` = botorch
   0.10; set `.venv-botorch-new` = 0.18 defaults) — for live picker A/Bs
   without touching the default path. See [[ml-stack-review-2026-07]].
+- **KEEP barrier mode — do NOT remove rounds yet (decision 2026-07-16).**
+  Tempting to delete the `else` branches now that ff16-19 all run `--rolling`,
+  but: (1) rolling has an OPEN correctness bug
+  ([[rolling-no-row-streak-false-increment]]) in the rolling-only abort logic —
+  don't retire the validated fallback while the replacement has an unfixed
+  defect; (2) rolling is ~1 week / 4 campaigns old vs barrier's months of
+  incident-hardening; (3) **rounds is NOT dead code** — `max_evals` DEFAULTS to
+  `args.q * args.max_rounds` (closed_loop.py:901), so `--max-rounds` is still
+  load-bearing for the budget even in rolling runs. Net removal payoff is only
+  ~4 branch-pairs + round_idx plumbing — modest, not urgent.
+  **Gate UPDATE 2026-07-16:** the streak bug is FIXED (b98d5da,
+  [[rolling-no-row-streak-false-increment]]) — that blocker is cleared, but the
+  fixed name-based accounting has NEVER run live (ff19 killed pre-fix). Remaining
+  gate = ONE clean live rolling campaign on the fixed code, then barrier can go.
+  Removal also needs a budget-interface change (`max_evals` defaults from
+  `q * max_rounds`, so make `--max-evals` primary + drop/deprecate
+  `--max-rounds`). The new-picker-validation case does NOT justify keeping
+  barrier — a small `--max-evals 3` rolling run validates the
+  grid/harvest/leaderboard path just as well; synchronization buys nothing.
 - **`--rolling` (wired 2026-07-12, commit c47cd90):**
   pool replenishment — barrier exits on the FIRST resolution, predict_picks
   refills only the free slots and passes in-flight x_points to
@@ -109,6 +132,41 @@ in this phase.
   rows via recovery `evaluate` calls WILL resolve its barrier and continue to
   the next round (in-memory old parent code + on-disk new child code is fine
   when the child code is golden-validated).
+  **Companion trap (2026-07-15): `pgrep -f "<launch pattern>"` from the Bash
+  tool matches ITS OWN `bash -c` command line** (the pattern is a substring of
+  it) and returns that transient shell's PID — already dead by the next
+  command, so `/proc/$PID/environ` gives "No such file or directory" and an
+  env check silently reads as "no overrides set". Use
+  `ps -fu $USER -ww | grep "[.]venv-graph/bin/python -m graph.closed_loop"`
+  (bracket-escaped, anchored on the interpreter) and take the LAST pid; verify
+  env with `tr '\0' '\n' < /proc/<python-pid>/environ`. Env verification is
+  load-bearing when a prior campaign used an A/B override
+  (`AUTORESEARCH_BOTORCH_VENV`) that must NOT be inherited.
+  **Refinement (2026-07-16, ff19 launch): an inline idle-GUARD
+  `ps|grep "<launch-string>" ... || launch` in the SAME Bash command as the
+  launch ALWAYS self-matches** — the wrapping `bash -c` carries the launch
+  string, so the guard counts ≥1 and false-aborts ("running=4" on an idle
+  system; nothing launched). Fixes: (a) run the idle check as a SEPARATE Bash
+  command from the launch (a standalone bracket-grep returns 0 correctly);
+  (b) even interpreter-anchored `[.]venv-graph/bin/python -m graph.closed_loop`
+  matches the nohup `bash -c` wrapper, so the REAL python parent is `$! + 2` —
+  enumerate with `ps -eo pid,ppid,comm,args | grep "[c]losed_loop"` and pick
+  `comm==python` (verified ff19: wrapper 2681849 → python 2681851).
+  **Grid cleanup after a kill (2026-07-16): `jobsub_rm --jobid <cluster>.0@<schedd>`
+  removes ONLY proc 0** (1 of N jobs). To drop the whole cluster use the
+  bare-cluster form `jobsub_rm --jobid <cluster>@<schedd>` (no `.N` proc suffix)
+  → "All jobs in cluster <id> have been marked for removal". Cluster IDs are in
+  `state/<stage>_cluster.txt` per child; the `@<schedd>` host comes from
+  `jobsub_q`. A killed campaign's already-submitted grid jobs keep running/
+  wasting hours until removed — killing the local tree does NOT stop them.
+  **Orphan-poll straggler (2026-07-17): killing the closed-loop tree can leave a
+  `pipeline.py --config <child> poll <stage>` subprocess alive, re-parented to
+  init (PPID 1)** — observed after the ff19 kill (PID 2737620 survived 12+ h).
+  It looks like a live campaign to any liveness check that greps `pipeline.py`
+  (an audit agent concluded "campaign running" from it), and since its cluster
+  was jobsub_rm'd it can never resolve — it burns until the 24 h `cap_hours`
+  poll cap. After any campaign kill, sweep
+  `ps -eo pid,ppid,args | grep "[p]ipeline.py"` and kill PPID-1 strays too.
     - **Chosen mechanism = "early-submit / late-poll", IMPLEMENTED 2026-07-01 → REVERTED 2026-07-02**
       (code removed after it BACKFIRED live — see the OVERTURNED bullet below; the graph is serial again,
       all 91 tests green; only the separate `pipeline.py` submit stderr-leak fix was KEPT). (NOT a LangGraph diamond.)
