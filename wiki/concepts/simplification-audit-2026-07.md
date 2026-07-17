@@ -156,9 +156,19 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
   foilsflash-era leaderboards/prefixes (their awk column indices $8/$9/$11
   survive unchanged — foilsflash's 6 knobs land sob/flash/obj at the same
   positions helical's 4+2 derived columns did).
-- Coordinated retirement plan for the foils-deck trio (tools + refresh-deck
-  user skill + refresh-foils-slides command + wiki page must move together).
-- Still open: cluster.txt literal consolidation (only remaining unverified
-  candidate); data sediment (user call); aitools relocation; --mock default
-  flip; skopt retirement (needs replacement lockstep invariant); venv
-  consolidation (gated on A/B verdict).
+- **Round 3 EXECUTED 2026-07-17** (user-approved "do the remaining items"):
+  (a) deck-trio RETIRED as a coordinated pass — 3 tools + 4 truly-orphaned
+  PNGs deleted (3 of the 7 script-managed PNGs KEPT: cited by wiki concept
+  pages), local refresh-foils-slides command deleted, refresh-deck user skill
+  + refresh-foils-talk project skill re-worded, wiki driver page superseded;
+  (b) aitools RELOCATED to /exp/mu2e/app/users/oksuzian/aitools, 12 symlinks
+  re-pointed ([[aitools-skills-symlink-dependency]] resolved); (c) graph.run
+  --mock/--no-mock now REQUIRED (bare launch errors instead of silently
+  synthesizing fake metrics; closed_loop children already passed --no-mock);
+  (d) data sediment purged (37 files + 4 retired workspace dirs; foilsg
+  quarantine + active foilsflash locks kept).
+- Still open (all gated, not forgotten): cluster.txt literal consolidation
+  (only remaining unverified candidate); skopt retirement (needs a
+  replacement lockstep invariant for build_space before deletion); venv
+  consolidation (gated on the 0.10-vs-0.18 A/B verdict; must first move
+  matplotlib rendering off .venv-botorch).

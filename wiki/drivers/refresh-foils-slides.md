@@ -1,8 +1,19 @@
 # refresh-foils-slides
 
 **Type:** driver
-**Status:** active
-**Updated:** 2026-06-18 (current deck→generator map; refresh_foils_slides.sh fully orphaned vs the live deck)
+**Status:** superseded
+**Updated:** 2026-07-17 (**the script trio was DELETED** — this page is now
+the record of the per-deck figure→generator maps, which remain current)
+
+> **2026-07-17: `tools/refresh_foils_slides.sh` + `tools/stamp_foils_highlights.py`
+> + `tools/refresh_foils_talk_captions.py` were deleted** (simplification
+> audit): the captions stamper's marker-free footer rewrite reached the live
+> `docs/foils_talk.md` destructively (stale v1 counts), and the .sh managed an
+> image set the live deck no longer references. The refresh path is the
+> refresh-foils-talk project skill / refresh-deck user skill, per the
+> generator maps below. 3 of the script's 7 managed PNGs survive in docs/
+> because wiki concept pages cite them (gp_predicted_foils_cloud.{gif,png},
+> diversity_overlay_foils.png); the other 4 were deleted.
 
 ## Three live decks now (foils + ipa + prodtarget6d), all hand-refreshed (2026-06-22)
 There are now THREE active study decks in `docs/`, none driven by

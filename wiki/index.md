@@ -55,7 +55,7 @@ See [[CLAUDE]] for the schema and maintenance contract.
 - [graph-runner](drivers/graph-runner.md) — LangGraph state-machine orchestrator (Phase 1 mock-grid); Studio + Streamlit overlay
 - [closed-loop-runner](drivers/closed-loop-runner.md) — multi-round Pareto-pick BO driver: wraps q parallel graph-runner children, refits GP between rounds
 - [tests](drivers/tests.md) — `tests/test_closed_loop.py` + `test_audit_fixes.py` + `test_nodes.py`; 91 tests, no grid contact; `PYTHONPATH= .venv-graph/bin/python -m unittest discover -s tests -v`
-- [refresh-foils-slides](drivers/refresh-foils-slides.md) — `tools/refresh_foils_slides.sh`: copies fresh GP cloud GIF into `docs/`, re-renders `docs/foils_talk.html` via `npx @marp-team/marp-cli`; no commit/push (operator reviews)
+- [refresh-foils-slides](drivers/refresh-foils-slides.md) — (**script trio DELETED 2026-07-17** — captions stamper clobbered the live deck footer) now the record of per-deck figure→generator maps; refresh path = refresh-foils-talk skill
 
 ## Incidents (root-caused gotchas)
 - [geom-run1a-vs-run1b](incidents/geom-run1a-vs-run1b.md) — `geom_run1_a.txt` baseline missing TT_MidInner fix; fails in run1b_mubeam
@@ -129,4 +129,4 @@ See [[CLAUDE]] for the schema and maintenance contract.
 - [github-pages-publish-dir](external/github-pages-publish-dir.md) — GitHub Pages branch-deploy folder dropdown hardcodes `/(root)` and `/docs` only; arbitrary names like `/talks` require switching source to GitHub Actions
 - [mmackenz-table-plots-dir](external/mmackenz-table-plots-dir.md) — off-repo /data dir holding ~20 unversioned picker/renderer scripts + artifacts; name is historical misnomer; 3 hardcoded repo refs; migration blocked while a closed-loop runs
 - [mu2e-offline-radiation-damage](external/mu2e-offline-radiation-damage.md) — Offline has NO DPA/NIEL scorer (2026-06-07); only G4PSDoseDeposit3D + custom scorerDose{Prompt,Residual} in Mu2eG4ScoringManager.cc
-- [aitools-skills-symlink-dependency](external/aitools-skills-symlink-dependency.md) — untracked in-tree aitools/ clone is silently load-bearing: 12 ~/.claude/skills symlinks resolve into it; relocate before any tree-level cleanup, never delete
+- [aitools-skills-symlink-dependency](external/aitools-skills-symlink-dependency.md) — (**resolved 2026-07-17**: clone relocated to /exp/mu2e/app/users/oksuzian/aitools, 12 ~/.claude/skills symlinks re-pointed) was: in-tree clone silently load-bearing for user skills

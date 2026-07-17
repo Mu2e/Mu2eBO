@@ -1,8 +1,14 @@
 # aitools/ — untracked in-tree clone that 12 user skills symlink into
 
 **Type:** external
-**Status:** open
-**Updated:** 2026-07-16
+**Status:** resolved
+**Updated:** 2026-07-17
+
+> **RESOLVED 2026-07-17:** clone moved to the neutral home
+> `/exp/mu2e/app/users/oksuzian/aitools` (same-volume mv, instant); all 12
+> `~/.claude/skills/` symlinks re-pointed and verified resolving; the
+> `aitools/` line dropped from the project `.gitignore`. The project tree no
+> longer carries any cross-project dependency.
 
 ## Summary
 `aitools/` at the project root is an untracked, gitignored nested git clone
