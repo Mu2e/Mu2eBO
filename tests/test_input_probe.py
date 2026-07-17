@@ -7,10 +7,13 @@ EleBeamCat tape-wipeout with the probe green on zero probes. The gate is
 now fail-closed on unmappable URLs.
 """
 import os
+import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
-import pipeline
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+import pipeline  # noqa: E402
 
 
 def _ok():

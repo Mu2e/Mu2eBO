@@ -14,7 +14,7 @@ One research line's complete definition — search space, geometry renderer, sta
 _Avoid_: study, campaign type
 
 **ModeSpec**:
-The pure-data half of a Mode (musing, grid tarball, stage chain, harvest verb, stage targets, bounds, preflight policy), declared once in root `modes.py`.
+The pure-data half of a Mode (musing, grid tarball, stage chain, harvest verb, stage targets, bounds, preflight policy), declared once in `core/modes.py`.
 _Avoid_: mode config, mode table, per-mode dict
 
 **BOMode**:
@@ -89,7 +89,7 @@ The `Code.tar.bz2` shipped to grid workers; must be built from the same patched 
 > **Dev:** "foilsflash08R00_07's process died — is the round stuck?"
 > **Domain expert:** "No. The **ChildTracker** gives it two grace ticks in case the **Leaderboard** append was racing the crash, then resolves it `dead_unresolved`; the **Barrier** counts it and the Round proceeds with 19 **Evals**."
 > **Dev:** "And if I add a new **Mode**, where do its stage targets go?"
-> **Domain expert:** "Its **ModeSpec** in `modes.py` — every field is required, so forgetting the **Grid tarball** is an import error, not a silent michael fallback."
+> **Domain expert:** "Its **ModeSpec** in `core/modes.py` — every field is required, so forgetting the **Grid tarball** is an import error, not a silent michael fallback."
 
 ## Flagged ambiguities
 

@@ -6,11 +6,13 @@ Covers the branches that previously lived untested inside cmd_harvest
 incident regressions: EdepAna scientific-notation counts and the
 concat-vs-mubeam mu⁻-stop input resolution that biased ff11R00_07.
 """
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-import harvest
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+import harvest  # noqa: E402
 
 
 class TestParsers(unittest.TestCase):

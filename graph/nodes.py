@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "core"))  # BO/pipeline modules
 
 from langgraph.graph import END  # noqa: E402
 

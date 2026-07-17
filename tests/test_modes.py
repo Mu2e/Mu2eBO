@@ -4,10 +4,13 @@ These are the tests that turn "MUST stay in lockstep" comments into failures:
 a new mode, a moved bound, or a renamed stage now breaks HERE instead of
 silently building the wrong geometry on the grid.
 """
+import sys
 import typing
 import unittest
+from pathlib import Path
 
-import modes
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+import modes  # noqa: E402
 
 
 class TestRegistryCompleteness(unittest.TestCase):

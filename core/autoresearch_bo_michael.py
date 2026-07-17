@@ -331,7 +331,7 @@ class BOMode(ABC):
 
     # --- batch BO pending-state (see wiki/concepts/batch-bo.md) ---
     def pending_path(self) -> Path:
-        return self.leaderboard.parent / f"pending_bo_{self.name}.tsv"
+        return self.leaderboard.parent.parent / "pending" / f"pending_bo_{self.name}.tsv"
 
     def load_pending(self) -> list[tuple[str, list]]:
         pp = self.pending_path()
@@ -400,8 +400,8 @@ class FoilsMode(BOMode):
     No helical plug (tsda.helical.build = false, hasTSdA = false).
     """
     name = "foils"
-    leaderboard = ROOT / "leaderboard_bo_foils_v2.tsv"
-    leaderboard_v1 = ROOT / "leaderboard_bo_foils_v1.tsv"
+    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foils_v2.tsv"
+    leaderboard_v1 = ROOT / "leaderboards" / "leaderboard_bo_foils_v1.tsv"
     proposal_dir = ROOT / "bo_foils_proposals"
     preflight_dir = ROOT / "bo_foils_preflight"
 
@@ -616,7 +616,7 @@ class FoilsFracMode(FoilsMode):
     parse_geom just wrap the v2 methods with the f<->rIn transform.
     """
     name = "foilsf"
-    leaderboard = ROOT / "leaderboard_bo_foils_v3.tsv"
+    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foils_v3.tsv"
 
     # hole = FRACTION of rOut (rIn = f*rOut); registry caps f at 0.95 so
     # rIn < rOut always. Same geometry as FoilsMode, so only the last two
@@ -669,7 +669,7 @@ class FoilsFlashMode(FoilsFracMode):
     wiki/projects/bo-foilsflash.md. The flash edep is carried in the generic
     Point.calo slot (reused, like ipa reuses it for trk_edep)."""
     name = "foilsflash"
-    leaderboard = ROOT / "leaderboard_bo_foilsflash.tsv"
+    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foilsflash.tsv"
     proposal_dir = ROOT / "bo_foilsflash_proposals"
     preflight_dir = ROOT / "bo_foilsflash_preflight"
 
@@ -734,7 +734,7 @@ class FoilsGroupMode(BOMode):
     No carryover priors (load_priors=[]); first round is Sobol-init.
     """
     name = "foilsg"
-    leaderboard = ROOT / "leaderboard_bo_foilsg.tsv"
+    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foilsg.tsv"
     proposal_dir = ROOT / "bo_foilsg_proposals"
     preflight_dir = ROOT / "bo_foilsg_preflight"
 
@@ -881,7 +881,7 @@ class IPAMode(BOMode):
     See wiki/projects/bo-ipa.md.
     """
     name = "ipa"
-    leaderboard = ROOT / "leaderboard_bo_ipa.tsv"
+    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_ipa.tsv"
     proposal_dir = ROOT / "bo_ipa_proposals"
     preflight_dir = ROOT / "bo_ipa_preflight"
 
@@ -988,7 +988,7 @@ class ProdTargetMode(BOMode):
     wiki/concepts/production-target-stickman.md for the per-plate semantics.
     """
     name = "prodtarget"
-    leaderboard = ROOT / "leaderboard_bo_prodtarget_v0.tsv"
+    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_prodtarget_v0.tsv"
     proposal_dir = ROOT / "bo_prodtarget_proposals"
     preflight_dir = ROOT / "bo_prodtarget_preflight"
 
@@ -1243,7 +1243,7 @@ class ProdTarget6DMode(ProdTargetMode):
     Fixed:      N = 35; lPlate[i] = tPlate[i] + LUG_MID_OFFSET_MM (0.75)
     """
     name = "prodtarget6d"
-    leaderboard = ROOT / "leaderboard_bo_prodtarget6d_v0.tsv"
+    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_prodtarget6d_v0.tsv"
     proposal_dir = ROOT / "bo_prodtarget6d_proposals"
     preflight_dir = ROOT / "bo_prodtarget6d_preflight"
 

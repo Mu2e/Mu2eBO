@@ -12,6 +12,7 @@ from unittest import mock
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "graph"))
+sys.path.insert(0, str(PROJECT_ROOT / "core"))  # BO/pipeline modules (2026-07-17 reorg)
 
 import closed_loop as cl  # noqa: E402
 

@@ -5,6 +5,11 @@ import os
 from pathlib import Path
 
 PROJECT_ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
+# The BO/pipeline modules live in core/ (2026-07-17 reorg). Put it on
+# sys.path so bare `import modes` / `import autoresearch_bo_michael` resolve
+# from any graph entrypoint regardless of import order.
+import sys as _sys  # noqa: E402
+_sys.path.insert(0, str(PROJECT_ROOT / "core"))
 GRAPH_DATA = PROJECT_ROOT / "graph_data"
 # CHECKPOINT_DB moved off CephFS to node-local /tmp on 2026-06-09: SQLite's
 # WAL mmap is incoherent across processes on CephFS (sqlite.org/wal.html §1, §7),
@@ -18,8 +23,8 @@ _CHECKPOINT_DIR = Path(os.environ.get("AUTORESEARCH_CHECKPOINT_DIR",
 CHECKPOINT_DB = _CHECKPOINT_DIR / "checkpoints.sqlite"
 _CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-BO_DRIVER = PROJECT_ROOT / "autoresearch_bo_michael.py"
-PIPELINE_DRIVER = PROJECT_ROOT / "pipeline.py"
+BO_DRIVER = PROJECT_ROOT / "core" / "autoresearch_bo_michael.py"
+PIPELINE_DRIVER = PROJECT_ROOT / "core" / "pipeline.py"
 
 # Per-config grid work tree lives under here; harvest/summary.json gets written here.
 GRID_DATA_ROOT = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
@@ -190,4 +195,4 @@ def open_saver_conn():
 BOTORCH_VENV_PY = (PROJECT_ROOT
                    / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv-botorch")
                    / "bin" / "python")
-BOTORCH_PREDICT = PROJECT_ROOT / "botorch_predict.py"
+BOTORCH_PREDICT = PROJECT_ROOT / "core" / "botorch_predict.py"

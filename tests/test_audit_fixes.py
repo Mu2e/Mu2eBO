@@ -24,6 +24,7 @@ from unittest import mock
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "graph"))
+sys.path.insert(0, str(PROJECT_ROOT / "core"))  # BO/pipeline modules (2026-07-17 reorg)
 
 # (Fix 1's TestIsBrokenParseException was deleted 2026-07-17: it exercised the
 # retired off-repo gp_predict_helical.py — cl_min picker, ADR-0001. The live
@@ -69,7 +70,7 @@ class TestStageShaCheckCallsites(unittest.TestCase):
     of cmd_poll and cmd_list_outputs (was harvest-only).
     """
     def test_poll_calls_sha_check(self):
-        src = (PROJECT_ROOT / "pipeline.py").read_text()
+        src = (PROJECT_ROOT / "core" / "pipeline.py").read_text()
         # Match the cmd_poll function body up to the next `def `.
         m = re.search(r"def cmd_poll\(args.*?\n(.*?)\ndef ", src, re.DOTALL)
         self.assertIsNotNone(m, "cmd_poll not found")
@@ -77,7 +78,7 @@ class TestStageShaCheckCallsites(unittest.TestCase):
                       "cmd_poll must call _check_stage_config_sha")
 
     def test_list_outputs_calls_sha_check(self):
-        src = (PROJECT_ROOT / "pipeline.py").read_text()
+        src = (PROJECT_ROOT / "core" / "pipeline.py").read_text()
         m = re.search(r"def cmd_list_outputs\(args.*?\n(.*?)\ndef ", src, re.DOTALL)
         self.assertIsNotNone(m, "cmd_list_outputs not found")
         self.assertIn("_check_stage_config_sha", m.group(1),
@@ -122,7 +123,7 @@ class TestRemovePendingBeforeAppend(unittest.TestCase):
     next iteration. Verify both static source order AND runtime ordering.
     """
     def test_source_order(self):
-        src = (PROJECT_ROOT / "autoresearch_bo_michael.py").read_text()
+        src = (PROJECT_ROOT / "core" / "autoresearch_bo_michael.py").read_text()
         m = re.search(
             r"def cmd_evaluate\(args.*?\n(.*?)(?=\n(?:def |G4_GEOM_FAIL_RX))",
             src, re.DOTALL,
@@ -221,7 +222,7 @@ class TestProposeOneBuildableRetry(unittest.TestCase):
         # MAX_RETRY moved to BOMode.PROPOSE_MAX_RETRY in autoresearch_bo_michael.py
         # (2026-06-06 Option A refactor); both CLI _cmd_propose_locked and
         # graph propose_one consume it via mode.ask_buildable.
-        src = (PROJECT_ROOT / "autoresearch_bo_michael.py").read_text()
+        src = (PROJECT_ROOT / "core" / "autoresearch_bo_michael.py").read_text()
         self.assertIn("PROPOSE_MAX_RETRY = 20", src,
                       "PROPOSE_MAX_RETRY must stay at 20 (matches cmd_propose budget)")
 

@@ -24,7 +24,7 @@ from pathlib import Path
 import torch
 
 AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
-sys.path.insert(0, str(AUTORESEARCH))
+sys.path.insert(0, str(AUTORESEARCH / "core"))  # BO/pipeline modules (2026-07-17 reorg)
 import autoresearch_bo_michael as bo  # noqa: E402
 
 

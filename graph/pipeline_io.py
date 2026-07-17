@@ -18,8 +18,9 @@ import tempfile
 import time
 from pathlib import Path
 
-# Ensure the project root is importable so we can pull the BO modes in-process.
-sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch")
+# Ensure core/ (BO/pipeline modules, 2026-07-17 reorg) is importable so we can
+# pull the BO modes in-process.
+sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch/core")
 
 import autoresearch_bo_michael as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)

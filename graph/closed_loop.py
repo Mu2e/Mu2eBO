@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "core"))  # BO/pipeline modules
 
 # Stamp AUTORESEARCH_MODE / AUTORESEARCH_NO_RUN1B BEFORE `from config import ...`
 # — config.GRID_STAGES is selected from GRID_STAGES_BY_MODE at module-load time,
@@ -208,7 +209,7 @@ def _history(mode: str):
     The barrier consumes this once per poll tick; per-child reads would
     re-parse the full (growing) TSV q times per tick, thousands of times
     per round at q=20 under the 24h backstop cap."""
-    sys.path.insert(0, str(PROJECT_ROOT))
+    sys.path.insert(0, str(PROJECT_ROOT / "core"))
     import autoresearch_bo_michael as bo  # noqa: WPS433
     return bo.MODES[mode].load_history()
 
