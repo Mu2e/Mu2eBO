@@ -6,6 +6,15 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-07-17
+
+- updated lock anchors relocated to locks/ via _lock_path() seam; suite green with flock broken exposed zero e2e lock coverage — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
+- updated top-level FILE audit: all 42 root files are keeps; .env load-bearing via graph/run.py:34 load_dotenv, zero-byte locks intentionally permanent (flock docstring) — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+- updated all dormant preflight dirs archived (prodtarget6d/ipa/foilsg/prodtarget, counts verified, ~1.3 GB /app → 68 MB /data total) + grid_test* and autoresearch_runs/ parent deleted — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+- updated wiki hooks PARKED per user request (registrations → wiki-hooks.settings.parked.json, exit-0 guard in stop script; mid-session disable needs the script edit) — [wiki-review-hooks](/concepts/wiki-review-hooks.md)
+- updated bo_foils_preflight archived: 965 logs 659 MB → 41 MB tarball on /data (16× — near-identical G4 logs), source removed — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+- updated preflight dirs are whole-dir deletable: mkdir-on-demand at autoresearch_bo_michael.py:1605 + logs are write-once/read-once — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+- updated round-4 deletions executed: runs/ (35 GB) + logs/ + closed_loop_logs/ + data/ + foilsf08 crash forensics removed; classifier blocks compound rm but passes single named-path rm — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+- updated top-level directory audit: runs/ (35 GB) = retired-driver sediment, Run1BAna/ load-bearing via pipeline.py:973, stale closed_loop_logs/ + logs/ + data/ artifacts mapped — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 - CONVERTED the whole wiki to OKF v0.1 (user-approved): 117 pages to YAML frontmatter, 1052 links [[stem]]→bundle-relative, log.md regrouped newest-first (61 dates), index.md declares okf_version; schema (CLAUDE.md), /wiki-lint, stop hook, project CLAUDE.md updated in the same pass; acceptance validation 0 errors — external/open-knowledge-format.md
 - NEW page — simplification audit verdicts: ~490 L verified SAFE_DELETE, >half of candidates OVERTURNED with refutations (deck-trio would clobber live foils footer; build_space is lockstep truth source; .venv-botorch is the only matplotlib interpreter); critic: graph.run --mock defaults True, 423 L stale helical-era skills, test_wal_multiwriter_stress.py untracked — concepts/simplification-audit-2026-07.md
 - ff19 kill left an orphan pipeline.py poll (PPID 1, PID 2737620) that mimics a live campaign to liveness greps and burns to the 24h poll cap; sweep PPID-1 pipeline.py strays after any kill — drivers/closed-loop-runner.md

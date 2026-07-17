@@ -80,7 +80,7 @@ needs resubmission.
   direct-CLI path is not — TODO add the guard in FoilsFlashMode, post-
   campaign). Cleanup recipe: quarantine rows to a sidecar TSV + restore the
   consumed pending entries (name/[x]/alpha/ts format) under
-  `flock pending_bo_foilsflash.tsv.lock`; evaluate consumes pending at
+  `flock locks/pending_bo_foilsflash.tsv.lock`; evaluate consumes pending at
   append so re-evaluate NEEDS them restored. Recovery v2 guards with a
   flash-null check before calling evaluate.
 - **Post-hoc row append (children dead):** after

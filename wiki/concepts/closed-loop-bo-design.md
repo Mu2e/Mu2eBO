@@ -47,7 +47,9 @@ already paid to learn.
   lock.** Today it is safe only because `pipeline.py` submits are
   serialized by a coarse single-process pattern. Under closed-loop the q
   children all call `append_history` concurrently at harvest time. Fix:
-  wrap the write in `fcntl.flock(LOCK_EX)` on a sibling `.lock` file
+  wrap the write in `fcntl.flock(LOCK_EX)` on a `.lock` anchor file
+  (since 2026-07-17 all anchors live in `locks/` next to the guarded file,
+  via the single `_lock_path()` seam in the driver)
   (cross-platform-poor but adequate for Linux GPVM). Same fix applies to
   `append_pending` / `remove_pending` (`autoresearch_bo_michael.py:186-206`)
   — the latter does a read-write-truncate cycle that is *especially*

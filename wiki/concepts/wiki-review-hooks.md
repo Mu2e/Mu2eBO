@@ -4,8 +4,9 @@ title: Wiki-review hooks (Claude Code Stop hook contract)
 description: Stop hook must emit `{"decision":"block","reason":...}` JSON + check
   `stop_hook_active` guard to actually feed back to the model; plain echo / stderr
   are invisible
-status: active
-timestamp: '2026-05-23'
+status: dormant
+status_note: all three hooks PARKED 2026-07-17 per user request; see Key facts for re-enable recipe
+timestamp: '2026-07-17'
 ---
 
 # Wiki-review hooks (Claude Code Stop hook contract)
@@ -22,6 +23,17 @@ the review.
 
 ## Key facts
 
+- **PARKED 2026-07-17** ("stop wiki hooks for now"): all three hook
+  registrations (PreCompact / Stop / PostToolUse) were moved out of
+  `.claude/settings.local.json` (now `"hooks": {}`) into
+  `.claude/hooks/wiki-hooks.settings.parked.json`, and
+  `wiki_review_stop.sh` got an early `exit 0` guard (belt-and-suspenders:
+  hook *registrations* are snapshotted at session start, but the Stop
+  *script* is re-read every invocation — the script edit is what disables
+  it mid-session). **Re-enable:** copy the `hooks` object back into
+  settings.local.json AND delete the `exit 0` guard line. The wiki
+  maintenance contract in `wiki/CLAUDE.md` still applies — only the
+  forced reminders are off.
 - **Stop hook delivery contract (Claude Code):**
   - `echo "..."` from a Stop hook is shown to the *user* and does NOT feed
     back to the model. The model stops normally.
