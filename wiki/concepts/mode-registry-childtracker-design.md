@@ -5,8 +5,8 @@ description: 'crystallized refactor design: ModeSpec registry in root modes.py (
   fields required, no silent defaults) + stateful ChildTracker with injected signals
   adapter; cl_min picker retired (ADR-0001/0002); GATED on foilsflash08 completion'
 status: resolved
-timestamp: '2026-07-11'
-updated_note: ALL THREE COMMITS DONE — design fully implemented
+timestamp: '2026-07-17'
+updated_note: 'ALL THREE COMMITS DONE — design fully implemented; modes.py relocated root→core/ on 2026-07-17'
 ---
 
 # Mode registry + ChildTracker — refactor design
@@ -14,7 +14,8 @@ updated_note: ALL THREE COMMITS DONE — design fully implemented
 ## Summary
 Crystallized design (2026-07-06 grilling session) for the two refactors picked
 from [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md): (1) a single pure-data ModeSpec
-registry in root `modes.py`, and (2) a stateful ChildTracker owning child
+registry in `core/modes.py` (was root `modes.py` until the 2026-07-17
+reorg), and (2) a stateful ChildTracker owning child
 resolution in the closed loop. Decisions are recorded in `docs/adr/0001` (retire
 cl_min) and `docs/adr/0002` (registry home); domain terms in root `CONTEXT.md`.
 **Implementation is gated on foilsflash08 completing** — the parent Popens fresh

@@ -134,10 +134,36 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
   retired-feature comments at `pipeline.py:425`, `pipeline_io.py:146-150`,
   `botorch_predict.py:387,475`.
 
-## Key facts — root .py / .tsv reorganization: KEEP FLAT (2026-07-17)
+## Key facts — root .py / .tsv reorganization (2026-07-17)
 
-Investigated moving the 5 root `.py` modules into a package and the 22 root
-TSVs into a `leaderboards/` subdir. **Both are net-negative — leave flat.**
+**RECOMMENDED keep-flat, then EXECUTED anyway on user override.** The
+coupling below is real but was fully resolved in one verified pass:
+- 5 modules → `core/`; 13 leaderboards → `leaderboards/`; 8 pending →
+  `pending/`. Lock anchors now regenerate co-located (`leaderboards/locks/`,
+  `pending/locks/`) since `_lock_path` is relative to the target's parent.
+- **Import wiring** (bare `import modes` etc. unchanged — only the sys.path
+  target moved): `core` added to sys.path in `graph/config.py` (top, before
+  `import modes`), `graph/nodes.py`, `graph/pipeline_io.py:22` (was hardcoded
+  root), `graph/closed_loop.py` (+2 in-function inserts → `/core`), and 6
+  test files. `graph/config.py` BO_DRIVER/PIPELINE_DRIVER/BOTORCH_PREDICT →
+  `core/`. Moved modules' self-refs fixed: `core/pipeline.py` TEMPLATES_ROOT
+  + graph insert → `parent.parent`; driver leaderboard consts →
+  `ROOT/"leaderboards"/…`; `pending_path()` → `…parent.parent/"pending"/…`.
+- **Off-repo**: 20 `mmackenz_table_plots/` scripts rewritten (sys.path
+  root→`/core`, leaderboard consts →`leaderboards/`), incl. loco's embedded
+  `python -c` snippet. Backed up first to
+  `autoresearch_archive/mmackenz_table_plots_prereorg_20260717.tar.gz`.
+- **Verified**: 158 tests green + live smokes (driver load_history from
+  leaderboards/, pending_path, graph build under foilsflash, `core/pipeline.py`
+  CLI, `core/autoresearch_bo_michael.py --help`, botorch import under
+  .venv-botorch, off-repo `gp_predict_foils`/`foils_v2_loader` import).
+- **Gotcha for future off-repo scripts**: a new plotter written from muscle
+  memory (`sys.path.insert(root); import autoresearch_bo_michael`, or
+  `ROOT/"leaderboard_bo_X.tsv"`) now breaks — the module is in `core/`, the
+  TSV in `leaderboards/`. This is the papercut the keep-flat recommendation
+  was avoiding; it's the accepted cost of the tidier root.
+
+### Original coupling analysis (why keep-flat was recommended)
 
 - **The 5 `.py` files are a load-bearing flat namespace**: ~30 call sites
   `import` them by bare name (`modes`, `harvest`, `autoresearch_bo_michael`,
