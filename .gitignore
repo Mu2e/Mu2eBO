@@ -2,7 +2,7 @@
 # Runtime state (LangGraph, Python, build, etc.)
 # =============================================================================
 graph_data/
-.venv-*
+.venv*
 .claude/
 build/
 __pycache__/

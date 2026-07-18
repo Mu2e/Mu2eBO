@@ -1,0 +1,30 @@
+# Rebuild recipe for .venv — the SINGLE project venv (orchestrator + botorch
+# picker + plot renderers), consolidated 2026-07-18 from .venv-graph +
+# .venv-botorch (botorch 0.10, retired) + .venv-botorch-new (botorch 0.18).
+# See docs/superpowers/specs/2026-07-18-venv-consolidation-design.md.
+#
+# Python 3.11, uv-built. CPU torch wheel (+cpu local version) FIRST, then
+# the rest:
+#   uv venv --python 3.11 /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv
+#   uv pip install --python /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv/bin/python \
+#     --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu
+#   uv pip install --python /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv/bin/python \
+#     -r requirements.txt
+#   ln -s /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv .venv
+#
+# The AUTORESEARCH_BOTORCH_VENV env seam still selects an alternate picker
+# venv for A/Bs (e.g. a future train_Yvar or botorch-0.19 arm).
+langgraph>=0.2.50
+langgraph-checkpoint-sqlite>=1.0.0
+botorch==0.18.1
+gpytorch==1.15.2
+numpy==2.4.6
+scipy==1.17.1
+# Renderers (were only on the retired .venv-botorch): matplotlib pulls pillow.
+matplotlib>=3.9
+# 8 off-repo plotters use sklearn.gaussian_process (was unrecorded in
+# requirements-botorch.txt — present in the old venv but never pinned).
+scikit-learn>=1.6
+# ROOT file reader for bo-prodtarget harvest-pot-only (pot_vd.root TTrees + genCountLogger TH1D).
+uproot>=5
+awkward>=2
