@@ -199,6 +199,14 @@ Remaining mechanical batch executed after the reorg week. **Done today:**
   round + mixed batches). Revisit only if/when the foils family is
   declared done for good — then it loses its last plausible customer and
   follows the ipa playbook.
+- **Run1BAna/ vendored clone: KEEP in repo root (user decision
+  2026-07-18).** Relocation to /data was proposed (42 MB nested git clone
+  of michaelmackenzie/Run1BAna, invisible to our git; load-bearing at
+  exactly two pipeline.py constants: EDEP_FCL =
+  `Run1BAna/workflows/fcl/edep.fcl` + SENSITIVITY_MACRO =
+  `Run1BAna/workflows/scripts/rough_run1a_sensitivity.C`) and declined —
+  stays where it is. Contains early-era debris (untracked
+  `workflows/config_bo000..002/`) that could be cleaned independently.
 - **Verification note:** the 156-green suite did NOT catch a live-path
   break (`cur_box` NameError at botorch_predict.py:110, a leftover
   consumer of the Tier-1-deleted env seam) — the real `botorch_ask` smoke
