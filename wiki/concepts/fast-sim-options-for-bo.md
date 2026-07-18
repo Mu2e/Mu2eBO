@@ -119,7 +119,7 @@ consistency (corr≈1, no cross-tool calibration burden). Its real strength
   levers in [bo-noise-budget](/concepts/bo-noise-budget.md) (overhead-bound analysis).
 
 ## Cross-links
-- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [batch-bo](/concepts/batch-bo.md), [mu2e-run1-sensitivity](/concepts/mu2e-run1-sensitivity.md)
+- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [batch-bo](/concepts/batch-bo.md), [mu2e-run1-sensitivity](/concepts/mu2e-run1-sensitivity.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
 - Datasets: [leaderboards](/datasets/leaderboards.md) (the calibration/validation archive)
 - Incidents: [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md) (fidelity-stamping hazard)
 - External: ATLAS AtlFast3 / CaloDiffusion literature (fixed-geometry surrogates); Celeritas/AdePT (GPU EM transport)

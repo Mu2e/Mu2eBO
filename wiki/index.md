@@ -45,14 +45,14 @@ See [CLAUDE](/CLAUDE.md) for the schema and maintenance contract.
 - [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) — friction map: mode dispatched at ~20 sites/6 files (silent `.get` defaults), 5 barrier truth-sources, leaderboard schema in ~9 string literals, pipeline.py/botorch_predict.py zero tests; candidates 1+2 picked → design page
 - [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md) — crystallized refactor design: ModeSpec registry in `core/modes.py` (all fields required, no silent defaults) + stateful ChildTracker with injected signals adapter; cl_min picker retired (ADR-0001/0002); GATED on foilsflash08 completion
 - [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md) — ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measured σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, ~~skopt EI~~ (RESOLVED 2026-07-18: kernel retired, all asks via botorch_ask), high-sob-corner misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected
-- [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md) — verified delete/keep map: ~490 L safe to delete (streamlit overlay, helical slides script, cl_min test class, format_row dedup, dead preflight branch); >half of plausible deletions OVERTURNED with recorded refutations (prodtarget/foilsg/ipa live, deck-trio destructive, skopt build_space is the lockstep truth source)
+- [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md) — delete/keep map EXECUTED through 2026-07-18 (Tier 1 batch + ipa + skopt retirements); refutations recorded to stop re-proposals (foilsg/prodtarget protected as 0.18 venue, deck-trio destructive) + KEEP decisions (qlnei, Run1BAna, venv pair)
 
 ## Datasets
 - [mmackenz-priors](/datasets/mmackenz-priors.md) — 104 hand-designed configs; 96 with both metrics
 - [leaderboards](/datasets/leaderboards.md) — TSV history files for each BO driver
 
 ## Drivers (executable scripts)
-- [bo-driver](/drivers/bo-driver.md) — `propose | evaluate | preflight` (7 modes; michael/helical + show-priors retired 2026-07-12)
+- [bo-driver](/drivers/bo-driver.md) — `propose | evaluate | preflight` (6 modes; michael/helical retired 2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)
 - [autoresearch-bo](/drivers/autoresearch-bo.md) — original 7D BO driver
 - [pipeline](/drivers/pipeline.md) — per-config runner: forks config, submits grid, harvests
 - [preflight](/drivers/preflight.md) — local `mu2e -n 1` G4 init feasibility check

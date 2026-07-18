@@ -37,6 +37,7 @@ broken link.
   `/afs/fnal.gov/files/expwww/mu2e/` AFS path is gone.
 
 ## Cross-links
+- Related: [open-knowledge-format](/external/open-knowledge-format.md)
 - External: [Mu2e public site](https://mu2e-exp.fnal.gov)
 
 ## Open questions / TODO

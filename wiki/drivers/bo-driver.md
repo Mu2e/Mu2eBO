@@ -1,10 +1,10 @@
 ---
 type: driver
 title: bo_driver.py — driver
-description: '`propose | evaluate | preflight` (7 modes; michael/helical + show-priors
-  retired 2026-07-12)'
+description: '`propose | evaluate | preflight` (6 modes; michael/helical retired
+  2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)'
 status: active
-timestamp: '2026-07-17'
+timestamp: '2026-07-18'
 updated_note: renamed from autoresearch_bo_michael.py (michael-name retirement)
 ---
 
@@ -46,7 +46,7 @@ after the michael mode was retired (2026-07-12).
   - `preflight <config_name>` — see [preflight](/drivers/preflight.md)
 - **α flag:** `--alpha 1e5` default ([scalarized-objective](/concepts/scalarized-objective.md))
 - **Search space:** see [bo-michael](/projects/bo-michael.md) / [bo-helical](/projects/bo-helical.md) (per mode)
-- **Architecture:** `BOMode(ABC)` with 7 adapters (michael + helical retired
+- **Architecture:** `BOMode(ABC)` with 6 adapters (michael + helical retired
   2026-07-12; the file keeps its historical name). Each subclass owns its
   pinned constants + 4 abstract methods (`load_priors`, `_geom_text`,
   `parse_geom`, `format_row`/`load_history_row` — the last two are also

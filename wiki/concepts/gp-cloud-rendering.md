@@ -815,7 +815,7 @@ title:
   the v2 box) — intended, shows where v3 reached beyond the envelope.
 
 ## Cross-links
-- Related: [bfield-at-helical-plug](/concepts/bfield-at-helical-plug.md), [bo-helical](/projects/bo-helical.md), [batch-bo](/concepts/batch-bo.md), [refresh-foils-slides](/drivers/refresh-foils-slides.md), [bo-foils](/projects/bo-foils.md), [bo-noise-budget](/concepts/bo-noise-budget.md), [botorch-tiny-output-log-training](/concepts/botorch-tiny-output-log-training.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md)
+- Related: [bfield-at-helical-plug](/concepts/bfield-at-helical-plug.md), [bo-helical](/projects/bo-helical.md), [batch-bo](/concepts/batch-bo.md), [refresh-foils-slides](/drivers/refresh-foils-slides.md), [bo-foils](/projects/bo-foils.md), [bo-noise-budget](/concepts/bo-noise-budget.md), [botorch-tiny-output-log-training](/concepts/botorch-tiny-output-log-training.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
 - Source files: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/overlay_gp_predictions_helical_mpl.py`,
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_helical.py`,
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/cloud_plot.py`,

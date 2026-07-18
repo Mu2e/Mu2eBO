@@ -193,7 +193,7 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   the leaderboard njobs column and fresh evidence before wiring.
 
 ## Cross-links
-- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [batch-bo](/concepts/batch-bo.md),
+- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [batch-bo](/concepts/batch-bo.md),, [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
   [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md),
   [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md)
 - Source files: `botorch_predict.py:215-231` (_fit_gp), `botorch_predict.py:252-254`

@@ -101,7 +101,7 @@ recommendation). **Same outcome at the higher cap**:
   [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md).)
 
 ## Cross-links
-- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (barrier source-of-truth),
+- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (barrier source-of-truth),, [rolling-no-row-streak-false-increment](/incidents/rolling-no-row-streak-false-increment.md)
   [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md) (orphan pattern at end vs
   here at start), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)
   (why reusing the prefix doesn't work),

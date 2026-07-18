@@ -58,7 +58,7 @@ knew it.
   sliver-blindness is qNEHVI working AS DESIGNED — use the checklist instead.
 
 ## Cross-links
-- Related: [batch-bo](/concepts/batch-bo.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-modes](/concepts/bo-modes.md),
+- Related: [batch-bo](/concepts/batch-bo.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-modes](/concepts/bo-modes.md),, [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
   [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md)
 - Evidence: [bo-foilsflash](/projects/bo-foilsflash.md) (foilsflashSOBX01), [bo-foils](/projects/bo-foils.md) (foilsf17R01_07)
 - Source files: `botorch_predict.py` (qNEHVI ref-point/HV construction;

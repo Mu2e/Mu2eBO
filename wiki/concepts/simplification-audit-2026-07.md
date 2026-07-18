@@ -1,10 +1,10 @@
 ---
 type: concept
 title: Simplification audit 2026-07 — verified delete/keep map
-description: 'verified delete/keep map: ~490 L safe to delete (streamlit overlay,
-  helical slides script, cl_min test class, format_row dedup, dead preflight branch);
-  >half of plausible deletions OVERTURNED with recorded refutations (prodtarget/foilsg/ipa
-  live, deck-trio destructive, skopt build_space is the lockstep truth source)'
+description: 'delete/keep map EXECUTED through 2026-07-18 (Tier 1 batch + ipa +
+  skopt retirements); refutations recorded to stop re-proposals (foilsg/prodtarget
+  protected as 0.18 venue, deck-trio destructive) + KEEP decisions (qlnei, Run1BAna,
+  venv pair)'
 status: active
 timestamp: '2026-07-18'
 ---

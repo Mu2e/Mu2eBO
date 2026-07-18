@@ -7,6 +7,7 @@ superseded, linted.
 
 ## 2026-07-18
 
+- /wiki-lint --fix applied 12 fixes: 9 same-type backlinks (5× ml-stack-review peers, 2× simplification-audit, open-knowledge-format→docroot, rolling-streak→barrier-falsepos) + 3 description/index drift repairs (bo-driver "7→6 modes", batch-bo superseded desc, simplification-audit post-execution desc)
 - updated Run1BAna/ KEEP-in-root decision (user, 2026-07-18): /data relocation declined; 2-constant seam (EDEP_FCL + SENSITIVITY_MACRO) documented — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 - updated qlnei picker KEEP decision (user, 2026-07-18): conditional retirement declined — only wall-clock-saving picker when 2nd objective is irrelevant; revisit if foils family declared done — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 - updated SKOPT KERNEL RETIRED (ml-stack gap #3 resolved): build_optimizer/seed_optimizer/ask_buildable/N_INITIAL_POINTS deleted, scikit-optimize+scipy unpinned; ALL BO asks now via new bo_driver.botorch_ask() subprocess seam (CL suppression → X_pending; retry diversity → seed_idx); build_space → skopt-free SpaceDim rows, lockstep test kept; live smoke caught a cur_box leftover the suite missed (botorch_predict has no tests); 156 green + qNEHVI smoke on n=304 — [bo-driver](/drivers/bo-driver.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md), [batch-bo](/concepts/batch-bo.md) superseded

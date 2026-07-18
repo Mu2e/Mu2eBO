@@ -104,7 +104,7 @@ or the driver mid-campaign changes running code.
   graph builds under all 9 modes, 146/146 suite, live dry-run.
 
 ## Cross-links
-- Related: [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
+- Related: [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 - Incident evidence: see [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) (8 incidents)
 - Source files: `modes.py` (to be created), `graph/child_tracker.py` (to be
   created), `bo_driver.py:1854`, `graph/closed_loop.py:520`,

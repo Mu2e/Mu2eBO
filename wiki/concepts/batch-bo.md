@@ -1,7 +1,8 @@
 ---
 type: concept
 title: Batch / Asynchronous Bayesian Optimization
-description: q>1 parallel BO; CL-mean q=3 (michael) / CL-min q=2 (helical); skopt-native
+description: (superseded 2026-07-18) skopt CL-mean/CL-min q>1 batching, retired with
+  the skopt kernel; botorch pickers batch natively (X_pending)
 status: superseded
 status_note: skopt CL-mean/CL-min batching retired 2026-07-18 with the skopt kernel — q>1 batching is native in the botorch pickers (qNEHVI/qNParEGO + X_pending); page kept as the historical record of the CL era
 timestamp: '2026-07-18'
@@ -317,7 +318,7 @@ n=193→0.590, n=204→0.122, n=251→0.075. Plot:
 `diversity_overlay_foils.png`.
 
 ## Cross-links
-- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
+- Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
 - Driver: [bo-driver](/drivers/bo-driver.md)
 - Driver: [pipeline](/drivers/pipeline.md)
 - Concept: [bo-modes](/concepts/bo-modes.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [scalarized-objective](/concepts/scalarized-objective.md)
