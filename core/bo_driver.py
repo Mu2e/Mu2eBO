@@ -1187,13 +1187,13 @@ def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
 
     if venv_py is None:
         venv_py = (ROOT
-                   / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv-botorch")
+                   / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv")
                    / "bin" / "python")
     venv_py = Path(venv_py)
     if not venv_py.exists():
         raise FileNotFoundError(
             f"[botorch_ask] picker venv python missing: {venv_py} "
-            f"(install .venv-botorch or set AUTORESEARCH_BOTORCH_VENV)")
+            f"(install .venv or set AUTORESEARCH_BOTORCH_VENV)")
 
     predict = Path(__file__).resolve().parent / "botorch_predict.py"
     with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tf:

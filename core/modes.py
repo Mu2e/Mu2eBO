@@ -4,8 +4,8 @@ A Mode's definition was scattered across ~20 dispatch sites in 6 files, several
 with silent fallbacks — the root soil of the foilsflash-tarball, preflight-
 tuple, and foilsg-tarball incident class. This module is the single source:
 frozen dataclasses, every field passed explicitly (a missing fact is an import
-error, never a default), stdlib-only so every venv (.venv-graph,
-.venv-botorch) and pipeline.py can import it.
+error, never a default), stdlib-only so the project .venv (and any
+A/B picker venv) and pipeline.py can import it.
 
 Behavior stays on the driver's BOMode subclasses (bo_driver.py),
 which bind to their spec by name. Env seams deliberately stay env and are

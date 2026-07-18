@@ -19,7 +19,7 @@ Design:
     signature, whichever first; kill-switch terminates remaining workers).
 
 Run:
-  .venv-graph/bin/python tests/test_wal_multiwriter_stress.py
+  .venv/bin/python tests/test_wal_multiwriter_stress.py
 
 Does NOT submit grid jobs, does NOT touch production checkpoints.sqlite.
 """

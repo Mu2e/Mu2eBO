@@ -5,7 +5,7 @@ was retired 2026-07-17) — used directly for one-off chains and spawned per
 child by graph/closed_loop.py.
 
 Usage:
-  source .venv-graph/bin/activate
+  source .venv/bin/activate
   python -m graph.run --thread-id smoke001 --config-name graphsmoke001 --mock
 (--mock/--no-mock is required — state your intent; a bare launch used to
 silently default to synthetic metrics.)

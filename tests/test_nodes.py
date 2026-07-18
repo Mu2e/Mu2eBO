@@ -1,7 +1,7 @@
 """Self-tests for graph/nodes.py — pure-ish, no grid contact.
 
 Run from project root:
-  .venv-graph/bin/python -m unittest tests.test_nodes -v
+  .venv/bin/python -m unittest tests.test_nodes -v
 """
 import contextlib
 import io

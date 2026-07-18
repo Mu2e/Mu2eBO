@@ -9,7 +9,7 @@ with the retired cl_min picker it tested — ADR-0001):
   TestProposeOneBuildableRetry — graph/pipeline_io.py:88   (N_crit retry in BO path)
 
 Run from project root:
-  .venv-graph/bin/python -m unittest tests.test_audit_fixes -v
+  .venv/bin/python -m unittest tests.test_audit_fixes -v
 """
 import argparse
 import io

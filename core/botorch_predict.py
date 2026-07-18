@@ -2,14 +2,14 @@
 """BoTorch pickers for any pure-numeric BOMode (bounds from modes.SPECS).
 
 THE production picker: graph/closed_loop.py shells into this CLI every
-round (disjoint venvs — this runs under .venv-botorch, the graph under
-.venv-graph; picks round-trip via --emit-picks-json). Pickers: qnehvi,
+round (subprocess seam — runs under the project .venv; picks round-trip
+via --emit-picks-json). Pickers: qnehvi,
 qlnei, pareto_sob, qnparego, hybrid — details in compute_explore_picks.
 `michael` is unsupported (mixed Real+Categorical space needs a different
 model). Acquisition budget + seeding: see ACQ_* constants and _seed().
 
 CLI (used by _botorch_picks_subprocess; keep argparse-compatible):
-  .venv-botorch/bin/python botorch_predict.py \\
+  .venv/bin/python botorch_predict.py \\
       --mode foils --q 5 --round-idx 0 --emit-picks-json picks.json
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ DEVICE = torch.device("cpu")
 
 
 # Per-mode bounds + integer-dim mask come from the ModeSpec registry
-# (root modes.py, ADR-0002) — stdlib-only, so .venv-botorch (no skopt) can
+# (root modes.py, ADR-0002) — stdlib-only, so any venv can
 # import it. Order matches the Point.x layout (= build_space order); the
 # lockstep is ENFORCED by tests/test_modes.py (driver build_space bounds ==
 # spec bounds per mode), retiring the "MUST mirror build_space" comments.

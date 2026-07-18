@@ -98,7 +98,7 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 
 # cl_min retired per ADR-0001 (2026-07-06, deleted 2026-07-11): the closed
 # loop must never import code outside this repo; all pickers route through
-# in-repo botorch_predict.py in .venv-botorch.
+# in-repo botorch_predict.py in the project .venv.
 PICKER_CHOICES = ("qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid")
 DEFAULT_PICKER = "hybrid"
 
@@ -285,8 +285,8 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
                               pending: list | None = None) -> list[tuple]:
     """Shell into the botorch venv for q picks (thin wrapper on bo.botorch_ask).
 
-    Disjoint-venv: closed_loop.py runs under .venv-graph (no botorch); the
-    botorch pickers need .venv-botorch (no langgraph). bo.botorch_ask owns
+    Picker subprocess: bo.botorch_ask shells into BOTORCH_VENV_PY (the
+    project .venv by default; AUTORESEARCH_BOTORCH_VENV overrides). It owns
     the subprocess + JSON round-trip; this wrapper pins the venv from
     config.BOTORCH_VENV_PY (the AUTORESEARCH_BOTORCH_VENV A/B seam) and
     keeps the historical list-of-tuples return contract.
@@ -308,7 +308,7 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
 def node_predict_picks(state: RoundState) -> dict:
     """Refit GP, return q picks. Picker is one of PICKER_CHOICES.
 
-    All pickers subprocess into .venv-botorch (disjoint venv) to run
+    All pickers subprocess into BOTORCH_VENV_PY (.venv by default) to run
     botorch_predict.py (cl_min retired per ADR-0001):
       qnehvi: multi-objective Pareto-HV picker; native acquisition is qNEHVI,
         not the scalarized obj the leaderboard reports.
@@ -828,7 +828,7 @@ def main() -> int:
     ap.add_argument("--thread-id", default=None,
                     help="if omitted, a fresh uuid is used; reuse to resume")
     ap.add_argument("--picker", choices=PICKER_CHOICES, default=DEFAULT_PICKER,
-                    help="batch picker (all subprocess into .venv-botorch; "
+                    help="batch picker (all subprocess into the picker venv; "
                          "cl_min retired per ADR-0001). hybrid (~60%% qnehvi + "
                          "~40%% qnparego, the default) is recommended for "
                          "multi-objective lines; qnparego spreads picks across "

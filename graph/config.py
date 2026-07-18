@@ -185,15 +185,15 @@ def open_saver_conn():
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
-# Disjoint-venv plumbing: closed_loop.py runs under .venv-graph (langgraph,
-# sklearn, skopt) but the botorch_predict.py qNEHVI picker needs .venv-botorch
-# (gpytorch + botorch). When --picker qnehvi is requested, node_predict_picks
-# subprocess-shells into this interpreter, dumps picks to a tmp JSON, and
-# loads them back into the langgraph state.
+# Picker subprocess plumbing: node_predict_picks shells botorch_predict.py
+# into a child interpreter, dumps picks to a tmp JSON, and loads them back
+# into the langgraph state. Since the 2026-07-18 venv consolidation there is
+# ONE project venv (.venv) — the subprocess keeps torch out of the
+# long-lived orchestrator process, not out of a different dependency set.
 # AUTORESEARCH_BOTORCH_VENV overrides the venv DIRECTORY for a picker A/B
-# (e.g. .venv-botorch-new = botorch 0.18 defaults; see wiki
-# ml-stack-review-2026-07 — accuracy question unresolved at n=10 holdout).
+# (e.g. a future train_Yvar or botorch-0.19 arm; see wiki
+# ml-stack-review-2026-07).
 BOTORCH_VENV_PY = (PROJECT_ROOT
-                   / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv-botorch")
+                   / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv")
                    / "bin" / "python")
 BOTORCH_PREDICT = PROJECT_ROOT / "core" / "botorch_predict.py"
