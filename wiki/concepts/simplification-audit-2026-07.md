@@ -191,6 +191,14 @@ Remaining mechanical batch executed after the reorg week. **Done today:**
   2026-07-17 OVERTURN ("build_space is the lockstep truth source") was
   already obsolete: build_space has been registry-derived since the
   2026-07-12 refactor, so retiring skopt never threatened the invariant.
+- **qlnei picker: KEEP (user decision 2026-07-18).** Retirement was
+  proposed as conditional on "sob-only campaign pattern finished" and
+  declined: it's small/tested/orthogonal, the only picker that buys
+  wall-clock (NO_RUN1B stage drop) when a second objective is genuinely
+  irrelevant, and the saturation playbook still lists it (corner-exploit
+  round + mixed batches). Revisit only if/when the foils family is
+  declared done for good — then it loses its last plausible customer and
+  follows the ipa playbook.
 - **Verification note:** the 156-green suite did NOT catch a live-path
   break (`cur_box` NameError at botorch_predict.py:110, a leftover
   consumer of the Tier-1-deleted env seam) — the real `botorch_ask` smoke
