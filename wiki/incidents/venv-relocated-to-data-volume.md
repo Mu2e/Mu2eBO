@@ -1,19 +1,20 @@
 ---
 type: incident
 title: venv relocated to /exp/mu2e/data volume
-description: .venv-graph and .venv-botorch live on /exp/mu2e/data (symlinked from
-  project root); Ceph cross-volume mv ran ~430 KB/s on many-small-files
+description: the project venv lives on /exp/mu2e/data (symlinked from project
+  root; single .venv since 2026-07-18); Ceph cross-volume mv ran ~430 KB/s on
+  many-small-files
 status: resolved
-timestamp: '2026-07-16'
+timestamp: '2026-07-18'
 ---
 
 # venv relocated to /exp/mu2e/data volume
 
 > **Corollary (2026-07-08): never use git-worktree isolation for agents/tasks
-> in this repo.** `.venv-graph`/`.venv-botorch` are UNTRACKED symlinks at the
-> repo root, so a fresh worktree checkout has no venvs — tests and every
-> `python -m graph.*` entrypoint fail there. Agents must work in the main
-> tree (gate on "no campaign running" instead).
+> in this repo.** `.venv` (formerly `.venv-graph`/`.venv-botorch`) is an
+> UNTRACKED symlink at the repo root, so a fresh worktree checkout has no
+> venv — tests and every `python -m graph.*` entrypoint fail there. Agents
+> must work in the main tree (gate on "no campaign running" instead).
 
 ## Summary
 
@@ -28,6 +29,16 @@ linearly extrapolate from small-venv timing.
 
 ## Key facts
 
+- **CONSOLIDATED 2026-07-18: one `.venv` replaces all three venvs.** Same
+  /data + root-symlink pattern (`autoresearch_venvs/.venv`, py3.11,
+  langgraph + botorch 0.18 + matplotlib + sklearn); `.venv-graph` /
+  `.venv-botorch` / `.venv-botorch-new` deleted after the 7 validation
+  gates in docs/superpowers/specs/2026-07-18-venv-consolidation-design.md.
+  Reclaimed ~7.5 GB incl. the accidental 5.8 GB CUDA wheels below. The
+  "no single venv with all four" bullet at the bottom is now historical:
+  the merged venv carries all four stacks. Rebuild recipe = root
+  `requirements.txt` (the per-venv requirements files are retired; their
+  pin sets live in git history).
 - **`.venv-botorch` is 6.7 GB mostly by accident (audit 2026-07-16):**
   torch 1.7G + `nvidia/` CUDA wheels 4.1G = 5.8G of GPU support for a
   picker that is explicitly CPU-only (`botorch_predict.py:34-35` pins

@@ -4,11 +4,11 @@ title: ML/statistics stack review (2026-07)
 description: 'ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measured
   σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, ~~skopt EI~~
   (RESOLVED 2026-07-18: kernel retired, all asks via botorch_ask), high-sob-corner
-  misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected'
+  misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected; 0.10 RETIRED
+  2026-07-18 (single .venv, foilsflash → 0.18-base)'
 status: active
 timestamp: '2026-07-18'
-updated_note: 'adoption rule: 6D null does not transfer; new high-D lines default
-  to 0.18'
+updated_note: 'verdict rec #1 revised: 0.10 retired with the single-venv consolidation'
 ---
 
 # ML/statistics stack review (2026-07)
@@ -21,6 +21,15 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
 (.venv-botorch); **skopt 0.10.2 / sklearn 1.8.0 / numpy 2.4.6** (.venv-graph).
 
 ## Key facts
+- **VERDICT REVISED 2026-07-18 (user decision, venv consolidation):**
+  botorch 0.10 RETIRED with the single-venv consolidation (see
+  docs/superpowers/specs/2026-07-18-venv-consolidation-design.md) —
+  recommendation #1 ("keep the 0.10 stack for the next campaign") was
+  revisited eyes-open: foilsflash continues on **0.18-base**, accepting the
+  measured 6D corner regression (corner NLL −1.35 vs −2.14) in exchange for
+  one venv, 0 fit failures, ~15% faster fits, and access to train_Yvar.
+  Recommendation #2 stands: per-row train_Yvar is the next env-flagged A/B
+  (AUTORESEARCH_BOTORCH_VENV seam kept for exactly this).
 - **Ranked gaps (payoff-ordered):**
   1. **Measured noise never reaches the GP** — `_fit_gp` (botorch_predict.py:215)
      infers one homoscedastic noise per output; we KNOW σ_sob≈0.4%,

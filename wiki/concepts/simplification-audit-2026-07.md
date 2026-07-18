@@ -3,8 +3,8 @@ type: concept
 title: Simplification audit 2026-07 — verified delete/keep map
 description: 'delete/keep map EXECUTED through 2026-07-18 (Tier 1 batch + ipa +
   skopt retirements); refutations recorded to stop re-proposals (foilsg/prodtarget
-  protected as 0.18 venue, deck-trio destructive) + KEEP decisions (qlnei, Run1BAna,
-  venv pair)'
+  protected as 0.18 venue, deck-trio destructive) + KEEP decisions (qlnei,
+  Run1BAna); venv pair consolidated to one .venv 2026-07-18'
 status: active
 timestamp: '2026-07-18'
 ---
@@ -98,6 +98,10 @@ turned out stale.
   interpreter with matplotlib** — .venv-graph and .venv-botorch-new both lack
   it, so plot generators run on the 0.10 venv. Consolidation is gated on the
   A/B verdict and must solve matplotlib first.
+  **SUPERSEDED 2026-07-18:** the venv pair was consolidated to a single
+  `.venv` (botorch 0.18) — the A/B verdict landed (ff16+ff17), matplotlib
+  moved into the merged venv, and 0.10 was retired by user decision. See
+  docs/superpowers/specs/2026-07-18-venv-consolidation-design.md.
 - **requirements-graph.txt**: keep; the real gap is the MISSING
   requirements-botorch*.txt for both picker venvs (versions live only in wiki
   prose) — an ADD, not a delete.

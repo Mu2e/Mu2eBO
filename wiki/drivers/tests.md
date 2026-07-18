@@ -1,11 +1,10 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/test_closed_loop.py` + `test_audit_fixes.py` + `test_nodes.py`;
-  91 tests, no grid contact; `PYTHONPATH= .venv-graph/bin/python -m unittest discover
-  -s tests -v`'
+description: '`tests/` regression suite (7 files, 156 tests), no grid contact;
+  `PYTHONPATH= .venv/bin/python -m unittest discover -s tests -v`'
 status: active
-timestamp: '2026-06-05'
+timestamp: '2026-07-18'
 ---
 
 # Self-tests (`tests/`)
@@ -18,9 +17,9 @@ refactors that revert the audit fixes fail loudly; grown since with the
 foils v2 6D round-trip suite and the shared env-source helper.
 
 ## Key facts
-- **Venv & invocation:** `.venv-graph/bin/python -m unittest discover -s tests -v`.
-  Do NOT use `.venv-botorch` — its env lacks langgraph/sqlite for
-  closed_loop imports.
+- **Venv & invocation:** `PYTHONPATH= .venv/bin/python -m unittest discover
+  -s tests -v` (single project venv since the 2026-07-18 consolidation —
+  it carries langgraph AND botorch, so there is no wrong venv anymore).
 - **Files:**
   - `tests/test_closed_loop.py` — 22 tests over `graph/closed_loop.py`
     (Pareto hash, route_after_decide, decide_next, assign_names, renew_token,

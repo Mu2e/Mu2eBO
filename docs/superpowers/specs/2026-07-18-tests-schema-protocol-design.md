@@ -2,6 +2,9 @@
 
 Date: 2026-07-18
 Status: approved (brainstorming session 2026-07-18)
+Amended 2026-07-18: the single-venv consolidation
+(`2026-07-18-venv-consolidation-design.md`) landed first; the planned
+`tests_botorch/` split dissolved into the main suite.
 Predecessors: wiki `concepts/architecture-friction-survey-2026-07` (candidates
 3+4, unpicked since 2026-07-06), `concepts/simplification-audit-2026-07`
 (deletion angle exhausted; "suite green while live path broken" bitten twice).
@@ -64,13 +67,13 @@ the method that landed the 9-mode driver rewrites green.
 
 ## Phase 0 — durable tests for untouched code
 
-**`tests_botorch/`** — a second small suite, run with
-`PYTHONPATH= .venv-botorch/bin/python -m unittest discover -s tests_botorch -v`
-(the venv split makes a second suite the only way to import the picker).
-Covers the pure parts of `botorch_predict.py`: `_load_history_tensor`
-against tmp TSV fixtures (row parsing, width guard, sob-only path), seeding
-(`--round-idx` → 42^idx), min-spacing filters, picks-JSON emit; plus one
-tiny real GP fit + qNEHVI pick on ~10 synthetic rows (CPU, seconds).
+**`tests/test_botorch_predict.py`** — main suite (the 2026-07-18 venv
+consolidation put botorch in the same venv as the test runner, so no
+separate suite is needed). Covers the pure parts of `botorch_predict.py`:
+`_load_history_tensor` against tmp TSV fixtures (row parsing, width guard,
+sob-only path), seeding (`--round-idx` → 42^idx), min-spacing filters,
+picks-JSON emit; plus one tiny real GP fit + qNEHVI pick on ~10 synthetic
+rows (CPU, seconds).
 
 **`tests/test_pipeline_verbs.py`** — main suite. Submit idempotency
 (existing `state/<cfg>/<stage>_cluster.txt` → no-op), stamp-at-submit
@@ -84,9 +87,9 @@ files: `_flock_ex`/`_flock_sh` acquire/release/contention and the
 `_lock_path` anchor (`<target's dir>/locks/<name>.lock`). Closes the gap
 that let the lock seam break with the suite green.
 
-**Cross-venv smoke** — main suite, one test: `bo_driver.botorch_ask()`
-q=2 against a tmp ~10-row leaderboard, `unittest.skipUnless` the botorch
-venv exists. The only slow test in the main suite.
+**Seam smoke** — one test: `bo_driver.botorch_ask()` q=2 against a tmp
+~10-row leaderboard, exercising the subprocess seam end-to-end. The only
+slow test in the suite.
 
 ## Phase 1 — schema single-sourcing into ModeSpec
 
@@ -168,8 +171,7 @@ every refactor commit:
 
 ## Verification
 
-- Main suite green under `.venv-graph` (156 + ~30 new tests);
-  `tests_botorch/` green under `.venv-botorch` (~12 tests).
+- Main suite green under `.venv` (156 + ~42 new tests).
 - Goldens byte-identical after commits 4–6.
 - Live smokes at end of round: real `botorch_ask` q=2 on the live
   foilsflash leaderboard; one full `graph.run --mock` chain (exercises
@@ -181,7 +183,7 @@ Each commit leaves the repo green and launch-ready:
 
 1. `tests/test_flock.py` + `tests/test_pipeline_verbs.py` (+ minimal
    runner seams in `pipeline.py`)
-2. `tests_botorch/` suite + cross-venv `botorch_ask` smoke
+2. `tests/test_botorch_predict.py` + `botorch_ask` seam smoke
 3. `tests/golden_parity.py` + captured baseline
 4. Phase 1: schema fields → ModeSpec; driver + picker rewired; goldens
    re-verified
@@ -195,10 +197,6 @@ Each commit leaves the repo green and launch-ready:
 
 - **Off-repo plotters** (~20 unversioned scripts read the TSVs): untouched;
   TSV bytes never change, enforced by golden (a).
-- **Second test suite discoverability**: run command documented in
-  `wiki/drivers/tests.md` and the project test notes; the cross-venv smoke
-  in the main suite fails loudly if the picker seam breaks even when
-  `tests_botorch/` is forgotten.
 - **Seam extractions in `pipeline.py`**: minimal, behavior-preserving,
   golden-gated like everything else.
 - **Mid-campaign edit hazard**: void — nothing running, none planned; each

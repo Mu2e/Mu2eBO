@@ -44,8 +44,8 @@ See [CLAUDE](/CLAUDE.md) for the schema and maintenance contract.
 - [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md) — "saturated" = flat acquisition signal, NOT fully-mapped front (foilsflash tail sat ~9σ beyond evals while the GP knew); end-of-campaign checklist: corner-picker round + sibling-champion transplant probes
 - [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) — friction map: mode dispatched at ~20 sites/6 files (silent `.get` defaults), 5 barrier truth-sources, leaderboard schema in ~9 string literals, pipeline.py/botorch_predict.py zero tests; candidates 1+2 picked → design page
 - [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md) — crystallized refactor design: ModeSpec registry in `core/modes.py` (all fields required, no silent defaults) + stateful ChildTracker with injected signals adapter; cl_min picker retired (ADR-0001/0002); GATED on foilsflash08 completion
-- [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md) — ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measured σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, ~~skopt EI~~ (RESOLVED 2026-07-18: kernel retired, all asks via botorch_ask), high-sob-corner misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected
-- [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md) — delete/keep map EXECUTED through 2026-07-18 (Tier 1 batch + ipa + skopt retirements); refutations recorded to stop re-proposals (foilsg/prodtarget protected as 0.18 venue, deck-trio destructive) + KEEP decisions (qlnei, Run1BAna, venv pair)
+- [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md) — ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measured σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, ~~skopt EI~~ (RESOLVED 2026-07-18: kernel retired, all asks via botorch_ask), high-sob-corner misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected; 0.10 RETIRED 2026-07-18 (single .venv, foilsflash → 0.18-base)
+- [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md) — delete/keep map EXECUTED through 2026-07-18 (Tier 1 batch + ipa + skopt retirements); refutations recorded to stop re-proposals (foilsg/prodtarget protected as 0.18 venue, deck-trio destructive) + KEEP decisions (qlnei, Run1BAna); venv pair consolidated to one .venv 2026-07-18
 
 ## Datasets
 - [mmackenz-priors](/datasets/mmackenz-priors.md) — 104 hand-designed configs; 96 with both metrics
@@ -58,7 +58,7 @@ See [CLAUDE](/CLAUDE.md) for the schema and maintenance contract.
 - [preflight](/drivers/preflight.md) — local `mu2e -n 1` G4 init feasibility check
 - [graph-runner](/drivers/graph-runner.md) — LangGraph state-machine orchestrator (Phase 1 mock-grid); Studio + Streamlit overlay
 - [closed-loop-runner](/drivers/closed-loop-runner.md) — multi-round Pareto-pick BO driver: wraps q parallel graph-runner children, refits GP between rounds
-- [tests](/drivers/tests.md) — `tests/test_closed_loop.py` + `test_audit_fixes.py` + `test_nodes.py`; 91 tests, no grid contact; `PYTHONPATH= .venv-graph/bin/python -m unittest discover -s tests -v`
+- [tests](/drivers/tests.md) — `tests/` regression suite (7 files, 156 tests), no grid contact; `PYTHONPATH= .venv/bin/python -m unittest discover -s tests -v`
 - [refresh-foils-slides](/drivers/refresh-foils-slides.md) — (**script trio DELETED 2026-07-17** — captions stamper clobbered the live deck footer) now the record of per-deck figure→generator maps; refresh path = refresh-foils-talk skill
 
 ## Incidents (root-caused gotchas)
@@ -77,7 +77,7 @@ See [CLAUDE](/CLAUDE.md) for the schema and maintenance contract.
 - [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md) — editing `STAGES[*]["events_per_job"]` between submit and harvest mis-scales metrics; stamp-at-submit fix in pipeline.py; cluster.txt mtime is NOT a safe submit-time proxy
 - [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md) — closed_loop has no token watchdog; krb5 expiry mid-round → Errno 127 ENOKEY at subprocess.run → graph terminates before harvest, no leaderboard row
 - [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) — `pipeline.py:420` `check=True` swallows mu2ejobsub stderr; real cause is OSError 122 (disk quota) during jobsub_lite RCDS publish; recovery recipe + stderr-leak fix TODO
-- [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md) — `.venv-graph`/`.venv-botorch` live on /data, symlinked from project root; Ceph cross-volume mv runs ~430 KB/s on many-small-files
+- [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md) — the project venv lives on /data, symlinked from project root (single `.venv` since 2026-07-18); Ceph cross-volume mv runs ~430 KB/s on many-small-files
 - [fcl-unicode-parse-error](/incidents/fcl-unicode-parse-error.md) — FHiCL parser hard-fails on non-ASCII bytes in template comments; Unicode minus (U+2212) killed 8/8 FT01 closed-loop children at mubeam submit
 - [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) — closed-loop FT05 round-1 children mis-resolved by `saver.get_tuple.next`; silent premature convergence; use `--max-rounds 1` until fixed
 - [foils-cloud-calo-zero-inf](/incidents/foils-cloud-calo-zero-inf.md) — foils GP cloud crashes on calo=0 sob-only rows (log10(0)=-inf); fix=calo>0 filter; ALSO flags refresh-foils-talk skill stale vs live deck
