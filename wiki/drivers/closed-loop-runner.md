@@ -448,13 +448,15 @@ in this phase.
     Past leaderboard rounds are tighter-clustered than their
     `--min-spacing` setting suggests.
 - **WAL gate** (`[closed-loop-bo-design](/concepts/closed-loop-bo-design.md)` revision #1, #6): the outer
-  graph and q children all write to the same
-  `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/checkpoints.sqlite`. WAL is set explicitly in both
-  `graph/run.py` and `graph/closed_loop.py` after every connect. Verified
-  PASS on CephFS for realistic-rate workloads (5 writers × 5 inserts × 2s
-  gap with 30s timeout, 0 errors); aggressive rates (4 writers × 50
-  back-to-back inserts) did hit one timeout — that case is not expected in
-  production but should be remembered.
+  graph and q children all write to the same checkpoint DB — `CHECKPOINT_DB`
+  = `/tmp/<user>/checkpoints.sqlite` (config.py). It is NOT under graph_data:
+  it was moved off CephFS to node-local /tmp on 2026-06-09 after the foilsf08
+  WAL-incoherence crash ([closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md)).
+  WAL is set explicitly in both `graph/run.py` and `graph/closed_loop.py`
+  after every connect. The earlier CephFS "PASS" (5 writers × 5 inserts × 2s
+  gap, 0 errors) proved INSUFFICIENT at production concurrency — that is what
+  the /tmp move fixed; the aggressive-rate timeout (4 writers × 50 back-to-back
+  inserts) foreshadowed it.
 - **Closed-loop logs**: per-child stdout/stderr lands at
   `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<name>.log`. The outer parent's own stream
   goes to whatever stdout the operator gave it (typically `nohup … &` or a

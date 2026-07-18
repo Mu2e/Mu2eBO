@@ -6,7 +6,7 @@ description: pt6d04 R1 10/10 children mis-reported fail_managed; rc=1 overload +
   subclass inherits methods NOT mode-tuple membership
 status: resolved
 status_note: (2026-06-13)
-timestamp: '2026-06-13'
+timestamp: '2026-07-17'
 ---
 
 # preflight-mode-tuple-prodtarget6d-omission
@@ -40,7 +40,7 @@ submitted to grid.
 - **Driver-stdout NOT in preflight log:** the `[preflight/<mode>]`
   print statements go to the driver's stdout, which `pipeline_io.run_preflight`
   captures but only puts the *last 80 lines* in `tail`. Per-child closed-loop
-  logs (`graph_data/closed_loop_logs/<cfg>.log`) likewise don't carry the
+  logs (`/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<cfg>.log`) likewise don't carry the
   driver lines that explain *why* rc=1. Diagnosis required reading the
   workdir's `.fcl` (it was `preflight.fcl` not `surfacecheck.fcl` — the
   smoking gun).

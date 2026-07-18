@@ -4,9 +4,9 @@ title: Barrier false-positive on round >= 1 (closed-loop)
 description: closed-loop FT05 round-1 children mis-resolved by `saver.get_tuple.next`;
   silent premature convergence; use `--max-rounds 1` until fixed
 status: resolved
-timestamp: '2026-06-05'
+timestamp: '2026-07-17'
 updated_note: 'CORRECTED foilsZ06 attribution: NOT a LangGraph replay bug — root
-  cause was a stale `graph_data/STOP_CLOSED_LOOP` flag file left from a prior interrupted
+  cause was a stale `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP` flag file left from a prior interrupted
   bash chain; barrier''s STOP_FLAG exit branch did not print, so the trigger was
   invisible. Forensic SqliteSaver dump confirmed single linear checkpoint chain,
   no replay. Latent vacuous-`all([])==True` trap on empty `children` dict is fixed
@@ -64,7 +64,7 @@ in logs; isn't.
 - Source files: `graph/closed_loop.py` (node_barrier + refit_and_check),
   `graph/config.py` (CLOSED_LOOP_BARRIER_* constants)
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md), [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)
-- Log: `graph_data/closed_loop_logs/closed_helicalFT05_r0.log`
+- Log: `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/closed_helicalFT05_r0.log`
 - Affected children: `helicalFT05R01_00` through `helicalFT05R01_07`
 
 ## Resolution (2026-05-24)
@@ -133,9 +133,9 @@ fix in place. R00: ALL 10 children PASS preflight (spack fix verified, see
 [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)). Parent exited at 17:57 via `zero_rows=True`
 with `completed=0` — never refit, never launched R01.
 
-**Actual root cause:** `graph_data/STOP_CLOSED_LOOP` (0 bytes, mtime 14:55)
+**Actual root cause:** `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP` (0 bytes, mtime 14:55)
 existed at launch time. It was left over from an interrupted `touch
-graph_data/STOP_CLOSED_LOOP; pkill ...; sleep 2; rm -f graph_data/STOP_CLOSED_LOOP`
+/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP; pkill ...; sleep 2; rm -f /exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP`
 chain run from inside a Claude bash subshell several turns earlier; the user
 interrupted before the `rm` ran. `node_barrier`'s STOP_FLAG branch
 (`closed_loop.py:500-502`) caught the flag on the first poll and broke out
@@ -188,7 +188,7 @@ rows that nobody refits on. Same orphan pattern as FT05.
   so round N+1 starts clean.
 - Regression test: `tests/test_closed_loop.py::TestBarrierRefusesEmptyChildren`.
 
-**Operational note:** check for and delete `graph_data/STOP_CLOSED_LOOP`
+**Operational note:** check for and delete `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP`
 before every closed-loop launch. A 0-byte stale file silently aborts the run
 even with the silent-exit fix above (the message will now print, but the
 round still exits before doing useful work).

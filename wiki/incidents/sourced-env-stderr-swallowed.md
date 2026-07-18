@@ -6,7 +6,7 @@ description: pipeline.py:278 sourced_env() swallows bash stderr; 3/10 foilsX06R0
   children died on transient `setup mu2egrid` rc=127 + missing CET_PLUGIN_PATH mfPlugin
   "cerr" with no captured cause
 status: active
-timestamp: '2026-06-01'
+timestamp: '2026-07-17'
 ---
 
 # sourced_env stderr swallowed — transient setup blips look like silent stage death
@@ -197,7 +197,7 @@ DIFFERENT code path (line 278, not 420).
 - Source files: `pipeline.py:278` (sourced_env), `pipeline.py:559`
   (cmd_submit env =), pipeline.py:cmd_harvest (same call)
 - Detection logs:
-  `graph_data/closed_loop_logs/foilsX06R00_{07,08,09}.log`
+  `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/foilsX06R00_{07,08,09}.log`
   + `graph_data/.../foilsX06R00_09/harvest/edep.log`
 
 ## Open questions / TODO

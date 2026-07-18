@@ -7,7 +7,7 @@ status: active
 status_note: (v3-only picker since 2026-06-06; foilsf01/02/03/06/07/08/09/10 complete
   + honest foilsf11/12/14, sob front 3.88→3.90 pre-fix and 3.85 honest plateau,
   SATURATED)
-timestamp: '2026-06-18'
+timestamp: '2026-07-17'
 updated_note: foilsf17 broke honest ceiling 3.83→3.91, Pareto-dominant; NOT saturated
 ---
 
@@ -444,7 +444,7 @@ in (sob, calo) is attributable to the +12 envelope alone.
   the +12 envelope is not just buildable at the extreme corners (Phase 0)
   but also at interior Sobol-sampled points. No managed-volume overlaps
   across any of the 10 picks. Per-child logs at
-  `graph_data/closed_loop_logs/foilsX01R00_{00..09}.log`.
+  `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/foilsX01R00_{00..09}.log`.
 
 - **Round 0 results (10 evals, 2026-05-28):** all 10 harvested cleanly,
   none rejected by scan_logs. Range: `sob ∈ [1.88, 3.32]`,

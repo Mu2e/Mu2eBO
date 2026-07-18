@@ -6,7 +6,7 @@ description: foilsf08R00 10/10 children crashed at SqliteSaver.put_writes with "
   WAL-side, not on-disk); parent hung at barrier 3h with completed=0; likely stale-WAL
   or CephFS lock-jitter despite SQLITE_TIMEOUT_S=30
 status: resolved
-timestamp: '2026-06-28'
+timestamp: '2026-07-17'
 ---
 
 # closed-loop SqliteSaver checkpoint transient corruption
@@ -26,7 +26,7 @@ foilsf08R00 (first live qlnei run, 10 parallel `graph.run` children writing the 
   2. **CephFS lock-acquire jitter** spiking past the `SQLITE_TIMEOUT_S=30` floor + many-small-writer pattern from 10 children + parent barrier-poll = SQLite gives up and returns "not a database"
   3. **SQLite WAL on CephFS** is a known sharp-edge — `mmap` semantics under network FS can corrupt WAL pages even when each individual writer is well-behaved
 - Parent (PID 2068057) was hung at barrier for ~3h, 0 completions, blocking ~94 still-running grid jobs whose outputs no consumer would ever harvest.
-- Recovery checklist (after operator authorization): kill parent → `jobsub_rm` the in-flight grid jobs → `mv graph_data/checkpoints.sqlite{,-shm,-wal} graph_data/forensics/foilsf08_crash_<ts>/` (do NOT delete; the WAL has the unwritten state) → relaunch fresh.
+- Recovery checklist (after operator authorization): kill parent → `jobsub_rm` the in-flight grid jobs → `mv graph_data/checkpoints.sqlite{,-shm,-wal} /exp/mu2e/data/users/oksuzian/autoresearch_graph_data/forensics/foilsf08_crash_<ts>/` (do NOT delete; the WAL has the unwritten state) → relaunch fresh.
 
 ## PREVENTION for CONCURRENT campaigns (2026-06-28)
 Running TWO closed_loop parents at once (e.g. foilsflash03 + pt6d18) is a sharp

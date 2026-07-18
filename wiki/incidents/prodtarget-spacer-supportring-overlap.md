@@ -15,7 +15,7 @@ status_note: 'shrinks + lug-cap cover 8/10 of ptX05R00 picks; **third failure mo
   diagnosis was incorrect. Residual `SpacerNegZ_0 ⟷ Plate00` at precision tolerance
   is the same class as the documented `SpacerPosZ × Plate_last` mode and needs the
   mirror-side spacer shrink in `constructTargetPS.cc:1730`.'
-timestamp: '2026-06-17'
+timestamp: '2026-07-17'
 updated_note: 'pt6d07 evidence: clamp works, residual is precision-tolerance class'
 ---
 
@@ -139,7 +139,7 @@ _01, _02, _08) died at preflight=`fail_managed` ×3 retries.
 `/exp/mu2e/app/users/oksuzian/autoresearch/bo_prodtarget_preflight/<config>.log`.
 `autoresearch_bo_michael.py:cmd_preflight` writes `log.write_text(out)`
 with combined stdout+stderr (line ~1756). Only the closed-loop child log
-(`graph_data/closed_loop_logs/<config>.log`) shows the bare
+(`/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<config>.log`) shows the bare
 `preflight=fail_managed` status — to see the overlap pair, go to the
 preflight dir.
 

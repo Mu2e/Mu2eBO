@@ -82,7 +82,7 @@ stage + tracker-edep gallery harvest).
     --picker qnehvi --q 10 --max-rounds 3`, env `AUTORESEARCH_MODE=foilsflash AUTORESEARCH_ELEBEAM_NJOBS=200`
     (flash jobs 100→200 for finer few-% Pareto discrimination; sob stages stay 15j),
     `AUTORESEARCH_CHECKPOINT_DIR=/tmp/oksuzian/foilsflash04`. Warm-started on the 52 migrated rows.
-    thread_id=closed-be3f5920. Log `graph_data/foilsflash04_parent.log`.
+    thread_id=closed-be3f5920. Log `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/foilsflash04_parent.log`.
     **COMPLETE 2026-07-01:** parent exited clean after `decide_next[r2]`; **28 evals landed**
     (R00 10 / R01 9 / R02 9; 2 lost to `mu2ejobsub` submit rc=1 — R01_06 + one R02, see
     [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md)). Leaderboard now 80 rows (52 warm-start + 28).

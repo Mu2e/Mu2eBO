@@ -6,7 +6,7 @@ description: foilsX04 ran 20 children across 2 rounds, all died at preflight=amb
 status: resolved
 status_note: 2026-05-29 (convergence-by-pareto-hash machinery deleted entirely;
   zero-row safety break in `node_decide_next`; rc=3 ambiguous now retriable in `route_after_preflight`)
-timestamp: '2026-06-05'
+timestamp: '2026-07-17'
 updated_note: 'FIX BAKED IN + VERIFIED UNDER CONCURRENCY: `export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER`
   prepended INSIDE the bash command at `autoresearch_bo_michael.py:1188` (cmd_preflight)
   + `pipeline.py:289` (sourced_env). Single-config verify: foilsZ05R00_00 re-preflight
@@ -203,7 +203,7 @@ Two distinct bugs collided to produce the silent failure:
 
 ## Key facts
 
-- **Symptoms (parent log `graph_data/closed_loop_logs/closed_foilsX04_r0.log`):**
+- **Symptoms (parent log `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/closed_foilsX04_r0.log`):**
   ```
   round 0: launched 10 children, barrier resolved, pareto_hash=6459d20d... converged=False
   round 1: launched 10 children, barrier resolved, pareto_hash=6459d20d... converged=True
@@ -266,7 +266,7 @@ Two distinct bugs collided to produce the silent failure:
   - `graph/pipeline_io.py:140` — `{3: "ambiguous"}` rc mapping
   - `graph/closed_loop.py` — convergence-check site (needs gate)
   - `autoresearch_bo_michael.py:cmd_preflight` — rc=3 emission
-  - `graph_data/closed_loop_logs/closed_foilsX04_r0.log`,
+  - `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/closed_foilsX04_r0.log`,
     `foilsX04R00_00.log..R01_09.log` — evidence
 
 ## 3-agent debug findings (2026-05-29)

@@ -7,7 +7,7 @@ status: resolved
 status_note: '(mitigated 2026-05-20: host-wide `fcntl.flock` on `/tmp/mu2e_submit.$USER.lock`
   wraps the token-refresh + `mu2ejobsub` critical section in `pipeline.py:_submit_lock`;
   serializes all submits across all concurrent chains)'
-timestamp: '2026-06-18'
+timestamp: '2026-07-17'
 ---
 
 # Concurrent token contention on mu2ejobsub
@@ -112,7 +112,7 @@ mustops_ce within a 5-minute window — three of five failed.
   ~16 min total serialized submit time over a ~2-hour run — negligible.
 
 - **Gauging submit activity before launching a 2nd concurrent campaign (2026-06-18):**
-  the closed-loop child logs (`graph_data/closed_loop_logs/<cfg>.log`) only
+  the closed-loop child logs (`/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<cfg>.log`) only
   snapshot the **preflight** state (`{"preflight": "pass", "objective": null}`)
   and never log mubeam/run1b_mubeam submit or grid-poll progress — they are
   **useless** for telling whether a campaign is mid-submit. The reliable
