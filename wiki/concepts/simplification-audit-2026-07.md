@@ -163,6 +163,18 @@ coupling below is real but was fully resolved in one verified pass:
   TSV in `leaderboards/`. This is the papercut the keep-flat recommendation
   was avoiding; it's the accepted cost of the tidier root.
 
+### tools/ cleanup (2026-07-17)
+
+`tools/` is now scripts-only (`gp_loo_benchmark.py` +
+`gdml_subset_{production,stopping}_target.py` — all three live and
+wiki-referenced). The 13 benchmark-result JSONs (gp_loo_benchmark LOO/holdout
+outputs, the botorch 0.10-vs-0.18 A/B evidence) were moved OFF the /app repo
+to `/exp/mu2e/data/users/oksuzian/autoresearch_benchmarks/` (verified
+md5-identical before `git rm`). They're regenerable via gp_loo_benchmark.py
+and the verdict numbers are in [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md); the /data copy is the
+raw-evidence backup. ml-stack-review's committed-path reference updated to the
+/data location.
+
 ### Directory consolidation (2026-07-17, round 2 of the reorg)
 
 Second declutter pass on root DIRECTORIES:

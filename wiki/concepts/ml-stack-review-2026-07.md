@@ -6,7 +6,7 @@ description: 'ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measu
   the preflight-retry path, high-sob-corner misfit → Warp; Ax/Optuna/neural surrogates
   explicitly rejected'
 status: active
-timestamp: '2026-07-15'
+timestamp: '2026-07-17'
 updated_note: 'adoption rule: 6D null does not transfer; new high-D lines default
   to 0.18'
 ---
@@ -201,6 +201,9 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
 - Decide leaderboard σ/njobs column shape before wiring train_Yvar (the one
   adopted follow-up from the LOO verdict; env-flag the picker change for A/B).
 - ~~LOO verdict pending~~ DONE 2026-07-13 — five-way table + verdict in Key facts;
-  reference JSONs committed at `tools/loo_results_2026-07-13/`.
+  reference JSONs moved off /app on 2026-07-17 to
+  `/exp/mu2e/data/users/oksuzian/autoresearch_benchmarks/{loo_results_2026-07-13,
+  holdout_ff16_2026-07-14,holdout_ff16ff17_2026-07-15}/` (regenerable via
+  `tools/gp_loo_benchmark.py`; the verdict numbers live in Key facts above).
 - Score the NEXT campaign's fresh rows through `tools/gp_loo_benchmark.py`
   variants as the honest held-out test before adopting train_Yvar.
