@@ -3,7 +3,7 @@ type: driver
 title: preflight — local G4 init feasibility check
 description: local `mu2e -n 1` G4 init feasibility check
 status: active
-timestamp: '2026-06-13'
+timestamp: '2026-07-17'
 updated_note: fatal-abort gate + holeRadii canary + as-built GDML geometry assertion
   added after the foilsg uniform-hole incident; documented foils-only GDML emission
   scope
@@ -47,7 +47,7 @@ updated_note: fatal-abort gate + holeRadii canary + as-built GDML geometry asser
 >    `SetVisLevel`) or sub-pixel culling drop thin base foils at full-stack
 >    zoom. Authoritative count: `volumeref` / distinct-Z / solidref all = 49
 >    in the GDML; viewer rendering is not the source of truth. To view
->    the foils alone, `tools/gdml_subset_stopping_target.py <asbuilt.gdml>`
+>    the foils alone, `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gdml_subset_stopping_target.py <asbuilt.gdml>`
 >    extracts StoppingTargetMother + its 49 foils into a ~25 KB standalone
 >    GDML whose world volume IS the foil mother (leaves emitted before the
 >    mother so ROOT TGDMLParse doesn't segfault on forward refs — see

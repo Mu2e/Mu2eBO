@@ -4,7 +4,7 @@ title: bo-noise-budget
 description: per-point event budget + measured σ(sob)=0.4% / σ(calo)=8%; calo is
   binding noise channel near saturation
 status: active
-timestamp: '2026-07-13'
+timestamp: '2026-07-17'
 updated_note: GP noise audit logged + first reading
 ---
 
@@ -400,8 +400,8 @@ equivalent ways:
   more precisely. To resolve which converged point is best, spend stats on the MEASUREMENT (replicas / more
   elebeam jobs per point), not on the map — same principle as the flat-top-tie note above.
 - **GP noise modeling (`botorch_predict.py:_fit_gp`, lines 137–153):** `SingleTaskGP` with `Standardize` outcome + `Normalize` input. **No explicit `noise_constraint` / `WhiteKernel`**; default `GaussianLikelihood` with a learned homoscedastic noise term + default `GammaPrior(1.1, 0.05)` on noise variance. By contrast, the sklearn-based cloud renderer caps WhiteKernel at `noise_level_bounds=(1e-5, 3e-2)` ([gp-cloud-rendering](/concepts/gp-cloud-rendering.md)).
-- **Independent flash-noise cross-check via LOO z-calibration (2026-07-13):** fitting the GP with FIXED assumed noise (train_Yvar, `tools/gp_loo_benchmark.py` yvar variant) and reading back the LOO z_std gives **effective archive flash noise ≈ 4.5%** (z_std 0.75 under an assumed 6%) → run-level systematic ≈ √(4.5²−2.5²) ≈ **3.7%** — confirms the NC02 run-level estimate at its LOW end (5–10% was the ceiling guess). sob readback: effective σ ≈ 0.5% (assumed 0.4%). Details: [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md).
-- **GP noise audit — LOGGED as of 2026-07-13 (commit 163bb2e) + FIRST READING:** `_fit_gp` now prints fitted σ per output, un-Standardize'd to raw units. foilsflash n=274: **σ(sob)=7.0e-3 abs ≈ 0.2% rel** (matches the 0.24% counting floor — GP correctly sees sob as near-noiseless); **σ(log10 flash)=1.31e-2 ≈ 3.0% rel on flash** — squarely the measured *within-run* band (2–4% @100j) but EXCLUDING the ~5–10% run-level systematic (NC02) → **the GP currently treats run-level flash offsets as geometry signal**. Quantifies the train_Yvar case ([ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md) gap #1); `tools/gp_loo_benchmark.py` (LOO NLL/z-calibration, variants base/warp/yvar, botorch 0.10-vs-new compat) is the offline judge.
+- **Independent flash-noise cross-check via LOO z-calibration (2026-07-13):** fitting the GP with FIXED assumed noise (train_Yvar, `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gp_loo_benchmark.py` yvar variant) and reading back the LOO z_std gives **effective archive flash noise ≈ 4.5%** (z_std 0.75 under an assumed 6%) → run-level systematic ≈ √(4.5²−2.5²) ≈ **3.7%** — confirms the NC02 run-level estimate at its LOW end (5–10% was the ceiling guess). sob readback: effective σ ≈ 0.5% (assumed 0.4%). Details: [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md).
+- **GP noise audit — LOGGED as of 2026-07-13 (commit 163bb2e) + FIRST READING:** `_fit_gp` now prints fitted σ per output, un-Standardize'd to raw units. foilsflash n=274: **σ(sob)=7.0e-3 abs ≈ 0.2% rel** (matches the 0.24% counting floor — GP correctly sees sob as near-noiseless); **σ(log10 flash)=1.31e-2 ≈ 3.0% rel on flash** — squarely the measured *within-run* band (2–4% @100j) but EXCLUDING the ~5–10% run-level systematic (NC02) → **the GP currently treats run-level flash offsets as geometry signal**. Quantifies the train_Yvar case ([ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md) gap #1); `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gp_loo_benchmark.py` (LOO NLL/z-calibration, variants base/warp/yvar, botorch 0.10-vs-new compat) is the offline judge.
 
 - **Stats-bump decision matrix (verdict 2026-06-07 from agentic research):**
   - **Do NOT 2× globally** — ~10 grid-hours/round extra for ~no win on the sob channel (σ already <round-to-round signal).

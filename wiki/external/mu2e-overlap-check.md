@@ -4,7 +4,7 @@ title: Mu2e G4 overlap-check recipe
 description: G4 surface-check recipe for detecting silent volume overlaps; pre-built
   FCL + per-config wrapper pattern
 status: active
-timestamp: '2026-06-17'
+timestamp: '2026-07-17'
 updated_note: added the ROOT `overlapCheck.sh` method — complementary to the G4
   surface check
 ---
@@ -136,7 +136,7 @@ fast geometric check without re-running G4.
   genuinely rules them out**, unlike the stochastic G4 surface sampling which
   can miss thin features. Touching (flush) surfaces are NOT counted as
   overlaps; only true interpenetration is.
-- **Subset trick for a focused check:** running on a `tools/gdml_subset_*`
+- **Subset trick for a focused check:** running on a `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gdml_subset_*`
   extract (e.g. the [production-target-stickman](/concepts/production-target-stickman.md) `ProductionTargetMother`
   subset, 54 nodes) checks all *target-internal* daughter↔daughter overlaps
   in seconds, with the real local coordinates preserved. It does NOT see

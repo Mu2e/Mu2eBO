@@ -4,7 +4,7 @@ title: Geant4 speed knobs (local bench, 2026-05-22)
 description: '`minRangeCut=0.05` is the safe speedup arm (−6% CPU); `Minimal` physics
   list zeros stop counts even though workflow looks "EM-only"'
 status: active
-timestamp: '2026-07-08'
+timestamp: '2026-07-17'
 updated_note: 'local `elebeam_flash` geometry-pruning bench: guess overturned'
 ---
 
@@ -275,7 +275,7 @@ Belle II CHEP2021, COMET TDR, SHiP arXiv:2512.10520):
 - **Celeritas flash-pilot DESIGN (2026-07-08, ~1-2 wk)**: standalone
   `celer-g4` (bypasses Offline/art + the G4 pin entirely; same-app
   offload-on/off = clean A/B). Components: (1) DS-region GDML subset via our
-  existing `tools/gdml_subset_*` extractor (foils+tracker+DS vacuum, simple
+  existing `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gdml_subset_*` extractor (foils+tracker+DS vacuum, simple
   solids — dodges VecGeom exotic-solid gaps), (2) DS field-map sampler →
   Celeritas v0.6 3D map format, (3) EleBeamCat e⁻ → HepMC3 via the existing
   gallery/PyROOT path, (4) scoring = per-volume/shell edep tally as

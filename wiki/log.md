@@ -7,7 +7,8 @@ superseded, linted.
 
 ## 2026-07-17
 
-- updated tools/ now scripts-only: 13 benchmark-result JSONs moved off /app to /data autoresearch_benchmarks/ (md5-verified, regenerable, verdict in wiki) — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
+- updated tools/ REMOVED: 3 scripts → /data autoresearch_tools/ (gp_loo_benchmark import fixed root→core en route; unversioned-code-on-/data tradeoff flagged+overridden); 6 live wiki pages repointed — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+- updated (earlier) tools/ JSONs: 13 benchmark-result JSONs moved off /app to /data autoresearch_benchmarks/ (md5-verified, regenerable, verdict in wiki) — [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
 - updated DIR CONSOLIDATION: 7 bo_<mode>_{proposals,preflight}/ → one bo_work/{proposals,preflight}/<mode>/; pipeline_templates→core/; slides→docs/slides/; 158 tests green — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
 - updated ROOT REORG EXECUTED (user override of keep-flat): 5 modules→core/, 13 leaderboards→leaderboards/, 8 pending→pending/; sys.path rebased (bare imports unchanged), 20 off-repo plotters rewritten, 158 tests + live smokes green — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md)
 - updated root .py/.tsv reorg investigated → KEEP FLAT: py files load-bearing bare-name namespace (~30 imports), TSVs pinned by ~15 hardcoded names in off-repo /data plotters — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md)

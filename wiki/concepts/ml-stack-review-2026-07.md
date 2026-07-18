@@ -51,7 +51,7 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
      a single broken low-sob row drags it; pin per campaign (minor).
   6. Integer dims via round-after-optimize is standard-acceptable; probabilistic
      reparameterization only worth it if an integer-heavy line appears.
-- **botorch 0.18 upgrade gotchas (hit live 2026-07-13, tools/gp_loo_benchmark.py):**
+- **botorch 0.18 upgrade gotchas (hit live 2026-07-13, /exp/mu2e/data/users/oksuzian/autoresearch_tools/gp_loo_benchmark.py):**
   `Warp` is IMPOSSIBLE on a multi-output SingleTaskGP in 0.18.1, both ways:
   (a) unbatched Warp crashes the new batched scipy fit path
   (`_fit_gpytorch_mll_scipy_independent`: `RuntimeError: shape '[2, 1]' is
@@ -204,6 +204,6 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   reference JSONs moved off /app on 2026-07-17 to
   `/exp/mu2e/data/users/oksuzian/autoresearch_benchmarks/{loo_results_2026-07-13,
   holdout_ff16_2026-07-14,holdout_ff16ff17_2026-07-15}/` (regenerable via
-  `tools/gp_loo_benchmark.py`; the verdict numbers live in Key facts above).
-- Score the NEXT campaign's fresh rows through `tools/gp_loo_benchmark.py`
+  `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gp_loo_benchmark.py`; the verdict numbers live in Key facts above).
+- Score the NEXT campaign's fresh rows through `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gp_loo_benchmark.py`
   variants as the honest held-out test before adopting train_Yvar.

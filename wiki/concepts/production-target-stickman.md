@@ -4,7 +4,7 @@ title: Production Target — Stickman v1.0 (MDC2025aq default)
 description: MDC2025aq default PT is Stickman v1.0 (35 Inconel718 plates, rOut=3.15
   mm, t=5 mm, rotY=14°); knob inventory for a possible bo-prodtarget line
 status: active
-timestamp: '2026-06-17'
+timestamp: '2026-07-17'
 updated_note: as-built ProductionTargetMother daughter inventory + standalone-GDML
   extractor
 ---
@@ -83,7 +83,7 @@ file layout.
   plate's start. Defensive check belongs in the config forker, not the geom
   maker.
 - **As-built `ProductionTargetMother` daughter inventory** (verified 2026-06-17 from `asbuilt_pt6d07R01_07.gdml`): **53 daughters** = 35 `ProductionTargetPlate00`–`34` + 3 `ProductionTargetRod_{0,1,2}` + 6 `ProductionTargetSpacer{NegZ,PosZ}_{0,1,2}` + 2 `ProductionTargetSupportRing_{Upstream,Downstream}` + 6 `ProductionTargetSpokeWire_{Up,Down}stream_{0,1,2}` + 1 `ProductionTargetSupportWheel`. Plates are flat leaves (0 sub-physvol). A standalone subset GDML of the whole mother = 54 volumes / **959 solids** (the high solid count is boolean geometry of the wheel/rings/spokes, not the plates) / 249 material+element entries.
-- **Standalone-GDML extractor**: `tools/gdml_subset_production_target.py <asbuilt.gdml> [out] [--plates-only] [--mother NAME]` pulls `ProductionTargetMother` + descendants into a self-contained GDML (world = the mother). Recursive volume walk + boolean-solid ref closure + carries the whole `<materials>` block (so Inconel718→element fractions resolve). Emits **post-order** (daughters before mother) for ROOT TGDMLParse ([root-gdml-forward-volume-ref](/incidents/root-gdml-forward-volume-ref.md)). NOTE the foils tool `gdml_subset_stopping_target.py` is hardcoded to `StoppingTargetMother`+`Foil_*` and will NOT extract `ProductionTargetPlate*` — use this one for prodtarget. **But for ROOT-only viewing you don't even need it** — `TGeoManager::Import(asbuilt); gGeoManager->GetVolume("ProductionTargetMother")->Draw("ogl")` draws just that subtree from the full-world GDML (ROOT strips the `0x…` pointer suffix on import, so the plain name resolves).
+- **Standalone-GDML extractor**: `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gdml_subset_production_target.py <asbuilt.gdml> [out] [--plates-only] [--mother NAME]` pulls `ProductionTargetMother` + descendants into a self-contained GDML (world = the mother). Recursive volume walk + boolean-solid ref closure + carries the whole `<materials>` block (so Inconel718→element fractions resolve). Emits **post-order** (daughters before mother) for ROOT TGDMLParse ([root-gdml-forward-volume-ref](/incidents/root-gdml-forward-volume-ref.md)). NOTE the foils tool `gdml_subset_stopping_target.py` is hardcoded to `StoppingTargetMother`+`Foil_*` and will NOT extract `ProductionTargetPlate*` — use this one for prodtarget. **But for ROOT-only viewing you don't even need it** — `TGeoManager::Import(asbuilt); gGeoManager->GetVolume("ProductionTargetMother")->Draw("ogl")` draws just that subtree from the full-world GDML (ROOT strips the `0x…` pointer suffix on import, so the plain name resolves).
 - **Natural BO axes** (if a "bo-prodtarget" line gets created): continuous —
   `numberOfPlates` (int), `plateThickness` (scalar or per-plate),
   `rOut` (core radius), `rotY` (beam-target angle), `productionTarget.offset.{x,y}`,

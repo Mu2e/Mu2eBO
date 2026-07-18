@@ -163,17 +163,27 @@ coupling below is real but was fully resolved in one verified pass:
   TSV in `leaderboards/`. This is the papercut the keep-flat recommendation
   was avoiding; it's the accepted cost of the tidier root.
 
-### tools/ cleanup (2026-07-17)
+### tools/ removed entirely (2026-07-17)
 
-`tools/` is now scripts-only (`gp_loo_benchmark.py` +
-`gdml_subset_{production,stopping}_target.py` — all three live and
-wiki-referenced). The 13 benchmark-result JSONs (gp_loo_benchmark LOO/holdout
-outputs, the botorch 0.10-vs-0.18 A/B evidence) were moved OFF the /app repo
-to `/exp/mu2e/data/users/oksuzian/autoresearch_benchmarks/` (verified
-md5-identical before `git rm`). They're regenerable via gp_loo_benchmark.py
-and the verdict numbers are in [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md); the /data copy is the
-raw-evidence backup. ml-stack-review's committed-path reference updated to the
-/data location.
+`tools/` is GONE from the repo (user call: "not very useful, move it to data").
+Two-step: first the 13 benchmark-result JSONs → `autoresearch_benchmarks/`,
+then the 3 scripts themselves → `/exp/mu2e/data/users/oksuzian/autoresearch_tools/`
+(`gp_loo_benchmark.py` + `gdml_subset_{production,stopping}_target.py`), all
+md5-verified before `git rm`.
+- **Caught in the act**: `gp_loo_benchmark.py` was already BROKEN by the
+  core/ reorg — still `sys.path.insert(root); import botorch_predict` (bp is
+  in core/ now). Fixed to `AUTORESEARCH/"core"` before copying; the /data copy
+  carries the fix (the repo's git-history copy does not).
+- **KNOWN TRADEOFF (flagged + overridden)**: these are versioned CODE, and
+  unversioned code on /data is the anti-pattern that bit the
+  `botorch_predict_helical` deletion ([mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md)). They now
+  live off-repo like the mmackenz plotters. Recoverable from git history;
+  gp_loo is regenerable-adjacent (it's the harness, not output). Convention:
+  future edits to these scripts are NOT version-controlled.
+- gdml pair only import each other (`Path(__file__).parent` sibling) — travel
+  fine together on /data. gp_loo imports botorch_predict via `AUTORESEARCH/core`
+  (absolute), so it resolves from anywhere. 6 live wiki pages repointed to the
+  /data path (log.md entries left as historical record).
 
 ### Directory consolidation (2026-07-17, round 2 of the reorg)
 
