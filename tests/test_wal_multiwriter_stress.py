@@ -209,7 +209,9 @@ def run_cell(label: str, db_path: Path, duration_s: int) -> dict:
 
 def main() -> int:
     user = os.environ.get("USER", "unknown")
-    ceph_db = Path("/exp/mu2e/app/users/oksuzian/autoresearch/graph_data/stress_test/test_ceph.sqlite")
+    # CephFS path for the WAL-incoherence repro; /data is CephFS too (graph_data
+    # relocated off /app 2026-07-17), so the production-config intent is preserved.
+    ceph_db = Path("/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/stress_test/test_ceph.sqlite")
     tmp_root = Path(f"/tmp/{user}/stress_test")
     tmp_db = tmp_root / "test_tmp.sqlite"
 

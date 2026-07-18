@@ -10,7 +10,10 @@ PROJECT_ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
 # from any graph entrypoint regardless of import order.
 import sys as _sys  # noqa: E402
 _sys.path.insert(0, str(PROJECT_ROOT / "core"))
-GRAPH_DATA = PROJECT_ROOT / "graph_data"
+# Runtime logs/forensics live off the /app repo on /data (2026-07-17), so the
+# repo root stays clean and grid-log churn doesn't eat the /app quota. Single
+# seam: everything (parent logs, closed_loop_logs/, STOP_FLAG) derives from here.
+GRAPH_DATA = Path("/exp/mu2e/data/users/oksuzian/autoresearch_graph_data")
 # CHECKPOINT_DB moved off CephFS to node-local /tmp on 2026-06-09: SQLite's
 # WAL mmap is incoherent across processes on CephFS (sqlite.org/wal.html §1, §7),
 # which crashed foilsf08R00 10/10 children with "file is not a database" /
@@ -154,7 +157,8 @@ CLOSED_LOOP_BARRIER_POLL_SEC = 300
 # pipeline.py's per-stage cap_hours). 1440 = 24h. Tripping this is rare
 # and always worth investigating.
 CLOSED_LOOP_BARRIER_MAX_MIN = 1440
-# Operator stop file. `touch graph_data/STOP_CLOSED_LOOP` and the next
+# Operator stop file. `touch $GRAPH_DATA/STOP_CLOSED_LOOP`
+# (/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP) and the next
 # barrier-poll iteration or decide_next will exit cleanly without affecting
 # in-flight children.
 STOP_FLAG = GRAPH_DATA / "STOP_CLOSED_LOOP"
