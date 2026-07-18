@@ -7,7 +7,7 @@ frozen dataclasses, every field passed explicitly (a missing fact is an import
 error, never a default), stdlib-only so every venv (.venv-graph,
 .venv-botorch) and pipeline.py can import it.
 
-Behavior stays on the driver's BOMode subclasses (autoresearch_bo_michael.py),
+Behavior stays on the driver's BOMode subclasses (bo_driver.py),
 which bind to their spec by name. Env seams deliberately stay env and are
 applied ON TOP of the spec by consumers:
   AUTORESEARCH_NO_RUN1B        post-lookup stage filter (graph/config.py)
@@ -15,7 +15,7 @@ applied ON TOP of the spec by consumers:
 
 Consumers: graph/config.py (musing, stage chain, harvest verb, stage targets,
 presubmit map), pipeline.py (grid tarball), botorch_predict.py (bounds),
-autoresearch_bo_michael.py preflight (policy flags). Completeness is pinned by
+bo_driver.py preflight (policy flags). Completeness is pinned by
 tests/test_modes.py: SPECS keys == driver MODES keys == graph/state.py mode
 Literal, and driver build_space bounds == spec bounds per mode (replacing the
 "MUST stay in lockstep" comment convention with an enforced test).
@@ -62,7 +62,7 @@ class ModeSpec:
     bounds_hi: Optional[Tuple[float, ...]]
     int_dims: Optional[Tuple[int, ...]]
     # Preflight policy flags (replace the 6 hand-listed mode tuples in
-    # autoresearch_bo_michael.py; the managed-overlap banner derives from
+    # bo_driver.py; the managed-overlap banner derives from
     # checks_managed_overlap, which retires the prodtarget6d banner drift).
     preflight_fcl: str                # "surfacecheck" | "preflight"
     dumps_gdml: bool                  # preflight FCL writes a GDML dump

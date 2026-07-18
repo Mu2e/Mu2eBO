@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "core"))  # BO/pipeline mo
 
 from langgraph.graph import END  # noqa: E402
 
-import autoresearch_bo_michael as bo  # noqa: E402
+import bo_driver as bo  # noqa: E402
 import pipeline_io as pio  # noqa: E402
 from config import (  # noqa: E402
     DEFAULT_ALPHA,

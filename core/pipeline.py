@@ -11,7 +11,7 @@ before handing it to mu2ejobdef.
 
 Per-config working tree (auto-created):
   /exp/mu2e/data/users/oksuzian/autoresearch_grid/<cfg>/
-    geom/autoresearch_<cfg>_geom.txt   (placed by autoresearch_bo_michael.py propose)
+    geom/autoresearch_<cfg>_geom.txt   (placed by bo_driver.py propose)
     <stage>/                           (cnf tarballs, Code.tar.bz2)
     state/                             (cluster IDs, output lists, materialized FCL)
     harvest/                           (summary.json, EdepAna outputs)
@@ -520,7 +520,7 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
     if not GEOM_FILE.exists():
         raise SystemExit(
             f"geom file missing: {GEOM_FILE}\n"
-            f"  Run: ./autoresearch_bo_michael.py --mode <mode> propose {CONFIG}\n"
+            f"  Run: ./core/bo_driver.py --mode <mode> propose {CONFIG}\n"
             f"  (propose auto-stages the geom into the per-config work dir)"
         )
     if not base_tarball.exists():

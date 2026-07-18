@@ -210,7 +210,7 @@ def _history(mode: str):
     re-parse the full (growing) TSV q times per tick, thousands of times
     per round at q=20 under the 24h backstop cap."""
     sys.path.insert(0, str(PROJECT_ROOT / "core"))
-    import autoresearch_bo_michael as bo  # noqa: WPS433
+    import bo_driver as bo  # noqa: WPS433
     return bo.MODES[mode].load_history()
 
 
@@ -920,7 +920,7 @@ def main() -> int:
     # rows in v2 instead of v3) is then visible in the first log line rather
     # than only after R0 completes. See wiki [[leaderboards]] gotcha.
     try:
-        import autoresearch_bo_michael as _bo  # noqa: WPS433
+        import bo_driver as _bo  # noqa: WPS433
         _lb = str(_bo.MODES[args.mode].leaderboard)
     except Exception as _e:  # pragma: no cover - banner is best-effort
         _lb = f"<unresolved: {_e}>"

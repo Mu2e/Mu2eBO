@@ -15,7 +15,7 @@ import modes  # noqa: E402
 
 class TestRegistryCompleteness(unittest.TestCase):
     def test_keys_match_driver_modes(self):
-        import autoresearch_bo_michael as bo
+        import bo_driver as bo
         self.assertEqual(set(modes.SPECS), set(bo.MODES),
                          "modes.SPECS and driver MODES diverged")
 
@@ -43,7 +43,7 @@ class TestBoundsLockstep(unittest.TestCase):
         # THE lockstep test: driver build_space is the behavioral source of
         # the search box; the spec is the data copy every other consumer
         # (botorch picker, cloud plots) reads. They must be identical.
-        import autoresearch_bo_michael as bo
+        import bo_driver as bo
         for name, spec in modes.SPECS.items():
             dims = bo.MODES[name].build_space()
             if any(type(d).__name__ == "Categorical" for d in dims):
@@ -67,7 +67,7 @@ class TestBoundsLockstep(unittest.TestCase):
         # through format_row and back for every mode.
         import csv
         import io
-        import autoresearch_bo_michael as bo
+        import bo_driver as bo
         extras = {"edep_per_POT_MeV": 1.2e-9, "peak_dose_Gy_per_POT": 3.4e-12,
                   "peak_dose_plate_idx": 5}
         for name, mode in bo.MODES.items():

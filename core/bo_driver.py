@@ -511,7 +511,7 @@ class FoilsMode(BOMode):
 
         return (
             '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            '\n// === autoresearch_bo_michael (foils mode v2, 6D) proposal ===\n'
+            '\n// === bo_driver (foils mode v2, 6D) proposal ===\n'
             f'// 37 base foils (DOE-2017, rOut=75, hT=0.0528, holeRadius=21.5)\n'
             f'// + {n_up} up at (rOut={rOut_up:.2f}, hT={hT_up:.4f}, rIn={rIn_up:.2f})\n'
             f'// + {n_down} dn at (rOut={rOut_dn:.2f}, hT={hT_dn:.4f}, rIn={rIn_dn:.2f})\n'
@@ -790,7 +790,7 @@ class FoilsGroupMode(BOMode):
 
         return (
             '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            '\n// === autoresearch_bo_michael (foilsg mode, 12D 4-group) proposal ===\n'
+            '\n// === bo_driver (foilsg mode, 12D 4-group) proposal ===\n'
             f'// {self.N_FOILS} free foils in groups {self.GROUP_SIZES} (replaces deployed 37 baseline)\n'
             f'// uniform z-spacing across deployed extent ({self.BASE_EXTENT_MM:.2f} mm)\n'
             f'// deltaZ = {self.DELTA_Z_MM:.6f} mm; z0InMu2e pinned at {self.Z0_MM:.1f}\n'
@@ -918,7 +918,7 @@ class IPAMode(BOMode):
         thickness, halfLength, rOut0, rOut1, dist = x
         return (
             '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            '\n// === autoresearch_bo_michael (ipa mode, 5D) proposal ===\n'
+            '\n// === bo_driver (ipa mode, 5D) proposal ===\n'
             f'// IPA: thickness={thickness:.4f}, halfLength={halfLength:.2f},\n'
             f'//      OutRadius0={rOut0:.2f}, OutRadius1={rOut1:.2f}, '
             f'distFromTargetEnd={dist:.2f}\n'
@@ -1141,7 +1141,7 @@ class ProdTargetMode(BOMode):
         # Fin angles vector is sized to nStickmanFins, not N — pass through default.
         return (
             '#include "Offline/Mu2eG4/geom/geom_run1_a_stickman.txt"\n'
-            '\n// === autoresearch_bo_michael (prodtarget mode v0, 11D) proposal ===\n'
+            '\n// === bo_driver (prodtarget mode v0, 11D) proposal ===\n'
             f'// N={N} plates, profile-mode K=3 quadratic Lagrange (no extrapolation)\n'
             f'// rOut control:  ({x[0]:.3f}, {x[1]:.3f}, {x[2]:.3f}) mm\n'
             f'// thick control: ({x[3]:.3f}, {x[4]:.3f}, {x[5]:.3f}) mm\n'
@@ -1290,7 +1290,7 @@ class ProdTarget6DMode(ProdTargetMode):
         mat_csv = ", ".join(f'"{m}"' for m in material_vec)
         return (
             '#include "Offline/Mu2eG4/geom/geom_run1_a_stickman.txt"\n'
-            '\n// === autoresearch_bo_michael (prodtarget6d mode v0, 6D) proposal ===\n'
+            '\n// === bo_driver (prodtarget6d mode v0, 6D) proposal ===\n'
             f'// N={N} plates (FIXED), profile-mode K=3 quadratic Lagrange\n'
             f'// rOut control:  ({x[0]:.3f}, {x[1]:.3f}, {x[2]:.3f}) mm\n'
             f'// thick control: ({x[3]:.3f}, {x[4]:.3f}, {x[5]:.3f}) mm\n'
@@ -1412,7 +1412,7 @@ def _cmd_propose_locked(args, mode, names):
     for name in names:
         print(f"  pipeline.py --config {name} submit mubeam   (and run1b_mubeam)")
     print(f"\nThen as each finishes:")
-    print(f"  ./autoresearch_bo_michael.py --mode {mode.name} --alpha {args.alpha} "
+    print(f"  ./core/bo_driver.py --mode {mode.name} --alpha {args.alpha} "
           f"evaluate <name> <summary.json>")
     return 0
 

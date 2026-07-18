@@ -1,6 +1,6 @@
-"""Thin wrappers around autoresearch_bo_michael.py + pipeline.py.
+"""Thin wrappers around bo_driver.py + pipeline.py.
 
-BO ops go in-process via `import autoresearch_bo_michael as bo` (the BOMode
+BO ops go in-process via `import bo_driver as bo` (the BOMode
 adapters are clean — no need to fork a subprocess for those). Preflight,
 evaluate, and the grid-stage wrappers (run_stage / run_harvest, which shell
 out to pipeline.py's idempotent verbs) use subprocess to keep their I/O
@@ -22,7 +22,7 @@ from pathlib import Path
 # pull the BO modes in-process.
 sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch/core")
 
-import autoresearch_bo_michael as bo  # noqa: E402
+import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
 
@@ -85,7 +85,7 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
                   file=sys.stderr)
     geom_path = mode.render_proposal(config_name, x)
     # Stage geom into pipeline.py's per-config work tree (mirror cmd_propose in
-    # autoresearch_bo_michael.py:567-570; pipeline.py's submit checks for this
+    # bo_driver.py:567-570; pipeline.py's submit checks for this
     # exact path and refuses otherwise).
     work_geom_dir = GRID_DATA_ROOT / config_name / "geom"
     work_geom_dir.mkdir(parents=True, exist_ok=True)
@@ -105,7 +105,7 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
 
 
 def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_TIMEOUT_S) -> tuple[str, str]:
-    """Run `autoresearch_bo_michael.py preflight <cfg>`.
+    """Run `bo_driver.py preflight <cfg>`.
 
     Returns (status, log_tail). status ∈ {"pass", "fail_managed", "fail_init",
     "ambiguous", "timeout"}. log_tail is the last ~80 lines of stdout for
@@ -127,7 +127,7 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
     tail = "\n".join(proc.stdout.splitlines()[-80:])
     rc = proc.returncode
 
-    # autoresearch_bo_michael cmd_preflight returns: 0 pass, 1 managed-volume
+    # bo_driver cmd_preflight returns: 0 pass, 1 managed-volume
     # overlap, 2 init failure, 3 ambiguous surface-check error.
     status = {0: "pass", 1: "fail_managed", 2: "fail_init", 3: "ambiguous"}.get(rc, "ambiguous")
     return status, tail

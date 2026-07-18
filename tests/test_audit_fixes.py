@@ -5,7 +5,7 @@ with the retired cl_min picker it tested — ADR-0001):
 
   TestModeArgChoices           — graph/closed_loop.py:514  (fail-fast on --mode typo)
   TestStageShaCheckCallsites   — pipeline.py:583,589        (poll + list-outputs warn)
-  TestRemovePendingBeforeAppend — autoresearch_bo_michael.py:891 (atomic ordering)
+  TestRemovePendingBeforeAppend — bo_driver.py:891 (atomic ordering)
   TestProposeOneBuildableRetry — graph/pipeline_io.py:88   (N_crit retry in BO path)
 
 Run from project root:
@@ -123,7 +123,7 @@ class TestRemovePendingBeforeAppend(unittest.TestCase):
     next iteration. Verify both static source order AND runtime ordering.
     """
     def test_source_order(self):
-        src = (PROJECT_ROOT / "core" / "autoresearch_bo_michael.py").read_text()
+        src = (PROJECT_ROOT / "core" / "bo_driver.py").read_text()
         m = re.search(
             r"def cmd_evaluate\(args.*?\n(.*?)(?=\n(?:def |G4_GEOM_FAIL_RX))",
             src, re.DOTALL,
@@ -219,10 +219,10 @@ class TestProposeOneBuildableRetry(unittest.TestCase):
 
     def test_retry_loop_constants_in_source(self):
         # Pin retry budget so a silent shrink doesn't slip through.
-        # MAX_RETRY moved to BOMode.PROPOSE_MAX_RETRY in autoresearch_bo_michael.py
+        # MAX_RETRY moved to BOMode.PROPOSE_MAX_RETRY in bo_driver.py
         # (2026-06-06 Option A refactor); both CLI _cmd_propose_locked and
         # graph propose_one consume it via mode.ask_buildable.
-        src = (PROJECT_ROOT / "core" / "autoresearch_bo_michael.py").read_text()
+        src = (PROJECT_ROOT / "core" / "bo_driver.py").read_text()
         self.assertIn("PROPOSE_MAX_RETRY = 20", src,
                       "PROPOSE_MAX_RETRY must stay at 20 (matches cmd_propose budget)")
 
@@ -457,7 +457,7 @@ class TestFoilsAsymmetric6D(unittest.TestCase):
     """
     @classmethod
     def setUpClass(cls):
-        from autoresearch_bo_michael import MODES
+        from bo_driver import MODES
         cls.mode = MODES["foils"]
 
     def test_geom_text_asymmetric_values(self):
@@ -583,7 +583,7 @@ class TestFoilsAsymmetric6D(unittest.TestCase):
         self.assertEqual(p.x, [120.0, 120.0, 0.10, 0.10, 21.5, 21.5])
 
     def test_format_row_header_schema(self):
-        from autoresearch_bo_michael import Point
+        from bo_driver import Point
         p = Point(cfg="foilsY01R00_00",
                   x=[85.0, 175.0, 0.25, 0.75, 3.0, 22.0],
                   sob=2.5, calo=1.5e-5)
@@ -610,7 +610,7 @@ class TestRunSourcedBash(unittest.TestCase):
     """graph/sourced_bash.py — shared cvmfs/spack env-flake retry helper.
 
     Consolidates the retry loop previously copy-pasted in pipeline.py:
-    sourced_env and autoresearch_bo_michael.py:cmd_preflight; also now backs
+    sourced_env and bo_driver.py:cmd_preflight; also now backs
     both getToken sites. See [[sourced-env-stderr-swallowed]].
     """
     @classmethod
@@ -707,7 +707,7 @@ class TestPreflightFatalAbortClassification(unittest.TestCase):
     )
 
     def setUp(self):
-        import autoresearch_bo_michael as bo
+        import bo_driver as bo
         self.bo = bo
 
     def test_fatal_abort_matches(self):
@@ -747,7 +747,7 @@ class TestVerifyStoppingTargetGdml(unittest.TestCase):
         return f'<?xml version="1.0"?><gdml><solids>{items}</solids></gdml>'
 
     def _run(self, tubes, geom=None):
-        import autoresearch_bo_michael as bo
+        import bo_driver as bo
         with tempfile.NamedTemporaryFile("w", suffix=".gdml",
                                          delete=False) as f:
             f.write(self._gdml(tubes))

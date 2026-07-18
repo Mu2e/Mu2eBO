@@ -6,7 +6,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
 # The BO/pipeline modules live in core/ (2026-07-17 reorg). Put it on
-# sys.path so bare `import modes` / `import autoresearch_bo_michael` resolve
+# sys.path so bare `import modes` / `import bo_driver` resolve
 # from any graph entrypoint regardless of import order.
 import sys as _sys  # noqa: E402
 _sys.path.insert(0, str(PROJECT_ROOT / "core"))
@@ -26,7 +26,7 @@ _CHECKPOINT_DIR = Path(os.environ.get("AUTORESEARCH_CHECKPOINT_DIR",
 CHECKPOINT_DB = _CHECKPOINT_DIR / "checkpoints.sqlite"
 _CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-BO_DRIVER = PROJECT_ROOT / "core" / "autoresearch_bo_michael.py"
+BO_DRIVER = PROJECT_ROOT / "core" / "bo_driver.py"
 PIPELINE_DRIVER = PROJECT_ROOT / "core" / "pipeline.py"
 
 # Per-config grid work tree lives under here; harvest/summary.json gets written here.
@@ -132,7 +132,7 @@ MAX_PROPOSE_RETRIES = 3
 
 # Wall-clock cap on a local `mu2e -n 1` preflight (G4 init + surface check).
 # Single source of truth; both the BO driver and the graph runner import this.
-# Was previously split as 600s (autoresearch_bo_michael.py) vs 1200s
+# Was previously split as 600s (bo_driver.py) vs 1200s
 # (graph/pipeline_io.py:run_preflight) — the lower value caused silent
 # preflight timeouts on cold-cache CVMFS hits.
 PREFLIGHT_TIMEOUT_S = 1200

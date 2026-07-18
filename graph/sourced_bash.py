@@ -2,7 +2,7 @@
 """Shared retry-with-backoff runner for mu2e env-source shell commands.
 
 Centralizes the transient cvmfs/spack env-flake retry that was copy-pasted in
-``pipeline.py:sourced_env`` and ``autoresearch_bo_michael.py:cmd_preflight``,
+``pipeline.py:sourced_env`` and ``bo_driver.py:cmd_preflight``,
 and was absent entirely from the two ``getToken`` sites. A cvmfs read miss
 (``==> Error: [Errno 5]``) mid-``setupmu2e-art.sh`` leaves ``muse``/``mu2e``
 undefined -> the command exits nonzero (often rc=127) producing little/no

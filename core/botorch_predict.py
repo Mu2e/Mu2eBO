@@ -25,7 +25,7 @@ import torch
 
 AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
 sys.path.insert(0, str(AUTORESEARCH / "core"))  # BO/pipeline modules (2026-07-17 reorg)
-import autoresearch_bo_michael as bo  # noqa: E402
+import bo_driver as bo  # noqa: E402
 
 
 # torch defaults: float64 + CPU. The history matrix is tiny (<200 pts), so
