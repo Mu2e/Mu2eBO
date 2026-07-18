@@ -49,7 +49,7 @@ class TestModeArgChoices(unittest.TestCase):
         # End-to-end: argparse fail-fast on unknown choice.
         ap = argparse.ArgumentParser()
         ap.add_argument("--mode", default="foils",
-                        choices=["foils", "foilsf", "ipa"])
+                        choices=["foils", "foilsf", "foilsflash"])
         with self.assertRaises(SystemExit):
             with mock.patch.object(sys, "stderr", io.StringIO()):
                 ap.parse_args(["--mode", "foills"])  # typo
@@ -57,8 +57,8 @@ class TestModeArgChoices(unittest.TestCase):
     def test_argparse_accepts_valid_modes(self):
         ap = argparse.ArgumentParser()
         ap.add_argument("--mode", default="foils",
-                        choices=["foils", "foilsf", "ipa"])
-        for m in ("foils", "foilsf", "ipa"):
+                        choices=["foils", "foilsf", "foilsflash"])
+        for m in ("foils", "foilsf", "foilsflash"):
             ns = ap.parse_args(["--mode", m])
             self.assertEqual(ns.mode, m)
 

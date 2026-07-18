@@ -14,7 +14,7 @@ from typing_extensions import TypedDict
 
 
 PreflightStatus = Literal["pending", "pass", "fail_managed", "fail_init", "ambiguous"]
-StageName = Literal["mubeam", "run1b_mubeam", "concat", "mustops_ce", "mustops_pileup", "elebeam_flash", "pot_only"]
+StageName = Literal["mubeam", "run1b_mubeam", "concat", "mustops_ce", "elebeam_flash", "pot_only"]
 
 
 class StageStatus(TypedDict, total=False):
@@ -34,7 +34,7 @@ class BOIterationState(TypedDict, total=False):
     # Pinned against modes.SPECS by tests/test_modes.py — a new mode must
     # land in BOTH places or the completeness test fails.
     mode: Literal["foils", "foilsf", "foilsflash",
-                  "foilsg", "ipa", "prodtarget", "prodtarget6d"]
+                  "foilsg", "prodtarget", "prodtarget6d"]
     alpha: float
 
     x_point: List[float]

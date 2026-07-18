@@ -114,18 +114,11 @@ class TestSpotFacts(unittest.TestCase):
         self.assertEqual(modes.SPECS["foilsflash"].presubmit_after,
                          {"mubeam": ("elebeam_flash",)})
 
-    def test_ipa_tarball_is_base_not_holeradii(self):
-        # ipa used to reach Code_helical_base via the silent .get(..., michael)
-        # fallback; now it is an explicit fact. It uses the base tarball (patched
-        # Mu2eG4 only, no holeRadii) — the last non-holeradii CE/calo mode after
-        # michael/helical retired (2026-07-12).
-        self.assertEqual(modes.SPECS["ipa"].grid_tarball, modes._BASE_TARBALL)
-        self.assertNotIn("holeradii", modes.SPECS["ipa"].grid_tarball)
-
     def test_foils_family_needs_holeradii_tarball(self):
+        # (ipa — the last non-holeradii CE/calo mode — retired 2026-07-18;
+        # its base-tarball regression pin went with it.)
         for m in ("foils", "foilsf", "foilsflash", "foilsg"):
             self.assertIn("holeradii", modes.SPECS[m].grid_tarball, m)
-        self.assertNotIn("holeradii", modes.SPECS["ipa"].grid_tarball)
 
     def test_prodtarget6d_banner_drift_retired(self):
         # The old :2403 banner tuple omitted prodtarget6d; the flag is the

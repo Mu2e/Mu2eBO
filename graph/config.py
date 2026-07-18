@@ -86,9 +86,6 @@ STAGE_TARGETS = {
     "run1b_mubeam": 200,
     "concat":         1,
     "mustops_ce":   200,
-    # bo-ipa muon-stop pileup stage (tracker StrawGasStep Edep from capture
-    # protons). 100×2500 = half of mustops_ce — capture-proton steps are dense.
-    "mustops_pileup": 100,
     # bo-foilsflash electron-beam early-flash stage (tracker StrawGasStep Edep).
     # foilsflash-only stage. 100 jobs × 110k ev ≈ 30-min payload (~80% grid eff);
     # ~0.54% hit rate → ~59k flash events → σ(flash) ~3.8× tighter than the smoke.
@@ -109,7 +106,7 @@ STAGE_TARGETS = {
 
 # foilsflash uses ~30-min payloads: 100 jobs/stage paired with big events_per_job
 # (set in pipeline.py STAGES override). mubeam/mustops_ce STAGE_TARGETS are SHARED
-# with michael/helical/foils/ipa (tuned at 200), so override them ONLY for foilsflash
+# with the foils family (tuned at 200), so override them ONLY for foilsflash
 # here rather than changing the shared base. elebeam_flash is foilsflash-only (100
 # in the base above). Keyed on AUTORESEARCH_MODE, stamped before import by closed_loop.
 # Per-mode njobs overrides come from the ModeSpec; the env seam stays env

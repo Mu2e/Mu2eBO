@@ -824,8 +824,6 @@ _DRY_RUN_KNOB_LABELS = {
     "foilsflash": ("rOut_up", "rOut_dn", "hT_up", "hT_dn", "f_up", "f_dn"),
     # foilsg: 4 z-groups × (rOut, hT, f) — 12 knobs, FoilsGroupMode.build_space order.
     "foilsg":  tuple(f"{k}_g{g}" for g in range(4) for k in ("rOut", "hT", "f")),
-    # ipa: 5D IPA geometry, IPAMode.build_space order.
-    "ipa":     ("thickness", "halfLength", "OutRadius0", "OutRadius1", "distFromTargetEnd"),
     # prodtarget6d: 6D rOut+thickness profile (N=35 fixed, lug derived).
     "prodtarget6d": ("r0", "r1", "r2", "t0", "t1", "t2"),
 }

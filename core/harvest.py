@@ -282,7 +282,8 @@ class EvalSummary:
     calo_per_pot: Optional[float] = None
     calo_total: Optional[float] = None
     calo_files_seen: Optional[int] = None
-    # trk edep / bo-ipa (fail-soft)
+    # trk edep — bo-ipa, retired 2026-07-18; fields kept so archived ipa
+    # summary.json files still parse (fail-soft, None for live modes)
     trk_edep_per_pot: Optional[float] = None
     trk_edep_total_MeV: Optional[float] = None
     trk_edep_events: Optional[int] = None

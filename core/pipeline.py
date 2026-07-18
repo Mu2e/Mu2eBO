@@ -205,21 +205,6 @@ STAGES = {
         # comfortable headroom without burning slot-matchability.
         "memory_mb": 3000,
     },
-    # Muon-stop pileup stage for the IPA BO line (bo-ipa). Resamples the same
-    # concat MuminusStopsCat as mustops_ce (TargetStopResampler), generates
-    # capture products (protons etc.) and emits StrawGasStep (tracker Edep).
-    # njobs 100×2500 = 250k events (half of mustops_ce) — capture-proton steps
-    # are dense so this is ample for the trk_edep objective; tune if noisy.
-    "mustops_pileup": {
-        "desc_fmt": "Run1A_MuStopPileup_{cfg}",
-        "njobs": STAGE_TARGETS["mustops_pileup"],
-        "events_per_job": 2500,
-        "run_number": 1802,
-        "ships_geom": True,
-        "default_loc": "disk",
-        "output_glob": "dts.*.MuStopPileup.*.art",
-        "memory_mb": 3000,
-    },
     # Electron-beam early-flash stage for the foilsflash BO line. Resamples the
     # external EleBeamCat dataset (like mubeam resamples MuBeamCat — static
     # auxinput filelist, NOT concat), DS-on, ships the per-BO foil geom, and
@@ -913,14 +898,12 @@ def cmd_submit(args):
             raise SystemExit("Run 'list-outputs mubeam' first to populate mubeam_outputs.txt")
         sources = [Path(p) for p in mubeam_list.read_text().splitlines() if p.strip()]
         staged_input_dir, inputs_file = stage_hardlink_farm("concat", sources)
-    elif args.stage in ("mustops_ce", "mustops_pileup"):
-        # Both resample concat MuminusStopsCat via TargetStopResampler
-        # (mustops_pileup's capture-product generators inside MuStopPileup.fcl
-        # then turn each stop into protons/etc. through the IPA + detector;
-        # see bo-ipa wiki). auxinput list file requires basenames (same
-        # restriction as --inputs): hard-link concat outputs into a /pnfs
-        # stage dir so xrootd can resolve them when --default-location
-        # dir:STAGED expands the basenames.
+    elif args.stage == "mustops_ce":
+        # Resamples concat MuminusStopsCat via TargetStopResampler.
+        # auxinput list file requires basenames (same restriction as
+        # --inputs): hard-link concat outputs into a /pnfs stage dir so
+        # xrootd can resolve them when --default-location dir:STAGED
+        # expands the basenames.
         # Concat-less chains resample the mu--pure mubeam TargetStops files
         # directly (auxinput=1 -> one file-slice per job, same structure as
         # mubeam<->MuBeamCat).
@@ -979,15 +962,12 @@ SENSITIVITY_MACRO = AUTORESEARCH / "Run1BAna/workflows/scripts/rough_run1a_sensi
 # TargetMuonFinder/stopmat bin labels (mmackenz extract_analysis_results._CALO_STOP_MATERIALS)
 _CALO_STOP_MATERIALS = ("G4_CESIUM_IODIDE", "CarbonFiber", "AluminumHoneycomb")
 
-# bo-ipa: sum tracker StrawGasStep ionizing Edep in the MuStopPileup stream
-# (capture products from muon stops on the Al target — proton-dominated). This
-# is the IPA's second objective: the energy the absorber is meant to keep out of
-# the tracker. Uses gallery (uproot can't read StrawGasStep — see wiki
-# uproot-cannot-read-steppointmc). v1 sums ALL capture-product StrawGasStep
-# Edep (proton-dominated); a proton-only filter (SimParticle Ptr → pdg 2212) is
-# a future refinement. InputTag is auto-discovered from candidate labels since
-# the kept compressed-StrawGasStep label/instance is only confirmable on a real
-# MuStopPileup dts file (validate + pin in the first live smoke).
+# Tracker StrawGasStep ionizing-Edep extractor (bo-foilsflash objective;
+# originally built for the retired bo-ipa line's MuStopPileup stream). Uses
+# gallery (uproot can't read StrawGasStep — see wiki
+# uproot-cannot-read-steppointmc). Sums ALL StrawGasStep ionizingEdep.
+# InputTag is auto-discovered from candidate labels since the kept
+# compressed-StrawGasStep label/instance varies by stream.
 _TRK_EDEP_CANDIDATE_TAGS = ("compressDetStepMCs", "compressDetStepMCs:tracker",
                             "makeSGS")
 _TRK_EDEP_EXTRACT_SCRIPT = r"""
@@ -1035,13 +1015,12 @@ print("TRKEDEP_RESULT " + json.dumps({"total_edep_MeV": total, "n_events": n_eve
 
 
 def _extract_trk_edep_per_pot(pileup_files, env):
-    """Mean tracker StrawGasStep ionizing Edep (MeV) per MuStopPileup event.
+    """Mean tracker StrawGasStep ionizing Edep (MeV) per event.
 
-    Returns (trk_edep_per_event, total_edep_MeV, n_events, tag). This is the
-    bo-ipa second objective (proportional to per-POT since every IPA config
-    resamples the same TargetStops population, so the per-event mean is a
-    consistent objective across the BO). Gallery requires the muse env, so we
-    shell out to a python subprocess that inherits `env` (same pattern as calo).
+    Returns (edep_per_event, total_edep_MeV, n_events, tag). Consumed by the
+    foilsflash elebeam_flash harvest (Step 6); name retains the trk_edep tag
+    from its bo-ipa origin. Gallery requires the muse env, so we shell out to
+    a python subprocess that inherits `env` (same pattern as calo).
     """
     if not pileup_files:
         return None, None, None, None
@@ -1255,11 +1234,12 @@ def cmd_harvest(args):
          ce_abs_eff = ce_seen * ce_scale
       4. Run rough_run1a_sensitivity.C -> parse 'S/sqrt(B) = X'
     """
-    # Check config-sha only for stages this run actually produced. The IPA
-    # chain drops run1b_mubeam (foils-calo-only) and adds mustops_pileup, so
-    # key off the stamped config_sha files rather than a hardcoded tuple.
+    # Check config-sha only for stages this run actually produced — chains
+    # differ per mode (foilsflash adds elebeam_flash; sob-only drops
+    # run1b_mubeam), so key off the stamped config_sha files rather than a
+    # hardcoded per-mode tuple.
     for stage in ("mubeam", "run1b_mubeam", "concat", "mustops_ce",
-                  "mustops_pileup", "elebeam_flash"):
+                  "elebeam_flash"):
         if (STATE / f"{stage}_config_sha.txt").exists():
             _check_stage_config_sha(stage)
     env = sourced_env(with_muse=True)
@@ -1347,32 +1327,9 @@ def cmd_harvest(args):
     else:
         print("    calo_per_pot        = (unavailable)")
 
-    # bo-ipa second objective: tracker StrawGasStep Edep from the muon-stop
-    # pileup (capture protons etc.). Only present when the IPA chain ran the
-    # mustops_pileup stage. Fail-soft like calo.
-    print(">>> Step 6: tracker StrawGasStep Edep from mustops_pileup outputs")
-    trk = hv.extract_secondary_edep(
-        STATE, "mustops_pileup",
-        runner=lambda files: _extract_trk_edep_per_pot(files, env)) \
-        or hv.SecondaryEdep()
-    # ipa objective is the per-EVENT mean (∝ per-POT: every IPA config
-    # resamples the same TargetStops population) — historic key name kept.
-    trk_edep_per_pot = trk.per_event
-    trk_edep_total_MeV = trk.total_MeV
-    trk_edep_events = trk.n_events
-    trk_edep_tag = trk.tag
-    _note_degraded(trk, "mustops_pileup", degraded)
-    if trk_edep_per_pot is not None:
-        print(f"    trk_edep_total_MeV  = {trk_edep_total_MeV}")
-        print(f"    trk_edep_events     = {trk_edep_events}")
-        print(f"    trk_edep_tag        = {trk_edep_tag}")
-        print(f"    trk_edep_per_pot    = {trk_edep_per_pot:.6g}")
-    else:
-        print("    trk_edep_per_pot    = (unavailable)")
-
-    # Step 7: tracker StrawGasStep Edep from the ELECTRON-beam EARLY-FLASH peak
-    # (bo-foilsflash 2nd objective). Same gallery extractor as the IPA trk_edep
-    # (StrawGasStep ionizingEdep, tag compressDetStepMCs, process EleBeamResampler).
+    # Step 6: tracker StrawGasStep Edep from the ELECTRON-beam EARLY-FLASH peak
+    # (bo-foilsflash 2nd objective). Gallery extractor sums StrawGasStep
+    # ionizingEdep (tag compressDetStepMCs, process EleBeamResampler).
     # Only present when the foilsflash chain ran the elebeam_flash stage.
     # The template overrides EarlyPrescaleFilter.nPrescale=1 (NO prescale — prod
     # default drops 999/1000; see pipeline_templates/elebeam_flash/template.fcl:19),
@@ -1381,7 +1338,7 @@ def cmd_harvest(args):
     # geometry-sensitive lever. flash_edep_per_event (mean over the flash-event
     # count) is BLIND to the lever and is kept only for back-compat/diagnostics.
     # Fail-soft like calo/trk_edep.
-    print(">>> Step 7: tracker StrawGasStep Edep from elebeam_flash (early) outputs")
+    print(">>> Step 6: tracker StrawGasStep Edep from elebeam_flash (early) outputs")
     flash = hv.extract_secondary_edep(
         STATE, "elebeam_flash",
         runner=lambda files: _extract_trk_edep_per_pot(files, env)) \
@@ -1426,10 +1383,6 @@ def cmd_harvest(args):
         calo_per_pot=calo_per_pot,
         calo_total=calo_total,
         calo_files_seen=calo_files_seen,
-        trk_edep_per_pot=trk_edep_per_pot,
-        trk_edep_total_MeV=trk_edep_total_MeV,
-        trk_edep_events=trk_edep_events,
-        trk_edep_tag=trk_edep_tag,
         flash_edep_per_event=flash_edep_per_event,
         flash_edep_per_pot=flash_edep_per_pot,
         flash_edep_per_pot_winsor=flash_edep_per_pot_winsor,

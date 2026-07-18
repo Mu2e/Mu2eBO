@@ -1,15 +1,21 @@
 ---
 type: project
 title: bo-ipa — inner proton absorber 5D BO
-description: 5D BO over the Run1A inner proton absorber (thickness/halfLength/OutRadius0/1/distFromTargetEnd);
+description: (**code retired 2026-07-18**) 5D BO over the Run1A inner proton absorber;
   objective S/√B vs tracker StrawGasStep eDep from target-stop protons (via `MuStopPileup.fcl`);
-  SATURATING at sob=3.31 (n=70, ipa04–11; deployed 0.511mm near-optimal) — recommend
-  wind-down 2026-06-27
-status: dormant
-status_note: 'WOUND DOWN 2026-06-27 at 70 evals (ipa04–11): high-S/√B corner locked
-  at sob=3.31 since ipa06 (~40 flat evals). Headline physics solid (deployed thickness
-  near-optimal). α vestigial.'
-timestamp: '2026-07-17'
+  saturated at sob=3.31 (n=70, ipa04–11; deployed 0.511mm near-optimal); `IPAMode`
+  + `mustops_pileup` stage deleted, leaderboard frozen
+status: superseded
+status_note: '`IPAMode` class + the ipa-only `mustops_pileup` stage DELETED from
+  code 2026-07-18 (wound down 2026-06-27 at 70 evals: sob locked at 3.31 since
+  ipa06, deployed thickness near-optimal). Leaderboard/pending TSVs remain frozen;
+  `--mode ipa` is rejected; `_extract_trk_edep_per_pot` survives (foilsflash flash
+  harvest reuses it); harvest trk_edep_* summary fields kept for archived
+  summary.json back-compat. gp_loo_benchmark can no longer score the ipa archive
+  (needs the deleted MODES entry) — its A/B numbers are recorded in
+  ml-stack-review.'
+timestamp: '2026-07-18'
+updated_note: code retired
 ---
 
 # bo-ipa — inner proton absorber 5D BO

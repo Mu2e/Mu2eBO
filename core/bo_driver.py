@@ -7,7 +7,6 @@ Modes (select with --mode; bounds live in modes.SPECS, the registry of record):
   foilsf        v3 foils: hole radius as FRACTION of rOut (rIn = f*rOut)
   foilsflash    foilsf geometry vs elebeam-flash tracker edep objective
   foilsg        12D grouped 49-foil stack (4 z-groups x (rOut, hT, f))
-  ipa           5D Run1A inner proton absorber vs trk_edep objective
   prodtarget    ~11D Stickman production-target profile search (mu_per_POT)
   prodtarget6d  6D simplification of prodtarget (no lug knobs, N pinned)
 
@@ -162,7 +161,7 @@ class BOMode(ABC):
     # Leaderboard row shape shared by every sob/calo-schema mode: knob columns
     # = KNOB_NAMES, per-position precision = KNOB_FMTS, second-objective column
     # = CALO_COL. Subclasses that change the knob names (FoilsFracMode: rIn->f)
-    # or the objective column (FoilsFlashMode: flash_edep; IPAMode: trk_edep)
+    # or the objective column (FoilsFlashMode: flash_edep)
     # only reset those class attrs — the format/parse code is identical. The
     # ProdTarget family overrides both methods (different metric columns).
     KNOB_FMTS: tuple  # no default: a mode without it must fail loudly
@@ -667,7 +666,7 @@ class FoilsFlashMode(FoilsFracMode):
     _geom_text, parse_geom, is_buildable, load_priors) inherited unchanged; only
     the leaderboard + the 2nd-objective plumbing differ. See
     wiki/projects/bo-foilsflash.md. The flash edep is carried in the generic
-    Point.calo slot (reused, like ipa reuses it for trk_edep)."""
+    Point.calo slot (reused)."""
     name = "foilsflash"
     leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foilsflash.tsv"
     proposal_dir = ROOT / "bo_work" / "proposals" / "foilsflash"
@@ -861,105 +860,6 @@ class FoilsGroupMode(BOMode):
             f = hole[off] / rOut if rOut > 0 else 0.0
             x.extend([rOut, hT, f])
         return x
-
-
-
-class IPAMode(BOMode):
-    """5D BO over the Run1A inner proton absorber (IPA) geometry.
-
-    Objective: maximize S/√B while MINIMIZING tracker energy deposition from
-    muon-stop products (the occupancy/background the IPA exists to suppress).
-    The deployed 37-foil stopping target is left UNTOUCHED; only the IPA
-    cylinder/cone (protonAbsorber_cylindrical_v04.txt) varies. Same Run1Bak
-    Musing + 4-stage chain as FoilsMode.
-
-    x = [thickness, halfLength, OutRadius0, OutRadius1, distFromTargetEnd] (mm),
-    overriding protonabsorber.* (defaults: 0.511 / 500 / 300.5 / 300.5 / 625).
-
-    The second objective rides the generic Point.calo slot (= trk_edep_per_pot),
-    so obj = sob - α·trk_edep and qNEHVI(sob, -trk_edep) need no plumbing change.
-    See wiki/projects/bo-ipa.md.
-    """
-    name = "ipa"
-    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_ipa.tsv"
-    proposal_dir = ROOT / "bo_work" / "proposals" / "ipa"
-    preflight_dir = ROOT / "bo_work" / "preflight" / "ipa"
-
-    # Fresh line, no priors -> Sobol-seed the first skopt-fallback round (mirrors
-    # ProdTargetMode; see wiki/incidents/prodtarget-propose-skopt-empty-init.md).
-    N_INITIAL_POINTS = 10
-
-    def load_priors(self):
-        return []
-
-    KNOB_NAMES = ("thickness", "halfLength", "OutRadius0", "OutRadius1",
-                  "distFromTargetEnd")
-    KNOB_FMTS = ("{:.4f}",) * 5
-    CALO_COL = "trk_edep"
-
-    def is_buildable(self, x) -> bool:
-        thickness, halfLength, rOut0, rOut1, _dist = x
-        if thickness <= 0 or halfLength <= 0:
-            return False
-        # wall must fit inside the cone radius
-        if rOut0 <= thickness or rOut1 <= thickness:
-            return False
-        return True
-
-    # Second objective is tracker Edep; the real harvest writes trk_edep_per_pot.
-    # The mock/dry-run path only writes calo_per_pot, so fall back to it so
-    # --dry-run works before the tracker-Edep harvest lands.
-    def extract_metrics(self, summary: dict) -> tuple[float, float]:
-        sob = summary["s_over_sqrt_b"]
-        edep = summary.get("trk_edep_per_pot", summary.get("calo_per_pot"))
-        return sob, edep
-
-    def _geom_text(self, x) -> str:
-        thickness, halfLength, rOut0, rOut1, dist = x
-        return (
-            '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            '\n// === bo_driver (ipa mode, 5D) proposal ===\n'
-            f'// IPA: thickness={thickness:.4f}, halfLength={halfLength:.2f},\n'
-            f'//      OutRadius0={rOut0:.2f}, OutRadius1={rOut1:.2f}, '
-            f'distFromTargetEnd={dist:.2f}\n'
-            '// Deployed 37-foil stopping target untouched.\n'
-            f'double protonabsorber.thickness         = {thickness:.4f};\n'
-            f'double protonabsorber.halfLength        = {halfLength:.4f};\n'
-            f'double protonabsorber.OutRadius0        = {rOut0:.4f};\n'
-            f'double protonabsorber.OutRadius1        = {rOut1:.4f};\n'
-            f'double protonabsorber.distFromTargetEnd = {dist:.4f};\n'
-            '\n// No TSdA / helical plug (match foils baseline).\n'
-            'bool hasTSdA = false;\n'
-            'bool tsda.helical.build = false;\n'
-            '\n// Degrader parked at 120° (mmackenz hardware detent)\n'
-            'bool degrader.build = false;\n'
-            'double degrader.rotation = 120.0;\n'
-            'string ts.coll5.material1Name = "COL5Poly";\n'
-            '\n// TT_MidInner→DS2Vacuum fix (manually patched, mirrors v111)\n'
-            'bool tracker.inDS2Vacuum = true;\n'
-            'double ds2.halfLength = 3825;\n'
-            'bool ds.hasServicePipes = false;\n'
-        )
-
-    _IPA_RX = {
-        "thickness":         re.compile(r"protonabsorber\.thickness\s*=\s*([\d.eE+-]+)"),
-        "halfLength":        re.compile(r"protonabsorber\.halfLength\s*=\s*([\d.eE+-]+)"),
-        "OutRadius0":        re.compile(r"protonabsorber\.OutRadius0\s*=\s*([\d.eE+-]+)"),
-        "OutRadius1":        re.compile(r"protonabsorber\.OutRadius1\s*=\s*([\d.eE+-]+)"),
-        "distFromTargetEnd": re.compile(r"protonabsorber\.distFromTargetEnd\s*=\s*([\d.eE+-]+)"),
-    }
-    _IPA_KEYS = ("thickness", "halfLength", "OutRadius0", "OutRadius1",
-                 "distFromTargetEnd")
-
-    def parse_geom(self, text: str):
-        out = []
-        for key in self._IPA_KEYS:
-            m = self._IPA_RX[key].search(text)
-            if not m:
-                return None
-            out.append(float(m.group(1)))
-        return out
-
 
 
 
@@ -1338,7 +1238,6 @@ MODES: dict[str, BOMode] = {
     "foilsf":       FoilsFracMode(),
     "foilsflash":   FoilsFlashMode(),
     "foilsg":       FoilsGroupMode(),
-    "ipa":          IPAMode(),
     "prodtarget":   ProdTargetMode(),
     "prodtarget6d": ProdTarget6DMode(),
 }

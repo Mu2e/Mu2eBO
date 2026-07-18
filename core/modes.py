@@ -34,7 +34,6 @@ _HELICAL_LOCAL = "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh"
 # rename + NIEL SD + spacer-shrink). See wiki prodtarget-env-divergence.
 _PRODTARGET_LOCAL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse_prodtarget/setup_local.sh"
 
-_BASE_TARBALL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_base.tar.bz2"
 # Patched libmu2e_GeometryService.so (holeRadii vector). michael/helical stay
 # on Code_helical_base (Offline_helical's Mu2eG4 lib predates the twistedbox
 # facet fix); foils family requires this one.
@@ -138,23 +137,6 @@ SPECS: Dict[str, ModeSpec] = {
         preflight_fcl="surfacecheck",
         dumps_gdml=True, verifies_foil_gdml=True, preserves_gdml=False,
         checks_managed_overlap=True,
-    ),
-    "ipa": ModeSpec(
-        name="ipa",
-        musing=_RUN1BAK,   # overrides only protonabsorber.* — stock Musing suffices
-        # Was the silent .get(..., michael) fallback; Code_helical_base is
-        # CORRECT for ipa (needs patched Mu2eG4 only, no holeRadii) — now explicit.
-        grid_tarball=_BASE_TARBALL,
-        grid_stages=("mubeam", "concat", "mustops_ce", "mustops_pileup"),
-        harvest_verb="harvest",
-        stage_target_overrides={},
-        presubmit_after={},
-        bounds_lo=(0.1, 200.0, 250.0, 250.0, 400.0),
-        bounds_hi=(3.0, 700.0, 400.0, 400.0, 800.0),
-        int_dims=(),
-        preflight_fcl="surfacecheck",
-        dumps_gdml=False, verifies_foil_gdml=False, preserves_gdml=False,
-        checks_managed_overlap=False,
     ),
     "prodtarget": ModeSpec(
         name="prodtarget",

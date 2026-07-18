@@ -141,7 +141,7 @@ def mock_metrics(x_point: list[float], mode: str = DEFAULT_MODE) -> dict:
 
     Dimension-generic: normalizes each knob against the mode's registry
     bounds (modes.SPECS[mode].bounds_lo/hi), so every numeric mode works
-    (5D ipa … 12D foilsg). sob peaks at mid-range of each knob; calo grows
+    (6D foilsf … 12D foilsg). sob peaks at mid-range of each knob; calo grows
     with the last two normalized knobs ("more material").
     """
     import math
