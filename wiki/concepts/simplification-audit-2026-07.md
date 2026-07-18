@@ -165,6 +165,38 @@ Remaining mechanical batch executed after the reorg week. **Done today:**
   push required); `.claude/commands/closed-loop-status.md` (looked generic
   on inspection, not obviously stale — reaudit before deleting).
 
+## Key facts — Tier 2 execution (2026-07-18): ipa + skopt retirements
+
+- **ipa mode RETIRED** (michael/helical playbook): `IPAMode` + SPECS entry +
+  state Literal + closed_loop knob map deleted, plus — sole user — the whole
+  `mustops_pileup` stage (STAGES block, STAGE_TARGETS, StageName Literal,
+  template dir, harvest Step 6) and `_BASE_TARBALL`. KEPT:
+  `_extract_trk_edep_per_pot` (foilsflash flash harvest reuses it) and
+  harvest `trk_edep_*` Optional fields (archived summary.json back-compat).
+  Known cost: `gp_loo_benchmark --mode ipa` no longer runs (A/B numbers
+  recorded in ml-stack-review). The 2026-07-17 OVERTURN of
+  "prodtarget/foilsg/ipa blocks" is now PARTIALLY superseded: ipa was the
+  saturated wind-down case; foilsg/prodtarget remain protected (0.18
+  high-d venue).
+- **skopt propose kernel RETIRED** (resolves ml-stack-review ranked gap #3):
+  `build_optimizer`/`seed_optimizer`/`ask_buildable`/`N_INITIAL_POINTS`/
+  `PROPOSE_MAX_RETRY` deleted; scikit-optimize+scipy dropped from
+  requirements-graph.txt. Every BO ask (CLI propose, propose_one,
+  preflight-retry) routes through the new **`bo_driver.botorch_ask()`**
+  subprocess seam (closed_loop's `_botorch_picks_subprocess` is now a thin
+  delegate). Constant-liar suppression → X_pending fantasies; propose-retry
+  diversity → seed_idx (= --round-idx) bumped by node_propose's attempt
+  counter. `build_space()` went skopt-free (plain `SpaceDim` rows) while
+  keeping the KNOB_NAMES↔bounds loud-error + lockstep test — the
+  2026-07-17 OVERTURN ("build_space is the lockstep truth source") was
+  already obsolete: build_space has been registry-derived since the
+  2026-07-12 refactor, so retiring skopt never threatened the invariant.
+- **Verification note:** the 156-green suite did NOT catch a live-path
+  break (`cur_box` NameError at botorch_predict.py:110, a leftover
+  consumer of the Tier-1-deleted env seam) — the real `botorch_ask` smoke
+  did. botorch_predict.py still has zero unit tests
+  ([architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) gap, still open).
+
 ## Key facts — root .py / .tsv reorganization (2026-07-17)
 
 **RECOMMENDED keep-flat, then EXECUTED anyway on user override.** The

@@ -7,6 +7,7 @@ superseded, linted.
 
 ## 2026-07-18
 
+- updated SKOPT KERNEL RETIRED (ml-stack gap #3 resolved): build_optimizer/seed_optimizer/ask_buildable/N_INITIAL_POINTS deleted, scikit-optimize+scipy unpinned; ALL BO asks now via new bo_driver.botorch_ask() subprocess seam (CL suppression → X_pending; retry diversity → seed_idx); build_space → skopt-free SpaceDim rows, lockstep test kept; live smoke caught a cur_box leftover the suite missed (botorch_predict has no tests); 156 green + qNEHVI smoke on n=304 — [bo-driver](/drivers/bo-driver.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md), [batch-bo](/concepts/batch-bo.md) superseded
 - updated bo-ipa CODE RETIRED (michael/helical playbook): IPAMode + SPECS entry + state Literal + closed_loop knob map + mustops_pileup stage (STAGES/STAGE_TARGETS/StageName/template dir/harvest Step 6) deleted; _extract_trk_edep_per_pot KEPT (foilsflash reuses); harvest trk_edep_* fields KEPT (archived summary back-compat); leaderboard frozen; 157 tests green, 6 modes graph-build, --mode ipa rejected — [bo-ipa](/projects/bo-ipa.md)
 - updated Tier 1 cleanup EXECUTED: CURRENT_BOX_ONLY seam deleted, mock_metrics 0.5-fallback → ValueError, 3 stale comments fixed; audit claims found stale on re-verify (format_row dedup already done + ProdTarget divergence deliberate; helical regexes already pruned; 5-PNG claim refuted — all referenced; wal test already tracked) — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 

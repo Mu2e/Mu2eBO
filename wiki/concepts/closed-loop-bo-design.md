@@ -5,7 +5,8 @@ description: load-bearing constraints for `graph/closed_loop.py` (SqliteSaver WA
   leaderboard/pending locking, barrier source-of-truth, config-SHA stamping, scan_logs
   gating)
 status: active
-timestamp: '2026-06-28'
+timestamp: '2026-07-18'
+updated_note: skopt CL bullets superseded/resolved by the botorch_ask consolidation
 ---
 
 # Closed-loop BO design constraints
@@ -92,15 +93,15 @@ already paid to learn.
   if WAL/locking issues force per-thread DBs, the outer graph loses its
   reason to exist and should collapse to a script.
 
-- **q-parallel BO acquisition function quality.** With q=5 children all
-  proposed from the same GP fit, the first-round picks share the same
-  acquisition surface — they cluster unless the picker uses CL-mean / CL-min
-  fantasy points (see [batch-bo](/concepts/batch-bo.md)). The current
-  `gp_predict_helical.compute_explore_picks` uses Pareto-evenly-spaced
-  picks across sob-rank, which is a workable proxy but NOT a calibrated
-  acquisition. Round 1 may produce 5 nearly-degenerate picks if the
-  Pareto frontier is short. Mitigation: enforce a minimum L2 distance
-  between picks in normalized space, OR migrate to skopt-native CL-min.
+- **q-parallel BO acquisition function quality.** (SUPERSEDED in
+  implementation 2026-07-18: all asks now go through the botorch pickers,
+  whose qNEHVI/qNParEGO batched acquisitions handle q>1 natively and
+  fantasize over in-flight points via X_pending; the skopt CL-mean/CL-min
+  machinery this bullet discusses was retired with the skopt kernel.
+  Historical context:) With q=5 children all proposed from the same GP
+  fit, the first-round picks share the same acquisition surface — they
+  cluster unless the picker uses CL-mean / CL-min fantasy points (see
+  [batch-bo](/concepts/batch-bo.md)).
 
 - **N_crit margin at HELICAL_NSTEPS=5000 was empirically too loose.**
   SR00_00 (`dx=0.011, dy=125, halflen=251, angle=167`, N_crit≈4144)
@@ -141,14 +142,11 @@ already paid to learn.
   pending — that would re-introduce flock contention proportional to q
   per round for no benefit (closed-loop's barrier already gates re-runs
   via leaderboard presence, not pending).
-- **CLI and `propose_one` ask the optimizer DIFFERENTLY for the same
-  leaderboard.** CLI's `_cmd_propose_locked` uses
-  `opt.ask(n_points=q, strategy=args.strategy)` (skopt's native Constant-
-  Liar batched ask, strategy ∈ cl_mean/cl_min/cl_max). `propose_one`
-  uses `opt.ask()` once (q=1; the graph node is per-config). Same
-  leaderboard → different candidate sets across the two paths. Neither
-  is wrong; the divergence is structural. A future shared "BOProposer"
-  cannot collapse these without losing one feature.
+- ~~CLI and `propose_one` ask the optimizer DIFFERENTLY~~ **RESOLVED
+  2026-07-18 by the skopt retirement:** both paths now call the same
+  `bo_driver.botorch_ask()` (CLI with q=len(names), propose_one with
+  q=1 + seed_idx retry diversity) — the structural divergence this
+  bullet described no longer exists.
 
 ## Child terminal-state signatures — preflight-fail vs harvest zero-row (2026-06-28)
 A child that ends `[run] done` with **`objective: null` is NOT necessarily a bug** —

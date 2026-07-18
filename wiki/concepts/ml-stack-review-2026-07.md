@@ -2,11 +2,11 @@
 type: concept
 title: ML/statistics stack review (2026-07)
 description: 'ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measured
-  σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, skopt EI on
-  the preflight-retry path, high-sob-corner misfit → Warp; Ax/Optuna/neural surrogates
-  explicitly rejected'
+  σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, ~~skopt EI~~
+  (RESOLVED 2026-07-18: kernel retired, all asks via botorch_ask), high-sob-corner
+  misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected'
 status: active
-timestamp: '2026-07-17'
+timestamp: '2026-07-18'
 updated_note: 'adoption rule: 6D null does not transfer; new high-D lines default
   to 0.18'
 ---
@@ -34,7 +34,11 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
      measurably better at 6–12D (foilsg 12D, prodtarget ~11D); also merges
      train_Yvar into SingleTaskGP and unlocks SAASBO. Upgrade between campaigns
      only (reproducibility churn).
-  3. **skopt (EI, constant-liar) is the weakest optimizer left in production**:
+  3. ~~skopt~~ **RESOLVED 2026-07-18 — skopt kernel RETIRED**: every BO ask
+     (CLI propose, propose_one, preflight-retry) now routes through
+     `bo_driver.botorch_ask()` into the botorch picker; retries bump the
+     seed, pending rides as X_pending. Original finding (for the record):
+     **skopt (EI, constant-liar) is the weakest optimizer left in production**:
      `build_optimizer` (bo_driver.py:245), `seed_optimizer`
      fake-y suppression (:264), and — load-bearing — the closed-loop
      **preflight-fail retry path re-draws from skopt**, not from the botorch

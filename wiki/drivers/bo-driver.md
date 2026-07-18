@@ -25,21 +25,25 @@ after the michael mode was retired (2026-07-12).
   code callers (both subprocess calls from `graph/pipeline_io.py`). `propose`
   has zero code callers but is the documented operator-recovery verb
   (pipeline.py prints it as the recovery hint); `show-priors` and
-  `list-pending` have zero callers anywhere. The skopt kernel
-  (`build_optimizer`/`seed_optimizer`/`ask_buildable`) is live ONLY via
-  `graph/pipeline_io.propose_one` (standalone `graph.run` without
-  `--x-point`); closed-loop rounds never touch it — all pickers go through
-  `botorch_predict.py`, which has its own Sobol cold-start. There are now
-  9 BOMode subclasses (one per [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md) mode),
-  not the original two.
+  `list-pending` have zero callers anywhere. **The skopt kernel was RETIRED
+  2026-07-18** (`build_optimizer`/`seed_optimizer`/`ask_buildable`/
+  `N_INITIAL_POINTS` deleted; scikit-optimize+scipy dropped from
+  requirements-graph): every BO ask — CLI `propose`, `graph/pipeline_io.
+  propose_one` (standalone `graph.run` without `--x-point`), and the
+  closed-loop picker — now goes through **`bo_driver.botorch_ask()`**, a
+  subprocess seam into the botorch venv running `botorch_predict.py`
+  (venv resolved from `$AUTORESEARCH_BOTORCH_VENV`, default
+  `.venv-botorch`). Pending points ride as X_pending fantasies (replacing
+  skopt constant-liar); propose retries bump `seed_idx` (= picker
+  `--round-idx`, seed 42^idx) so preflight-driven re-proposes draw fresh
+  points.
 - **Subcommands:**
   - `show-priors --top K` — print top-K mmackenz priors by current α (no GP fit)
-  - `propose <config_name>` — seed GP from priors+history, ask one candidate,
-    render `bo_work/proposals/<mode>/<config_name>_geom.txt`
+  - `propose <config_name>` — botorch ask (qNEHVI default) via
+    `botorch_ask()`, render `bo_work/proposals/<mode>/<config_name>_geom.txt`
   - `evaluate <config_name> <summary.json>` — record completed run in
     `leaderboards/leaderboard_bo_<mode>.tsv` (see [leaderboards](/datasets/leaderboards.md))
   - `preflight <config_name>` — see [preflight](/drivers/preflight.md)
-- **GP config:** `Optimizer(GP, EI, n_initial_points=0, random_state=42)`
 - **α flag:** `--alpha 1e5` default ([scalarized-objective](/concepts/scalarized-objective.md))
 - **Search space:** see [bo-michael](/projects/bo-michael.md) / [bo-helical](/projects/bo-helical.md) (per mode)
 - **Architecture:** `BOMode(ABC)` with 7 adapters (michael + helical retired
@@ -47,13 +51,14 @@ after the michael mode was retired (2026-07-12).
   pinned constants + 4 abstract methods (`load_priors`, `_geom_text`,
   `parse_geom`, `format_row`/`load_history_row` — the last two are also
   concrete-shared for the Foils family, see below). Shared concerns (history
-  I/O, optimizer build, proposal write) are concrete on the base. `MODES` is
+  I/O, pending TSV, proposal write) are concrete on the base. `MODES` is
   the registry argparse selects from.
-- **`build_space` is now data-driven (2026-07-12):** one concrete base method
-  reads `modes.SPECS[name].bounds_lo/hi/int_dims` + a per-mode `KNOB_NAMES`
-  tuple → skopt `Real`/`Integer` dims. A `KNOB_NAMES`/bounds length mismatch
-  is a loud `ValueError`. Only `MichaelMode` (Categorical COL5 space) overrides
-  it. The Foils family (`foils`/`foilsf`/`foilsflash`) also shares one concrete
+- **`build_space` is data-driven (2026-07-12; skopt-free since 2026-07-18):**
+  one concrete base method reads `modes.SPECS[name].bounds_lo/hi/int_dims`
+  + a per-mode `KNOB_NAMES` tuple → plain `SpaceDim(name, low, high, is_int)`
+  rows. A `KNOB_NAMES`/bounds length mismatch is a loud `ValueError`; the
+  lockstep is pinned by `test_modes.TestBoundsLockstep`.
+  The Foils family (`foils`/`foilsf`/`foilsflash`) also shares one concrete
   `format_row`/`load_history_row` on `FoilsMode`, parameterized by `KNOB_NAMES`
   + `KNOB_FMTS` (per-position precision) + `CALO_COL` (`calo` vs `flash_edep`).
 - **Deleted 2026-07-12:** `show-priors` verb + all `print_top` display methods

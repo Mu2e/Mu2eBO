@@ -2,8 +2,9 @@
 type: concept
 title: Batch / Asynchronous Bayesian Optimization
 description: q>1 parallel BO; CL-mean q=3 (michael) / CL-min q=2 (helical); skopt-native
-status: active
-timestamp: '2026-06-04'
+status: superseded
+status_note: skopt CL-mean/CL-min batching retired 2026-07-18 with the skopt kernel — q>1 batching is native in the botorch pickers (qNEHVI/qNParEGO + X_pending); page kept as the historical record of the CL era
+timestamp: '2026-07-18'
 updated_note: 'n=251 overlay post-foilsX08: CL-min L2=0.075 + 10/10 dominance —
   collapse onto `(n_up=6, n_down∈{0,1}, rOut≈128, hT≈0.23, rIn=0)`; sequence n=128→0.139,
   n=164→0.095, n=178→0.821, n=186→0.079, n=193→0.590, n=204→0.122, n=251→0.075'
