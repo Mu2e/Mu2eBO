@@ -206,8 +206,14 @@ is GONE (not symlinked — unlike the venvs, it relocates cleanly via one seam).
 - **CephFS note**: graph_data holds append-only *logs*, not an active
   sqlite-WAL, so /data (CephFS) is fine — the WAL-incoherence reason
   checkpoints went to /tmp does NOT apply here.
-- Historical incident recovery recipes still say bare `graph_data/`; left as
-  dated context (the driver page + this page are the authoritative location).
+- Historical incident/project pages were SWEPT (2026-07-17): the moved-log
+  paths (`closed_loop_logs/`, `*_parent.log`, `STOP_CLOSED_LOOP`, `forensics/`)
+  across 10 pages now point at /data. Deliberately LEFT: the `.sqlite`
+  checkpoint refs (the checkpoint DB is `/tmp/<user>/checkpoints.sqlite`, moved
+  2026-06-09 — never was in the relocated graph_data) and the explicit
+  `/exp/mu2e/app` CephFS-corruption-repro refs (load-bearing to those
+  incidents). Caught in passing: closed-loop-runner.md had CHECKPOINT_DB
+  mispointed at graph_data — it's /tmp; corrected.
 
 ### Directory consolidation (2026-07-17, round 2 of the reorg)
 
