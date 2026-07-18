@@ -1,6 +1,6 @@
 ---
 type: incident
-title: autoresearch_bo_michael.py propose dies on prodtarget mode (no priors)
+title: bo_driver.py propose dies on prodtarget mode (no priors)
 description: ProdTargetMode propose dies in skopt with "Random evaluations exhausted
   and no model has been fit" because n_initial_points=0 + zero priors leaves Optimizer
   with nothing to do
@@ -10,7 +10,7 @@ timestamp: '2026-06-07'
 updated_note: fix landed — N_INITIAL_POINTS class-attr seam
 ---
 
-# autoresearch_bo_michael.py propose dies on prodtarget mode (no priors)
+# bo_driver.py propose dies on prodtarget mode (no priors)
 
 ## Summary
 First-time `--mode prodtarget propose pt001` raises
@@ -26,7 +26,7 @@ nothing random to draw, hence the error.
 ## Key facts
 - Error trace:
   ```
-  File ".../autoresearch_bo_michael.py:269 ask_buildable"
+  File ".../bo_driver.py:269 ask_buildable"
     xs = [opt.ask()] if q == 1 else opt.ask(n_points=q, strategy=strategy)
   File ".venv-graph/.../skopt/optimizer/optimizer.py:490 _ask"
     raise RuntimeError("Random evaluations exhausted and no model has been fit.")
@@ -44,7 +44,7 @@ nothing random to draw, hence the error.
 ## Workaround (used to unblock issue #12 dry-run, 2026-06-07)
 Hand-render the geom file via the forker, bypassing `propose`:
 ```python
-from autoresearch_bo_michael import MODES
+from bo_driver import MODES
 mode = MODES["prodtarget"]
 x = (3.15, 3.15, 3.15, 5.0, 5.0, 5.0, 6.0, 6.0, 6.0, 35)  # defaults
 geom_text = mode._geom_text(x)
@@ -57,7 +57,7 @@ propose.
 **Non-obvious gotcha** uncovered during fix-option evaluation: when
 `Optimizer(n_initial_points=K)` is configured, *every* `opt.tell(x, y)`
 decrements the K budget — including the *penalty tells* that
-`ask_buildable` (`autoresearch_bo_michael.py:268-279`) makes when a
+`ask_buildable` (`bo_driver.py:268-279`) makes when a
 proposed config fails engineering constraints (e.g. `min(rOut)<3`).
 
 Implication: setting K=q for the cold-start fix is **fragile**. With
@@ -88,7 +88,7 @@ rendered + staged, pending file written.
 
 **Secondary bug uncovered + fixed in same commit**: skopt's
 `Integer` dimension returns `np.int64`, which broke
-`json.dumps(list(x))` at `append_pending` (autoresearch_bo_michael.py:312)
+`json.dumps(list(x))` at `append_pending` (bo_driver.py:312)
 with `TypeError: Object of type int64 is not JSON serializable`.
 Existing modes never hit this because their priors come from
 TSV-parsed Python floats. Fixed via `v.item() if hasattr(v, "item")`
@@ -137,13 +137,13 @@ Captured the non-obvious rejection reasons for future reference:
      ≈ 15%. Non-trivial but bounded; if it bites, draw `q*8` candidates
      per retry and filter (deferred — round 0 only).
 
-Implementation site: `autoresearch_bo_michael.py:268-279`
+Implementation site: `bo_driver.py:268-279`
 (`BOMode.ask_buildable`). Mode-agnostic — lives in the base class, not
 in `ProdTargetMode`, so any future zero-prior mode benefits.
 
 ## Cross-links
 - Related: [bo-prodtarget](/projects/bo-prodtarget.md) (cold-start decision section), [batch-bo](/concepts/batch-bo.md), [langgraph-checkpoint-numpy-int64](/incidents/langgraph-checkpoint-numpy-int64.md)
-- Source: `autoresearch_bo_michael.py:269` (ask_buildable),
+- Source: `bo_driver.py:269` (ask_buildable),
   `.venv-graph/.../skopt/optimizer/optimizer.py:490`
 
 ## Open questions / TODO

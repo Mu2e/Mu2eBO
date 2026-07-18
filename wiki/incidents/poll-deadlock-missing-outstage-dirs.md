@@ -75,7 +75,7 @@ benign-looking line for hours.
   .venv-graph/bin/python pipeline.py --config pt001 harvest-pot-only
   # 2. evaluate (lands leaderboard row). Mode goes BEFORE subcommand;
   #    args are POSITIONAL config_name + summary_path:
-  .venv-graph/bin/python autoresearch_bo_michael.py --mode prodtarget \
+  .venv-graph/bin/python bo_driver.py --mode prodtarget \
       evaluate pt001 \
       /exp/mu2e/data/users/oksuzian/autoresearch_grid/pt001/harvest/summary.json
   ```

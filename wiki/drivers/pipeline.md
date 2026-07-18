@@ -85,7 +85,7 @@ for the failure that motivated this).
 - **Geom overlay:** ships via `Code.tar`; geom-bearing stages
   (mubeam, run1b_mubeam, mustops_ce) reference the same
   `autoresearch_<cfg>_geom.txt` basename via the `__GEOM_FILE__` substitution.
-- **Geom auto-staging:** `autoresearch_bo_michael.py propose <cfg>` copies the
+- **Geom auto-staging:** `bo_driver.py propose <cfg>` copies the
   rendered proposal into `<work_root>/<cfg>/geom/` so `pipeline.py --config
   <cfg>` runs without manual prep.
 - **Harvest output:** `summary.json` with `s_over_sqrt_b`, `calo_per_pot`,
@@ -134,8 +134,8 @@ for the failure that motivated this).
   staging, so worker mounts don't matter.
 
 ## Cross-links
-- Consumed by: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md) `evaluate`, [graph-runner](/drivers/graph-runner.md) (per-stage nodes)
-- Geom rendered by: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md) `propose` (auto-stages into work tree)
+- Consumed by: [bo-driver](/drivers/bo-driver.md) `evaluate`, [graph-runner](/drivers/graph-runner.md) (per-stage nodes)
+- Geom rendered by: [bo-driver](/drivers/bo-driver.md) `propose` (auto-stages into work tree)
 - Regression tests: [tests](/drivers/tests.md) (pins the `_check_stage_config_sha` contract)
 - See: [grid-job-completion-check](/incidents/grid-job-completion-check.md) for monitoring conventions
 - History: [template-fcl-staleness](/incidents/template-fcl-staleness.md) (the bug this refactor closes)

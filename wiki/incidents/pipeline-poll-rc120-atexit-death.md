@@ -100,8 +100,8 @@ failure mode.
    # 1+2: pipeline.py owns list-outputs + harvest-pot-only
    .venv-graph/bin/python pipeline.py --config <name> list-outputs pot_only
    .venv-graph/bin/python pipeline.py --config <name> harvest-pot-only
-   # 3: autoresearch_bo_michael.py owns evaluate (with --mode)
-   .venv-botorch/bin/python autoresearch_bo_michael.py --mode <mode> \
+   # 3: bo_driver.py owns evaluate (with --mode)
+   .venv-botorch/bin/python bo_driver.py --mode <mode> \
        evaluate <name> /exp/mu2e/data/users/oksuzian/autoresearch_grid/<name>/harvest/summary.json
    ```
    `evaluate` takes TWO positional args: `<config_name> <summary_json_path>`.

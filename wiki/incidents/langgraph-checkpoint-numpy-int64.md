@@ -38,7 +38,7 @@ SqliteSaver tries to msgpack-encode the state and dies.
 - **Where to coerce**: candidates are (a) `graph/nodes.py` `propose` node
   output (cast x-point ints to native `int`), or (b) `graph/state.py`
   State reducer, or (c) at `ProdTargetMode.x` construction in
-  `autoresearch_bo_michael.py`. Option (a) is the smallest change and
+  `bo_driver.py`. Option (a) is the smallest change and
   matches the propose-JSON fix pattern.
 - **Symptom path is reachable even when harvest fails** — the zero-row
   evaluate still writes state that contains the x-point.
@@ -50,7 +50,7 @@ SqliteSaver tries to msgpack-encode the state and dies.
 - Source files:
   - `graph/nodes.py` (propose / evaluate nodes that write to state)
   - `graph/state.py` (state dataclass)
-  - `autoresearch_bo_michael.py` ProdTargetMode (line ~1078 build_space
+  - `bo_driver.py` ProdTargetMode (line ~1078 build_space
     with Integer dim)
 - Reproducer: `python -m graph.run --mode prodtarget --config-name pt001`
 
@@ -73,4 +73,4 @@ SqliteSaver tries to msgpack-encode the state and dies.
   numpy scalar protocol but np.int64 is not — verify with a smoke).
   If a similar crash recurs from a downstream node, audit
   `graph/nodes.py` for state-writes that originate in
-  `autoresearch_bo_michael` extras.
+  `bo_driver` extras.

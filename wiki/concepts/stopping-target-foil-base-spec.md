@@ -65,7 +65,7 @@ overrides (e.g. [bo-foils](/projects/bo-foils.md) adds extras around this base) 
   is how [bo-foils](/projects/bo-foils.md) inserts `n_up + 37 + n_down` extras around the base.
 
 - **HelicalMode previously emitted FOIL_COUNT=38** (off-by-one vs deployed
-  37). Fixed at `autoresearch_bo_michael.py:379` on 2026-05-28; affects
+  37). Fixed at `bo_driver.py:379` on 2026-05-28; affects
   only newly-emitted geom.txt files — pre-existing frozen helical leaderboard
   rows are unchanged (each config carries its own geom snapshot).
 
@@ -86,8 +86,8 @@ overrides (e.g. [bo-foils](/projects/bo-foils.md) adds extras around this base) 
   `Offline/Mu2eG4/geom/stoppingTargetHoles_v02.txt`,
   `Offline/Mu2eG4/geom/stoppingTargetHoles_DOE_review_2017.txt`,
   `Offline/Mu2eG4/geom/stoppingTarget_CD3C_34foils.txt`,
-  `autoresearch_bo_michael.py:379` (HelicalMode.FOIL_COUNT),
-  `autoresearch_bo_michael.py` `FoilsMode.BASE_*` constants
+  `bo_driver.py:379` (HelicalMode.FOIL_COUNT),
+  `bo_driver.py` `FoilsMode.BASE_*` constants
 
 ## Open questions / TODO
 - Confirm with mmackenz whether the 0.0528 mm v02 override is a measured

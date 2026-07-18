@@ -14,13 +14,13 @@ timestamp: '2026-07-17'
 ## SECOND CODE PATH FOUND + FIXED (2026-06-01): cmd_preflight
 - The retry fix was applied to `pipeline.py:sourced_env` (submit/harvest)
   but **`cmd_preflight` has its own independent env-source** at
-  `autoresearch_bo_michael.py:1039-1046` that had the SAME bug: `source
+  `bo_driver.py:1039-1046` that had the SAME bug: `source
   {SETUPMU2E} >/dev/null 2>&1 && source {MUSING} >/dev/null 2>&1 && … &&
   mu2e -c surfacecheck.fcl -n 1`, no retry, stderr swallowed.
 - **New failure shape — false-ambiguous:** when the cvmfs/spack flake hits
   here, `mu2e` never runs, the subprocess exits nonzero with EMPTY output,
   and `cmd_preflight`'s rc-map (`{0:pass,1:fail_managed,2:fail_init,
-  3:ambiguous}` at `autoresearch_bo_michael.py:1140` / `:1115`) reads the
+  3:ambiguous}` at `bo_driver.py:1140` / `:1115`) reads the
   causeless nonzero exit as **rc=3 ambiguous** — a real-but-rare G4 outcome.
   The preflight log is just the 16-byte template (`\n--- STDERR ---\n`).
 - **Impact:** 2 of 3 foilsY02 round-0 children (`foilsY02R00_00/01`) burned
@@ -30,7 +30,7 @@ timestamp: '2026-07-17'
 - **This is almost certainly the unidentified root cause of
   [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)** ("whatever made X04 picks
   uniformly fail preflight with rc=3" — 20/20 children, never explained).
-- **Fix (`autoresearch_bo_michael.py:1047`):** retry loop with backoff
+- **Fix (`bo_driver.py:1047`):** retry loop with backoff
   `(5,15,30)s`, but retries ONLY when `mu2e` never started — a genuine run
   always emits a Geant4/art banner (`"Geant4"|"%MSG"|"Art has"|"Begin
   processing"|"G4Exception"` in `out`), so real results (pass / geom-fail /
@@ -38,7 +38,7 @@ timestamp: '2026-07-17'
   flake is. Source redirect changed `>/dev/null 2>&1` → `>/dev/null` so the
   flake's stderr reaches the captured log. Verified: py_compile clean,
   preflight re-run on both dead geoms passes rc=0. Each preflight is a fresh
-  `python autoresearch_bo_michael.py preflight` subprocess
+  `python bo_driver.py preflight` subprocess
   (`graph/pipeline_io.py:129`), so a live closed-loop campaign picks up the
   fix on its next round without restart.
 
@@ -91,7 +91,7 @@ should_retry, label, log)`:
 | Site | Guards | Retry (via helper) | `should_retry` gate |
 |---|---|---|---|
 | `pipeline.py:sourced_env` | grid submit + harvest | ✅ 4× 5/15/30s | `rc!=0` (default) |
-| `autoresearch_bo_michael.py:cmd_preflight` | local preflight | ✅ | `rc!=0 AND no Geant4/art banner` |
+| `bo_driver.py:cmd_preflight` | local preflight | ✅ | `rc!=0 AND no Geant4/art banner` |
 | `pipeline.py` getToken (submit) | token renew (submit) | ✅ (was ❌) | `rc!=0` |
 | `graph/closed_loop.py:node_renew_token` getToken | token renew (round) | ✅ (was ❌) | `rc!=0`, then FATAL exit if still failing |
 - The helper handles the loop + subprocess + timeout (timeouts are

@@ -19,7 +19,7 @@ updated_note: HelicalMode code retired; fixtures moved to foils
 # bo-helical — 5D helical-plug BO
 
 ## Summary
-Second BO mode in `autoresearch_bo_michael.py` (select with `--mode helical`).
+Second BO mode in `bo_driver.py` (select with `--mode helical`).
 Optimizes the **inner** `tsda.helical.*` namespace (dx, dy, halflength, z0, angle)
 with the [tsda](/concepts/tsda.md) core + foil stack + degrader + COL5 all pinned at v111 values.
 Different physics from [bo-michael](/projects/bo-michael.md) (foil-stack mode): the helical plug
@@ -35,7 +35,7 @@ reach the calorimeter, complementing the foil-stack approach.
     were rail-running at ≥525° (2 exactly at 540); best obj (QR00_02=2.64) is interior at 361°,
     so corners are exploration-driven, not optimum-driven, but the GP should be allowed to
     explore further before declaring 540 the ceiling.
-  - Source of truth: `autoresearch_bo_michael.py:HelicalMode.build_space` +
+  - Source of truth: `bo_driver.py:HelicalMode.build_space` +
     `gp_predict_helical.py:BOUNDS`. Keep these two in sync.
 - **Pinned constants (v111-exact):**
   - TSdA core: `hasTSdA=true, r4=600, rin=80, halfLength4=12.5, z0=4195,
@@ -46,7 +46,7 @@ reach the calorimeter, complementing the foil-stack approach.
     = False` to A/B against the legacy tessellated impl — see
     [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md). **One-off A/B override** (no
     source flip): `USE_TWISTED_BOX=0 graph.run …` reads
-    `autoresearch_bo_michael.py:374` env-var, takes effect at module-import
+    `bo_driver.py:374` env-var, takes effect at module-import
     time, propagates to subprocesses via inherited env (`os.getenv("USE_TWISTED_BOX",
     "1") != "0"`). Source: `constructTSdA.cc`
     `makeHelicalPlug` dispatcher landed 2026-05-26 (source-only;
@@ -194,14 +194,14 @@ reach the calorimeter, complementing the foil-stack approach.
 - **Preflight dir:** `bo_helical_preflight/`
 
 ## Cross-links
-- Driver: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md) (`--mode helical`)
+- Driver: [bo-driver](/drivers/bo-driver.md) (`--mode helical`)
 - Autonomous-exploration driver: [closed-loop-runner](/drivers/closed-loop-runner.md) (multi-round Pareto
   picks; replaces the operator-paced "compute 5 picks → launch 5 chains →
   refit → repeat" loop used through helicalP01-P05)
 - Sibling modes: [bo-michael](/projects/bo-michael.md), [bo-foils](/projects/bo-foils.md)
 - Related concepts: [tsda](/concepts/tsda.md), [scalarized-objective](/concepts/scalarized-objective.md), [fixed-geometry-constraint](/concepts/fixed-geometry-constraint.md)
 - Priors: [mmackenz-priors](/datasets/mmackenz-priors.md)
-- Source: `autoresearch_bo_michael.py`
+- Source: `bo_driver.py`
 - Reference geom: `/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/workflows/config_v111/run1b_beam/geom.txt`
 
 ## Phase 1 result (2026-05-16) — flat objective surface
@@ -575,7 +575,7 @@ won't catch silent overlaps.
 ## dx widening probe (helical043-047, 2026-05-18 evening)
 Optimizer has pinned dx at the lower bound 0.5 in 14 of last 19 evals plus
 **every** GP-Pareto frontier pick. Bounds widened in
-`autoresearch_bo_michael.py:374` from `Real(0.5, 5.0)` to `Real(0.1, 5.0)`.
+`bo_driver.py:374` from `Real(0.5, 5.0)` to `Real(0.1, 5.0)`.
 Seeded 5 manual probes all pinned at helical034's other knobs (dy=109,
 halflen=289.68, z0=4479, angle=333) with α=100000 and varying dx:
 
@@ -593,7 +593,7 @@ halflen=289.68, z0=4479, angle=333) with α=100000 and varying dx:
 - **Result**: dx widening paid off — helical047 set new global best at
   obj=2.488 (dx=0.40), then helical044 (dx=0.15) topped it at obj=2.504.
   Followup batch (049/050) at dx≈0.1-0.17 also entered top-4.
-- **dx bounds widened again to 0.01** in `autoresearch_bo_michael.py:374`
+- **dx bounds widened again to 0.01** in `bo_driver.py:374`
   and `gp_predict_helical.py` BOUNDS (since helical050 sits at the previous
   lower bound 0.105 ≈ 0.1).
 - **GP fix**: `gp_predict_helical.py:make_gp` `length_scale_bounds` floor
@@ -1023,7 +1023,7 @@ landed defensively but should not be needed once N_crit picks are sane.
 
 **Action items applied 2026-05-21:**
 - `HelicalMode.HELICAL_NSTEPS` lowered 5000 → 2000 in
-  `autoresearch_bo_michael.py`. This is the predicate the propose-loop's
+  `bo_driver.py`. This is the predicate the propose-loop's
   `is_buildable` consults; tightens the bare-propose path identically to
   the picks path.
 - `closed_loop` should be invoked with `--nsteps-budget 2000` (matches
@@ -1042,7 +1042,7 @@ landed defensively but should not be needed once N_crit picks are sane.
 **Update 2026-05-27:** the FCL nsteps and the BO N_crit budget are now
 **intentionally decoupled**, reversing the prior "must move together"
 rule above:
-- `autoresearch_bo_michael.py` `HELICAL_NSTEPS = 10000` — FCL geometry
+- `bo_driver.py` `HELICAL_NSTEPS = 10000` — FCL geometry
   mesh resolution (`tsda.helical.nsteps`). Higher = finer-faceted built
   helical solid, more memory/CPU per G4 init, but no BO-search effect.
 - `gp_predict_helical.py` `DEFAULT_NSTEPS_BUDGET = 2000` — sklearn N_crit
@@ -1133,7 +1133,7 @@ rows had been suggesting.
 call that mangles argument splitting → `evaluate` exits rc=2 with
 CHAIN_FAIL. **summary.json has already been written by harvest by the time
 evaluate runs**, so manual recovery is one-line:
-`./autoresearch_bo_michael.py --mode helical evaluate <cfg> <DATA>/<cfg>/harvest/summary.json`
+`./bo_driver.py --mode helical evaluate <cfg> <DATA>/<cfg>/harvest/summary.json`
 Hit by helical043, helical045, helical046 in succession (all three dx-probe
 configs that completed). Fix the chain-script line continuation when
 touching it next.
@@ -1144,7 +1144,7 @@ touching it next.
 `KNOWN_NSTEPS` only lists `helical050a_n5000=5000` — every other config
 falls back to **`DEFAULT_NSTEPS=100`** (historical pre-2026-05-21
 default), even though the *current production* `HelicalMode.HELICAL_NSTEPS=2000`
-(`autoresearch_bo_michael.py:367`). On the 2026-05-23 refit, this
+(`bo_driver.py:367`). On the 2026-05-23 refit, this
 dropped **36/71 v2 rows** (51%) — including `graph027` (N_crit≈690 from
 the helicalQR00_02 baseline) and most high-angle SR/QR/F01 configs.
 The 35 retained are not biased per se (the dropped rows would have

@@ -58,7 +58,7 @@ updated_note: fatal-abort gate + holeRadii canary + as-built GDML geometry asser
 > Tests: `tests/test_audit_fixes.py` `TestPreflightFatalAbortClassification`
 > + `TestVerifyStoppingTargetGdml` (10 cases).
 >
-> **Mode dispatch (autoresearch_bo_michael.py:1982-1993):** modes in
+> **Mode dispatch (bo_driver.py:1982-1993):** modes in
 > `("helical","foils","foilsf","foilsg","prodtarget","prodtarget6d")`
 > use `surfacecheck.fcl` (overlap scan). GDML emission tier:
 > - **foils / foilsf / foilsg** — emit `preflight_geom.gdml` AND run the
@@ -82,10 +82,10 @@ updated_note: fatal-abort gate + holeRadii canary + as-built GDML geometry asser
 Runs a single `mu2e -n 1` locally (Musing setup) on a BO proposal's geom file
 to verify that Geant4 geometry construction succeeds before paying for grid
 submission. Catches overlapping-volume errors, bad placements, and
-missing-include-chain issues. Subcommand of [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md).
+missing-include-chain issues. Subcommand of [bo-driver](/drivers/bo-driver.md).
 
 ## Key facts
-- **Path:** `autoresearch_bo_michael.py cmd_preflight`
+- **Path:** `bo_driver.py cmd_preflight`
 - **FCL selection (single G4 init, landed 2026-05-19):**
   - helical mode → `surfacecheck.fcl` (init + surface-check overlap scan).
   - non-helical modes → `preflight.fcl` (init only — no overlap diagnostics needed).
@@ -131,5 +131,5 @@ missing-include-chain issues. Subcommand of [autoresearch-bo-michael](/drivers/a
   end-of-workflow scan_logs node).
 
 ## Cross-links
-- Used by: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [graph-runner](/drivers/graph-runner.md) (per-iteration preflight node)
+- Used by: [bo-driver](/drivers/bo-driver.md), [graph-runner](/drivers/graph-runner.md) (per-iteration preflight node)
 - Surfaced bug: [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md)

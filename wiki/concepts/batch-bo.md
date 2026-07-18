@@ -22,7 +22,7 @@ returns are the norm because mustops_ce wall-time spans wider than mubeam).
 The short answer: **CL-mean at q=3, ceiling q=5, for michael mode. CL-min at
 q=2 for helical until history grows.** scikit-optimize ships this natively as
 `Optimizer.ask(n_points=q, strategy=...)` — the retrofit is ~10–30 LOC inside
-`autoresearch_bo_michael.py:cmd_propose` plus a small pending-state file.
+`bo_driver.py:cmd_propose` plus a small pending-state file.
 Long answer below.
 
 ## Key facts — method landscape
@@ -43,24 +43,24 @@ Long answer below.
 
 ## Key facts — fit to our setup
 
-- **`skopt.Optimizer` already supports CL natively** via `ask(n_points=q, strategy="cl_min"|"cl_mean"|"cl_max")` — the `Optimizer` built at `autoresearch_bo_michael.py:152-161` is CL-capable out of the box. No new dependency.
+- **`skopt.Optimizer` already supports CL natively** via `ask(n_points=q, strategy="cl_min"|"cl_mean"|"cl_max")` — the `Optimizer` built at `bo_driver.py:152-161` is CL-capable out of the box. No new dependency.
 - **Prior leverage:** 96 michael priors → CL fakes are ~5% perturbation of the conditioned set, safe up to q=5. 10 helical priors → q=5 means 50% extra "fake data" per round; CL aggressively flattens EI near picks → cap helical at **q=2 with `cl_min`** until history reaches ~30 real points.
-- **The seam is q=1 today.** `cmd_propose` (`autoresearch_bo_michael.py:423-458`) calls `opt.ask()` once, renders one geom, prints one shell instruction.
-- **Pending state must persist across `propose` invocations.** `Optimizer` is rebuilt from scratch every call (`autoresearch_bo_michael.py:429`) with `random_state=42` (`:160`) — without a pending-points file, two back-to-back `propose` calls return the *same* `x`.
+- **The seam is q=1 today.** `cmd_propose` (`bo_driver.py:423-458`) calls `opt.ask()` once, renders one geom, prints one shell instruction.
+- **Pending state must persist across `propose` invocations.** `Optimizer` is rebuilt from scratch every call (`bo_driver.py:429`) with `random_state=42` (`:160`) — without a pending-points file, two back-to-back `propose` calls return the *same* `x`.
 - **Grid layer is q-ready.** `pipeline.py` is fully parametric per `--config` (`pipeline.py:36-67`); `poll_cluster` is cluster-scoped (`pipeline.py:323-356`); q parallel pipelines do not interfere. Per-user FIFE quota easily absorbs q=5 × ~300 jobs ≈ 1500 jobs.
 - **Library alternatives that preserve the 96-point warm start:** BoTorch (`SingleTaskGP(X, y)` + `qLogNoisyExpectedImprovement` with `X_pending=`), Trieste (`AsynchronousGreedy`), HEBO (`observe(X, y)`). Ax wraps BoTorch but needs `Experiment` ceremony. Dragonfly has unique async-TS but stagnant since 2022.
-- **One pitfall the libraries don't fix:** the categorical `col5` dimension in michael mode (`autoresearch_bo_michael.py:204`) is awkward for libraries that assume pure-continuous spaces. Stay on skopt unless we're already paying the rewrite cost for q-EI semantics.
+- **One pitfall the libraries don't fix:** the categorical `col5` dimension in michael mode (`bo_driver.py:204`) is awkward for libraries that assume pure-continuous spaces. Stay on skopt unless we're already paying the rewrite cost for q-EI semantics.
 
 ## Key facts — retrofit shape (no code yet)
 
 Three surgical patches land the batch retrofit; a fourth would automate the grid handoff.
 
-1. **`cmd_propose` (`autoresearch_bo_michael.py:423`):**
+1. **`cmd_propose` (`bo_driver.py:423`):**
    - `nargs="+"` on the config-name argument or add `--q N`.
    - Replace `opt.ask()` with `opt.ask(n_points=q, strategy="cl_mean")`.
    - Loop the render/stage block over the q `xs`.
    - Write each as a pending row.
-2. **`BOMode.load_history` (`autoresearch_bo_michael.py:132`):** union the pending file so the next `propose` knows what's in flight — **do not `tell` pending points to the optimizer** (CL injects them internally during `ask`). Pending suppression only prevents re-proposal on rerun.
+2. **`BOMode.load_history` (`bo_driver.py:132`):** union the pending file so the next `propose` knows what's in flight — **do not `tell` pending points to the optimizer** (CL injects them internally during `ask`). Pending suppression only prevents re-proposal on rerun.
 3. **Pending persistence:** new sibling file `pending_bo_<mode>.tsv` with `config, knobs…, alpha, submitted_at`. `cmd_evaluate` atomically moves pending → leaderboard. `flock` around `cmd_propose` body to prevent concurrent-propose races (no locking exists today).
 4. **(Optional) Orchestrator:** thin driver that takes the q proposal names and fans out the per-config `pipeline.py … submit/poll/harvest/evaluate` chains. `autoresearch_loop.py` is the natural home.
 
@@ -317,11 +317,11 @@ n=193→0.590, n=204→0.122, n=251→0.075. Plot:
 
 ## Cross-links
 - Related: [bo-noise-budget](/concepts/bo-noise-budget.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
-- Driver: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+- Driver: [bo-driver](/drivers/bo-driver.md)
 - Driver: [pipeline](/drivers/pipeline.md)
 - Concept: [bo-modes](/concepts/bo-modes.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [scalarized-objective](/concepts/scalarized-objective.md)
 - Project: [bo-michael](/projects/bo-michael.md), [bo-helical](/projects/bo-helical.md)
-- Source files: `autoresearch_bo_michael.py:152-161` (Optimizer factory), `:423-458` (cmd_propose, batch retrofit lands here), `:132-150` (history I/O, pending-union point), `pipeline.py:36-67` (per-config paths, q-safe today)
+- Source files: `bo_driver.py:152-161` (Optimizer factory), `:423-458` (cmd_propose, batch retrofit lands here), `:132-150` (history I/O, pending-union point), `pipeline.py:36-67` (per-config paths, q-safe today)
 
 ## Sources
 - Ginsbourger, Le Riche, Carraro 2010 — *Kriging is well-suited to parallelize optimization* (CL + KB) — [PDF](https://www.cs.ubc.ca/labs/algorithms/EARG/stack/2010_CI_Ginsbourger-ParallelKriging.pdf)

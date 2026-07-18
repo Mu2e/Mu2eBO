@@ -27,7 +27,7 @@ the base 0.0528 mm halfThickness is the bottleneck. Mode wired end-to-end
   `stoppingTarget.z0InMu2e = 5871`. `_geom_text` emits the `deltaZ` override.
 
 - **12-D Real search space** (`FoilsGroupMode.build_space`,
-  `autoresearch_bo_michael.py`): for g ∈ {0,1,2,3}:
+  `bo_driver.py`): for g ∈ {0,1,2,3}:
   - `rOut_g{g}`  ∈ [50, 250] mm
   - `hT_g{g}`    ∈ [0.01, 1.0] mm
   - `f_g{g}`     ∈ [0, 0.95] (hole fraction; rIn = f·rOut)
@@ -42,7 +42,7 @@ the base 0.0528 mm halfThickness is the bottleneck. Mode wired end-to-end
   N_INITIAL_POINTS Sobol-init); rounds 1+ switch to qlnei.
 
 - **Touch-points** (mirrors the foilsf pattern):
-  - `autoresearch_bo_michael.py` — `FoilsGroupMode` class + `MODES["foilsg"]` registration
+  - `bo_driver.py` — `FoilsGroupMode` class + `MODES["foilsg"]` registration
   - `botorch_predict.py` MODE_SPECS — 12-D bounds (stale-bounds hazard: must lockstep with `build_space`)
   - `graph/config.py` MUSING_BY_MODE / GRID_STAGES_BY_MODE / HARVEST_VERB_BY_MODE — Run1Bak, 4-stage chain, `harvest` verb (identical to foilsf)
   - `graph/closed_loop.py` `_import_gp` + `_DRY_RUN_KNOB_LABELS` + argparse choices
@@ -59,7 +59,7 @@ the base 0.0528 mm halfThickness is the bottleneck. Mode wired end-to-end
 
 ## Cross-links
 - Related: [bo-foils](/projects/bo-foils.md) (predecessor: extras-only on pinned 37 base, saturated 3.89-3.90), [bo-foil](/projects/bo-foil.md) (original 7D), [stopping-target-foil-base-spec](/concepts/stopping-target-foil-base-spec.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)
-- Source files: `autoresearch_bo_michael.py` `FoilsGroupMode`,
+- Source files: `bo_driver.py` `FoilsGroupMode`,
   `graph/config.py:35-77` (per-mode dispatch dicts),
   `botorch_predict.py` MODE_SPECS "foilsg",
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_foilsg.py`

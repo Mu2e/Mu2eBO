@@ -2,7 +2,7 @@
 type: incident
 title: preflight-mode-tuple-prodtarget6d-omission
 description: pt6d04 R1 10/10 children mis-reported fail_managed; rc=1 overload +
-  missing "prodtarget6d" in autoresearch_bo_michael.py:1982 surface-check tuple;
+  missing "prodtarget6d" in bo_driver.py:1982 surface-check tuple;
   subclass inherits methods NOT mode-tuple membership
 status: resolved
 status_note: (2026-06-13)
@@ -17,7 +17,7 @@ terminated after 3 retries each, with zero leaderboard rows. Closed-loop
 then exited early on the "0 new rows + all resolved → all failed"
 guard. Root cause: when wiring PT GDML emission earlier the same day,
 I added a new "GDML must exist" check that returns rc=1, but did NOT
-extend the FCL-selection tuple at `autoresearch_bo_michael.py:1982` to
+extend the FCL-selection tuple at `bo_driver.py:1982` to
 include `prodtarget6d` — so prodtarget6d ran the bare `preflight.fcl`
 (no `writeGDML`), produced no GDML, hit the new check, returned rc=1,
 and `pipeline_io.py:134`'s rc-status map sent that to `fail_managed`.
@@ -26,7 +26,7 @@ The R1 picks themselves were geometrically fine — they were never
 submitted to grid.
 
 ## Key facts
-- **Site of bug:** `autoresearch_bo_michael.py:1982` listed
+- **Site of bug:** `bo_driver.py:1982` listed
   `("helical","foils","foilsf","foilsg","prodtarget")` only. Three
   sibling sites at lines 1991, 2127, 2147 had the same omission shape.
 - **Why classifier mapped to `fail_managed`:** `graph/pipeline_io.py:134`
@@ -55,9 +55,9 @@ submitted to grid.
 When adding a mode to ONE tuple in `cmd_preflight`, grep ALL `mode.name in (...)`
 sites:
 ```
-grep -n '"prodtarget"' autoresearch_bo_michael.py | head -20
+grep -n '"prodtarget"' bo_driver.py | head -20
 ```
-ProdTarget6DMode subclasses ProdTargetMode (autoresearch_bo_michael.py:1488)
+ProdTarget6DMode subclasses ProdTargetMode (bo_driver.py:1488)
 but the `mode.name` strings are NOT a subclass relationship — they're
 literal-string tuple membership. Subclasses inherit Python methods,
 not driver mode-dispatch.
@@ -68,5 +68,5 @@ not driver mode-dispatch.
   driver page, "GDML emission tier")
 - Related rc=1 overload: [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md) (different
   symptom, same overloaded rc=1 channel)
-- Per-mode dispatch table: `autoresearch_bo_michael.py:1982, 1991, 2127, 2147`
+- Per-mode dispatch table: `bo_driver.py:1982, 1991, 2127, 2147`
 - Classifier: `graph/pipeline_io.py:134`

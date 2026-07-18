@@ -49,14 +49,14 @@ contention; the lighter campaign drains only as the heavy one's jobs finish. Pla
 concurrent campaigns accordingly (stagger, or don't pair two 800-njob campaigns).
 
 ## Root-cause fix (2026-06-09) — upstream None-rejection in cmd_evaluate
-**Status:** patched at `autoresearch_bo_michael.py:1338`.
+**Status:** patched at `bo_driver.py:1338`.
 
 **The chain in one line:** qlnei picker → `AUTORESEARCH_NO_RUN1B=1` → `run1b_mubeam` stage dropped → harvest reads no `run1b_mubeam_outputs.txt` → `calo_per_pot=None` in `summary.json` → `cmd_evaluate` rejects `calo is None` with rc=1 → `run_evaluate` parses no `obj=...` line → `node_evaluate` records `obj_unparseable` zero_row and returns `objective: None` to state → langgraph `SqliteSaver.put_writes` chokes serializing the None-bearing state with msgpack (manifests as `sqlite3.DatabaseError: file is not a database` because the partial frame leaves an unreadable page).
 
 **Fix:** when `AUTORESEARCH_NO_RUN1B=1` AND `calo is None`, substitute `calo=0.0` so `obj = sob - α·0 = sob` matches qlnei's sob-only objective. The row lands, state is fully populated, checkpoint serializes cleanly.
 
 ```python
-# autoresearch_bo_michael.py:1338
+# bo_driver.py:1338
 if calo is None and os.environ.get("AUTORESEARCH_NO_RUN1B") == "1":
     calo = 0.0
 if sob is None or calo is None:
@@ -67,7 +67,7 @@ if sob is None or calo is None:
 
 **Verification gate (PASSED 2026-06-09):** foilsf09R00 (qlnei q=10, fresh prefix, NOT pre-staged) completed cleanly: 10/10 leaderboard rows landed (sob 3.87–3.90), zero `obj_unparseable`, zero SqliteSaver crashes, parent reached `completed=10` then advanced to round 1. End-to-end fix validation on a fresh run, not just the recovered-config path.
 
-**Post-fix recovery recipe (no grid re-run, used 2026-06-09 to recover all 10 foilsf08R00 configs):** when a closed-loop crash leaves complete-but-broken harvests on disk (sob populated, calo=None) AND the proposal geoms still exist in `bo_foils_proposals/`, the rows are recoverable without re-running the grid. Per config: `AUTORESEARCH_NO_RUN1B=1 .venv-graph/bin/python autoresearch_bo_michael.py --mode foilsf evaluate <name> <grid_dir>/harvest/summary.json`. This calls the patched `cmd_evaluate` directly, lands the leaderboard row, and clears the pending entry — bypassing the langgraph state machine entirely. Recovered 10/10 foilsf08R00 rows (sob 3.75–3.89) in <10 seconds.
+**Post-fix recovery recipe (no grid re-run, used 2026-06-09 to recover all 10 foilsf08R00 configs):** when a closed-loop crash leaves complete-but-broken harvests on disk (sob populated, calo=None) AND the proposal geoms still exist in `bo_foils_proposals/`, the rows are recoverable without re-running the grid. Per config: `AUTORESEARCH_NO_RUN1B=1 .venv-graph/bin/python bo_driver.py --mode foilsf evaluate <name> <grid_dir>/harvest/summary.json`. This calls the patched `cmd_evaluate` directly, lands the leaderboard row, and clears the pending entry — bypassing the langgraph state machine entirely. Recovered 10/10 foilsf08R00 rows (sob 3.75–3.89) in <10 seconds.
 
 ## Corrected timeline + causal chain (3-agent re-review 2026-06-09)
 The "Verified root cause" block below was **partially refuted** by a follow-up 3-agent investigation (Skeptic + Forensics + Reproducer). Keep below for reference but read this section first.

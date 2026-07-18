@@ -528,7 +528,7 @@ is **v111** — `config_v111: 2.50 cm Al plate with 80 mm hole, 4 mm × 170 mm
 × 300 mm helical plug, 360 degree turn, 125 mm radius target with no hole`.
 **Correction 2026-05-27 (later same day):** v111's no-hole target is NOT
 the off-manifold knob — `HelicalMode.HOLE_RADIUS = 0.0`
-(`autoresearch_bo_michael.py:380`) pins **every** v2 emit to
+(`bo_driver.py:380`) pins **every** v2 emit to
 `stoppingTarget.holeRadius = 0.0000` with 38 foils @ 125 mm (verified on
 `helicalFT06R00_00/geom/autoresearch_helicalFT06R00_00_geom.txt`). v111
 lives on the same target manifold as the magenta v2 cloud.
@@ -587,7 +587,7 @@ boundary, confirming the constraint is binding not redundant. Low-calo
 end is unaffected (basin already lives at small dy). Net: pin costs 26%
 of predicted sob ceiling without buying any calo improvement → rin must
 remain free under Option A coupling.
-Source files: `autoresearch_bo_michael.py:380` (HOLE_RADIUS pin),
+Source files: `bo_driver.py:380` (HOLE_RADIUS pin),
 `:410-413` (derive_rin Option A formula),
 `leaderboard_bo_helical_v2.tsv` (rin_derived col 7), `/tmp/rin_pin_sobol_test.py`
 (the filter script used for this test).
@@ -604,7 +604,7 @@ Implication: when reading the PNGs, **magenta v2 stars** and
 **cyan-diamond picks** live strictly on the BO's 4D search manifold;
 mmackenz class markers and the orange **prior stars** do not. Orange
 priors come from `HelicalMode.load_priors()`
-(`autoresearch_bo_michael.py:415`) — these are 10 mmackenz hand-designed
+(`bo_driver.py:415`) — these are 10 mmackenz hand-designed
 `config_v100`–`v109`, `v111` configs scraped from
 `/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/workflows/config_v###/run1b_beam/geom.txt`.
 Their `(dx, dy, halflength, angle)` values are in-domain, but the rest of
@@ -686,7 +686,7 @@ the GP *knows* about them, but only when they're in the training set.
 region (`f_max × rOut_max = 0.95 × 250 = 237.5`). Critical clarification:
 `foils_v2_loader.BOUNDS` is a **diagnostic-only GP-normalization frame**
 used by 5 cloud renderers in `mmackenz_table_plots/`, NOT the picker's
-search box. The picker is `autoresearch_bo_michael.py:FoilsFracMode`
+search box. The picker is `bo_driver.py:FoilsFracMode`
 (line 800-832) which defines its own `build_space()` with `f ∈ [0, 0.95]`
 and `rOut ∈ [50, 250]` — does not import `foils_v2_loader`. So BOUNDS
 can be reshaped freely for diagnostic coverage without touching what the
@@ -841,7 +841,7 @@ Grep for `useTwistedBox` in `<grid>/<config>/geom/autoresearch_<config>_geom.txt
 ONLY works for configs whose geom was emitted on/after **2026-05-26** when both
 the C++ dispatcher and the Python FCL-emission line landed (tasks #134–136;
 source mtimes `autoresearch_muse/.../constructTSdA.cc` 2026-05-26 10:46,
-lib 10:51, tarball 10:56; `autoresearch_bo_michael.py:377` HELICAL_USE_TWISTED_BOX
+lib 10:51, tarball 10:56; `bo_driver.py:377` HELICAL_USE_TWISTED_BOX
 env-gated, `:490-491` emits the FCL key). Pre-2026-05-26 geom files lack the
 key entirely — the impl actually used at runtime is whatever
 `Code_helical_base.tar.bz2` shipped to the worker.
@@ -893,7 +893,7 @@ Only FT08R00_00 (geom mtime 2026-05-26 17:20) onward carries the key.
   explicit per-row tracer via `useTwistedBox` key; the only era with
   guaranteed-clean twisted-box.
 - **mmackenz priors** ([mmackenz-priors](/datasets/mmackenz-priors.md) — 10 rows `v100`–`v109`, `v111` via
-  `HelicalMode.load_priors()` at `autoresearch_bo_michael.py:415`) are
+  `HelicalMode.load_priors()` at `bo_driver.py:415`) are
   tessellated-era. The v111 "beyond Pareto" anomaly is the tessellated-vs-
   twisted-box 2.2× calo offset documented in
   [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md), not an off-manifold geometry.
@@ -923,7 +923,7 @@ ruled-out list (in order of elimination, with refuting evidence):
 | Hypothesis | Status | Why ruled out |
 |---|---|---|
 | `tsda.rin` Option A coupling (rin=80 forced pin) | **Refuted** | rin=80 leaderboard subset has *lower* median calo (3.62e-6) than rin>110 cluster (4.44e-6); cheap Sobol rin-pin test costs 26% sob but doesn't move calo floor |
-| Target hole topology (v111 no-hole vs v2 default) | **Ruled out** | `HelicalMode.HOLE_RADIUS = 0.0` at `autoresearch_bo_michael.py:380` pins every v2 emit to 0 (verified on FT06R00_00/geom) |
+| Target hole topology (v111 no-hole vs v2 default) | **Ruled out** | `HelicalMode.HOLE_RADIUS = 0.0` at `bo_driver.py:380` pins every v2 emit to 0 (verified on FT06R00_00/geom) |
 | Broken-tessellated stuck-track absorption (helical041a-style 2.2×) | **Ruled out** | v111 N_crit ≈ 33 (dx=4, dy=170, hl=300, angle=360) is far below nsteps=2000 budget → no GeomSolids1001, no stuck-track flood. Wrong regime. |
 | Clean-tess kCarTolerance halo bias (TWB01-03 mechanism) | **Wrong sign + too small** | Tess clean A/B shows tess +1-12% *higher* calo than twist (TWB01: 6.55e-6 vs 6.49e-6). v111 is tess; if the bias applied, v111 would be slightly *over*-reported, not 6× under-reported. Direction inverted from what would explain v111. |
 

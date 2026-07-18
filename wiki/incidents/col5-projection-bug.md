@@ -26,4 +26,4 @@ of the COL5 dimension entirely.
 
 ## Cross-links
 - Concept: [col5-shield](/concepts/col5-shield.md)
-- Driver: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+- Driver: [bo-driver](/drivers/bo-driver.md)

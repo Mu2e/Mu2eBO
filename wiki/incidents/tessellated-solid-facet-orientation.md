@@ -183,7 +183,7 @@ misbehaves on twisted-prism solids for a future material/version.
 - Per-segment seg_twist = 459.591/6 = 76.6° ✓ inside the 85° margin
 
 **Major preflight caveat discovered while debugging.** `cmd_preflight` in
-`autoresearch_bo_michael.py:684` only sources the CVMFS MUSING (line 724)
+`bo_driver.py:684` only sources the CVMFS MUSING (line 724)
 — it never loads the patched `libmu2e_Mu2eG4.so`, so the helical plug is
 constructed using the **stock** Offline code, not the patched code. Until
 preflight is taught to source the local muse setup (or `Code/setup.sh` from
@@ -200,7 +200,7 @@ workers pick up the patched lib. Until then, grid jobs still run the broken
 tessellated path.
 
 **Default flipped (2026-05-21):** `HelicalMode.HELICAL_NSTEPS` 100 → 5000
-(autoresearch_bo_michael.py:328). The production `Code_helical_base.tar.bz2`
+(bo_driver.py:328). The production `Code_helical_base.tar.bz2`
 is the OLD tessellated lib (swapped in for the helical050a_n5000 test on
 2026-05-21, not yet swapped back). At the old default of 100 the OLD lib
 floods GeomSolids1001 + 28M GeomNav1002/worker; nsteps=5000 is above
@@ -238,7 +238,7 @@ buildable regime. Both branches show only ~2 generic Errors/log (background
 noise, not geometry).
 
 ## A/B dispatch knob (env-var override)
-`HelicalMode.HELICAL_USE_TWISTED_BOX` at `autoresearch_bo_michael.py:377`
+`HelicalMode.HELICAL_USE_TWISTED_BOX` at `bo_driver.py:377`
 reads `os.getenv("USE_TWISTED_BOX", "1") != "0"`. To run an A/B without
 editing the class constant, set the env var **in the parent shell of the
 graph.run invocation** — it's read once at module import:

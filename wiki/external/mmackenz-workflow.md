@@ -19,7 +19,7 @@ override files.
   fallback `config_v##/run1a_beam/geom.txt`)
 - **Metric source:** `workflows/table.org`
 - **Reference geom:** `config_v50/run1b_beam/geom.txt` — used as the
-  template for [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)'s `render_geom()` syntax
+  template for [bo-driver](/drivers/bo-driver.md)'s `render_geom()` syntax
 - **Helpful scripts:**
   `workflows/scripts/extract_analysis_results.py` — calo extraction logic
   reused by [pipeline](/drivers/pipeline.md)
@@ -27,4 +27,4 @@ override files.
 
 ## Cross-links
 - Related: [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md)
-- Consumed by: [mmackenz-priors](/datasets/mmackenz-priors.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+- Consumed by: [mmackenz-priors](/datasets/mmackenz-priors.md), [bo-driver](/drivers/bo-driver.md)

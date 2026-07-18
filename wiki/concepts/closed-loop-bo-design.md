@@ -43,7 +43,7 @@ already paid to learn.
   `graph/run.py` and `graph/closed_loop.py`. Alternative (per-thread DBs)
   forfeits cross-thread checkpoint visibility we want for the barrier.
 
-- **Leaderboard append (`autoresearch_bo_michael.py:150-156`) has no file
+- **Leaderboard append (`bo_driver.py:150-156`) has no file
   lock.** Today it is safe only because `pipeline.py` submits are
   serialized by a coarse single-process pattern. Under closed-loop the q
   children all call `append_history` concurrently at harvest time. Fix:
@@ -51,7 +51,7 @@ already paid to learn.
   (since 2026-07-17 all anchors live in `locks/` next to the guarded file,
   via the single `_lock_path()` seam in the driver)
   (cross-platform-poor but adequate for Linux GPVM). Same fix applies to
-  `append_pending` / `remove_pending` (`autoresearch_bo_michael.py:186-206`)
+  `append_pending` / `remove_pending` (`bo_driver.py:186-206`)
   — the latter does a read-write-truncate cycle that is *especially*
   unsafe across q writers.
 
@@ -121,8 +121,8 @@ already paid to learn.
   [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md),
   [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [bo-helical](/projects/bo-helical.md), [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
 - Source: `graph/run.py:51` (sqlite connect, no WAL today),
-  `autoresearch_bo_michael.py:150-156` (append_history, no lock),
-  `autoresearch_bo_michael.py:186-206` (pending TSV r-w-t cycle, no lock),
+  `bo_driver.py:150-156` (append_history, no lock),
+  `bo_driver.py:186-206` (pending TSV r-w-t cycle, no lock),
   `pipeline.py:325-333` (events-per-job stamp pattern to generalize)
 - Plan: `~/.claude/plans/zazzy-booping-ladybug.md`
 

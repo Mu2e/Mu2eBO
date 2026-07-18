@@ -85,7 +85,7 @@ needs resubmission.
   flash-null check before calling evaluate.
 - **Post-hoc row append (children dead):** after
   `poll` + `list-outputs --force` + `harvest`, run the driver verb directly:
-  `.venv-graph/bin/python autoresearch_bo_michael.py --mode foilsflash
+  `.venv-graph/bin/python bo_driver.py --mode foilsflash
   --alpha 1e5 evaluate <cfg> <ROOT>/harvest/summary.json` — this is exactly
   what `graph/pipeline_io.py:run_evaluate` shells out to; it owns the
   leaderboard append + pending cleanup (schema stays in one place).

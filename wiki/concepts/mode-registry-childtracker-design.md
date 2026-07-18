@@ -37,7 +37,7 @@ or the driver mid-campaign changes running code.
   botorch_predict.py deletes `MODE_SPECS` and reads bounds from the registry
   (works because bounds are plain data — skopt is only imported inside
   `build_space`, which is why botorch_predict.py:46 can already
-  `import autoresearch_bo_michael`); `graph/state.py` keeps its Literal +
+  `import bo_driver`); `graph/state.py` keeps its Literal +
   a test pins `get_args(Literal) == set(modes.SPECS)`.
 - **The env seams stay env**: `AUTORESEARCH_NO_RUN1B` remains a post-lookup
   stage filter; `AUTORESEARCH_ELEBEAM_NJOBS` remains an override on top of
@@ -107,7 +107,7 @@ or the driver mid-campaign changes running code.
 - Related: [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
 - Incident evidence: see [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) (8 incidents)
 - Source files: `modes.py` (to be created), `graph/child_tracker.py` (to be
-  created), `autoresearch_bo_michael.py:1854`, `graph/closed_loop.py:520`,
+  created), `bo_driver.py:1854`, `graph/closed_loop.py:520`,
   `docs/adr/0001-retire-cl-min-picker.md`, `docs/adr/0002-mode-registry-root-modes-py.md`, `CONTEXT.md`
 - External: [Karpathy LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
 

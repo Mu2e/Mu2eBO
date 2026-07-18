@@ -17,7 +17,7 @@ timestamp: '2026-06-12'
 
 ## Summary
 
-The preflight classifier in `autoresearch_bo_michael.py` (~:1938-1990)
+The preflight classifier in `bo_driver.py` (~:1938-1990)
 returns PASS for runs whose G4 geometry construction **fatally aborted**.
 `past_init` keys on substrings that appear in the log *before* geometry
 construction (`"BeginRun"` — printed by EventGenerator's
@@ -59,7 +59,7 @@ aborted before any overlap check ran.
   this masked), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) (same pattern-too-narrow
   class), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md) (prior preflight
   classification gap), [preflight](/drivers/preflight.md), [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md), [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md)
-- Source files: `autoresearch_bo_michael.py:1938-1990` (classifier),
+- Source files: `bo_driver.py:1938-1990` (classifier),
   `:1815` (`G4_GEOM_FAIL_RX`)
 
 ## Open questions / TODO

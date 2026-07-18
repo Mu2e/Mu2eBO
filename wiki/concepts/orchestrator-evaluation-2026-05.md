@@ -48,7 +48,7 @@ four grid stages, multi-day wall, single operator, no LLM nodes today.
   is synchronous `subprocess.run`.
 
 ## Cross-links
-- Related: [graph-runner](/drivers/graph-runner.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [batch-bo](/concepts/batch-bo.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
+- Related: [graph-runner](/drivers/graph-runner.md), [bo-driver](/drivers/bo-driver.md), [batch-bo](/concepts/batch-bo.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
 - External: [LangGraph docs](https://langchain-ai.github.io/langgraph/),
   [Prefect 3 docs](https://docs.prefect.io/), [SNIFS-science/prefect-hpc-worker](https://github.com/SNIFS-science/prefect-hpc-worker)
 

@@ -119,6 +119,6 @@ Don't re-propose removal as a quick edit.
 
 ## Cross-links
 - Related: [g4-speed-knobs](/concepts/g4-speed-knobs.md), [bfield-at-helical-plug](/concepts/bfield-at-helical-plug.md), [bo-noise-budget](/concepts/bo-noise-budget.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)
-- Driver: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+- Driver: [bo-driver](/drivers/bo-driver.md)
 - See also: [bo-modes](/concepts/bo-modes.md) (which `sob` value the optimizer reads vs the report),
   [batch-bo](/concepts/batch-bo.md) (qNEHVI explores the front α-free; defer-α two-phase strategy)

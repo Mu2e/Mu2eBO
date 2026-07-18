@@ -261,7 +261,7 @@ No commit/push (operator reviews, like foils). Refresh both PNGs as rounds land.
 - Related: [bo-foilsflash](/projects/bo-foilsflash.md) (clone of this mode's structure), [bo-foils](/projects/bo-foils.md) (predecessor mode pattern + qNEHVI machinery),
   [scalarized-objective](/concepts/scalarized-objective.md), [uproot-cannot-read-steppointmc](/incidents/uproot-cannot-read-steppointmc.md) (StrawGasStep
   needs PyROOT under muse, not uproot), [bo-foilsflash](/projects/bo-foilsflash.md)
-- Source files: `autoresearch_bo_michael.py` (IPAMode),
+- Source files: `bo_driver.py` (IPAMode),
   `mmackenz_table_plots/gp_predict_ipa.py`,
   `Production/JobConfig/pileup/MuStopPileup.fcl`,
   `Offline/Mu2eG4/geom/protonAbsorber_cylindrical_v04.txt`

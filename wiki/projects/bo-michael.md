@@ -36,11 +36,11 @@ S/√B and minimize Run1B calo_stop_per_pot, scalarized as
 - **Best known with degrader=ON:** v39 → obj=3.459
   (rin=130, hL4=8.75, hole=21.5, col5=COL5Poly, sob=3.48, calo=2.13e-7).
   Switching the pin would raise the achievable ceiling by ~1.4 units.
-- **Driver:** [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md) (default `--mode michael`; sibling: [bo-helical](/projects/bo-helical.md))
+- **Driver:** [bo-driver](/drivers/bo-driver.md) (default `--mode michael`; sibling: [bo-helical](/projects/bo-helical.md))
 - **Preflight:** [preflight](/drivers/preflight.md) catches G4 init failures locally before grid submission
 
 ## Cross-links
-- Source: `autoresearch_bo_michael.py`
+- Source: `bo_driver.py`
 - Sibling modes: [bo-helical](/projects/bo-helical.md), [bo-foils](/projects/bo-foils.md)
 - Predecessor: [bo-foil](/projects/bo-foil.md) (this supersedes it)
 - Priors: [mmackenz-priors](/datasets/mmackenz-priors.md)

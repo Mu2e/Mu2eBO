@@ -116,7 +116,7 @@ mock-grid branch; helical mode only.
 - **`--x-point` bypasses `is_buildable` and BOUNDS** (2026-05-25).
   `propose_one` with `x_override` (`graph/pipeline_io.py:61-62`) skips the
   BO `opt.ask()` path, so the N_crit / BOUNDS-rail guards at
-  `autoresearch_bo_michael.py:623` (which only fire on BO-asked picks)
+  `bo_driver.py:623` (which only fire on BO-asked picks)
   never run. Hand-curated x-points outside `BOUNDS` (e.g. angle > 720°)
   are accepted silently; only G4-build-time pathologies (broken-plug
   scan_logs gate, preflight fail) catch unbuildable picks. **Operator
@@ -174,7 +174,7 @@ mock-grid branch; helical mode only.
   [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) for the first issue this caught.
 
 ## Cross-links
-- Related: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [preflight](/drivers/preflight.md), [bo-helical](/projects/bo-helical.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [closed-loop-runner](/drivers/closed-loop-runner.md)
+- Related: [bo-driver](/drivers/bo-driver.md), [preflight](/drivers/preflight.md), [bo-helical](/projects/bo-helical.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [closed-loop-runner](/drivers/closed-loop-runner.md)
 - Wrapped by: [closed-loop-runner](/drivers/closed-loop-runner.md) (multi-round driver spawns q parallel `graph.run` children per round)
 - Per-stage I/O: [pipeline](/drivers/pipeline.md) (idempotent submit/poll/list-outputs/harvest)
 - Regression tests: [tests](/drivers/tests.md)

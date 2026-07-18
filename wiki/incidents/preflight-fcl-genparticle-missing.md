@@ -68,7 +68,7 @@ template, not in any prodtarget-specific geom override.
 
 **Option 1: Swap preflight to surfacecheck-style FCL.** Added
 `"prodtarget"` to the three surface-check branches in
-`autoresearch_bo_michael.py` (lines 1443, 1519, 1553) and extended
+`bo_driver.py` (lines 1443, 1519, 1553) and extended
 `SURFACE_OVERLAP_MANAGED` regex (line 1420) to whitelist baseline
 overlaps while flagging BO-controlled volumes:
 
@@ -94,7 +94,7 @@ managed-volume overlaps.
   geometry problem), [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md)
 - Related: [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md) (different cause, same
   symptom shape: silent preflight=ambiguous burns a round)
-- Source: `autoresearch_bo_michael.py` ProdTargetMode preflight FCL
+- Source: `bo_driver.py` ProdTargetMode preflight FCL
   emission (TODO: pin line)
 
 ## Open questions / TODO

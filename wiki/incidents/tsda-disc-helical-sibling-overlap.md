@@ -94,7 +94,7 @@ new Option-A render to bridge old/new leaderboards before resuming BO.
 ## Cross-links
 - Related: [bo-helical](/projects/bo-helical.md), [tsda](/concepts/tsda.md), [mu2e-overlap-check](/external/mu2e-overlap-check.md), [preflight](/drivers/preflight.md), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md), [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md)
 - Source: `/exp/mu2e/app/users/oksuzian/autoresearch_muse/Offline/Mu2eG4/src/constructTSdA.cc:240,322,350`
-- BO driver: `autoresearch_bo_michael.py` (HelicalMode render_geom, BOUNDS, search space)
+- BO driver: `bo_driver.py` (HelicalMode render_geom, BOUNDS, search space)
 
 ## Open questions / TODO
 - Quantify the overlap's contribution: rerun helical044's geom with z0

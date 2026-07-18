@@ -8,7 +8,7 @@ status_note: 2026-05-29 (convergence-by-pareto-hash machinery deleted entirely;
   zero-row safety break in `node_decide_next`; rc=3 ambiguous now retriable in `route_after_preflight`)
 timestamp: '2026-07-17'
 updated_note: 'FIX BAKED IN + VERIFIED UNDER CONCURRENCY: `export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER`
-  prepended INSIDE the bash command at `autoresearch_bo_michael.py:1188` (cmd_preflight)
+  prepended INSIDE the bash command at `bo_driver.py:1188` (cmd_preflight)
   + `pipeline.py:289` (sourced_env). Single-config verify: foilsZ05R00_00 re-preflight
   rc=0, no Errno 5. **q=10 concurrent verify (foilsZ06 R00): ALL 10 preflights PASS,
   0 ambiguous** — compare foilsZ05 pre-fix (26 ambiguous, 0 pass). Incident class
@@ -57,7 +57,7 @@ mmackenz pointed at the spack lock; the full mechanism + permanent fix:
   **So the fix MUST be in the code path that sets up the preflight env** —
   exporting at the launching shell is a false fix. Concretely: add
   `SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER` inside `cmd_preflight`
-  (`autoresearch_bo_michael.py:cmd_preflight`) or in `graph/sourced_bash.py`'s
+  (`bo_driver.py:cmd_preflight`) or in `graph/sourced_bash.py`'s
   `run_sourced_bash` BEFORE the `spack load` runs, AND verify it survives by
   reading `bo_foils_preflight/<cfg>.log` (env dump or `printenv | grep SPACK`).
 
@@ -117,7 +117,7 @@ qLogNEHVI even found `sob=3.82` in R00).
   source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh; command -v muse
   ```
   → emits the `[Errno 5]` + `muse -> MISSING` when broken. Full-pipeline repro:
-  `.venv-graph/bin/python autoresearch_bo_michael.py --mode foilsf preflight <cfg>`.
+  `.venv-graph/bin/python bo_driver.py --mode foilsf preflight <cfg>`.
   User-space can't fix cvmfs (admin-managed `cvmfs_config wipecache`/remount);
   wait for recovery, try a different interactive node, or file a ticket.
 - **The fault is ISOLATED to `spack load`, not broad cvmfs (2026-06-04).**
@@ -130,7 +130,7 @@ qLogNEHVI even found `sob=3.82` in R00).
   `spack load`-ed) so preflight subprocesses inherit the loaded env and skip the
   broken `spack load` — the rest of the run reads only the healthy tree. Validate
   first with one preflight from the warm shell
-  (`autoresearch_bo_michael.py --mode foilsf preflight <cfg>` → expect
+  (`bo_driver.py --mode foilsf preflight <cfg>` → expect
   `preflight=ok`); if ok, the campaign can run during the outage without waiting
   for cvmfs/admins. (Whether it works hinges on the preflight subprocess
   inheriting vs scrubbing the parent env — test, don't assume.)
@@ -172,14 +172,14 @@ qLogNEHVI even found `sob=3.82` in R00).
 The "unknown" cause of the uniform rc=3 preflight failures is the **same
 transient cvmfs/spack env-source flake** documented in
 [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md), hitting `cmd_preflight`'s OWN env-source
-(`autoresearch_bo_michael.py:1039`, separate from `pipeline.py:sourced_env`).
+(`bo_driver.py:1039`, separate from `pipeline.py:sourced_env`).
 When the flake hits, `mu2e` never runs → empty output → nonzero rc →
 rc-map reads it as **rc=3 ambiguous**. The preflight log is just the 16-byte
 template. X03 passed because it ran outside a bad cvmfs window; X04 (and
 foilsY02 round 0 on 2026-06-01) ran inside one. Reproduced + fixed via
 foilsY02: a manual re-run of the "failed" geoms passes rc=0; the fix adds
 retry-with-backoff gated on "mu2e never emitted a banner"
-(`autoresearch_bo_michael.py:1047`). The earlier note ("needs interactive
+(`bo_driver.py:1047`). The earlier note ("needs interactive
 re-run to read the surface-check stderr") is now done — there was no
 surface-check stderr because surface-check never ran.
 
@@ -194,7 +194,7 @@ Two distinct bugs collided to produce the silent failure:
 
 1. **Whatever made X04 picks uniformly fail preflight with rc=3** —
    currently unknown; needs interactive re-run of
-   `.venv-graph/bin/python autoresearch_bo_michael.py --mode foils preflight foilsX04R00_00`
+   `.venv-graph/bin/python bo_driver.py --mode foils preflight foilsX04R00_00`
    to read the surface-check stderr. X03 picks PASSed cleanly under the
    same code; only X04 is affected.
 2. **Convergence check has no "new evals this round" floor** —
@@ -265,7 +265,7 @@ Two distinct bugs collided to produce the silent failure:
 - Source files:
   - `graph/pipeline_io.py:140` — `{3: "ambiguous"}` rc mapping
   - `graph/closed_loop.py` — convergence-check site (needs gate)
-  - `autoresearch_bo_michael.py:cmd_preflight` — rc=3 emission
+  - `bo_driver.py:cmd_preflight` — rc=3 emission
   - `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/closed_foilsX04_r0.log`,
     `foilsX04R00_00.log..R01_09.log` — evidence
 
@@ -292,7 +292,7 @@ initial single-bug hypothesis:
   (`foilsX04R00_00`, `R00_05`, `R01_03`): all **PASS rc=0**. Geom
   files clean; no `useTwistedBox` / helical / TSdA leak into FoilsMode
   emission (FoilsMode emits `hasTSdA = false`).
-- rc=3 emission conditions at `autoresearch_bo_michael.py:1067-1069`:
+- rc=3 emission conditions at `bo_driver.py:1067-1069`:
   subprocess rc≠0 AND `past_init=False` AND no `G4_GEOM_FAIL_RX`
   match AND no managed_hits AND no timeout. Anything that kills
   `mu2e -n 1` early and silently (OOM, host load, transient
@@ -346,7 +346,7 @@ Load-bearing facts for whoever applies these:
   ambiguous → terminal error" — that comment also needs updating.
 - **rc=3 stderr is captured but truncated to one line.**
   `cmd_preflight` already dumps last 40 lines of `mu2e` stderr to
-  disk (`autoresearch_bo_michael.py:1068`); `nodes.py:69` currently
+  disk (`bo_driver.py:1068`); `nodes.py:69` currently
   only pipes `.splitlines()[-1]` into state errors. Patch 2 must
   also widen this — without it, repeated retries accumulate
   identical opaque "preflight[ambiguous] foo: ..." lines.

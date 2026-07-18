@@ -113,7 +113,7 @@ Size: 100 KB → 687 MB (includes entire Offline source + p101 build).
 
 ## Verification
 
-After the fix, `AUTORESEARCH_MODE=prodtarget python autoresearch_bo_michael.py
+After the fix, `AUTORESEARCH_MODE=prodtarget python bo_driver.py
 --mode prodtarget preflight pt001` returns rc=0, "managed=0" — the
 spacer-shrink fix in the patched workdir is now actually reached.
 
@@ -124,7 +124,7 @@ spacer-shrink fix in the patched workdir is now actually reached.
 - Related: [muse-backing-pattern](/external/muse-backing-pattern.md) (general muse layering pattern)
 - Related: [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md) (sister env-source
   surprise)
-- Source: `graph/config.py:18-32`, `autoresearch_bo_michael.py:99,1471`,
+- Source: `graph/config.py:18-32`, `bo_driver.py:99,1471`,
   `pipeline.py:194`, `autoresearch_muse_prodtarget/setup_local.sh`
 
 ## Open questions / TODO

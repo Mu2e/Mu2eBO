@@ -52,7 +52,7 @@ See [CLAUDE](/CLAUDE.md) for the schema and maintenance contract.
 - [leaderboards](/datasets/leaderboards.md) — TSV history files for each BO driver
 
 ## Drivers (executable scripts)
-- [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md) — `propose | evaluate | preflight` (7 modes; michael/helical + show-priors retired 2026-07-12)
+- [bo-driver](/drivers/bo-driver.md) — `propose | evaluate | preflight` (7 modes; michael/helical + show-priors retired 2026-07-12)
 - [autoresearch-bo](/drivers/autoresearch-bo.md) — original 7D BO driver
 - [pipeline](/drivers/pipeline.md) — per-config runner: forks config, submits grid, harvests
 - [preflight](/drivers/preflight.md) — local `mu2e -n 1` G4 init feasibility check
@@ -111,7 +111,7 @@ See [CLAUDE](/CLAUDE.md) for the schema and maintenance contract.
 - [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md) — grid tarball lacks holeRadii-vector patch; foilsg jobs silently build uniform-hole stacks (scalar mean) or crash G4Tubs when mean > min rOut; ALL 62 foilsg rows tainted; foilsg05 7/10 'rename race' diagnosis retracted
 - [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md) — preflight classifier returns PASS on fatal GeomSolids0002 aborts: past_init keys on pre-geometry strings (BeginRun/GenParticle) and skips the geom-fail regex; masked the foilsg tarball incident
 - [closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md) — closed-loop parent + just-launched children die together mid-round, no traceback (signal kill); setsid doesn't escape the session cgroup so a session-OOM takes the whole tree; foilsf12 R2 2026-06-13, cause unconfirmed
-- [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md) — pt6d04 R1 10/10 children mis-reported fail_managed; rc=1 overload + missing "prodtarget6d" in autoresearch_bo_michael.py:1982 surface-check tuple; subclass inherits methods NOT mode-tuple membership
+- [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md) — pt6d04 R1 10/10 children mis-reported fail_managed; rc=1 overload + missing "prodtarget6d" in bo_driver.py:1982 surface-check tuple; subclass inherits methods NOT mode-tuple membership
 - [data-quota-exhausted-grid-accumulation](/incidents/data-quota-exhausted-grid-accumulation.md) — /exp/mu2e/data/users/oksuzian 2TB CephFS quota filled by autoresearch_grid (2.04TB, Code.tar.bz2 accumulation) → Errno 122 EDQUOT at propose_one geom-copy; killed ipa02 4/5 children; diagnose with getfattr not df; 2026-06-19
 - [mmackenz-edepana-lib-qualifier-bump](/incidents/mmackenz-edepana-lib-qualifier-bump.md) — foils+ipa harvest rc=9 "EdepAna not in CET_PLUGIN_PATH": mmackenz rebuilt Run1BAna p094→p101 (2026-06-25) deleting the hardcoded mmlib path in pipeline.py:360; EdepAna exists in p101 but ABI-vs-our-p094-muse untested; prodtarget immune; 2026-06-26
 - [pipeline-poll-rc120-atexit-death](/incidents/pipeline-poll-rc120-atexit-death.md) — pt6d05 R1 7/10 children: `pipeline.py poll` subprocess died mid-sleep with rc=120 (CPython "atexit error") while grid clusters were still healthy; `decide_next` mis-converged + exited R2 silently; symptom-twin of pt6d04 but different root cause

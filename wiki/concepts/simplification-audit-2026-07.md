@@ -35,11 +35,11 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
   loader** (~70 L): last in-repo reference to the retired off-repo
   `gp_predict_helical.py` (ADR-0001); live broken-detection is a different
   implementation with its own coverage (`test_closed_loop.py:324-329`).
-- **format_row/load_history_row dedup** (`autoresearch_bo_michael.py:872-893,
+- **format_row/load_history_row dedup** (`bo_driver.py:872-893,
   991-1009,1367-1393`, ~60 L net): FoilsG/IPA/ProdTarget6D hand-spell what the
   FoilsMode generic (:594-605) derives from KNOB_NAMES/CALO_COL; verified
   byte-identical, all callers polymorphic, no test pins the bodies.
-- **`PREFLIGHT_FCL_TEMPLATE` + else-branch** (`autoresearch_bo_michael.py:
+- **`PREFLIGHT_FCL_TEMPLATE` + else-branch** (`bo_driver.py:
   1526-1546,1718-1721`, ~28 L): unreachable — all 7 modes set
   `preflight_fcl="surfacecheck"`, pinned by `test_modes.py:132-137`. Co-change:
   `test_audit_fixes.py:198` uses the literal string as a regex slice anchor.
@@ -67,7 +67,7 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
   the sole generator of a figure slides.tex embeds; `settings.local.json:54`
   allowlists it by name. Archive-move would break `analyze_bo.py`'s hardcoded
   OUT_DIR and violate the operator contract.
-- **skopt retirement**: `build_space()` (`autoresearch_bo_michael.py:181-194`)
+- **skopt retirement**: `build_space()` (`bo_driver.py:181-194`)
   is the *behavioral source of truth* the lockstep test (`test_modes.py:45,72`)
   calls for every mode — deleting it removes the SPECS==driver-bounds
   enforcement. Retirement needs a replacement invariant first, not a delete.
@@ -108,7 +108,7 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
 - `botorch_predict.py:78-95` CURRENT_BOX_ONLY/TMAX_MIN env seam: one-shot
   pt6d08 experiment, inert for foilsflash; retire with prodtarget wind-down.
 - Unverified (verify agents hit session limit): dead helical regex
-  alternatives in SURFACE_OVERLAP_MANAGED (`autoresearch_bo_michael.py:
+  alternatives in SURFACE_OVERLAP_MANAGED (`bo_driver.py:
   1672-1685`, ~6 L, finder evidence solid); state-file literal consolidation
   (`{stage}_cluster.txt` at 8 sites → harvest.py accessor).
 
@@ -126,7 +126,7 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
 - `graph/list_threads.sh` (~18 L) referenced only by the stale launch-bo skill.
 - 5 tracked docs/ PNGs (~570 KB) referenced by no deck/script/wiki.
 - Hygiene batch: driver docstring/--help still advertises michael/helical/
-  show-priors (`autoresearch_bo_michael.py:2-37`); `.gitignore` workspace
+  show-priors (`bo_driver.py:2-37`); `.gitignore` workspace
   block should be 2 globs (`bo_*_proposals/`, `bo_*_preflight/`); 6 tracked
   LaTeX intermediates in slides/; `graph/state.py:24` StageStatus Literal
   declares 'submitted'/'running' (never emitted) and omits 'in_flight'
@@ -155,10 +155,10 @@ coupling below is real but was fully resolved in one verified pass:
   `autoresearch_archive/mmackenz_table_plots_prereorg_20260717.tar.gz`.
 - **Verified**: 158 tests green + live smokes (driver load_history from
   leaderboards/, pending_path, graph build under foilsflash, `core/pipeline.py`
-  CLI, `core/autoresearch_bo_michael.py --help`, botorch import under
+  CLI, `core/bo_driver.py --help`, botorch import under
   .venv-botorch, off-repo `gp_predict_foils`/`foils_v2_loader` import).
 - **Gotcha for future off-repo scripts**: a new plotter written from muscle
-  memory (`sys.path.insert(root); import autoresearch_bo_michael`, or
+  memory (`sys.path.insert(root); import bo_driver`, or
   `ROOT/"leaderboard_bo_X.tsv"`) now breaks — the module is in `core/`, the
   TSV in `leaderboards/`. This is the papercut the keep-flat recommendation
   was avoiding; it's the accepted cost of the tidier root.
@@ -240,7 +240,7 @@ Second declutter pass on root DIRECTORIES:
 ### Original coupling analysis (why keep-flat was recommended)
 
 - **The 5 `.py` files are a load-bearing flat namespace**: ~30 call sites
-  `import` them by bare name (`modes`, `harvest`, `autoresearch_bo_michael`,
+  `import` them by bare name (`modes`, `harvest`, `bo_driver`,
   `pipeline`, `botorch_predict`) from graph/, tests/, tools/, /data scripts,
   and each other; resolved via 10+ scattered `sys.path.insert` (one
   hardcoded-absolute at `graph/pipeline_io.py:22`). Plus 3 subprocess path
@@ -309,11 +309,11 @@ All 24 real dirs + 4 symlinks at repo root inspected one-by-one:
   sqlite+WAL evidence for the RESOLVED foilsf08 incident, fully distilled
   into the incident page (bytes-level analysis recorded).
 - **`bo_<mode>_{proposals,preflight}/` are live driver infrastructure**
-  (`autoresearch_bo_michael.py:396–1239`); preflight *logs* of dormant
+  (`bo_driver.py:396–1239`); preflight *logs* of dormant
   lines (~1.3 GB on /app, dominated by bo_foils_preflight 659 MB) are
   prunable content. **Whole preflight dirs are safe to delete** — recreated
   on demand via `mkdir(parents=True, exist_ok=True)` at
-  `autoresearch_bo_michael.py:1605`, and each log is write-once/read-once
+  `bo_driver.py:1605`, and each log is write-once/read-once
   (parsed by the classifier in the same invocation; nothing reads old
   entries). Proposal dirs likewise mkdir'd (:220) but tiny — keep.
 - slides/ = frozen May-era original-line deck (10 tracked files, in git);

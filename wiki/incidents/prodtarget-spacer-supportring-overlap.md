@@ -9,7 +9,7 @@ status: active
 status_note: 'shrinks + lug-cap cover 8/10 of ptX05R00 picks; **third failure mode
   discovered 2026-06-10**: thick-plate regime re-triggers; **fourth failure mode**
   had a wrong magnitude claim (250–500 µm) — **CORRECTED 2026-06-17 via pt6d07 evidence**:
-  end-plate clamp `lPlate[{0,-1}]=tPlate` (shipped autoresearch_bo_michael.py:1527-1534)
+  end-plate clamp `lPlate[{0,-1}]=tPlate` (shipped bo_driver.py:1527-1534)
   DID eliminate the macro overhang (pt6d07 R0 = 10/10 clean, R1 = 7/10 with 3 fails
   reporting only **50–100 nm** = magic-offset class), so the original 4-OOM physical-overhang
   diagnosis was incorrect. Residual `SpacerNegZ_0 ⟷ Plate00` at precision tolerance
@@ -85,10 +85,10 @@ by `lugThickness` only, the plate visually overflows past the lug
 union → spacer collision. Tested by switching the advance to
 `std::max(plate, lug)` and re-rendering pt001 geometry; numpy diff =
 0.0. The BO driver already enforces `lPlate[i] >= tPlate[i] + 0.5`
-at `autoresearch_bo_michael.py:1112`, so the overflow case can't
+at `bo_driver.py:1112`, so the overflow case can't
 arise from BO picks. Reverted those edits in
 `constructTargetPS.cc:1719`, `ProductionTarget.cc:230`, and
-`autoresearch_bo_michael.py:_geom_text`.
+`bo_driver.py:_geom_text`.
 
 Lesson: the "by N nm" magnitude in the G4 overlap log is the
 single most diagnostic line — read it before patterning off
@@ -137,7 +137,7 @@ _01, _02, _08) died at preflight=`fail_managed` ×3 retries.
 **Preflight logs are NOT swallowed** — full G4 stdout (including
 `Overlap is detected for volume ...` lines + 50 nm magnitude) lives at
 `/exp/mu2e/app/users/oksuzian/autoresearch/bo_prodtarget_preflight/<config>.log`.
-`autoresearch_bo_michael.py:cmd_preflight` writes `log.write_text(out)`
+`bo_driver.py:cmd_preflight` writes `log.write_text(out)`
 with combined stdout+stderr (line ~1756). Only the closed-loop child log
 (`/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<config>.log`) shows the bare
 `preflight=fail_managed` status — to see the overlap pair, go to the
@@ -215,7 +215,7 @@ roundoff path that 50 nm of magic-offset shrink at one junction (the
 change. The 150 nm magnitude on the NegZ side suggests the upstream junction
 accumulates extra roundoff via the support-ring subtraction solid.
 
-The lug-bounds clamp in `autoresearch_bo_michael.py:1301-1306` and
+The lug-bounds clamp in `bo_driver.py:1301-1306` and
 `botorch_predict.py:95-96` (l0/l1/l2 ∈ [5, 10.5]) is therefore a
 **dead workaround** and should be reverted alongside the code fix.
 
@@ -226,7 +226,7 @@ After ptX03R00 4/10 preflight failures, ptX03 was killed (parent PID 2263326
 finish for bonus data). BO lug bounds were tightened in two places to
 avoid the floor:
 
-- `autoresearch_bo_michael.py:1301-1306` ProdTargetMode.build_space — `l0/l1/l2`
+- `bo_driver.py:1301-1306` ProdTargetMode.build_space — `l0/l1/l2`
   Real bounds `(4.0, 12.0)` → `(5.0, 10.5)`.
 - `botorch_predict.py:95-96` MODE_SPECS["prodtarget"] — matching clamp on
   the qLogNEHVI picker's normalized search domain (must mirror build_space
@@ -264,7 +264,7 @@ max `lPlate - tPlate ≈ 1.5 mm`; ptX04R00_08 (failing) max
 `lPlate - tPlate ≈ 2.4 mm` (and 0.84 mm on plate 0 specifically).
 
 **Fix.** Upper cap in `ProdTargetMode._expand`
-(`autoresearch_bo_michael.py:~1329`):
+(`bo_driver.py:~1329`):
 
 ```python
 LUG_OVER_THICK_MAX_MM = 1.0      # plateLugThickness <= plateThickness + 1.0
@@ -306,7 +306,7 @@ Subagent diagnosis on `pt6d05R01_{00,03,06}/geom/asbuilt_*.gdml`:
 **Two ship paths:**
 
 1. **BO-side end-plate clamp (~30 min, no rebuild):** in `_expand`
-   (`autoresearch_bo_michael.py:1351-1353`), additionally clip
+   (`bo_driver.py:1351-1353`), additionally clip
    `lPlate[0] = tPlate[0]` and `lPlate[-1] = tPlate[-1]` (zero
    overhang on end plates only; interior plates keep the existing
    [+0.5, +1.0] clamp). Python-only; no muse rebuild; no grid tarball
@@ -326,7 +326,7 @@ proper fix at next muse rebuild cycle.
 ### 2026-06-17 update — clamp shipped, fourth-mode magnitude retracted
 
 End-plate clamp `lPlate[0]=lPlate[-1]=tPlate` shipped at
-`autoresearch_bo_michael.py:1527-1534` together with t-upper 7→8 raise
+`bo_driver.py:1527-1534` together with t-upper 7→8 raise
 (launched as pt6d07). Result:
 
 | round | banked | failures | failure mode |

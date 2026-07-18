@@ -36,7 +36,7 @@ artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
 - **THREE hardcoded repo refs pin this path** (must all change on any move):
   - `graph/closed_loop.py:86` — `GP_SCRIPT_DIR` (picker import dir)
   - `botorch_predict.py:6` — docstring pointer to `gp_predict_{foils,helical}.py`
-  - `autoresearch_bo_michael.py:76` — `GEOM_TSV = .../geom_params.tsv`
+  - `bo_driver.py:76` — `GEOM_TSV = .../geom_params.tsv`
 - **REVERSE coupling (these plotters hardcode the repo's module + leaderboard
   paths) — REBASED onto the 2026-07-17 core/leaderboards/ reorg.** 20 scripts
   were rewritten in one pass: every `sys.path.insert(0, <repo root>)` →
@@ -77,7 +77,7 @@ artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
 - Related: [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [closed-loop-runner](/drivers/closed-loop-runner.md), [batch-bo](/concepts/batch-bo.md),
   [mmackenz-workflow](/external/mmackenz-workflow.md), [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md)
 - Source refs: `graph/closed_loop.py:86`, `botorch_predict.py:6`,
-  `autoresearch_bo_michael.py:76`
+  `bo_driver.py:76`
 
 ## Open questions / TODO
 - Execute the code→repo / artifacts→renamed-dir migration after the current

@@ -406,7 +406,7 @@ identical to pt6d09. Science result unremarkable (BO draw): 16 rows, best `pt6d1
 
 ### Length↔μ coupling: no within-nominal-length config beats Stickman (2026-06-19)
 Target full length `L = 2·(SUPPORT_RING_LEN + 2·SPACER_HALFLEN + Σ lPlate/2)`
-(`autoresearch_bo_michael.py:1692`); with `SUPPORT_RING_LEN=8.1`, `SPACER_HALFLEN=1.5`,
+(`bo_driver.py:1692`); with `SUPPORT_RING_LEN=8.1`, `SPACER_HALFLEN=1.5`,
 35 plates, lug=tPlate+0.75, the **nominal stock Stickman length is L_nom = 2·8.1 + 4·1.5
 + 35·6.0 = 232.2 mm** (lug=6.0 uniform). The μ champion `pt6d07R01_07` is **308.9 mm
 (+33%)**. **Filtering all 156 evals to L ≤ 232.2 leaves only 4 configs, and ALL FOUR are
@@ -654,7 +654,7 @@ DPA is **not** dominated by this box (σ is excluded). Local DPA stays
 
 ## M1 — forker (DONE 2026-06-07)
 
-Implemented as `ProdTargetMode` class in `autoresearch_bo_michael.py`
+Implemented as `ProdTargetMode` class in `bo_driver.py`
 (parallel to MichaelMode/HelicalMode/FoilsMode/FoilsFracMode; registered
 in `MODES["prodtarget"]`). Reuses the existing `BOMode` ABC + CLI
 (`propose | preflight | evaluate | show-priors`).

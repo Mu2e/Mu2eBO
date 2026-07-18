@@ -52,7 +52,7 @@ stage + tracker-edep gallery harvest).
     and writes it to `summary.json` (also `flash_n_input`). `POT_PER_ELECTRON = 25e6/2166994 ≈ 11.537`
     (module const, `pipeline.py` ~:276; EleBeamCat `dh.gencount/event_count`). `events_per_job` is the
     SUBMIT-STAMPED value (`_events_per_job("elebeam_flash")`) so a mid-flight edit can't mis-scale.
-  - **Objective** (`FoilsFlashMode.extract_metrics`, `autoresearch_bo_michael.py` ~:1047):
+  - **Objective** (`FoilsFlashMode.extract_metrics`, `bo_driver.py` ~:1047):
     `edep = summary.get("flash_edep_per_pot")` with fallback → `flash_edep_per_event` → `calo_per_pot`
     (so old harvests + `--dry-run`/mock still resolve). Flash still rides the generic `Point.calo` slot.
   - **STALE COMMENT FIXED:** the old `pipeline.py:1253` claimed flash is prescaled 1000× ("per-event
@@ -200,7 +200,7 @@ stage + tracker-edep gallery harvest).
     sits at the flash floor, so extras mainly RISK raising flash (up to 1.6e-6). The available gain is
     in the **sob direction at fixed floor-flash**, NOT in driving flash lower. (Consistent with the
     2.5× range being mostly the bad direction; see the per-POT range bullet above.)
-- **Mode class `FoilsFlashMode(FoilsFracMode)`** (`autoresearch_bo_michael.py`):
+- **Mode class `FoilsFlashMode(FoilsFracMode)`** (`bo_driver.py`):
   INHERITS build_space/_geom_text/parse_geom/is_buildable from FoilsFracMode
   (identical 6D box: rOut_up/dn 50–250, hT_up/dn 0.01–1.0, f_up/dn 0–0.95).
   Overrides only leaderboard (`leaderboard_bo_foilsflash.tsv`), dirs,
@@ -226,7 +226,7 @@ stage + tracker-edep gallery harvest).
   1. **Wrong lever, weak direction.** Our foils act as a thin ABSORBER added in the
      path; Edmonds' ~30% effect is SOURCE removal at the base target core (parent
      RMS≈24 mm). The base ALREADY HAS that hole — `BASE_HOLE_RADIUS_MM=21.5`
-     (`autoresearch_bo_michael.py:695`), the Edmonds DOE-review-2017 geometry the
+     (`bo_driver.py:695`), the Edmonds DOE-review-2017 geometry the
      experiment adopted — and foilsflash PINS it (only the EXTRA foils' rIn are knobs).
      So the central lever is fixed; wiggling extras (peripheral, thin) can't reproduce
      "change the central source."
@@ -363,7 +363,7 @@ stage + tracker-edep gallery harvest).
   events/job (101k vs 134k at equal jobs) -- a geometry effect on event SELECTION, distinct from
   the per-event mean. FINAL: no bug, no big lever; the foilsflash electron-beam flash is weakly
   (<~few-%) sensitive to the central hole, far from Edmonds' proton-prompt-flash +30%.
-- **Env seams to emit non-default base geometry (added 2026-06-30, `autoresearch_bo_michael.py:695-703`).**
+- **Env seams to emit non-default base geometry (added 2026-06-30, `bo_driver.py:695-703`).**
   Three default-preserving `os.environ` overrides on `FoilsMode` (inherited by FoilsFrac/FoilsFlash):
   `AUTORESEARCH_BASE_HOLE_RADIUS_MM` (default 21.5), `AUTORESEARCH_N_UP`/`AUTORESEARCH_N_DOWN`
   (default 6). Set `N_UP=N_DOWN=0` + a hole value to emit a pure 37-foil base with arbitrary
@@ -594,7 +594,7 @@ No commit/push (operator reviews, like foils/ipa).
 
 ## Cross-links
 - Related: [bo-foils](/projects/bo-foils.md), [bo-ipa](/projects/bo-ipa.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)
-- Source files: `autoresearch_bo_michael.py` (FoilsFlashMode),
+- Source files: `bo_driver.py` (FoilsFlashMode),
   `pipeline_templates/elebeam_flash/template.fcl`, `pipeline.py` (STAGES + Step 7),
   `graph/config.py` (chain/musing/targets), `mmackenz_table_plots/gp_predict_foilsflash.py`
 - External: `Production/JobConfig/pileup/EleBeamResampler.fcl`; dataset

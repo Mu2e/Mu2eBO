@@ -86,7 +86,7 @@ foils v2 6D round-trip suite and the shared env-source helper.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md), [graph-runner](/drivers/graph-runner.md),
-  [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [pipeline](/drivers/pipeline.md)
+  [bo-driver](/drivers/bo-driver.md), [pipeline](/drivers/pipeline.md)
 - Pins fixes for: [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md) (poll+list-outputs
   SHA-check extension), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) (broken-unknown
   parse exception)
@@ -95,7 +95,7 @@ foils v2 6D round-trip suite and the shared env-source helper.
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_helical.py:158`
 
 ## Open questions / TODO
-- No coverage yet for: `autoresearch_bo_michael.HelicalMode` /
+- No coverage yet for: `bo_driver.HelicalMode` /
   `FoilsMode` (`_geom_text`, `parse_geom` round-trip),
   `pipeline.cmd_submit` topology, `graph/pipeline_io.propose_one`
   end-to-end (only the retry loop's shape is pinned via static check).

@@ -19,7 +19,7 @@ extended the PT mother volume past the PS bore and cascaded into a
 fatal. **That claim is wrong.** Six-test diagnostic against MDC2025aq
 head shows real `POT.fcl` runs cleanly with `motherHalf=139.3` (the
 margin=20 value). Source has been reverted to `MOTHER_MARGIN_MM=20.0`
-at `autoresearch_bo_michael.py:1053`.
+at `bo_driver.py:1053`.
 
 ## Diagnostic refutation (2026-06-07)
 
@@ -66,5 +66,5 @@ at `autoresearch_bo_michael.py:1053`.
   cause of the original overlap)
 - Related: [preflight-fcl-genparticle-missing](/incidents/preflight-fcl-genparticle-missing.md) (why preflight gate is
   unusable for prodtarget mode; not the same bug as this retracted one)
-- Source: `autoresearch_bo_michael.py:1053` (reverted to
+- Source: `bo_driver.py:1053` (reverted to
   `MOTHER_MARGIN_MM=20.0`)

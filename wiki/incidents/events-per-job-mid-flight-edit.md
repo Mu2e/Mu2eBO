@@ -91,7 +91,7 @@ only, not metrics/quorum), expect the warnings and verify harvests still land.
 
 ## Cross-links
 - Related: [pipeline](/drivers/pipeline.md), [harvest-denominator-bug](/incidents/harvest-denominator-bug.md) (sister bug — wrong
-  denom from STAGES.njobs), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+  denom from STAGES.njobs), [bo-driver](/drivers/bo-driver.md)
 - Source: `pipeline.py:325-333` (stamp write), `pipeline.py:582-593`
   (`_events_per_job` helper), `pipeline.py:674-675` (harvest sites)
 - Backup: `leaderboard_bo_helical_v2.tsv.bak_*`

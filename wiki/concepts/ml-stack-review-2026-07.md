@@ -35,7 +35,7 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
      train_Yvar into SingleTaskGP and unlocks SAASBO. Upgrade between campaigns
      only (reproducibility churn).
   3. **skopt (EI, constant-liar) is the weakest optimizer left in production**:
-     `build_optimizer` (autoresearch_bo_michael.py:245), `seed_optimizer`
+     `build_optimizer` (bo_driver.py:245), `seed_optimizer`
      fake-y suppression (:264), and — load-bearing — the closed-loop
      **preflight-fail retry path re-draws from skopt**, not from the botorch
      picker (graph/nodes.py:114-119 fail_managed → node_propose → skopt ask).
@@ -193,7 +193,7 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md),
   [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md)
 - Source files: `botorch_predict.py:215-231` (_fit_gp), `botorch_predict.py:252-254`
-  (ref point), `autoresearch_bo_michael.py:245-320` (skopt path),
+  (ref point), `bo_driver.py:245-320` (skopt path),
   `graph/nodes.py:114-119` (skopt on the retry path)
 
 ## Open questions / TODO

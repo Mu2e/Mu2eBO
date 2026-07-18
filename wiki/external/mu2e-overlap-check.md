@@ -60,7 +60,7 @@ https://mu2ewiki.fnal.gov/wiki/Validation#Overlaps
     117 lines emitted pre-abort: 111 FoilSupportStructure + 1 EMC_Front VD
     + 5 `VirtualDetector_TT_{Back,FrontHollow,InSurf,MidInner,OutSurf}`.
     Run1A *cannot* be surface-checked under Run1Bak without the patches
-    `autoresearch_bo_michael.py:436` applies.
+    `bo_driver.py:436` applies.
   - **MDC2025an / Offline v13_11_00**, `geom_SurfaceCheck_run1a.txt`
     (ships pre-built, wraps `geom_run1_a.txt`): **0 overlap lines, full
     check completes.** The TT_MidInner→DS2Vacuum fix is baked into
@@ -73,9 +73,9 @@ https://mu2ewiki.fnal.gov/wiki/Validation#Overlaps
   are NOT inherited from stock common — they are introduced by the run1-derived
   geom overrides, and they are real overlap warnings, not cosmetic noise.
 - **Implication for the BO whitelist.** `SURFACE_OVERLAP_MANAGED =
-  ^(TSdA|AbsorberPV|AbsorberS)` in `autoresearch_bo_michael.py:679` still
+  ^(TSdA|AbsorberPV|AbsorberS)` in `bo_driver.py:679` still
   identifies the volumes BO can move. But the comment at
-  `autoresearch_bo_michael.py:674` ("Stock Mu2e geometry has ~117 baseline
+  `bo_driver.py:674` ("Stock Mu2e geometry has ~117 baseline
   overlap lines") is stale by the same argument: the floor is whatever the
   *baseline geom the preflight wraps* emits (currently `geom_run1_a.txt`,
   not stock common), and that floor must be measured, not quoted from this

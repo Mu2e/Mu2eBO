@@ -20,7 +20,7 @@ what [bo-michael](/projects/bo-michael.md) now optimizes.
 ## Key facts
 - **Driver:** `autoresearch_bo.py` ([autoresearch-bo](/drivers/autoresearch-bo.md)) — **removed 2026-05-21**;
   its patterns (SETUP env, fork_config, run_pipeline, append_leaderboard)
-  live on in `autoresearch_bo_michael.py`.
+  live on in `bo_driver.py`.
 - **History:** `leaderboard_bo.tsv` (kept on disk; consumed by slides/
   analyzers and the data-side overlay scripts).
 

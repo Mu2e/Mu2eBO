@@ -127,7 +127,7 @@ rather than true DPA. Ranking-stable correlate; no muse rebuild. Wired via:
   blocks + an N-name `sensitiveVolumes` list.
 - `cmd_harvest_pot_only` sums `totalEDep` across all `ptPlate*/nt;1`
   trees → `summary.json` keys `edep_per_POT_MeV` + `total_edep_MeV`.
-- `autoresearch_bo_michael.py` — `Point.extras` side channel (NOT calo,
+- `bo_driver.py` — `Point.extras` side channel (NOT calo,
   to avoid `DEFAULT_ALPHA=1e5` drowning the muon objective);
   `ProdTargetMode.extract_extras` populates from summary;
   `format_row` / `load_history_row` thread `edep_per_POT_MeV` through

@@ -10,7 +10,7 @@ timestamp: '2026-05-15'
 # geom_run1_a baseline missing TT_MidInner fix
 
 ## Summary
-[autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)'s `render_geom()` emits geom override files that
+[bo-driver](/drivers/bo-driver.md)'s `render_geom()` emits geom override files that
 `#include "Offline/Mu2eG4/geom/geom_run1_a.txt"` as the baseline. That file
 lacks two settings present in `geom_run1_b_v06.txt`:
 `tracker.inDS2Vacuum=true` and `ds2.halfLength=3825`. With the `bfgeom_DSOff`
@@ -47,6 +47,6 @@ TT_MidInner virtual detector to overlap DS2Vacuum, surfacing as a
 
 ## Cross-links
 - Related: [stickman-inds2vacuum-stmupstream-overlap](/incidents/stickman-inds2vacuum-stmupstream-overlap.md)
-- Driver: [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+- Driver: [bo-driver](/drivers/bo-driver.md)
 - Helper that surfaced it: [preflight](/drivers/preflight.md)
 - Helical sibling: [bo-helical](/projects/bo-helical.md)

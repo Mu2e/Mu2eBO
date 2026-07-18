@@ -21,7 +21,7 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
 ## Key facts
 - **9 canonical modes** (michael, helical, foils, foilsf, foilsflash, foilsg, ipa,
   prodtarget, prodtarget6d); mode identity is dispatched at **~20 sites across 6 files**.
-- Mode-keyed dicts and their key counts (divergence = drift): `autoresearch_bo_michael.py:1854`
+- Mode-keyed dicts and their key counts (divergence = drift): `bo_driver.py:1854`
   MODES (9), `graph/config.py:35` MUSING_BY_MODE (9), `:64` GRID_STAGES_BY_MODE (9),
   `:94` HARVEST_VERB_BY_MODE (9), `botorch_predict.py:63` MODE_SPECS (8, no michael —
   intentional), `pipeline.py:98` MUSE_TARBALL_BY_MODE (6 — ipa/prodtarget* fall through
@@ -29,7 +29,7 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
   `graph/closed_loop.py:168` `_import_gp` if/elif (6 — no prodtarget*, so `cl_min`
   picker cannot serve prodtarget), `graph/state.py:32` mode Literal (7 — missing
   prodtarget/prodtarget6d: type-annotation drift).
-- **6 hand-listed preflight mode-tuples** in `autoresearch_bo_michael.py`:
+- **6 hand-listed preflight mode-tuples** in `bo_driver.py`:
   `:2187` (8), `:2195` (6), `:2299` (4), `:2332` (2), `:2352` (7), `:2386` (6).
   `:2352` vs `:2386` differ only by prodtarget6d — latent inconsistency of the
   [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md) class.
@@ -46,7 +46,7 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
   naming scans). No shared schema constant.
 - **Graph↔driver seam carries structured data as bare exit codes + stdout regex**:
   preflight verdict = exit code `{0:pass,1:fail_managed,2:fail_init,3:ambiguous}`
-  encoded at `autoresearch_bo_michael.py:2169`, decoded at `graph/pipeline_io.py:134`,
+  encoded at `bo_driver.py:2169`, decoded at `graph/pipeline_io.py:134`,
   re-listed in `graph/nodes.py:276`; `run_evaluate` scrapes `obj` from stdout via regex
   at `pipeline_io.py:449`. pipeline_io ALSO reach-around-reads `state/*_cluster.txt`
   directly (`:255`), so two coupling contracts exist to the same on-disk protocol.
@@ -129,7 +129,7 @@ still unpicked.
 ## Cross-links
 - Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-modes](/concepts/bo-modes.md), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md), [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 - Incident evidence: [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md), [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md), [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md), [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md), [closed-loop-final-round-orphan-children](/incidents/closed-loop-final-round-orphan-children.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md), [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md)
-- Source files: `pipeline.py:98`, `autoresearch_bo_michael.py:1854`, `graph/config.py:35`, `graph/closed_loop.py:168`, `botorch_predict.py:63`
+- Source files: `pipeline.py:98`, `bo_driver.py:1854`, `graph/config.py:35`, `graph/closed_loop.py:168`, `botorch_predict.py:63`
 
 ## Open questions / TODO
 - RESOLVED 2026-07-06: user picked candidates 1+2; design crystallized in

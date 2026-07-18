@@ -220,7 +220,7 @@ in this phase.
       a no-op). If retried, must throttle the burst (smaller elebeam njobs, or stagger presubmits over the
       sob-chain duration, not up-front). The "~40-50 min saving" estimate above the fold is WRONG — superseded.
     - **Barrier hangs 24 h on a child that dies WITHOUT a terminal checkpoint (foilsflash05 R00_02).**
-      R00_02 died at the `evaluate` node (`autoresearch_bo_michael.py evaluate` subprocess **120 s timeout**,
+      R00_02 died at the `evaluate` node (`bo_driver.py evaluate` subprocess **120 s timeout**,
       pipeline_io ~:443) — harvest succeeded but the leaderboard-append timed out → child crashed, no row,
       no END checkpoint. The barrier polls child SqliteSaver checkpoints; a child with no terminal checkpoint
       is never counted resolved, so the parent parks in the R0 barrier until `CLOSED_LOOP_BARRIER_MAX_MIN`
@@ -646,7 +646,7 @@ grid queue was empty.
 
 ## Cross-links
 - Related: [tests](/drivers/tests.md), [graph-runner](/drivers/graph-runner.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-helical](/projects/bo-helical.md),
-  [batch-bo](/concepts/batch-bo.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md), [scalarized-objective](/concepts/scalarized-objective.md),
+  [batch-bo](/concepts/batch-bo.md), [bo-driver](/drivers/bo-driver.md), [scalarized-objective](/concepts/scalarized-objective.md),
   [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md), [g4-speed-knobs](/concepts/g4-speed-knobs.md)
 - Regression tests: [tests](/drivers/tests.md)
 - Source files: `graph/closed_loop.py`,

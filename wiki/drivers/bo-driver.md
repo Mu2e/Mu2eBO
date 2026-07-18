@@ -1,21 +1,26 @@
 ---
 type: driver
-title: autoresearch_bo_michael.py — driver
+title: bo_driver.py — driver
 description: '`propose | evaluate | preflight` (7 modes; michael/helical + show-priors
   retired 2026-07-12)'
 status: active
 timestamp: '2026-07-17'
-updated_note: live-verb map from size-reduction survey
+updated_note: renamed from autoresearch_bo_michael.py (michael-name retirement)
 ---
 
-# autoresearch_bo_michael.py — driver
+# bo_driver.py — driver
 
 ## Summary
-Main driver for [bo-michael](/projects/bo-michael.md). Implements the four-step BO loop as
-subcommands, each independently runnable.
+The multi-mode BO driver (all 7 live modes — foils/foilsf/foilsflash/foilsg/
+ipa/prodtarget/prodtarget6d). Implements the BO loop as subcommands, each
+independently runnable. Born 2026-04 as the dedicated driver for
+[bo-michael](/projects/bo-michael.md) (hence its original name
+`autoresearch_bo_michael.py`); renamed to `core/bo_driver.py` on 2026-07-17
+after the michael mode was retired (2026-07-12).
 
 ## Key facts
-- **Path:** `autoresearch_bo_michael.py`
+- **Path:** `core/bo_driver.py` (renamed 2026-07-17 from
+  `autoresearch_bo_michael.py`; git history is under the old name pre-rename)
 - **Live-verb map (2026-07-12 survey):** only `preflight` and `evaluate` have
   code callers (both subprocess calls from `graph/pipeline_io.py`). `propose`
   has zero code callers but is the documented operator-recovery verb
@@ -30,9 +35,9 @@ subcommands, each independently runnable.
 - **Subcommands:**
   - `show-priors --top K` — print top-K mmackenz priors by current α (no GP fit)
   - `propose <config_name>` — seed GP from priors+history, ask one candidate,
-    render `bo_michael_proposals/<config_name>_geom.txt`
+    render `bo_work/proposals/<mode>/<config_name>_geom.txt`
   - `evaluate <config_name> <summary.json>` — record completed run in
-    `leaderboard_bo_michael.tsv` (see [leaderboards](/datasets/leaderboards.md))
+    `leaderboards/leaderboard_bo_<mode>.tsv` (see [leaderboards](/datasets/leaderboards.md))
   - `preflight <config_name>` — see [preflight](/drivers/preflight.md)
 - **GP config:** `Optimizer(GP, EI, n_initial_points=0, random_state=42)`
 - **α flag:** `--alpha 1e5` default ([scalarized-objective](/concepts/scalarized-objective.md))
@@ -69,7 +74,7 @@ subcommands, each independently runnable.
   2026-06-04):** "subclass + register" is NOT enough — a propose-only
   mode is, but a closed-loop one also needs the graph + picker wiring:
   1. subclass (e.g. `FoilsFracMode(FoilsMode)` — reuse via `super()`) +
-     `MODES["<name>"] = ...` in `autoresearch_bo_michael.py`;
+     `MODES["<name>"] = ...` in `bo_driver.py`;
   2. the **3 surface-check gates** `if mode.name in ("helical","foils",…)` in
      `cmd_preflight` (~`:1048,:1114,:1148`) — MISS these and preflight skips
      managed-overlap detection for the mode;

@@ -140,7 +140,7 @@ cousin of [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-st
   [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md) (foilsg05's 3
   survivors were orphaned by that bug *and* silently wrong from this one),
   [muse-backing-pattern](/external/muse-backing-pattern.md) (how the patched lib is built), [foilsflash-tarball-mode-key-omission](/incidents/foilsflash-tarball-mode-key-omission.md), [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)
-- Source files: `autoresearch_bo_michael.py` `FoilsGroupMode._geom_text`
+- Source files: `bo_driver.py` `FoilsGroupMode._geom_text`
   (dual scalar+vector emission), `pipeline.py:506 submit_stage` (where the
   empty-jobdef rc=255 surfaces)
 - Job-log evidence: `/pnfs/mu2e/scratch/users/oksuzian/workflow/default/

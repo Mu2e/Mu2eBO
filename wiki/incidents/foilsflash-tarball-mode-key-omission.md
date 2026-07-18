@@ -34,11 +34,11 @@ loudly instead of silently building uniform holes.
   reported PASS; the GRID worker ships a SEPARATE tarball (the unpatched one) →
   crashed. Local-preflight-vs-grid-tarball env divergence (cf
   [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md)). Also the per-foil **GDML as-built assertion**
-  (autoresearch_bo_michael.py:~2289) that WOULD verify foil radii had `foilsflash`
+  (bo_driver.py:~2289) that WOULD verify foil radii had `foilsflash`
   omitted from its mode tuple, so it never ran (and even if it had, it runs in the
   patched preflight env, so it'd pass — the bug is grid-only).
 - **THREE preflight consumer tuples also lacked foilsflash** (fixed same commit):
-  autoresearch_bo_michael.py ~2289 (GDML per-foil assertion), ~2342 (managed-overlap
+  bo_driver.py ~2289 (GDML per-foil assertion), ~2342 (managed-overlap
   detection), ~2376 (PASS-message text). I had added foilsflash to the FCL-
   *generation* tuples (which preflight FCL path + GDML-dump) but not these
   *consumer* tuples — so the GDML was dumped but never verified.
@@ -51,10 +51,10 @@ loudly instead of silently building uniform holes.
   `…/autoresearch_grid/<cfg>/` which is the staged-INPUTS path.)
 - **General lesson (3rd occurrence):** adding a BO mode as a SUBCLASS inherits
   methods but NOT mode-key/tuple membership — every `*_BY_MODE` dict and every
-  `mode.name in (...)` tuple across pipeline.py + autoresearch_bo_michael.py +
+  `mode.name in (...)` tuple across pipeline.py + bo_driver.py +
   graph/config.py must be audited. Same trap as
   [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md). Audit grep:
-  `grep -nE '"foilsf"' pipeline.py graph/*.py autoresearch_bo_michael.py` and check
+  `grep -nE '"foilsf"' pipeline.py graph/*.py bo_driver.py` and check
   each hit includes the new mode.
 
 ## Cross-links
@@ -62,7 +62,7 @@ loudly instead of silently building uniform holes.
   [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md), [preflight-mode-tuple-prodtarget6d-omission](/incidents/preflight-mode-tuple-prodtarget6d-omission.md),
   [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md)
 - Source files: `pipeline.py` (MUSE_TARBALL_BY_MODE),
-  `autoresearch_bo_michael.py` (preflight consumer tuples ~2289/2342/2376)
+  `bo_driver.py` (preflight consumer tuples ~2289/2342/2376)
 
 ## Open questions / TODO
 - The local-preflight-vs-grid-tarball divergence means preflight CANNOT catch a

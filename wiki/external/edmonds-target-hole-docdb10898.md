@@ -26,7 +26,7 @@ base. Two decks were shared with this project: `main3.pdf` = "Target Hole Simula
 - **DEPLOYED — this is not hypothetical: the experiment ADOPTED Edmonds' holed target.**
   The Run1 stopping-target baseline is the **37-disk / R=21.5 mm / 162 g** holed config
   (the `stoppingTargetHoles_DOE_review_2017.txt` geometry). In this project it is the
-  PINNED foilsflash/foilsf base: `BASE_HOLE_RADIUS_MM=21.5` (`autoresearch_bo_michael.py:695`),
+  PINNED foilsflash/foilsf base: `BASE_HOLE_RADIUS_MM=21.5` (`bo_driver.py:695`),
   emitted as 37× `21.5` in the holeRadii vector. So the ~30% flash mitigation is ALREADY
   BANKED, and the foilsflash base is this HOLED (low-flash) target — NOT solid. To recover
   the +30% "no-hole" flash you would CLOSE the hole (→ Edmonds' 34-disk solid baseline);

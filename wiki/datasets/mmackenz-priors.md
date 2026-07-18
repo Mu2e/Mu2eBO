@@ -36,6 +36,6 @@ last-assignment-wins overrides.
   helical plug despite being in the v100s naming range.
 
 ## Cross-links
-- Consumed by: [bo-michael](/projects/bo-michael.md), [bo-helical](/projects/bo-helical.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)
+- Consumed by: [bo-michael](/projects/bo-michael.md), [bo-helical](/projects/bo-helical.md), [bo-driver](/drivers/bo-driver.md)
 - Source-of-truth: [mmackenz-workflow](/external/mmackenz-workflow.md)
 - Categorical projection: [col5-shield](/concepts/col5-shield.md)

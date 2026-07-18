@@ -57,7 +57,7 @@ along with the metrics and scalarized objective. Used both as the BO history
 - **`leaderboard_bo_michael.tsv`** — [bo-michael](/projects/bo-michael.md) history
   - Columns: `config tsda_rin tsda_halfLength4 holeRadius col5 sob calo alpha obj`
   - Created on first append; header is locked once written
-- **Foils mode → leaderboard mapping (load-bearing; `autoresearch_bo_michael.py:685,935`):**
+- **Foils mode → leaderboard mapping (load-bearing; `bo_driver.py:685,935`):**
   - `--mode foils` (`FoilsMode`) → **`leaderboard_bo_foils_v2.tsv`**; knob cols
     `extra_rIn_up/dn` = **absolute** inner radius (mm). (`v1` = legacy 7D.)
   - `--mode foilsf` (`FoilsFracMode`) → **`leaderboard_bo_foils_v3.tsv`**; knob cols

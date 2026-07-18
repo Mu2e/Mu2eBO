@@ -89,7 +89,7 @@ it, which pushes STMUpstream past the DS2 envelope.
   single load-bearing knob is `ds2.halfLength`; `inDS2Vacuum=true` /
   `hasServicePipes=false` are unrelated to this particular abort.
 - **Fix shipped 2026-06-07 for pot_only stage**:
-  `autoresearch_bo_michael.py:ProdTargetMode.render_proposal` (~line
+  `bo_driver.py:ProdTargetMode.render_proposal` (~line
   1152) no longer appends the `inDS2Vacuum=true / ds2.halfLength=3825
   / hasServicePipes=false` block. The block was copy-pasted from
   FoilsMode/HelicalMode/MichaelMode where it patches a
