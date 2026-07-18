@@ -283,61 +283,25 @@ def node_renew_token(state: RoundState) -> dict:
 
 def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "qnehvi",
                               pending: list | None = None) -> list[tuple]:
-    """Shell into .venv-botorch to run botorch_predict.py; return picks.
+    """Shell into the botorch venv for q picks (thin wrapper on bo.botorch_ask).
 
     Disjoint-venv: closed_loop.py runs under .venv-graph (no botorch); the
-    botorch pickers need .venv-botorch (no langgraph). We round-trip
-    picks through a temp JSON file using botorch_predict.py's
-    --emit-picks-json.
+    botorch pickers need .venv-botorch (no langgraph). bo.botorch_ask owns
+    the subprocess + JSON round-trip; this wrapper pins the venv from
+    config.BOTORCH_VENV_PY (the AUTORESEARCH_BOTORCH_VENV A/B seam) and
+    keeps the historical list-of-tuples return contract.
 
     picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj),
     "qlnei" (single-obj sob), "pareto_sob" (GP-mean sob corner),
     "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
     (~60% qnehvi + ~40% qnparego; recommended for new multi-objective lines).
-
-    Picks come back as JSON list-of-lists; convert to list-of-tuples to match
-    the sklearn-EI path (gp.compute_explore_picks return contract).
+    Rolling mode passes in-flight x_points via `pending` so replacements
+    fantasize over them (X_pending) instead of re-picking a point that's
+    already being measured.
     """
-    import tempfile
-    if not BOTORCH_VENV_PY.exists():
-        raise FileNotFoundError(
-            f"[closed_loop] picker={picker} requested but {BOTORCH_VENV_PY} "
-            f"is missing; install .venv-botorch (all pickers require it)"
-        )
-    with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tf:
-        out_path = Path(tf.name)
-    pend_path: Optional[Path] = None
-    try:
-        cmd = [
-            str(BOTORCH_VENV_PY), str(BOTORCH_PREDICT),
-            "--mode", mode, "--q", str(q),
-            "--round-idx", str(round_idx),
-            "--picker", picker,
-            "--emit-picks-json", str(out_path),
-        ]
-        if pending:
-            # Rolling mode: in-flight x_points ride to the picker via a tmp
-            # JSON so replacements fantasize over them (X_pending) instead of
-            # re-picking a point that's already being measured.
-            with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".json", delete=False) as pf:
-                json.dump([list(x) for x in pending], pf)
-                pend_path = Path(pf.name)
-            cmd += ["--pending-json", str(pend_path)]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=14400)
-        if r.returncode != 0:
-            raise RuntimeError(
-                f"[closed_loop] botorch_predict rc={r.returncode}: "
-                f"stderr={r.stderr.strip()[:400]}"
-            )
-        raw = json.loads(out_path.read_text())
-    finally:
-        for p in (out_path, pend_path):
-            if p is not None:
-                try:
-                    p.unlink()
-                except FileNotFoundError:
-                    pass
+    import bo_driver as bo  # noqa: WPS433  (env-independent; safe pre-stamp)
+    raw = bo.botorch_ask(mode, q, seed_idx=round_idx, picker=picker,
+                         pending=pending, venv_py=BOTORCH_VENV_PY)
     return [tuple(p) for p in raw]
 
 

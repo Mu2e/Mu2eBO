@@ -162,69 +162,38 @@ class TestRemovePendingBeforeAppend(unittest.TestCase):
         self.assertEqual(calls, ["remove_pending", "append_history"])
 
 
-# --- Fix 5: propose_one is_buildable retry -----------------------------------
+# --- Fix 5: propose_one ask path (botorch_ask since 2026-07-18) --------------
 
-class TestProposeOneBuildableRetry(unittest.TestCase):
-    """Issue #5: graph/pipeline_io.propose_one must retry opt.ask() with a
-    penalty tell when is_buildable returns False, up to MAX_RETRY=20. The
-    x_override path must bypass the loop.
+class TestProposeOneAskPath(unittest.TestCase):
+    """propose_one's BO ask goes through bo.botorch_ask (skopt kernel
+    retired 2026-07-18). The x_override path must bypass the ask entirely,
+    and the ask must fantasize over pending + vary its seed via seed_idx
+    (the propose-retry diversity that replaced the skopt re-ask loop).
     """
-    def test_retry_loop_drives_to_buildable_pick(self):
-        # Two unbuildable picks then a buildable one — loop must converge
-        # and emit the third pick.
-        asks = [[1.0], [2.0], [3.0]]
-        is_b = {1.0: False, 2.0: False, 3.0: True}
-
-        class FakeOpt:
-            def __init__(self):
-                self.told = []
-            def ask(self):
-                return list(asks.pop(0))
-            def tell(self, x, y):
-                self.told.append((tuple(x), y))
-
-        opt = FakeOpt()
-        # Reproduce the retry loop's contract.
-        MAX_RETRY = 20
-        penalty_y = 10.0
-        for _ in range(MAX_RETRY):
-            x = opt.ask()
-            if is_b[x[0]]:
-                break
-            opt.tell(list(x), penalty_y)
-
-        self.assertEqual(x, [3.0])
-        self.assertEqual(len(opt.told), 2,
-                         "must penalize each unbuildable pick before re-ask")
-        self.assertEqual(opt.told[0][1], penalty_y)
-
-    def test_x_override_bypasses_retry(self):
-        # If caller passes x_override, no opt.ask / no is_buildable check.
+    def test_x_override_bypasses_ask(self):
         src = (PROJECT_ROOT / "graph" / "pipeline_io.py").read_text()
         m = re.search(r"def propose_one\(.*?\n(.*?)(?=\ndef |\nclass )", src, re.DOTALL)
         self.assertIsNotNone(m, "propose_one not found")
         body = m.group(1)
-        # x_override branch must use `x = list(x_override)` BEFORE the else
-        # that runs the BO ask path. Pattern check: "if x_override is not
-        # None" precedes the ask_buildable call (which holds the retry
-        # budget formerly inline as MAX_RETRY).
         i_override = body.find("x_override is not None")
-        i_ask = body.find("ask_buildable")
+        i_ask = body.find("bo.botorch_ask(")
         self.assertGreater(i_override, -1, "x_override branch missing")
-        self.assertGreater(i_ask, -1, "ask_buildable call missing")
+        self.assertGreater(i_ask, -1, "botorch_ask call missing")
         self.assertLess(
             i_override, i_ask,
             "x_override branch must be evaluated before the BO ask path"
         )
 
-    def test_retry_loop_constants_in_source(self):
-        # Pin retry budget so a silent shrink doesn't slip through.
-        # MAX_RETRY moved to BOMode.PROPOSE_MAX_RETRY in bo_driver.py
-        # (2026-06-06 Option A refactor); both CLI _cmd_propose_locked and
-        # graph propose_one consume it via mode.ask_buildable.
-        src = (PROJECT_ROOT / "core" / "bo_driver.py").read_text()
-        self.assertIn("PROPOSE_MAX_RETRY = 20", src,
-                      "PROPOSE_MAX_RETRY must stay at 20 (matches cmd_propose budget)")
+    def test_ask_passes_pending_and_seed(self):
+        # The ask must (a) forward the pending x-points (X_pending
+        # fantasization — the constant-liar replacement) and (b) forward
+        # seed_idx so node_propose retries draw fresh points.
+        src = (PROJECT_ROOT / "graph" / "pipeline_io.py").read_text()
+        m = re.search(r"bo\.botorch_ask\((.*?)\)", src, re.DOTALL)
+        self.assertIsNotNone(m, "bo.botorch_ask call missing")
+        call = m.group(1)
+        self.assertIn("pending=", call, "pending x-points not forwarded")
+        self.assertIn("seed_idx=seed_idx", call, "seed_idx not forwarded")
 
 
 # --- Follow-on: node_propose re-entry preserves caller-pinned name -----------
@@ -253,9 +222,10 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
         propose_calls = []
         next_name_calls = []
 
-        def fake_propose_one(mode, name, alpha, x_override):
+        def fake_propose_one(mode, name, alpha, x_override, seed_idx=0):
             propose_calls.append({"mode": mode, "name": name, "alpha": alpha,
-                                  "x_override": x_override})
+                                  "x_override": x_override,
+                                  "seed_idx": seed_idx})
             # side_effect is a list of either Exception instances or
             # (x, geom_path) tuples, consumed in order.
             outcome = propose_one_side_effect.pop(0)
@@ -392,7 +362,7 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
             return next(names)
 
         propose_calls = []
-        def fake_propose_one(mode, name, alpha, x_override):
+        def fake_propose_one(mode, name, alpha, x_override, seed_idx=0):
             propose_calls.append({"name": name, "x_override": x_override})
             outcome = side_effect.pop(0)
             if isinstance(outcome, Exception):

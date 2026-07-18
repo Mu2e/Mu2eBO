@@ -7,9 +7,8 @@
 # dead Studio/Streamlit dev overlay — nothing else imported them.)
 langgraph>=0.2.50
 langgraph-checkpoint-sqlite>=1.0.0
-# skopt + scipy are imported via autoresearch_bo_michael.py.
-scikit-optimize>=0.10
-scipy>=1.10
+# (scikit-optimize + scipy removed 2026-07-18 with the skopt propose kernel —
+# every BO ask now shells into the botorch venv via bo_driver.botorch_ask.)
 numpy>=1.24
 # ROOT file reader for bo-prodtarget harvest-pot-only (pot_vd.root TTrees + genCountLogger TH1D).
 uproot>=5

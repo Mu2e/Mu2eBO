@@ -29,6 +29,7 @@ import modes as _modes  # noqa: E402
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (  # noqa: E402
     BO_DRIVER,
+    BOTORCH_VENV_PY,
     DEFAULT_ALPHA,
     DEFAULT_MODE,
     GRID_DATA_ROOT,
@@ -43,12 +44,18 @@ from config import (  # noqa: E402
 
 
 def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
-                x_override: list[float] | None = None):
+                x_override: list[float] | None = None, seed_idx: int = 0):
     """Propose a single config, materialize its geom, append to pending TSV.
 
     If x_override is given, skip the BO ask and use that x directly (used to
     force-evaluate GP-Pareto picks). The pending row is still written so
     concurrent BO proposals see this point as in-flight.
+
+    The BO ask is bo.botorch_ask (botorch-venv subprocess; the picker loads
+    priors+history itself and fantasizes over the pending x-points instead
+    of the retired skopt constant-liar suppression). seed_idx varies the
+    picker seed — node_propose passes its retry counter so a preflight-driven
+    re-propose draws a fresh point instead of the same one.
 
     Returns: (x_point: list[float], geom_path: str). Raises ValueError if the
     config name collides with an existing leaderboard or pending entry.
@@ -63,26 +70,16 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     if x_override is not None:
         x = list(x_override)
     else:
-        priors = mode.load_priors()
-        history = mode.load_history()
-        opt, space = mode.build_optimizer()
-        real_ys, skipped, _ = mode.seed_optimizer(opt, priors, history, pending, alpha)
-        if skipped:
-            # A silent skip here masked a class of bug: when the search space
-            # is widened or narrowed, priors drift out of bounds and disappear
-            # from the seed set with no warning. Count and surface it.
-            print(f"[propose_one {config_name}] seed: fed {len(real_ys)} real "
-                  f"points to GP, skipped {skipped} (outside search bounds)",
-                  file=sys.stderr)
-        # N_crit guard: ask_buildable retries unbuildable picks with a penalty
-        # told back to the GP. x_override bypasses this since the caller chose
-        # the point intentionally.
-        xs, _ = mode.ask_buildable(opt, real_ys, q=1)
+        xs = bo.botorch_ask(mode_name, q=1, seed_idx=seed_idx,
+                            pending=[px for _, px in pending],
+                            venv_py=BOTORCH_VENV_PY)
         x = xs[0]
         if not mode.is_buildable(x):
-            print(f"WARN: {mode.PROPOSE_MAX_RETRY} retries hit; submitting "
-                  f"unbuildable pick {list(x)} (preflight will reject)",
-                  file=sys.stderr)
+            # x_override bypasses this check since the caller chose the point
+            # intentionally; here the pick came from the GP — surface it and
+            # let preflight reject it downstream.
+            print(f"WARN: submitting unbuildable pick {list(x)} "
+                  f"(preflight will reject)", file=sys.stderr)
     geom_path = mode.render_proposal(config_name, x)
     # Stage geom into pipeline.py's per-config work tree (mirror cmd_propose in
     # bo_driver.py:567-570; pipeline.py's submit checks for this
@@ -91,8 +88,8 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     work_geom_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(geom_path, work_geom_dir / f"autoresearch_{config_name}_geom.txt")
     mode.append_pending(config_name, x, alpha)
-    # Coerce numpy scalars to native Python types. skopt Integer dims return
-    # np.int64 which is NOT msgpack-serializable, and LangGraph's SqliteSaver
+    # Coerce numpy scalars to native Python types. np.int64 is NOT
+    # msgpack-serializable, and LangGraph's SqliteSaver
     # checkpointer (graph/run.py default) calls ormsgpack on the state dict —
     # so an unguarded np.int64 in x_point bubbles up as
     # `TypeError: Type is not msgpack serializable: numpy.int64` at end-of-run.

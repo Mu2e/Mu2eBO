@@ -60,16 +60,20 @@ def node_propose(state: BOIterationState) -> dict:
     """Ask the BO model for the next x; materialize the geom file.
 
     If state["x_point"] is already populated, skip the BO ask and force that
-    point (used to evaluate GP-Pareto picks).
+    point (used to evaluate GP-Pareto picks). The propose attempt counter is
+    passed as the picker seed_idx so each preflight-driven retry draws a
+    fresh point (the seed varies) instead of re-asking for the same one.
     """
     mode = state.get("mode", DEFAULT_MODE)
     alpha = state.get("alpha", DEFAULT_ALPHA)
     caller_pinned = bool(state.get("config_name"))
     name = state.get("config_name") or pio.next_config_name(mode)
     forced = state.get("x_point") or None
+    seed_idx = state.get("attempts", {}).get("propose", 0)
 
     try:
-        x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced)
+        x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
+                                  seed_idx=seed_idx)
     except ValueError:
         if caller_pinned:
             # Re-entry with the same caller-pinned name (preflight
@@ -82,13 +86,15 @@ def node_propose(state: BOIterationState) -> dict:
             # the closed-loop --name-prefix contract and trip the
             # config_name swap guard in graph/run.py.
             bo.MODES[mode].remove_pending(name)
-            x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced)
+            x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
+                                      seed_idx=seed_idx)
         else:
             # Auto-named path (no --config-name on the CLI): a true name
             # collision means a concurrent runner picked the same auto-name;
             # fork to the next free name.
             retry_name = pio.next_config_name(mode)
-            x, geom = pio.propose_one(mode, retry_name, alpha=alpha, x_override=forced)
+            x, geom = pio.propose_one(mode, retry_name, alpha=alpha,
+                                      x_override=forced, seed_idx=seed_idx)
             name = retry_name
 
     return {
@@ -117,8 +123,9 @@ def node_render_preflight(state: BOIterationState) -> dict:
       without a regex-matchable G4 init signature (OOM under concurrent
       preflight load, transient FS, host load). Treated as retriable
       2026-05-29 after foilsX04 incident where 20/20 children died here;
-      each propose retry draws a different `x` from skopt so a true geom
-      bug doesn't infinite-loop. Bounded by MAX_PROPOSE_RETRIES (graph/config.py).
+      each propose retry bumps seed_idx so the botorch ask draws a
+      different `x` and a true geom bug doesn't infinite-loop. Bounded by
+      MAX_PROPOSE_RETRIES (graph/config.py).
     - fail_init → terminal (real G4 init failure; geom is broken)
     """
     mode = state["mode"]

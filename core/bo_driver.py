@@ -36,6 +36,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 # ModeSpec registry (ADR-0002): preflight policy flags replace the six
 # hand-listed mode tuples that bred the preflight-mode-tuple-omission
@@ -117,11 +118,20 @@ class Point:
 
 
 def to_py_scalars(x) -> list:
-    """Coerce numpy scalars (np.int64/np.float64 from skopt Integer dims /
-    Sobol init) to native Python types for JSON/msgpack. Shared by
-    append_pending and graph/pipeline_io.propose_one — see
-    wiki/incidents/langgraph-checkpoint-numpy-int64.md."""
+    """Coerce numpy scalars (np.int64/np.float64) to native Python types for
+    JSON/msgpack. Shared by append_pending and graph/pipeline_io.propose_one —
+    see wiki/incidents/langgraph-checkpoint-numpy-int64.md."""
     return [v.item() if hasattr(v, "item") else v for v in x]
+
+
+class SpaceDim(NamedTuple):
+    """One search-space dimension. Plain data (skopt kernel retired
+    2026-07-18) — the picker consumes bounds from modes.SPECS directly;
+    this exists for the KNOB_NAMES↔bounds lockstep check and for printing."""
+    name: str
+    low: float
+    high: float
+    is_int: bool
 
 
 # ============================================================================
@@ -133,20 +143,13 @@ class BOMode(ABC):
 
     Each subclass owns its pinned constants and its 6 mode-specific methods
     (load_priors, build_space, _geom_text, parse_geom, format_row,
-    load_history_row). Shared concerns (history I/O, optimizer construction,
+    load_history_row). Shared concerns (history I/O, pending TSV,
     proposal file write) are concrete on this base class.
     """
     name: str
     leaderboard: Path
     proposal_dir: Path
     preflight_dir: Path
-
-    # Skopt initial random-init budget. Default 0 because every existing mode
-    # pre-loads dozens of priors from mmackenz/geom_params.tsv. Override in
-    # subclasses with no free priors (e.g. ProdTargetMode) so skopt's first
-    # asks return Sobol-random points before the GP kicks in. See
-    # wiki/incidents/prodtarget-propose-skopt-empty-init.md.
-    N_INITIAL_POINTS: int = 0
 
     # --- abstract: each concrete mode implements ---
     @abstractmethod
@@ -180,15 +183,13 @@ class BOMode(ABC):
                      x=[float(row[c]) for c in self.KNOB_NAMES],
                      sob=float(row["sob"]), calo=float(row[self.CALO_COL]))
 
-    # Search space. The numeric modes share this: skopt dims built from the
-    # ModeSpec registry box (modes.SPECS[name].bounds_lo/hi/int_dims) paired
-    # with a per-mode KNOB_NAMES tuple. michael's Categorical (COL5) space
-    # overrides it. KNOB_NAMES must line up 1:1 with the registry bounds — a
-    # mismatch is a loud error, never a silently-truncated space.
+    # Search space: SpaceDim rows from the ModeSpec registry box
+    # (modes.SPECS[name].bounds_lo/hi/int_dims) paired with the per-mode
+    # KNOB_NAMES tuple. KNOB_NAMES must line up 1:1 with the registry
+    # bounds — a mismatch is a loud error, never a silently-truncated space.
     KNOB_NAMES: tuple = ()
 
-    def build_space(self):
-        from skopt.space import Real, Integer
+    def build_space(self) -> list[SpaceDim]:
         spec = _modes.SPECS[self.name]
         if len(self.KNOB_NAMES) != len(spec.bounds_lo):
             raise ValueError(
@@ -196,8 +197,7 @@ class BOMode(ABC):
                 f"bounds ({len(spec.bounds_lo)})")
         int_dims = set(spec.int_dims or ())
         return [
-            (Integer(int(lo), int(hi), name=nm) if i in int_dims
-             else Real(lo, hi, name=nm))
+            SpaceDim(nm, float(lo), float(hi), i in int_dims)
             for i, (lo, hi, nm) in enumerate(
                 zip(spec.bounds_lo, spec.bounds_hi, self.KNOB_NAMES))
         ]
@@ -250,83 +250,6 @@ class BOMode(ABC):
                 if new_file:
                     f.write(header)
                 f.write(line)
-
-    def build_optimizer(self):
-        from skopt import Optimizer
-        space = self.build_space()
-        return Optimizer(
-            dimensions=space,
-            base_estimator="GP",
-            acq_func="EI",
-            n_initial_points=self.N_INITIAL_POINTS,
-            random_state=42,
-        ), space
-
-    # --- propose-time shared kernel (see wiki/concepts/closed-loop-bo-design.md) ---
-
-    # Pinned by tests/test_audit_fixes.py: the N_crit guard must bound its
-    # retries so a pathological constraint geometry cannot loop forever.
-    # In practice the helical constraint shaves a thin slice of (small-dx,
-    # large-dy·angle) and converges in <5 retries.
-    PROPOSE_MAX_RETRY = 20
-
-    def seed_optimizer(self, opt, priors, history, pending, alpha):
-        """Feed priors+history as real points; CL-mean-suppress pending.
-
-        Returns (real_ys, n_skipped, n_pending_suppressed). Callers print
-        in their own preferred style — the helper is silent so it composes
-        with both the chatty CLI propose and the quieter graph node.
-
-        Out-of-bounds opt.tell() raises ValueError; we count those rather
-        than swallowing silently. After a search-space change, the count
-        is the only signal that priors have drifted out of the new box.
-        """
-        real_ys = []
-        n_skipped = 0
-        for p in priors + history:
-            y = -p.obj(alpha)
-            try:
-                opt.tell(p.x, y)
-                real_ys.append(y)
-            except ValueError:
-                n_skipped += 1
-        n_suppressed = 0
-        if pending and real_ys:
-            fake_y = sum(real_ys) / len(real_ys)
-            for _, px in pending:
-                try:
-                    opt.tell(px, fake_y)
-                    n_suppressed += 1
-                except ValueError:
-                    pass
-        return real_ys, n_skipped, n_suppressed
-
-    def ask_buildable(self, opt, real_ys, *, q=1, strategy=None):
-        """opt.ask() in a bounded retry loop, rejecting unbuildable picks.
-
-        Returns (xs, n_rejected). `xs` always has length `q`. If the retry
-        budget is exhausted, returns the last batch (caller logs the warning
-        and downstream preflight rejects unbuildable picks). The penalty
-        magnitude is `max(real_ys) + 1` so it dominates the real objective
-        without being arbitrarily large (which can destabilize the GP fit).
-        See wiki/concepts/closed-loop-bo-design.md for the load-bearing
-        N_crit guard contract.
-        """
-        penalty_y = max(real_ys) + 1.0 if real_ys else 1e6
-        xs = []
-        n_rejected = 0
-        for _ in range(self.PROPOSE_MAX_RETRY):
-            xs = [opt.ask()] if q == 1 else opt.ask(n_points=q, strategy=strategy)
-            bad = [x for x in xs if not self.is_buildable(x)]
-            if not bad:
-                return xs, n_rejected
-            n_rejected += len(bad)
-            for x in bad:
-                try:
-                    opt.tell(list(x), penalty_y)
-                except ValueError:
-                    pass
-        return xs, n_rejected
 
     # --- batch BO pending-state (see wiki/concepts/batch-bo.md) ---
     def pending_path(self) -> Path:
@@ -672,8 +595,6 @@ class FoilsFlashMode(FoilsFracMode):
     proposal_dir = ROOT / "bo_work" / "proposals" / "foilsflash"
     preflight_dir = ROOT / "bo_work" / "preflight" / "foilsflash"
 
-    # Fresh line, no priors -> Sobol-seed the first skopt-fallback round.
-    N_INITIAL_POINTS = 10
 
     # Search space = FoilsFracMode's (inherited KNOB_NAMES) but with a widened
     # halfThickness floor of 0.002 mm (=4 µm full, vs the 0.01 mm=20 µm the
@@ -754,9 +675,6 @@ class FoilsGroupMode(BOMode):
         for nm in (f"rOut_g{g}", f"hT_g{g}", f"f_g{g}"))
     KNOB_FMTS = ("{:.4f}", "{:.6f}", "{:.4f}") * len(GROUP_SIZES)
 
-    # 0 priors -> need a Sobol init batch before any GP fit (mirrors
-    # ProdTargetMode pattern; see prodtarget-propose-skopt-empty-init incident).
-    N_INITIAL_POINTS = 10
 
     def load_priors(self):
         return []  # fresh 12D space — no upstream rows to project
@@ -892,10 +810,6 @@ class ProdTargetMode(BOMode):
     proposal_dir = ROOT / "bo_work" / "proposals" / "prodtarget"
     preflight_dir = ROOT / "bo_work" / "preflight" / "prodtarget"
 
-    # No free priors (other modes load ~100 from mmackenz/geom_params.tsv).
-    # Let skopt run its built-in Sobol-init for the first 10 asks so the GP
-    # has something to fit. See wiki/incidents/prodtarget-propose-skopt-empty-init.md.
-    N_INITIAL_POINTS = 10
 
     # Stickman defaults (from ProductionTarget_Stickman_v1_0.txt).
     DEFAULT_N = 35
@@ -1244,6 +1158,79 @@ MODES: dict[str, BOMode] = {
 
 
 # ============================================================================
+# BO ask — botorch subprocess (the single ask engine since the skopt
+# propose kernel retired 2026-07-18)
+# ============================================================================
+
+def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
+                picker: str = "qnehvi", pending: list | None = None,
+                venv_py: Path | None = None,
+                timeout_s: int = 14400) -> list[list]:
+    """Ask the botorch picker for q points; returns a list of x-lists.
+
+    Shells into the botorch venv to run botorch_predict.py (this file's
+    sibling) and round-trips picks through a temp JSON file. Every BO ask
+    goes through here: CLI propose, graph propose_one, and the closed-loop
+    picker (which passes its own picker/venv). The picker loads priors +
+    leaderboard history itself.
+
+    seed_idx maps to --round-idx (Sobol/acq seed = 42 ^ idx), so retries
+    with a bumped seed_idx draw fresh points. `pending` x-lists ride via
+    --pending-json: the acquisition fantasizes over them (X_pending), which
+    replaces the retired skopt constant-liar suppression.
+
+    venv_py: python interpreter to use; default resolves the
+    AUTORESEARCH_BOTORCH_VENV env seam against the project root (same rule
+    as graph/config.py BOTORCH_VENV_PY).
+    """
+    import subprocess
+
+    if venv_py is None:
+        venv_py = (ROOT
+                   / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv-botorch")
+                   / "bin" / "python")
+    venv_py = Path(venv_py)
+    if not venv_py.exists():
+        raise FileNotFoundError(
+            f"[botorch_ask] picker venv python missing: {venv_py} "
+            f"(install .venv-botorch or set AUTORESEARCH_BOTORCH_VENV)")
+
+    predict = Path(__file__).resolve().parent / "botorch_predict.py"
+    with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tf:
+        out_path = Path(tf.name)
+    pend_path = None
+    try:
+        cmd = [
+            str(venv_py), str(predict),
+            "--mode", mode_name, "--q", str(q),
+            "--round-idx", str(seed_idx),
+            "--picker", picker,
+            "--emit-picks-json", str(out_path),
+        ]
+        if pending:
+            with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", delete=False) as pf:
+                json.dump([list(x) for x in pending], pf)
+                pend_path = Path(pf.name)
+            cmd += ["--pending-json", str(pend_path)]
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=timeout_s)
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"[botorch_ask] botorch_predict rc={r.returncode}: "
+                f"stderr={r.stderr.strip()[:400]}")
+        raw = json.loads(out_path.read_text())
+    finally:
+        for p in (out_path, pend_path):
+            if p is not None:
+                try:
+                    p.unlink()
+                except FileNotFoundError:
+                    pass
+    return [list(p) for p in raw]
+
+
+# ============================================================================
 # Subcommands
 # ============================================================================
 
@@ -1257,7 +1244,6 @@ def cmd_propose(args):
 
 
 def _cmd_propose_locked(args, mode, names):
-    priors = mode.load_priors()
     history = mode.load_history()
     pending = mode.load_pending()
 
@@ -1269,28 +1255,16 @@ def _cmd_propose_locked(args, mode, names):
         return 1
 
     q = len(names)
-    print(f"[{mode.name}] seeding GP: {len(priors)} priors + {len(history)} history "
-          f"+ {len(pending)} pending (in-flight)")
+    space = mode.build_space()
+    print(f"[{mode.name}] botorch ask: {len(history)} history rows, "
+          f"{len(pending)} pending (in-flight, fantasized as X_pending)")
 
-    opt, space = mode.build_optimizer()
-    real_ys, skipped, suppressed = mode.seed_optimizer(opt, priors, history, pending, args.alpha)
-    print(f"  fed {len(real_ys)} real points to GP ({skipped} skipped: outside search bounds)")
-    if pending and real_ys:
-        fake_y = sum(real_ys) / len(real_ys)
-        print(f"  CL-suppressed {suppressed}/{len(pending)} pending points "
-              f"(fake y = {fake_y:+.3f})")
-
-    xs, n_rejected = mode.ask_buildable(opt, real_ys, q=q, strategy="cl_mean")
+    xs = botorch_ask(mode.name, q=q, pending=[px for _, px in pending])
     n_unbuildable = sum(1 for x in xs if not mode.is_buildable(x))
     if n_unbuildable:
-        print(f"WARN: {mode.PROPOSE_MAX_RETRY} retries hit; returning batch with "
-              f"{n_unbuildable} unbuildable picks",
-              file=sys.stderr)
-    if n_rejected:
-        penalty_y = max(real_ys) + 1.0 if real_ys else 1e6
-        print(f"  N_crit guard: rejected {n_rejected} unbuildable proposal(s), "
-              f"told GP penalty y={penalty_y:+.3f}")
-    print(f"\nProposed batch of {q} (strategy={'cl_mean' if q > 1 else 'sequential'}):")
+        print(f"WARN: batch contains {n_unbuildable} unbuildable pick(s) "
+              f"(preflight will reject them)", file=sys.stderr)
+    print(f"\nProposed batch of {q}:")
 
     for name, x in zip(names, xs):
         print(f"\n  '{name}':")

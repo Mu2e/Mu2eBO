@@ -40,23 +40,21 @@ class TestRegistryCompleteness(unittest.TestCase):
 
 class TestBoundsLockstep(unittest.TestCase):
     def test_build_space_matches_spec(self):
-        # THE lockstep test: driver build_space is the behavioral source of
-        # the search box; the spec is the data copy every other consumer
-        # (botorch picker, cloud plots) reads. They must be identical.
+        # THE lockstep test: build_space pairs the driver's KNOB_NAMES with
+        # the registry bounds and must raise loudly on a length mismatch;
+        # the SpaceDim rows it returns must mirror the spec exactly (the
+        # spec is what the botorch picker and cloud plots read).
         import bo_driver as bo
         for name, spec in modes.SPECS.items():
             dims = bo.MODES[name].build_space()
-            if any(type(d).__name__ == "Categorical" for d in dims):
-                self.assertIsNone(spec.bounds_lo,
-                                  f"{name}: categorical space must carry None bounds")
-                continue
-            lo = tuple(float(d.low) for d in dims)
-            hi = tuple(float(d.high) for d in dims)
-            intd = tuple(i for i, d in enumerate(dims)
-                         if type(d).__name__ == "Integer")
+            lo = tuple(d.low for d in dims)
+            hi = tuple(d.high for d in dims)
+            intd = tuple(i for i, d in enumerate(dims) if d.is_int)
             self.assertEqual(spec.bounds_lo, lo, name)
             self.assertEqual(spec.bounds_hi, hi, name)
             self.assertEqual(spec.int_dims, intd, name)
+            self.assertEqual(tuple(d.name for d in dims),
+                             tuple(bo.MODES[name].KNOB_NAMES), name)
 
     def test_leaderboard_row_roundtrips(self):
         # format_row writes the leaderboard header + line; load_history_row
@@ -73,10 +71,7 @@ class TestBoundsLockstep(unittest.TestCase):
         for name, mode in bo.MODES.items():
             x0 = []
             for d in mode.build_space():
-                t = type(d).__name__
-                if t == "Categorical":
-                    x0.append(d.categories[0])
-                elif t == "Integer":
+                if d.is_int:
                     x0.append(int(round((d.low + d.high) / 2)))
                 else:
                     x0.append((d.low + d.high) / 2.0)

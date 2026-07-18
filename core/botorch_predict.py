@@ -107,9 +107,6 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
                 continue  # log10 undefined; rare but possible on broken harvest
             X_rows.append([float(v) for v in p.x])
             Y_rows.append([p.sob, -math.log10(p.calo)])
-    if cur_box and mode in ("prodtarget", "prodtarget6d"):
-        print(f"[botorch_predict] current-box-only: kept {len(X_rows)} rows "
-              f"tmax>{tmax_min}", flush=True)
     lo = torch.tensor(spec["lo"], device=DEVICE)
     hi = torch.tensor(spec["hi"], device=DEVICE)
     bounds = torch.stack([lo, hi], dim=0)
