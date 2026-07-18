@@ -5,6 +5,10 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-07-18
+
+- updated Tier 1 cleanup EXECUTED: CURRENT_BOX_ONLY seam deleted, mock_metrics 0.5-fallback → ValueError, 3 stale comments fixed; audit claims found stale on re-verify (format_row dedup already done + ProdTarget divergence deliberate; helical regexes already pruned; 5-PNG claim refuted — all referenced; wal test already tracked) — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+
 ## 2026-07-17
 
 - updated pending/ MERGED into leaderboards/ (in-flight half of the same record lifecycle; one-seam pending_path() change, 8 untracked TSVs moved, locks co-locate; file-level status-column merge rejected — schema + atomicity); root now 8 dirs — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)

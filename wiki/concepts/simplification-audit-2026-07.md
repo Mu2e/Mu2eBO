@@ -6,7 +6,7 @@ description: 'verified delete/keep map: ~490 L safe to delete (streamlit overlay
   >half of plausible deletions OVERTURNED with recorded refutations (prodtarget/foilsg/ipa
   live, deck-trio destructive, skopt build_space is the lockstep truth source)'
 status: active
-timestamp: '2026-07-17'
+timestamp: '2026-07-18'
 ---
 
 # Simplification audit 2026-07 — verified delete/keep map
@@ -17,8 +17,9 @@ per-candidate verification → completeness critic) of what code is non-critical
 48 raw findings → 32 candidates; verification OVERTURNED more than half of the
 plausible-looking deletions — the KEEP reasons below are load-bearing and should
 stop future sessions from re-proposing the same deletions. Verified-safe
-deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
-(user decision pending as of 2026-07-17).
+deletions total ~490 lines + 5 dep pins. **EXECUTED through 2026-07-18** —
+see "Tier 1 execution" below for the completion map and which audit claims
+turned out stale.
 
 ## Key facts — verified SAFE_DELETE (ready to execute)
 - **`graph_app/streamlit_app.py` + `langgraph.json` + `.langgraph_api/`** (~190 L):
@@ -133,6 +134,36 @@ deletions total ~490 lines + 5 dep pins; nothing has been deleted yet
   (emitted); ~30 gitignored .bak/.lock sediment files at root; stale
   retired-feature comments at `pipeline.py:425`, `pipeline_io.py:146-150`,
   `botorch_predict.py:387,475`.
+
+## Key facts — Tier 1 execution (2026-07-18)
+
+Remaining mechanical batch executed after the reorg week. **Done today:**
+- `CURRENT_BOX_ONLY`/`TMAX_MIN` env seam deleted (`botorch_predict.py`,
+  ~18 L): pt6d08 one-shot, no consumers outside dated wiki/deck prose.
+- `mock_metrics` vestigial 0.5-fallback (michael-Categorical remnant)
+  replaced with a loud ValueError on dim mismatch (`graph/pipeline_io.py`).
+- 3 stale comments fixed: sourced_env docstring said EdepAna comes "from
+  mmackenz's run1b workspace" (contradicted the 2026-06-26 own-build
+  switch); picker docstring advertised nonexistent `--no-run1b-stage` flag
+  (real mechanism: closed_loop stamps `AUTORESEARCH_NO_RUN1B=1`).
+
+**Audit claims found STALE (already executed earlier, or refuted):**
+- format_row/load_history_row dedup: FoilsG/IPA/PT6D copies were already
+  deduped in the modes refactor; the surviving ProdTarget-family override
+  is a DELIBERATE schema divergence (mu_per_POT/edep/peak-dose columns),
+  documented at the base class. Not a dedup target.
+- SURFACE_OVERLAP_MANAGED helical alternatives: already pruned in the
+  2026-07-12/17 retirement sweep (comment at the regex records it).
+- "5 unreferenced docs/ PNGs": refuted 2026-07-18 — every tracked docs/
+  PNG has ≥1 live referencing deck/wiki page (the 1-ref ones are wiki
+  figure→generator catalog entries, which count).
+- test_wal_multiwriter_stress.py: already committed (rode with 18513a4).
+- Also previously executed: streamlit overlay + langgraph.json,
+  analyze_bo_helical.py, PREFLIGHT_FCL_TEMPLATE, --mock default flip,
+  launch-bo skill + closed-loop-launch.md, list_threads.sh.
+- Still open: remote branch `origin/fix-closed-loop-failure-modes` (user
+  push required); `.claude/commands/closed-loop-status.md` (looked generic
+  on inspection, not obviously stale — reaudit before deleting).
 
 ## Key facts — root .py / .tsv reorganization (2026-07-17)
 
