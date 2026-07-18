@@ -142,17 +142,15 @@ def mock_metrics(x_point: list[float], mode: str = DEFAULT_MODE) -> dict:
     Dimension-generic: normalizes each knob against the mode's registry
     bounds (modes.SPECS[mode].bounds_lo/hi), so every numeric mode works
     (5D ipa … 12D foilsg). sob peaks at mid-range of each knob; calo grows
-    with the last two normalized knobs ("more material"). Knobs without
-    numeric bounds fall back to a neutral 0.5 (vestigial — michael's
-    Categorical space was the only user, retired 2026-07-12).
+    with the last two normalized knobs ("more material").
     """
     import math
     spec = _modes.SPECS[mode]
     lo, hi = spec.bounds_lo, spec.bounds_hi
-    if lo is not None and hi is not None and len(lo) == len(x_point):
-        u = [(v - lo[i]) / (hi[i] - lo[i]) for i, v in enumerate(x_point)]
-    else:
-        u = [0.5] * max(len(x_point), 2)
+    if len(lo) != len(x_point):
+        raise ValueError(f"mock_metrics: x_point has {len(x_point)} dims, "
+                         f"mode {mode!r} registry bounds have {len(lo)}")
+    u = [(v - lo[i]) / (hi[i] - lo[i]) for i, v in enumerate(x_point)]
     # sob: gaussian bump centered at 0.5 in each dim.
     r2 = sum((ui - 0.5) ** 2 for ui in u)
     sob = 0.9 * math.exp(-2.5 * r2) + 0.05

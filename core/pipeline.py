@@ -421,8 +421,8 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
 
     Use for invoking mu2ejobdef / mu2ejobsub from Python so the child process
     sees the right PATH, MU2E_*_PATH, etc. Set with_muse=True for the harvest
-    step which needs the autoresearch-built EdepAna module from mmackenz's
-    run1b workspace.
+    step, which needs the EdepAna module built into our own autoresearch_muse
+    work area (mmackenz's copy went away at his p094→p101 bump, 2026-06-26).
     """
     if with_muse:
         # Use our own autoresearch_muse work area (same one that produces the

@@ -75,24 +75,10 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
     history = bo_mode.load_history()
     seeds = priors + history
 
-    # Optional: restrict the prodtarget fit to the current t-upper box (env-gated).
-    # Set AUTORESEARCH_CURRENT_BOX_ONLY=1 to keep only rows whose max thickness
-    # control point (x dims 3,4,5 = t0,t1,t2) exceeds AUTORESEARCH_TMAX_MIN
-    # (default 7.0) — i.e. the t-upper=8 regime. Lets a closed-loop refit the
-    # GP on just the raised-box evals instead of the range-compressing full
-    # history. Inherited by this picker subprocess from the closed_loop parent
-    # env. See wiki/concepts/gp-cloud-rendering.md.
-    cur_box = os.environ.get("AUTORESEARCH_CURRENT_BOX_ONLY", "").strip().lower() \
-        not in ("", "0", "false", "no")
-    tmax_min = float(os.environ.get("AUTORESEARCH_TMAX_MIN", "7.0"))
-
     X_rows = []
     Y_rows = []
     for p in seeds:
         if mode in ("prodtarget", "prodtarget6d"):
-            if cur_box and max(float(p.x[3]), float(p.x[4]),
-                               float(p.x[5])) <= tmax_min:
-                continue
             # Pareto objectives: maximize mu_per_POT, minimize the right
             # thermal proxy. Prefer peak specific dose [Gy/POT] (peak
             # plate, scales as 1/rOut^2 — the dominant thermal coupling);
@@ -472,12 +458,13 @@ def compute_explore_picks(q: int = 5,
                           picker: str = "qnehvi",
                           x_pending: list | None = None,
                           ) -> list[tuple]:
-    """Explore-pick engine (successor of the retired off-repo skopt shims).
+    """Explore-pick engine.
 
     picker = "qnehvi" (default, multi-objective Pareto-HV), "qlnei"
     (single-objective qLogNoisyExpectedImprovement on sob only — drops calo
-    entirely; pair with --no-run1b-stage on the closed-loop side to actually
-    save grid time), "pareto_sob" (GP-mean sob corner), "qnparego"
+    entirely; closed_loop stamps AUTORESEARCH_NO_RUN1B=1 so the DS-off stage
+    is skipped and the grid time is actually saved), "pareto_sob"
+    (GP-mean sob corner), "qnparego"
     (qLogNEI over random Chebyshev scalarizations — spreads across the whole
     front) or "hybrid" (~60% qnehvi + ~40% qnparego; recommended for new
     multi-objective lines). qnparego/hybrid use the same 2-objective path as
