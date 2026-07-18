@@ -8,7 +8,8 @@ description: 'EleBeamCat Run1Baa moved persistent→tape mid-campaign (2026-07-0
 status: resolved
 status_note: '(MuBeamCat recurrence fixed 6906cb8 + verified: foilsflash16 mubeam
   cluster 70879403 submitted clean on tape URLs 2026-07-13)'
-timestamp: '2026-07-13'
+timestamp: '2026-07-17'
+updated_note: recovery-recipe lock path updated after pending/ merged into leaderboards/
 ---
 
 # EleBeamCat persistent→tape migration wipes out a whole elebeam round
@@ -80,7 +81,8 @@ needs resubmission.
   direct-CLI path is not — TODO add the guard in FoilsFlashMode, post-
   campaign). Cleanup recipe: quarantine rows to a sidecar TSV + restore the
   consumed pending entries (name/[x]/alpha/ts format) under
-  `flock locks/pending_bo_foilsflash.tsv.lock`; evaluate consumes pending at
+  `flock leaderboards/locks/pending_bo_foilsflash.tsv.lock` (pending TSVs
+  merged into `leaderboards/` 2026-07-17); evaluate consumes pending at
   append so re-evaluate NEEDS them restored. Recovery v2 guards with a
   flash-null check before calling evaluate.
 - **Post-hoc row append (children dead):** after

@@ -7,6 +7,7 @@ superseded, linted.
 
 ## 2026-07-17
 
+- updated pending/ MERGED into leaderboards/ (in-flight half of the same record lifecycle; one-seam pending_path() change, 8 untracked TSVs moved, locks co-locate; file-level status-column merge rejected — schema + atomicity); root now 8 dirs — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 - updated DRIVER RENAMED autoresearch_bo_michael.py → core/bo_driver.py (michael mode retired 2026-07-12, name was a fossil of the bo-michael line); token-swept 12 repo code files + 56 wiki pages + 13 off-repo plotters; wiki page autoresearch-bo-michael.md → bo-driver.md; projects/bo-michael.md KEPT (historical record); 158 tests green + CLI/graph/load_history smokes — [bo-driver](/drivers/bo-driver.md)
 - updated swept historical graph_data/ log-path refs (10 incident/project pages) to /data; LEFT .sqlite refs (checkpoint is /tmp not graph_data) + /app CephFS-repro refs; caught+fixed closed-loop-runner:452 mispointing CHECKPOINT_DB at /data (it's /tmp/<user>) — [closed-loop-runner](/drivers/closed-loop-runner.md)
 - updated graph_data/ RELOCATED off /app → /data autoresearch_graph_data/ (single GRAPH_DATA seam config.py:13; 4 skills + wal-stress-test + closed-loop-runner repointed; 158 tests green, path-agnostic via mocks) — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [closed-loop-runner](/drivers/closed-loop-runner.md)

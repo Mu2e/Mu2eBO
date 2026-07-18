@@ -331,7 +331,7 @@ class BOMode(ABC):
 
     # --- batch BO pending-state (see wiki/concepts/batch-bo.md) ---
     def pending_path(self) -> Path:
-        return self.leaderboard.parent.parent / "pending" / f"pending_bo_{self.name}.tsv"
+        return self.leaderboard.parent / f"pending_bo_{self.name}.tsv"
 
     def load_pending(self) -> list[tuple[str, list]]:
         pp = self.pending_path()

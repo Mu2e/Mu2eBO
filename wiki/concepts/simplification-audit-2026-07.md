@@ -141,6 +141,14 @@ coupling below is real but was fully resolved in one verified pass:
 - 5 modules → `core/`; 13 leaderboards → `leaderboards/`; 8 pending →
   `pending/`. Lock anchors now regenerate co-located (`leaderboards/locks/`,
   `pending/locks/`) since `_lock_path` is relative to the target's parent.
+  **SUPERSEDED same-day:** `pending/` merged into `leaderboards/` (pending
+  TSVs are the in-flight half of the same record lifecycle; one-seam change
+  at `pending_path()`, gitignore rule is name-based so untracked status
+  follows; locks now all under `leaderboards/locks/`). Root is 8 dirs.
+  File-level merge (status column) REJECTED: schema mismatch (4 vs ~11
+  cols), leaderboard schema hardcoded in ~9 literals + 13 off-repo
+  plotters, and the crash-safe remove-pending-before-append ordering would
+  become an in-place row mutation under concurrent flock writers.
 - **Import wiring** (bare `import modes` etc. unchanged — only the sys.path
   target moved): `core` added to sys.path in `graph/config.py` (top, before
   `import modes`), `graph/nodes.py`, `graph/pipeline_io.py:22` (was hardcoded
