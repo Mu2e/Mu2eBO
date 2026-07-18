@@ -4,7 +4,7 @@ title: closed-loop-runner — multi-round Pareto-pick BO driver
 description: 'multi-round Pareto-pick BO driver: wraps q parallel graph-runner children,
   refits GP between rounds'
 status: active
-timestamp: '2026-07-15'
+timestamp: '2026-07-17'
 updated_note: pgrep-self-match PID trap; foilsflash18 launched on production defaults
 ---
 
@@ -102,7 +102,7 @@ in this phase.
   100×5000 because pot_only jobs are heavy (full PT G4 + NIEL SD + PyROOT StepPointMC
   harvest). Dominant per-round cost is grid run + stage-out + harvest-poll, NOT the BO
   refit (seconds) or submit (minutes). Derive fresh from child-log birth times:
-  `stat -c %w graph_data/closed_loop_logs/<prefix>R0{0,1}_00.log`.
+  `stat -c %w /exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<prefix>R0{0,1}_00.log`.
 - **foilsflash per-stage + per-eval wall (measured foilsflash04 R0, 2026-07-01):** per eval
   **~4.5–5 h**; round wall **~5–6 h** (slowest of q=10). Stage boundaries = `<stage>_cluster.txt`
   (submit) → `<stage>_outputs.txt` (land) mtimes under `GRID/<cfg>/state/`:
@@ -346,7 +346,7 @@ in this phase.
   that protects against forgetting.
 - **Stop semantics**:
   - **Clean stop**: `touch
-    /exp/mu2e/app/users/oksuzian/autoresearch/graph_data/STOP_CLOSED_LOOP`.
+    /exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP`.
     Both `barrier` and `decide_next` poll this flag. In-flight children
     continue to completion (subprocess isolation); the parent exits at the
     next barrier poll or round boundary.
@@ -449,14 +449,14 @@ in this phase.
     `--min-spacing` setting suggests.
 - **WAL gate** (`[closed-loop-bo-design](/concepts/closed-loop-bo-design.md)` revision #1, #6): the outer
   graph and q children all write to the same
-  `graph_data/checkpoints.sqlite`. WAL is set explicitly in both
+  `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/checkpoints.sqlite`. WAL is set explicitly in both
   `graph/run.py` and `graph/closed_loop.py` after every connect. Verified
   PASS on CephFS for realistic-rate workloads (5 writers × 5 inserts × 2s
   gap with 30s timeout, 0 errors); aggressive rates (4 writers × 50
   back-to-back inserts) did hit one timeout — that case is not expected in
   production but should be remembered.
 - **Closed-loop logs**: per-child stdout/stderr lands at
-  `graph_data/closed_loop_logs/<name>.log`. The outer parent's own stream
+  `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<name>.log`. The outer parent's own stream
   goes to whatever stdout the operator gave it (typically `nohup … &` or a
   cron tail).
 - **First-real-run (closed_helicalQ_r0, 2026-05-21) surfaced 3 bugs, all
@@ -651,7 +651,7 @@ grid queue was empty.
   `graph/config.py` (CLOSED_LOOP_* constants),
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_helical.py`
   (`compute_explore_picks` library entry point)
-- Operator stop file: `graph_data/STOP_CLOSED_LOOP`
+- Operator stop file: `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP`
 - Skills: `/closed-loop-launch [prefix] [--rounds N] [--q Q]` wraps the
   `nohup .venv-graph/bin/python -m graph.closed_loop …` recipe (auto-picks
   next free `helicalFT##` suffix); `/closed-loop-status [prefix]` reports

@@ -7,6 +7,7 @@ superseded, linted.
 
 ## 2026-07-17
 
+- updated graph_data/ RELOCATED off /app → /data autoresearch_graph_data/ (single GRAPH_DATA seam config.py:13; 4 skills + wal-stress-test + closed-loop-runner repointed; 158 tests green, path-agnostic via mocks) — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [closed-loop-runner](/drivers/closed-loop-runner.md)
 - updated tools/ REMOVED: 3 scripts → /data autoresearch_tools/ (gp_loo_benchmark import fixed root→core en route; unversioned-code-on-/data tradeoff flagged+overridden); 6 live wiki pages repointed — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
 - updated (earlier) tools/ JSONs: 13 benchmark-result JSONs moved off /app to /data autoresearch_benchmarks/ (md5-verified, regenerable, verdict in wiki) — [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
 - updated DIR CONSOLIDATION: 7 bo_<mode>_{proposals,preflight}/ → one bo_work/{proposals,preflight}/<mode>/; pipeline_templates→core/; slides→docs/slides/; 158 tests green — [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [autoresearch-bo-michael](/drivers/autoresearch-bo-michael.md)

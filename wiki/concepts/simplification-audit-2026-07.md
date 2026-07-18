@@ -185,6 +185,30 @@ md5-verified before `git rm`.
   (absolute), so it resolves from anywhere. 6 live wiki pages repointed to the
   /data path (log.md entries left as historical record).
 
+### graph_data/ relocated off /app to /data (2026-07-17)
+
+`graph_data/` (runtime scratch: parent + closed_loop_logs child logs,
+forensics, 0-byte checkpoint placeholder — the real checkpoint DB is in
+/tmp) moved OFF the repo to
+`/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/`, and the root dir
+is GONE (not symlinked — unlike the venvs, it relocates cleanly via one seam).
+- **Single seam**: `GRAPH_DATA` = `graph/config.py:13`; everything (parent
+  logs, `closed_loop_logs/`, `STOP_FLAG`) derives from it. Repointed to the
+  /data path; the copy was file-count + sample-md5 verified (2477 files)
+  before `rm`.
+- **Coupling updated** (the non-obvious part — these write by *relative*
+  path, NOT via GRAPH_DATA, so they'd silently recreate `/app/graph_data`):
+  4 operator skills (autopsy/launch-bo-chain/more-jobs/status launch
+  redirects), the tracked `test_wal_multiwriter_stress.py` hardcoded CephFS
+  path (repointed to /data — still CephFS, so the WAL-repro intent holds),
+  and closed-loop-runner.md's 5 path refs. Tests mock `GRAPH_DATA` (tmp) so
+  the suite (158) is path-agnostic and stayed green.
+- **CephFS note**: graph_data holds append-only *logs*, not an active
+  sqlite-WAL, so /data (CephFS) is fine — the WAL-incoherence reason
+  checkpoints went to /tmp does NOT apply here.
+- Historical incident recovery recipes still say bare `graph_data/`; left as
+  dated context (the driver page + this page are the authoritative location).
+
 ### Directory consolidation (2026-07-17, round 2 of the reorg)
 
 Second declutter pass on root DIRECTORIES:
