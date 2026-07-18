@@ -16,6 +16,10 @@
 # venv for A/Bs (e.g. a future train_Yvar or botorch-0.19 arm).
 langgraph>=0.2.50
 langgraph-checkpoint-sqlite>=1.0.0
+# graph/run.py + graph/closed_loop.py load_dotenv() the load-bearing .env
+# (LangSmith tracing) before any langchain import. Was silently present in
+# .venv-graph but unrecorded in requirements-graph.txt.
+python-dotenv>=1.0
 botorch==0.18.1
 gpytorch==1.15.2
 numpy==2.4.6
