@@ -5,10 +5,11 @@ description: 'ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measu
   σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, ~~skopt EI~~
   (RESOLVED 2026-07-18: kernel retired, all asks via botorch_ask), high-sob-corner
   misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected; 0.10 RETIRED
-  2026-07-18 (single .venv, foilsflash → 0.18-base)'
+  2026-07-18 (single .venv, foilsflash → 0.18-base); picker/botorch_predict.py
+  test-coverage gap RESOLVED 2026-07-19 (unit tests + seam smoke in main suite)'
 status: active
-timestamp: '2026-07-18'
-updated_note: 'verdict rec #1 revised: 0.10 retired with the single-venv consolidation'
+timestamp: '2026-07-19'
+updated_note: 'verdict rec #1 revised: 0.10 retired with the single-venv consolidation; picker/botorch_predict.py test-coverage gap resolved 2026-07-19'
 ---
 
 # ML/statistics stack review (2026-07)
@@ -64,6 +65,19 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
      a single broken low-sob row drags it; pin per campaign (minor).
   6. Integer dims via round-after-optimize is standard-acceptable; probabilistic
      reparameterization only worth it if an integer-heavy line appears.
+- **Picker/`botorch_predict.py` test-coverage gap RESOLVED 2026-07-19**: the
+  picker (and the rest of `botorch_predict.py`) had zero unit tests — flagged
+  by [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md)
+  and hit live when the 156-green suite missed a `cur_box` NameError that
+  only the real `botorch_ask` smoke caught (see the Tier-2 verification note
+  in [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)).
+  `tests/test_botorch_predict.py` now covers `_load_history_tensor` (row
+  parsing, width guard, sob-only path), seeding, min-spacing filters,
+  picks-JSON emit, and one real GP fit + qNEHVI pick on synthetic rows; a
+  `botorch_ask()` seam smoke lives in `tests/test_seam_protocol.py`. Both run
+  in the main suite (196 tests). See
+  `docs/superpowers/specs/2026-07-18-tests-schema-protocol-design.md` and
+  [tests](/drivers/tests.md).
 - **botorch 0.18 upgrade gotchas (hit live 2026-07-13, /exp/mu2e/data/users/oksuzian/autoresearch_tools/gp_loo_benchmark.py):**
   `Warp` is IMPOSSIBLE on a multi-output SingleTaskGP in 0.18.1, both ways:
   (a) unbatched Warp crashes the new batched scipy fit path

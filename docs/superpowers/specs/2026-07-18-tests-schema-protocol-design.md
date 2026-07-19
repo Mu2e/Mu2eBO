@@ -1,7 +1,7 @@
 # Design: live-path tests + schema single-sourcing + typed subprocess protocol
 
 Date: 2026-07-18
-Status: approved (brainstorming session 2026-07-18)
+Status: implemented 2026-07-19
 Amended 2026-07-18: the single-venv consolidation
 (`2026-07-18-venv-consolidation-design.md`) landed first; the planned
 `tests_botorch/` split dissolved into the main suite.
@@ -182,6 +182,10 @@ every refactor commit:
 - Live smokes at end of round: real `botorch_ask` q=2 on the live
   foilsflash leaderboard; one full `graph.run --mock` chain (exercises
   preflight-JSON → evaluate-JSON end-to-end, zero grid contact).
+  (Implementation note 2026-07-19: the mock path bypasses preflight and the
+  foilsflash mock evaluate refuses pre-append by design, so the mock chain
+  verifies graph wiring + the rc≠0 transport path; the JSON success paths
+  are covered by tests/test_seam_protocol.py and golden (c)'s real replay.)
 
 ## Commit sequence
 

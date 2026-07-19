@@ -3,7 +3,7 @@ type: incident
 title: Hybrid picker (qnehvi+qnparego) non-reproducible at production leaderboard scale
 description: torch.manual_seed(_seed(round_idx)) is set inside the picker, AFTER an unseeded _fit_gp; on a ~300-row leaderboard scipy's L-BFGS-B hits ABNORMAL termination and retries draw extra RNG, so re-running the same seed/inputs gives materially different picks
 status: open
-status_note: found 2026-07-19 building tests/golden_parity.py Task 4; blocked golden (b) capture — no production fix applied
+status_note: found 2026-07-19 building tests/golden_parity.py Task 4; golden (b) redesigned as a tensor fingerprint and committed (eeb8cb6) — only the underlying picker nondeterminism remains open, no production fix applied
 timestamp: '2026-07-19'
 ---
 
@@ -79,10 +79,15 @@ brief's anticipated `WARN (allclose)`.
   `core/botorch_predict.py:330-363` (`_hybrid_picks`),
   `.venv/lib/python3.11/site-packages/botorch/optim/optimize.py:480-509`
   (retry-with-new-ICs branch that advances the RNG unpredictably)
-- Blocked: `tests/golden_parity.py` section (b) capture (Task 4 of the
-  in-flight refactor SDD plan, `.superpowers/sdd/task-4-brief.md` /
-  `task-4-report.md`) — harness + sections (a)/(c) exist uncommitted in
-  the working tree pending a decision on how to handle this.
+- No longer blocked: `tests/golden_parity.py` (all three sections, incl.
+  (b)) landed committed 2026-07-19 in `eeb8cb6` (Task 4 of the refactor SDD
+  plan, `.superpowers/sdd/task-4-brief.md` / `task-4-report.md`). Golden (b)
+  was redesigned as a deterministic history-tensor fingerprint on the frozen
+  leaderboard copy (no optimizer in the loop) rather than fixed-seed picker
+  output — see the spec amendment in
+  `docs/superpowers/specs/2026-07-18-tests-schema-protocol-design.md`. Only
+  the underlying picker nondeterminism itself (this incident) remains open;
+  it does not block the test suite or the golden harness anymore.
 
 ## Open questions / TODO
 

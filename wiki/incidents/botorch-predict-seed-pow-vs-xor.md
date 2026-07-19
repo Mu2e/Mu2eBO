@@ -4,7 +4,7 @@ title: botorch_predict.py seed used `**` (pow) where spec said `^` (xor)
 description: '`botorch_predict.py:161` used `42 ** round_idx` (pow) instead of documented
   `42 ^ round_idx` (xor); rounds 0+1 silently shared seed=42 → identical Sobol draw'
 status: resolved
-timestamp: '2026-06-01'
+timestamp: '2026-07-19'
 ---
 
 # botorch_predict.py seed used `**` (pow) where spec said `^` (xor)
@@ -34,7 +34,11 @@ intended `42^k` (e.g. `42^2=40` vs `42**2=1764`).
 
 ## Cross-links
 - Related: [bo-helical](/projects/bo-helical.md) (line 848 documents the intended `42 ^ round_idx`),
-  [batch-bo](/concepts/batch-bo.md)
+  [batch-bo](/concepts/batch-bo.md),
+  [hybrid-picker-scipy-abnormal-retry-nondeterminism](/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md)
+  (a different, still-open non-reproducibility source in the same picker
+  path — this incident's XOR-seed fix does not touch the scipy
+  ABNORMAL-retry RNG draw)
 - Source files: `botorch_predict.py:161`, `graph/closed_loop.py:267-298`
 
 ## Open questions / TODO

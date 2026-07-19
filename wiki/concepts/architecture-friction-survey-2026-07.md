@@ -2,11 +2,13 @@
 type: concept
 title: Architecture friction survey (2026-07)
 description: 'friction map: mode dispatched at ~20 sites/6 files (silent `.get`
-  defaults), 5 barrier truth-sources, leaderboard schema in ~9 string literals,
-  pipeline.py/botorch_predict.py zero tests; candidates 1+2 picked → design page'
+  defaults), 5 barrier truth-sources; candidates 1+2 landed 2026-07-12, candidates
+  3 (leaderboard schema) + 4 (typed JSON protocol) RESOLVED 2026-07-19 (ModeSpec
+  metric_cols + preflight/evaluate JSON seam); pipeline.py/botorch_predict.py
+  zero-test-imports fact RESOLVED (4 new test files, 36 new tests, 196-test suite)'
 status: active
-timestamp: '2026-07-12'
-updated_note: 'size-reduction sweep executed: −348 production lines, 10 commits'
+timestamp: '2026-07-19'
+updated_note: 'candidates 3+4 resolved (tests/schema/protocol round, commits bd37aa3..6b81a17)'
 ---
 
 # Architecture friction survey (2026-07)
@@ -44,27 +46,45 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
   literals**; three independent readers (driver `load_history`, `botorch_predict.py`
   with a runtime `SystemExit` width guard at `:214-217`, `graph/pipeline_io.py:62/:459`
   naming scans). No shared schema constant.
+  **RESOLVED 2026-07-19** (`bd37aa3`): `ModeSpec` gained `knob_names`/`knob_fmts`/
+  `metric_cols` fields (`core/modes.py`); `__post_init__` asserts lockstep length;
+  `botorch_predict._load_history_tensor` derives width/knob indices from the spec
+  instead of an inlined guard. TSV bytes unchanged, pinned by golden (a).
 - **Graph↔driver seam carries structured data as bare exit codes + stdout regex**:
   preflight verdict = exit code `{0:pass,1:fail_managed,2:fail_init,3:ambiguous}`
   encoded at `bo_driver.py:2169`, decoded at `graph/pipeline_io.py:134`,
   re-listed in `graph/nodes.py:276`; `run_evaluate` scrapes `obj` from stdout via regex
   at `pipeline_io.py:449`. pipeline_io ALSO reach-around-reads `state/*_cluster.txt`
   directly (`:255`), so two coupling contracts exist to the same on-disk protocol.
+  **RESOLVED 2026-07-19** (`d07d668`, `6b81a17`): both verbs gain
+  `--emit-json`; `state/<cfg>/preflight_verdict.json` and
+  `state/<cfg>/evaluate_result.json` cross the seam as typed JSON (atomic
+  tmp+rename). `graph/pipeline_io.py` reads the JSON; the `obj=` stdout regex
+  is deleted; exit codes remain only as a transport-failure backstop
+  (crash-with-no-JSON decodes as `ambiguous`, fail-safe). See
+  `docs/superpowers/specs/2026-07-18-tests-schema-protocol-design.md`.
 - **Test coverage gaps**: `pipeline.py` and `botorch_predict.py` have ZERO test imports
   (grep-confirmed) — grid submission and the qNEHVI picker are the two largest untested
   modules. `cmd_harvest` is a 205-line inline procedure (`pipeline.py:1137-1341`) with a
   wholly parallel `cmd_harvest_pot_only:1055`; `STAGES` global is mutated at runtime
   (`:266/:808/:820`). `tests/test_wal_multiwriter_stress.py` has 0 `def test_` (a
   stress script, not part of the 91).
+  **RESOLVED 2026-07-19**: `tests/test_flock.py`, `tests/test_pipeline_verbs.py`,
+  and `tests/test_botorch_predict.py` (+ a `botorch_ask()` seam smoke in
+  `tests/test_seam_protocol.py`) close the gap — real-flock acquisition/
+  contention, injectable-runner grid-verb coverage (submit idempotency,
+  stamp-at-submit, poll exit conditions), and picker unit tests (history
+  tensor loading, seeding, min-spacing, picks-JSON, one real GP fit +
+  qNEHVI pick). See [tests](/drivers/tests.md).
 - **Search-space bounds are triplicated**: skopt `build_space` (per BOMode subclass),
   botorch `MODE_SPECS` (`botorch_predict.py:63-133`, inlined because the venv can't
   import the driver), and 12 external `gp_predict_*.py` files in mmackenz_table_plots
   (consumed by `_import_gp`).
-- Review verdict (candidates presented 2026-07-06, none yet chosen): (1) single Mode
-  registry, (2) one child-status resolver, (3) shared leaderboard schema, (4) typed
-  JSON result protocol across the subprocess seam, (5) unified mode-parameterized
-  harvest. Implementation deferred until foilsflash08 completes (no `graph/*.py` /
-  `pipeline.py` edits mid-campaign).
+- Review verdict (candidates presented 2026-07-06): (1) single Mode
+  registry, (2) one child-status resolver — both LANDED 2026-07-12; (3) shared
+  leaderboard schema, (4) typed JSON result protocol across the subprocess seam
+  — both RESOLVED 2026-07-19; (5) unified mode-parameterized harvest — still
+  unpicked.
 
 ## 2026-07-12 size-reduction sweep (executed) — −348 production lines
 
@@ -111,7 +131,8 @@ foilsflash — a staleness bug already logged at [refresh-foils-slides](/drivers
 KEEP (skill + wiki reference them), fix only if the foils deck is still built.
 
 Candidates 3-5 (leaderboard schema, typed subprocess protocol, unified harvest)
-still unpicked.
+still unpicked as of this sweep (3+4 RESOLVED 2026-07-19 — see Key facts/Open
+questions above; 5 still unpicked).
 - **Dormant-mode retirement** (`MichaelMode`+`HelicalMode`) — **DONE 2026-07-12**
   (user picked it): −325 more production lines, registry now 7 modes. The
   coordinated 11-file change (2 classes + 4 michael/helical-only helpers +
@@ -137,8 +158,11 @@ still unpicked.
   The botorch-venv question dissolved: botorch_predict.py:46 already imports
   the driver — only skopt-dependent build_space is off-limits, so bounds as
   plain ModeSpec data need no JSON snapshot.
-- Candidates 3-5 (leaderboard schema, typed subprocess protocol, unified
-  harvest) remain unpicked.
+- RESOLVED 2026-07-19: candidates 3 (leaderboard schema → `ModeSpec.metric_cols`)
+  and 4 (typed JSON result protocol) landed via
+  `docs/superpowers/specs/2026-07-18-tests-schema-protocol-design.md`
+  (commits `bd37aa3`, `d07d668`, `6b81a17`); see Key facts above.
+- Candidate 5 (unified mode-parameterized harvest) remains unpicked.
 
 ## 2026-07-11 re-survey (post speed-stack) — new friction, Explore-agent verified
 

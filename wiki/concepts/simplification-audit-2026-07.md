@@ -4,9 +4,10 @@ title: Simplification audit 2026-07 — verified delete/keep map
 description: 'delete/keep map EXECUTED through 2026-07-18 (Tier 1 batch + ipa +
   skopt retirements); refutations recorded to stop re-proposals (foilsg/prodtarget
   protected as 0.18 venue, deck-trio destructive) + KEEP decisions (qlnei,
-  Run1BAna); venv pair consolidated to one .venv 2026-07-18'
+  Run1BAna); venv pair consolidated to one .venv 2026-07-18; Tier-2 botorch_predict.py
+  test-gap verification note SUPERSEDED 2026-07-19 (unit tests landed)'
 status: active
-timestamp: '2026-07-18'
+timestamp: '2026-07-19'
 ---
 
 # Simplification audit 2026-07 — verified delete/keep map
@@ -216,6 +217,11 @@ Remaining mechanical batch executed after the reorg week. **Done today:**
   consumer of the Tier-1-deleted env seam) — the real `botorch_ask` smoke
   did. botorch_predict.py still has zero unit tests
   ([architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) gap, still open).
+  **SUPERSEDED 2026-07-19:** `tests/test_botorch_predict.py` +
+  `tests/test_seam_protocol.py`'s `botorch_ask()` seam smoke close this gap
+  (196-test main suite); see
+  `docs/superpowers/specs/2026-07-18-tests-schema-protocol-design.md` and
+  [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md).
 
 ## Key facts — root .py / .tsv reorganization (2026-07-17)
 
