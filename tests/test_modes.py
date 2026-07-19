@@ -128,5 +128,33 @@ class TestSpotFacts(unittest.TestCase):
                             for s in modes.SPECS.values()))
 
 
+class TestSchemaFields(unittest.TestCase):
+    def test_lockstep_enforced_at_construction(self):
+        import dataclasses
+        with self.assertRaises(AssertionError):
+            dataclasses.replace(modes.SPECS["foils"], knob_names=("one",))
+
+    def test_metric_cols_spot_pins(self):
+        self.assertEqual(modes.SPECS["foilsflash"].metric_cols,
+                         ("sob", "flash_edep", "alpha", "obj"))
+        self.assertEqual(modes.SPECS["foils"].metric_cols,
+                         ("sob", "calo", "alpha", "obj"))
+        self.assertEqual(
+            modes.SPECS["prodtarget"].metric_cols,
+            ("mu_per_POT", "edep_per_POT_MeV", "peak_dose_Gy_per_POT",
+             "peak_plate_idx", "obj"))
+
+    def test_driver_reads_registry(self):
+        import bo_driver as bo
+        for name, mode in bo.MODES.items():
+            self.assertEqual(mode.KNOB_NAMES, modes.SPECS[name].knob_names)
+            self.assertEqual(mode.KNOB_FMTS, modes.SPECS[name].knob_fmts)
+
+    def test_calo_col_derives_from_metric_cols(self):
+        import bo_driver as bo
+        self.assertEqual(bo.MODES["foilsflash"].CALO_COL, "flash_edep")
+        self.assertEqual(bo.MODES["foils"].CALO_COL, "calo")
+
+
 if __name__ == "__main__":
     unittest.main()

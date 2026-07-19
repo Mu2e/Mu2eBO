@@ -163,16 +163,29 @@ class BOMode(ABC):
 
     # Leaderboard row shape shared by every sob/calo-schema mode: knob columns
     # = KNOB_NAMES, per-position precision = KNOB_FMTS, second-objective column
-    # = CALO_COL. Subclasses that change the knob names (FoilsFracMode: rIn->f)
-    # or the objective column (FoilsFlashMode: flash_edep)
-    # only reset those class attrs — the format/parse code is identical. The
-    # ProdTarget family overrides both methods (different metric columns).
-    KNOB_FMTS: tuple  # no default: a mode without it must fail loudly
-    CALO_COL = "calo"
+    # = CALO_COL. These are registry-reading properties now (modes.SPECS is
+    # the single source — ADR-0002 extension); subclasses that change the
+    # knob names (FoilsFracMode: rIn->f) or the objective column
+    # (FoilsFlashMode: flash_edep) get that from their own spec entry, no
+    # class-attr override needed. The ProdTarget family overrides both
+    # methods (different metric columns).
+    @property
+    def KNOB_NAMES(self) -> tuple:
+        return _modes.SPECS[self.name].knob_names
+
+    @property
+    def KNOB_FMTS(self) -> tuple:
+        return _modes.SPECS[self.name].knob_fmts
+
+    @property
+    def CALO_COL(self) -> str:
+        # Foils-family second-objective column = metric_cols[1].
+        return _modes.SPECS[self.name].metric_cols[1]
 
     def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
+        cols = _modes.SPECS[self.name].metric_cols
         header = ("config\t" + "\t".join(self.KNOB_NAMES)
-                  + f"\tsob\t{self.CALO_COL}\talpha\tobj\n")
+                  + "\t" + "\t".join(cols) + "\n")
         knobs = "\t".join(fmt.format(v) for fmt, v in zip(self.KNOB_FMTS, p.x))
         line = (f"{p.cfg}\t{knobs}"
                 f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
@@ -185,10 +198,9 @@ class BOMode(ABC):
 
     # Search space: SpaceDim rows from the ModeSpec registry box
     # (modes.SPECS[name].bounds_lo/hi/int_dims) paired with the per-mode
-    # KNOB_NAMES tuple. KNOB_NAMES must line up 1:1 with the registry
-    # bounds — a mismatch is a loud error, never a silently-truncated space.
-    KNOB_NAMES: tuple = ()
-
+    # KNOB_NAMES tuple (also registry-derived now). KNOB_NAMES must line up
+    # 1:1 with the registry bounds — a mismatch is a loud error, never a
+    # silently-truncated space.
     def build_space(self) -> list[SpaceDim]:
         spec = _modes.SPECS[self.name]
         if len(self.KNOB_NAMES) != len(spec.bounds_lo):
@@ -391,10 +403,6 @@ class FoilsMode(BOMode):
                     continue
         return out
 
-    KNOB_NAMES = ("extra_rOut_up", "extra_rOut_dn",
-                  "extra_halfThickness_up", "extra_halfThickness_dn",
-                  "extra_rIn_up", "extra_rIn_dn")
-
     def is_buildable(self, x) -> bool:
         rOut_up, rOut_dn, _, _, rIn_up, rIn_dn = x
         if rIn_up >= rOut_up:
@@ -515,9 +523,8 @@ class FoilsMode(BOMode):
 
         return [radii[0], radii[-1], halfth[0], halfth[-1], rIn_up, rIn_dn]
 
-    # Row format/parse inherited from the BOMode generic.
-    KNOB_FMTS = ("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}")
-
+    # Row format/parse inherited from the BOMode generic; KNOB_FMTS comes
+    # from modes.SPECS["foils"].knob_fmts.
 
 
 class FoilsFracMode(FoilsMode):
@@ -542,10 +549,8 @@ class FoilsFracMode(FoilsMode):
 
     # hole = FRACTION of rOut (rIn = f*rOut); registry caps f at 0.95 so
     # rIn < rOut always. Same geometry as FoilsMode, so only the last two
-    # knob NAMES change (rIn -> f); bounds come from modes.SPECS["foilsf"].
-    KNOB_NAMES = ("extra_rOut_up", "extra_rOut_dn",
-                  "extra_halfThickness_up", "extra_halfThickness_dn",
-                  "extra_f_up", "extra_f_dn")
+    # knob NAMES change (rIn -> f) — that's modes.SPECS["foilsf"].knob_names;
+    # bounds also come from modes.SPECS["foilsf"].
 
     def is_buildable(self, x) -> bool:
         return True  # f in [0, 0.95] => rIn = f*rOut < rOut, always buildable
@@ -631,9 +636,9 @@ class FoilsFlashMode(FoilsFracMode):
         return sob, edep
 
     # Only the objective column name differs from FoilsFracMode: the flash
-    # edep-per-POT lands under "flash_edep" (Point.calo carries it). Row shape,
-    # knob names, and parse all inherit unchanged.
-    CALO_COL = "flash_edep"
+    # edep-per-POT lands under "flash_edep" (Point.calo carries it) — that's
+    # modes.SPECS["foilsflash"].metric_cols[1]. Row shape, knob names, and
+    # parse all inherit unchanged.
 
 
 class FoilsGroupMode(BOMode):
@@ -668,13 +673,9 @@ class FoilsGroupMode(BOMode):
     BASE_EXTENT_MM = DEPLOYED_DELTA_Z * DEPLOYED_GAPS
     DELTA_Z_MM = BASE_EXTENT_MM / (N_FOILS - 1)
 
-    # (rOut, hT, f) per z-group; hole f in [0, 0.95] of rOut. 12 dims from
-    # modes.SPECS["foilsg"] bounds (registry stores (50,0.01,0)*4 / (250,1,0.95)*4).
-    KNOB_NAMES = tuple(
-        nm for g in range(len(GROUP_SIZES))
-        for nm in (f"rOut_g{g}", f"hT_g{g}", f"f_g{g}"))
-    KNOB_FMTS = ("{:.4f}", "{:.6f}", "{:.4f}") * len(GROUP_SIZES)
-
+    # (rOut, hT, f) per z-group; hole f in [0, 0.95] of rOut. 12 dims (names +
+    # fmts + bounds) all live in modes.SPECS["foilsg"] (registry stores
+    # (50,0.01,0)*4 / (250,1,0.95)*4 for bounds).
 
     def load_priors(self):
         return []  # fresh 12D space — no upstream rows to project
@@ -900,11 +901,11 @@ class ProdTargetMode(BOMode):
         return []
 
     # r{0,1,2}=rOut / t{0,1,2}=thickness / l{0,1,2}=lugThickness quadratic
-    # profile control knots [mm] + N=numberOfPlates (Integer). Bounds (roughly
-    # ±30-60% around defaults) live in modes.SPECS["prodtarget"]; the lug range
-    # (4,12) pairs with _expand's per-plate lPlate clip that pre-projects silent
-    # spacer overlaps away (wiki/incidents/prodtarget-spacer-supportring-overlap).
-    KNOB_NAMES = ("r0", "r1", "r2", "t0", "t1", "t2", "l0", "l1", "l2", "N")
+    # profile control knots [mm] + N=numberOfPlates (Integer). Names, fmts,
+    # and bounds (roughly ±30-60% around defaults) all live in
+    # modes.SPECS["prodtarget"]; the lug range (4,12) pairs with _expand's
+    # per-plate lPlate clip that pre-projects silent spacer overlaps away
+    # (wiki/incidents/prodtarget-spacer-supportring-overlap).
 
     @staticmethod
     def _profile(c, N):
@@ -1023,9 +1024,8 @@ class ProdTargetMode(BOMode):
 
     def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
         header = ("config\t" + "\t".join(self.KNOB_NAMES)
-                  + "\tmu_per_POT\tedep_per_POT_MeV"
-                    "\tpeak_dose_Gy_per_POT\tpeak_plate_idx"
-                    "\tobj\n")
+                  + "\t" + "\t".join(_modes.SPECS[self.name].metric_cols)
+                  + "\n")
         ex = p.extras or {}
         edep = ex.get("edep_per_POT_MeV", float("nan"))
         peak = ex.get("peak_dose_Gy_per_POT", float("nan"))
@@ -1065,10 +1065,9 @@ class ProdTarget6DMode(ProdTargetMode):
     LUG_MID_OFFSET_MM = 0.75
     FIXED_N = 35  # Stickman v1.0 default; well-tested at this plate count.
 
-    # 6D rOut+thickness profile only (N fixed at 35, lug derived). Bounds in
-    # modes.SPECS["prodtarget6d"]; t upper was 7→8 (2026-06-15) after the
-    # end-plate lug clamp shipped.
-    KNOB_NAMES = ("r0", "r1", "r2", "t0", "t1", "t2")
+    # 6D rOut+thickness profile only (N fixed at 35, lug derived). Names,
+    # fmts, and bounds in modes.SPECS["prodtarget6d"]; t upper was 7→8
+    # (2026-06-15) after the end-plate lug clamp shipped.
 
     def _expand(self, x):
         import numpy as np

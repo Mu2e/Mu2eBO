@@ -115,10 +115,12 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
         X = torch.tensor(X_rows, device=DEVICE)
         Y = torch.tensor(Y_rows, device=DEVICE)
         if X.shape[1] != len(spec["lo"]):
-            raise SystemExit(f"[botorch_predict] mode={mode} dim mismatch: "
-                             f"history has {X.shape[1]}D points but MODE_SPECS "
-                             f"declares {len(spec['lo'])}D bounds. Check "
-                             "leaderboard schema vs MODE_SPECS in this file.")
+            raise SystemExit(
+                f"[botorch_predict] mode={mode} dim mismatch: history has "
+                f"{X.shape[1]}D points but modes.SPECS[{mode!r}] declares "
+                f"{len(spec['lo'])}D bounds (knobs: "
+                f"{_modes.SPECS[mode].knob_names}). Leaderboard schema and "
+                f"registry disagree.")
     else:
         # Cold start: return empty (n=0, d) tensors. The caller switches to a
         # Sobol cold-start path when X is empty so the very first launch of a
