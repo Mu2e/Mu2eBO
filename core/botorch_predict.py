@@ -533,7 +533,14 @@ def main(argv=None):
                     help="JSON file: list of x-lists for in-flight evals "
                          "(rolling closed-loop); pickers fantasize over them "
                          "via X_pending")
+    ap.add_argument("--leaderboard", type=str, default=None,
+                    help="Override the mode's leaderboard TSV path (tests + "
+                         "golden harness only; live callers omit it)")
     ns = ap.parse_args(argv)
+    if ns.leaderboard:
+        bo.MODES[ns.mode].leaderboard = Path(ns.leaderboard)
+        print(f"[botorch_predict] leaderboard override: {ns.leaderboard}",
+              flush=True)
 
     x_pending = None
     if ns.pending_json:

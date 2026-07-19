@@ -1165,6 +1165,7 @@ MODES: dict[str, BOMode] = {
 def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
                 picker: str = "qnehvi", pending: list | None = None,
                 venv_py: Path | None = None,
+                leaderboard: Path | None = None,
                 timeout_s: int = 14400) -> list[list]:
     """Ask the botorch picker for q points; returns a list of x-lists.
 
@@ -1182,6 +1183,7 @@ def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
     venv_py: python interpreter to use; default resolves the
     AUTORESEARCH_BOTORCH_VENV env seam against the project root (same rule
     as graph/config.py BOTORCH_VENV_PY).
+    leaderboard: test/golden-only override forwarded as --leaderboard.
     """
     import subprocess
 
@@ -1207,6 +1209,8 @@ def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
             "--picker", picker,
             "--emit-picks-json", str(out_path),
         ]
+        if leaderboard is not None:
+            cmd += ["--leaderboard", str(leaderboard)]
         if pending:
             with tempfile.NamedTemporaryFile(
                     mode="w", suffix=".json", delete=False) as pf:
