@@ -165,6 +165,12 @@ every refactor commit:
   modes).
 - (b) picker: fixed-seed hybrid q=2 picks on a frozen copy of
   `leaderboards/leaderboard_bo_foilsflash.tsv`.
+  (Amended 2026-07-19: fixed-seed picks proved non-deterministic at
+  production scale — scipy L-BFGS-B ABNORMAL-retry draws vary with BLAS
+  noise (wiki incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism)
+  — so golden (b) is a deterministic history-tensor fingerprint on the
+  frozen copy: it pins the loader seam Phase 1 touches, with no optimizer
+  in the loop.)
 - (c) seam: preflight + evaluate replay on an already-completed config
   against a tmp leaderboard copy (stdout, rc, obj — and after Phase 2, the
   JSON files).

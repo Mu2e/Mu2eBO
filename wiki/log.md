@@ -5,6 +5,10 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-07-19
+
+- created hybrid picker (qnehvi+qnparego) found NON-REPRODUCIBLE at production scale: 5/5 runs of identical `--mode foilsflash --q 2 --round-idx 0 --picker hybrid` against a frozen 304-row leaderboard copy gave materially different picks (not float-epsilon); root cause is scipy L-BFGS-B ABNORMAL-termination retries drawing extra numbers from the already-seeded torch RNG stream, invisible on Task 3's 10-row test fixture; BLOCKED `tests/golden_parity.py` golden (b) capture (Task 4 of the in-flight refactor plan) — harness + sections (a)/(c) sit uncommitted pending a fix decision — [hybrid-picker-scipy-abnormal-retry-nondeterminism](/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md)
+
 ## 2026-07-18
 
 - updated VENV CONSOLIDATION EXECUTED: one `.venv` (py3.11, botorch 0.18.1 + langgraph + matplotlib/sklearn) replaces .venv-graph/.venv-botorch/.venv-botorch-new; 0.10 RETIRED (ml-stack rec #1 revised eyes-open: foilsflash → 0.18-base, train_Yvar = next A/B via the kept AUTORESEARCH_BOTORCH_VENV seam); merged requirements.txt caught 2 never-recorded deps (scikit-learn, python-dotenv); ~13 /data plotters + 2 operator skills re-pointed; perpot cloud regenerated under 0.18 (overwrote the under-review docs PNG — flagged); old venvs deleted after 7 gates (suite 156 + real qNEHVI smoke + mock-chain A/B vs .venv-graph + plotter regen) — [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md), [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md), [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md), [tests](/drivers/tests.md)
