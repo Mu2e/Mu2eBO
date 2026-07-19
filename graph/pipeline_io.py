@@ -102,17 +102,24 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
 
 
 def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_TIMEOUT_S) -> tuple[str, str]:
-    """Run `bo_driver.py preflight <cfg>`.
+    """Run `bo_driver.py preflight <cfg>` and read the typed verdict JSON.
 
-    Returns (status, log_tail). status ∈ {"pass", "fail_managed", "fail_init",
-    "ambiguous", "timeout"}. log_tail is the last ~80 lines of stdout for
-    surfacing in the GUI.
+    Returns (status, log_tail). status ∈ {"pass", "fail_managed",
+    "fail_init", "ambiguous", "timeout"}. A missing/unparseable JSON
+    (process crash, transport failure) decodes as "ambiguous" with a loud
+    reason — fail-safe: ambiguous routes to retry/human review and never
+    silently passes.
     """
+    state_dir = GRID_DATA_ROOT / config_name / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    verdict_path = state_dir / "preflight_verdict.json"
+    verdict_path.unlink(missing_ok=True)  # never read a stale verdict
     cmd = [
         sys.executable,
         str(BO_DRIVER),
         "--mode", mode_name,
         "preflight", config_name,
+        "--emit-json", str(verdict_path),
     ]
     try:
         proc = subprocess.run(
@@ -122,11 +129,13 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
         return "timeout", "(preflight timed out)"
 
     tail = "\n".join(proc.stdout.splitlines()[-80:])
-    rc = proc.returncode
-
-    # bo_driver cmd_preflight returns: 0 pass, 1 managed-volume
-    # overlap, 2 init failure, 3 ambiguous surface-check error.
-    status = {0: "pass", 1: "fail_managed", 2: "fail_init", 3: "ambiguous"}.get(rc, "ambiguous")
+    try:
+        status = json.loads(verdict_path.read_text())["verdict"]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+        status = "ambiguous"
+        tail = (f"(preflight verdict JSON missing/unparseable at "
+                f"{verdict_path}: {e!r}; rc={proc.returncode} — decoding as "
+                f"ambiguous)\n" + tail)
     return status, tail
 
 

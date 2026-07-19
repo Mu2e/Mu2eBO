@@ -1479,7 +1479,22 @@ SURFACE_OVERLAP_MANAGED = re.compile(
     r"|ProductionTargetPlate|ProductionTargetLug|ProductionTargetSpacer|ProductionTargetSupport)")
 
 
-def cmd_preflight(args):
+# Preflight verdict vocabulary — the ONE home of the rc mapping (was
+# duplicated as a decode dict in graph/pipeline_io.py).
+PREFLIGHT_VERDICTS = {0: "pass", 1: "fail_managed", 2: "fail_init",
+                      3: "ambiguous"}
+
+
+def write_json_atomic(path: Path, payload: dict) -> None:
+    """Write JSON via tmp+rename in the destination dir (readers never see
+    a partial file; rename is atomic within one filesystem)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2))
+    tmp.replace(path)
+
+
+def _cmd_preflight_impl(args):
     mode = MODES[args.mode]
     name = args.config_name
     geom = mode.proposal_dir / f"{name}_geom.txt"
@@ -1696,6 +1711,22 @@ def cmd_preflight(args):
     return 3
 
 
+def cmd_preflight(args):
+    rc = _cmd_preflight_impl(args)
+    if getattr(args, "emit_json", None):
+        mode = MODES[args.mode]
+        verdict = PREFLIGHT_VERDICTS.get(rc, "ambiguous")
+        write_json_atomic(Path(args.emit_json), {
+            "verdict": verdict,
+            "rc": rc,
+            # Coarse cause class; the log carries the detailed FAIL lines.
+            "reasons": [f"preflight classifier verdict: {verdict} (rc={rc})"],
+            "log_path": str(mode.preflight_dir / f"{args.config_name}.log"),
+            "config": args.config_name,
+        })
+    return rc
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1719,6 +1750,9 @@ def main():
 
     p_pre = sub.add_parser("preflight", help="Run mu2e -n 1 locally to test G4 init feasibility")
     p_pre.add_argument("config_name", help="Proposal name (must exist in proposal dir)")
+    p_pre.add_argument("--emit-json", dest="emit_json", default=None,
+                       help="Write the typed verdict JSON to this path "
+                            "(graph seam; tmp+rename atomic)")
     p_pre.set_defaults(func=cmd_preflight)
 
     args = ap.parse_args()
