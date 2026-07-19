@@ -130,7 +130,8 @@ def section_c():
     try:
         buf = io.StringIO()
         args = SimpleNamespace(mode="foilsflash", config_name=cfg,
-                               summary=str(summary), alpha=bo.DEFAULT_ALPHA)
+                               summary=str(summary), alpha=bo.DEFAULT_ALPHA,
+                               emit_json=str(tmp / "evaluate_result.json"))
         with contextlib.redirect_stdout(buf):
             rc = bo.cmd_evaluate(args)
         m = re.search(r"obj=([+-]?\d+\.\d+)", buf.getvalue())

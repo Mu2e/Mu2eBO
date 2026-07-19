@@ -86,5 +86,87 @@ class TestRunPreflightReadsJson(unittest.TestCase):
             self.assertEqual(status, "ambiguous")  # stale "pass" not trusted
 
 
+class TestCmdEvaluateEmit(unittest.TestCase):
+    def _tmp_mode(self, tmp):
+        mode = bo.MODES["foilsflash"]
+        patches = [
+            mock.patch.object(mode, "leaderboard",
+                              Path(tmp) / "leaderboard_bo_foilsflash.tsv"),
+            mock.patch.object(mode, "proposal_dir", Path(tmp) / "proposals"),
+        ]
+        return mode, patches
+
+    def test_success_appends_row_and_emits_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mode, patches = self._tmp_mode(tmp)
+            with patches[0], patches[1]:
+                x = [100.0, 100.0, 0.05, 0.05, 0.5, 0.5]
+                mode.render_proposal("cfgE", x)
+                summary = Path(tmp) / "summary.json"
+                summary.write_text(json.dumps(
+                    {"s_over_sqrt_b": 3.5, "flash_edep_per_pot": 1e-6}))
+                out = Path(tmp) / "evaluate_result.json"
+                rc = bo.cmd_evaluate(SimpleNamespace(
+                    mode="foilsflash", config_name="cfgE",
+                    summary=str(summary), alpha=bo.DEFAULT_ALPHA,
+                    emit_json=str(out)))
+                self.assertEqual(rc, 0)
+                self.assertIn("cfgE\t", mode.leaderboard.read_text())
+                payload = json.loads(out.read_text())
+                self.assertEqual(payload["config"], "cfgE")
+                self.assertTrue(payload["row_appended"])
+                self.assertAlmostEqual(payload["sob"], 3.5)
+
+    def test_refusal_emits_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mode, patches = self._tmp_mode(tmp)
+            with patches[0], patches[1]:
+                summary = Path(tmp) / "summary.json"
+                summary.write_text(json.dumps({"s_over_sqrt_b": 3.5}))
+                out = Path(tmp) / "evaluate_result.json"
+                # flash edep missing → extract_metrics SystemExit → refusal
+                with self.assertRaises(SystemExit):
+                    bo.cmd_evaluate(SimpleNamespace(
+                        mode="foilsflash", config_name="cfgE",
+                        summary=str(summary), alpha=bo.DEFAULT_ALPHA,
+                        emit_json=str(out)))
+                self.assertFalse(out.exists())
+
+
+def _fake_eval_run(write_json=None, rc=0):
+    def run(cmd, **kw):
+        if write_json is not None:
+            i = cmd.index("--emit-json")
+            bo.write_json_atomic(Path(cmd[i + 1]), write_json)
+        return SimpleNamespace(returncode=rc, stdout="tail\n", stderr="")
+    return run
+
+
+class TestRunEvaluateReadsJson(unittest.TestCase):
+    def _call(self, tmp, runner):
+        with mock.patch.object(pio, "GRID_DATA_ROOT", Path(tmp)), \
+             mock.patch.object(pio.subprocess, "run", side_effect=runner):
+            return pio.run_evaluate("foilsflash", "cfgX",
+                                    {"s_over_sqrt_b": 1.0})
+
+    def test_obj_comes_from_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obj, _ = self._call(tmp, _fake_eval_run(
+                {"config": "cfgX", "obj": 1.234, "sob": 1.2,
+                 "calo_or_flash": 1e-6, "row_appended": True}, rc=0))
+            self.assertEqual(obj, 1.234)
+
+    def test_rc_nonzero_returns_none_unchanged_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            obj, tail = self._call(tmp, _fake_eval_run(None, rc=1))
+            self.assertIsNone(obj)
+            self.assertIn("tail", tail)
+
+    def test_rc_zero_without_json_is_hard_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(RuntimeError):
+                self._call(tmp, _fake_eval_run(None, rc=0))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1332,6 +1332,14 @@ def cmd_evaluate(args):
     # and renames the next iteration — see wiki graph-runner resume gotcha).
     removed = mode.remove_pending(args.config_name)
     mode.append_history(p, args.alpha)
+    if getattr(args, "emit_json", None):
+        write_json_atomic(Path(args.emit_json), {
+            "config": p.cfg,
+            "obj": p.obj(args.alpha),
+            "sob": p.sob,
+            "calo_or_flash": p.calo,
+            "row_appended": True,
+        })
     pend_tag = "  (cleared from pending)" if removed else ""
     print(f"[{mode.name}] recorded {p.cfg}: sob={p.sob:.3f} calo={p.calo:.3e} "
           f"obj={p.obj(args.alpha):+.3f}  →  {mode.leaderboard}{pend_tag}")
@@ -1746,6 +1754,9 @@ def main():
     p_eval = sub.add_parser("evaluate", help="Record completed run in leaderboard")
     p_eval.add_argument("config_name")
     p_eval.add_argument("summary", help="path to harvest/summary.json")
+    p_eval.add_argument("--emit-json", dest="emit_json", default=None,
+                        help="Write the typed result JSON to this path "
+                             "(graph seam; written only after the row lands)")
     p_eval.set_defaults(func=cmd_evaluate)
 
     p_pre = sub.add_parser("preflight", help="Run mu2e -n 1 locally to test G4 init feasibility")

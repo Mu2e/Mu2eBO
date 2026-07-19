@@ -3,7 +3,14 @@
   "evaluate": {
     "rc": 0,
     "obj": "+1.979",
-    "appended_line": "foilsflash18R05_00\t250.0000\t190.9655\t0.925581\t0.656932\t0.9500\t0.7166\t2.04000\t6.09158e-07\t100000.000\t1.97908"
+    "appended_line": "foilsflash18R05_00\t250.0000\t190.9655\t0.925581\t0.656932\t0.9500\t0.7166\t2.04000\t6.09158e-07\t100000.000\t1.97908",
+    "json": {
+      "config": "foilsflash18R05_00",
+      "obj": 1.9790841941753061,
+      "sob": 2.04,
+      "calo_or_flash": 6.0915805824694e-07,
+      "row_appended": true
+    }
   },
   "preflight": {
     "rc": 0,

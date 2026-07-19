@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -407,14 +406,20 @@ def scan_worker_logs(config_name: str) -> tuple[dict[str, dict[str, int]], Path,
 
 def run_evaluate(mode_name: str, config_name: str, metrics: dict,
                  alpha: float = DEFAULT_ALPHA) -> tuple[float | None, str]:
-    """Write metrics to a tmp summary.json and call the driver's evaluate verb.
+    """Write metrics to a tmp summary.json, call the driver's evaluate verb,
+    and read the objective from the typed result JSON.
 
-    Returns (objective, stdout_tail). objective is None if the driver could
-    not compute it (missing fields, etc.).
+    Contract: rc != 0 → the driver refused (missing metrics, bad geom…) and
+    appended nothing → return (None, tail) — callers already treat that as
+    a zero_row. rc == 0 with missing/unparseable JSON is a HARD error: a
+    run that cannot prove it recorded a row already is one.
     """
     tmp = Path(tempfile.mkdtemp(prefix=f"graph_eval_{config_name}_"))
     summary_path = tmp / "summary.json"
     summary_path.write_text(json.dumps(metrics, indent=2))
+    result_path = GRID_DATA_ROOT / config_name / "state" / "evaluate_result.json"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.unlink(missing_ok=True)  # never read a stale result
 
     cmd = [
         sys.executable,
@@ -422,17 +427,20 @@ def run_evaluate(mode_name: str, config_name: str, metrics: dict,
         "--mode", mode_name,
         "--alpha", f"{alpha}",
         "evaluate", config_name, str(summary_path),
+        "--emit-json", str(result_path),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     tail = "\n".join((proc.stdout + proc.stderr).splitlines()[-40:])
 
-    obj = None
-    # Driver prints `obj={:+.3f}` so the sign is always present; allow both
-    # `obj=+0.519` and `obj: 0.5` to be forgiving across formats.
-    m = re.search(r"obj\s*[:=]\s*([+-]?\d+\.\d+)", proc.stdout)
-    if m:
-        obj = float(m.group(1))
-    return obj, tail
+    if proc.returncode != 0:
+        return None, tail
+    try:
+        return float(json.loads(result_path.read_text())["obj"]), tail
+    except (FileNotFoundError, json.JSONDecodeError, KeyError,
+            TypeError, ValueError) as e:
+        raise RuntimeError(
+            f"evaluate rc=0 but result JSON missing/unparseable at "
+            f"{result_path}: {e!r}; stdout tail:\n{tail}")
 
 
 # --- helper: synthesize next config name from leaderboard width ---
