@@ -2,6 +2,8 @@
 poll exit conditions (via injected jobsub_q runner), list-outputs gating.
 No grid contact: STATE/STAGES/OUTSTAGE are patched to tmp dirs and the
 jobsub/subprocess boundary is faked."""
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -78,7 +80,11 @@ class TestPollExitConditions(unittest.TestCase):
                                side_effect=AssertionError("slept")):
             self._outstage(tmp, 123, bare=4, hashed=0)
             runner = mock.Mock(return_value=_q_result(0, ""))  # queue drained
-            pipeline.poll_cluster("poke", 123, runner=runner)  # returns, no sleep
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                pipeline.poll_cluster("poke", 123, runner=runner)  # returns, no sleep
+            self.assertEqual(runner.call_count, 1)
+            self.assertIn("converged", buf.getvalue())
 
     def test_failure_aware_exit_queue_drained_all_dirs_but_unsettled(self):
         # 2 bare + 2 perma-hash = all 4 dirs present, settled < target=3:
@@ -90,7 +96,28 @@ class TestPollExitConditions(unittest.TestCase):
                                side_effect=AssertionError("slept")):
             self._outstage(tmp, 123, bare=2, hashed=2)
             runner = mock.Mock(return_value=_q_result(0, ""))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                pipeline.poll_cluster("poke", 123, runner=runner)
+            self.assertEqual(runner.call_count, 1)
+            output = buf.getvalue()
+            self.assertIn("stuck in hash form", output)
+            self.assertNotIn("converged", output)
+
+    def test_not_yet_converged_sleeps_then_retries(self):
+        # 2 still in queue: finished_q=2 < target=3 -> not converged; in_queue
+        # != 0 so the failure-aware exit can't fire either -> sleeps once,
+        # then the second poll sees a drained queue and converges.
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.dict(pipeline.STAGES, {"poke": {"njobs": 4}}), \
+             mock.patch.object(pipeline, "OUTSTAGE", Path(tmp)), \
+             mock.patch.object(pipeline.time, "sleep") as slept:
+            self._outstage(tmp, 123, bare=4, hashed=0)
+            runner = mock.Mock(side_effect=[_q_result(0, _queue_lines(123, 2)),
+                                            _q_result(0, "")])
             pipeline.poll_cluster("poke", 123, runner=runner)
+            self.assertEqual(runner.call_count, 2)
+            slept.assert_called_once_with(120)
 
     def test_jobsub_q_failure_is_retried_not_treated_as_empty_queue(self):
         with tempfile.TemporaryDirectory() as tmp, \
