@@ -64,11 +64,13 @@ class TestRunPreflightReadsJson(unittest.TestCase):
             return pio.run_preflight("foilsflash", "cfgX")
 
     def test_valid_json_wins(self):
+        # JSON says pass while rc=2 (old rc-map would say fail_init):
+        # only a JSON-reading implementation returns "pass" here.
         with tempfile.TemporaryDirectory() as tmp:
             status, _ = self._call(tmp, _fake_run(
-                {"verdict": "fail_init", "rc": 2, "reasons": [],
+                {"verdict": "pass", "rc": 2, "reasons": [],
                  "log_path": "x", "config": "cfgX"}, rc=2))
-            self.assertEqual(status, "fail_init")
+            self.assertEqual(status, "pass")
 
     def test_missing_json_decodes_ambiguous_with_loud_tail(self):
         with tempfile.TemporaryDirectory() as tmp:
