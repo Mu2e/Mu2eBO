@@ -762,7 +762,8 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
         return cluster
 
 
-def poll_cluster(stage: str, cluster: int, *, quorum: float = 0.9, cap_hours: float = 24.0) -> None:
+def poll_cluster(stage: str, cluster: int, *, quorum: float = 0.9,
+                 cap_hours: float = 24.0, runner=None) -> None:
     """Wait until stage-out convergence (or wall-clock cap).
 
     Convergence = (jobs left queue >= target) AND (settled bare-form
@@ -780,7 +781,7 @@ def poll_cluster(stage: str, cluster: int, *, quorum: float = 0.9, cap_hours: fl
     base = OUTSTAGE / str(cluster) / "00"
     deadline = time.time() + cap_hours * 3600
     while time.time() < deadline:
-        out = subprocess.run(
+        out = (runner or subprocess.run)(
             ["jobsub_q", "-G", "mu2e", f"--user={USER}",
              "--constraint", f"ClusterId=={cluster}"],
             capture_output=True, text=True,
