@@ -57,6 +57,69 @@ def parse_s_over_sqrt_b(stdout: str) -> float:
     return float(m.group(1))
 
 
+# --- Steps 1 & 4: subprocess-shaped harvest work, behind injected runners ---
+# (harvest.py stays stdlib-only; runner(cmd, cwd) is a proc-like the CALLER
+# binds env for — see pipeline.py's _mu2e_runner / _root_runner.)
+
+AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
+EDEP_FCL = AUTORESEARCH / "Run1BAna/workflows/fcl/edep.fcl"
+SENSITIVITY_MACRO = AUTORESEARCH / "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C"
+
+
+def run_edepana(harvest_dir: Path, ce_files: Sequence[Path], *, runner):
+    """Harvest Step 1: EdepAna over the CeEndpoint art files.
+
+    Returns (ce_seen, nts_path). Writes ce_files.txt, edep_wrapper.fcl and
+    edep.log into harvest_dir. runner(cmd, cwd) -> proc-like; the caller
+    binds env/FHICL_FILE_PATH. HARD-fail (SystemExit) on rc != 0 or an
+    unparseable 'Saw N events' line — this is the sob numerator, never
+    fail-soft (unlike extract_secondary_edep).
+    """
+    ce_list = harvest_dir / "ce_files.txt"
+    ce_list.write_text("\n".join(str(p) for p in ce_files) + "\n")
+    nts_path = harvest_dir / "nts.ce.root"
+    wrapper = harvest_dir / "edep_wrapper.fcl"
+    wrapper.write_text(
+        f'#include "{EDEP_FCL.relative_to(AUTORESEARCH).as_posix()}"\n'
+        f'services.TFileService.fileName: "{nts_path.name}"\n'
+    )
+    edep_log = harvest_dir / "edep.log"
+    proc = runner(["mu2e", "-c", str(wrapper), "-S", str(ce_list)],
+                  harvest_dir)
+    edep_log.write_text(proc.stdout + "\n=== STDERR ===\n" + proc.stderr)
+    if proc.returncode != 0:
+        raise SystemExit(f"EdepAna failed (rc={proc.returncode}); see {edep_log}")
+    try:
+        return parse_edepana_saw(proc.stdout), nts_path
+    except ValueError as e:
+        raise SystemExit(f"{e}; see {edep_log}")
+
+
+def run_sensitivity_macro(harvest_dir: Path, nts_path: Path,
+                          ce_abs_eff: float, *, runner) -> float:
+    """Harvest Step 4: rough_run1a_sensitivity.C -> S/sqrt(B).
+
+    cwd is the Run1BAna workflows dir (macro path in cmd is
+    workflows-relative). Writes rough_run1a_sensitivity.log. HARD-fail on
+    rc != 0 / unparseable output.
+    """
+    macro_log = harvest_dir / "rough_run1a_sensitivity.log"
+    cwd = SENSITIVITY_MACRO.parent.parent
+    cmd = ["root", "-q", "-b", "-l",
+           f'scripts/rough_run1a_sensitivity.C("{nts_path}", '
+           f'{ce_abs_eff:.16g}, "{harvest_dir}")']
+    proc = runner(cmd, cwd)
+    macro_log.write_text(proc.stdout + "\n=== STDERR ===\n" + proc.stderr)
+    if proc.returncode != 0:
+        raise SystemExit(
+            f"rough_run1a_sensitivity.C failed (rc={proc.returncode}); "
+            f"see {macro_log}")
+    try:
+        return parse_s_over_sqrt_b(proc.stdout)
+    except ValueError as e:
+        raise SystemExit(f"{e}; see {macro_log}")
+
+
 # --- stage-chain stamp (the one owner of "did concat run for this Eval") ----
 
 def stamp_stage_chain(state_dir: Path, stages: Sequence[str]) -> None:

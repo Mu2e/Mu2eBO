@@ -954,11 +954,10 @@ RUN1A_MUBEAM_INPUT_CORRECTION = hv.RUN1A_MUBEAM_INPUT_CORRECTION  # single sourc
 
 # Path to the autoresearch repo so we can find the EdepAna fcl + ROOT macro.
 AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
-EDEP_FCL = AUTORESEARCH / "Run1BAna/workflows/fcl/edep.fcl"
-SENSITIVITY_MACRO = AUTORESEARCH / "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C"
 
-# EdepAna / sensitivity-macro parsers (incl. the sci-notation count fix) live in
-# harvest.py: parse_edepana_saw, parse_s_over_sqrt_b — regression-tested there.
+# EdepAna / sensitivity-macro Steps 1+4 (incl. the sci-notation count fix,
+# and EDEP_FCL/SENSITIVITY_MACRO path consts) live in harvest.py:
+# run_edepana, run_sensitivity_macro — regression-tested there.
 
 # TargetMuonFinder/stopmat bin labels (mmackenz extract_analysis_results._CALO_STOP_MATERIALS)
 _CALO_STOP_MATERIALS = ("G4_CESIUM_IODIDE", "CarbonFiber", "AluminumHoneycomb")
@@ -1264,27 +1263,15 @@ def cmd_harvest(args):
     ce_simulated_events = len(ce_files) * _events_per_job("mustops_ce")
 
     print(">>> Step 1: EdepAna on CeEndpoint outputs")
-    ce_list = harvest_dir / "ce_files.txt"
-    ce_list.write_text("\n".join(str(p) for p in ce_files) + "\n")
-    nts_path = harvest_dir / "nts.ce.root"
-    wrapper = harvest_dir / "edep_wrapper.fcl"
-    wrapper.write_text(
-        f'#include "{EDEP_FCL.relative_to(AUTORESEARCH).as_posix()}"\n'
-        f'services.TFileService.fileName: "{nts_path.name}"\n'
-    )
-    edep_log = harvest_dir / "edep.log"
-    proc = subprocess.run(
-        ["mu2e", "-c", str(wrapper), "-S", str(ce_list)],
-        cwd=harvest_dir, env={**env, "FHICL_FILE_PATH": f"{AUTORESEARCH}:{env.get('FHICL_FILE_PATH','')}"},
-        capture_output=True, text=True, check=False,
-    )
-    edep_log.write_text(proc.stdout + "\n=== STDERR ===\n" + proc.stderr)
-    if proc.returncode != 0:
-        raise SystemExit(f"EdepAna failed (rc={proc.returncode}); see {edep_log}")
-    try:
-        ce_seen = hv.parse_edepana_saw(proc.stdout)
-    except ValueError as e:
-        raise SystemExit(f"{e}; see {edep_log}")
+    def _mu2e_runner(cmd, cwd):
+        return subprocess.run(
+            cmd, cwd=cwd,
+            env={**env, "FHICL_FILE_PATH":
+                 f"{AUTORESEARCH}:{env.get('FHICL_FILE_PATH', '')}"},
+            capture_output=True, text=True, check=False)
+    ce_seen, nts_path = hv.run_edepana(harvest_dir, ce_files,
+                                       runner=_mu2e_runner)
+    edep_log = harvest_dir / "edep.log"  # path hv.run_edepana wrote; summary needs it
 
     print(">>> Step 2: counting events in MuminusStopsCat")
     muminus_stops = sum(_count_events_art(f, env, harvest_dir) for f in muminus_files)
@@ -1301,18 +1288,12 @@ def cmd_harvest(args):
     print(f"    ce_abs_eff          = {ce_abs_eff:.6g}")
 
     print(">>> Step 4: rough_run1a_sensitivity.C")
-    macro_log = harvest_dir / "rough_run1a_sensitivity.log"
-    cwd = SENSITIVITY_MACRO.parent.parent
-    cmd = ["root", "-q", "-b", "-l",
-           f'scripts/rough_run1a_sensitivity.C("{nts_path}", {ce_abs_eff:.16g}, "{harvest_dir}")']
-    proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, check=False)
-    macro_log.write_text(proc.stdout + "\n=== STDERR ===\n" + proc.stderr)
-    if proc.returncode != 0:
-        raise SystemExit(f"rough_run1a_sensitivity.C failed (rc={proc.returncode}); see {macro_log}")
-    try:
-        s_over_sqrt_b = hv.parse_s_over_sqrt_b(proc.stdout)
-    except ValueError as e:
-        raise SystemExit(f"{e}; see {macro_log}")
+    def _root_runner(cmd, cwd):
+        return subprocess.run(cmd, cwd=cwd, env=env,
+                              capture_output=True, text=True, check=False)
+    s_over_sqrt_b = hv.run_sensitivity_macro(harvest_dir, nts_path,
+                                             ce_abs_eff, runner=_root_runner)
+    macro_log = harvest_dir / "rough_run1a_sensitivity.log"  # path hv wrote; summary needs it
 
     degraded: dict = {}  # stage -> reason, for every fail-softed extraction
     print(">>> Step 5: TargetMuonFinder/stopmat from run1b_mubeam outputs")

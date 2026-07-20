@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import harvest  # noqa: E402
@@ -248,6 +249,85 @@ class TestEvalSummarySchema(unittest.TestCase):
             self.assertIsNone(data["flash_edep_per_pot"])
             self.assertEqual(data["muminus_source"], "concat")
             self.assertEqual(data["degraded"], {})
+
+
+class TestRunEdepana(unittest.TestCase):
+    def _runner(self, rc=0, stdout="x\nEdepAna summary: Saw 12345 events\ny"):
+        calls = []
+        def run(cmd, cwd):
+            calls.append((cmd, cwd))
+            return SimpleNamespace(returncode=rc, stdout=stdout, stderr="e")
+        run.calls = calls
+        return run
+
+    def test_success_writes_artifacts_and_parses_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hd = Path(tmp)
+            runner = self._runner()
+            ce_seen, nts = harvest.run_edepana(hd, [Path("/a/f1.art"),
+                                               Path("/a/f2.art")],
+                                          runner=runner)
+            self.assertEqual(ce_seen, 12345)
+            self.assertEqual(nts, hd / "nts.ce.root")
+            self.assertEqual((hd / "ce_files.txt").read_text(),
+                             "/a/f1.art\n/a/f2.art\n")
+            wrapper = (hd / "edep_wrapper.fcl").read_text()
+            self.assertIn('#include "Run1BAna/workflows/fcl/edep.fcl"',
+                          wrapper)
+            self.assertIn('fileName: "nts.ce.root"', wrapper)
+            self.assertIn("Saw 12345 events", (hd / "edep.log").read_text())
+            cmd, cwd = runner.calls[0]
+            self.assertEqual(cmd[0], "mu2e")
+            self.assertEqual(cwd, hd)
+
+    def test_scientific_notation_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = self._runner(
+                stdout="EdepAna summary: Saw 2.70937e+06 events")
+            ce_seen, _ = harvest.run_edepana(Path(tmp), [Path("/a/f.art")],
+                                        runner=runner)
+            self.assertEqual(ce_seen, 2709370)
+
+    def test_nonzero_rc_hard_fails_with_log_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit) as cm:
+                harvest.run_edepana(Path(tmp), [Path("/a/f.art")],
+                               runner=self._runner(rc=9))
+            self.assertIn("edep.log", str(cm.exception))
+
+    def test_unparseable_count_hard_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                harvest.run_edepana(Path(tmp), [Path("/a/f.art")],
+                               runner=self._runner(stdout="no count here"))
+
+
+class TestRunSensitivityMacro(unittest.TestCase):
+    def _runner(self, rc=0,
+               stdout="Signal box [103.85,105.1]: S/sqrt(B) = 3.140"):
+        calls = []
+        def run(cmd, cwd):
+            calls.append((cmd, cwd))
+            return SimpleNamespace(returncode=rc, stdout=stdout, stderr="")
+        run.calls = calls
+        return run
+
+    def test_success_parses_and_uses_workflows_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = self._runner()
+            val = harvest.run_sensitivity_macro(Path(tmp), Path("/n/nts.root"),
+                                           0.0123, runner=runner)
+            self.assertAlmostEqual(val, 3.140)
+            cmd, cwd = runner.calls[0]
+            self.assertEqual(cwd, harvest.SENSITIVITY_MACRO.parent.parent)
+            self.assertIn("/n/nts.root", cmd[-1])
+            self.assertIn("0.0123", cmd[-1])
+
+    def test_nonzero_rc_hard_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                harvest.run_sensitivity_macro(Path(tmp), Path("/n/nts.root"),
+                                         0.0123, runner=self._runner(rc=1))
 
 
 if __name__ == "__main__":
