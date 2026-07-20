@@ -77,6 +77,33 @@ in `tests/test_harvest.py` (success, nonzero-rc SystemExit with log path,
 parse of the 'S/sqrt(B) =' line). `EDEP_FCL` / `SENSITIVITY_MACRO`
 constants move with their consumers.
 
+## Block B0 — inputs from the tests-round final review (2026-07-19)
+
+The prerequisite round's whole-branch review (Ready-to-merge, no
+Critical/Important) pre-triaged these follow-ups into this round:
+
+- `bo_driver.format_row`: value line hardcodes the 4-field foils tail
+  while the header derives from `metric_cols` — add a lockstep assert or
+  derive the line (protects a future metric_cols shape change).
+- `build_space`'s KNOB_NAMES-vs-bounds ValueError guard is dead by
+  construction post-registry (and `ModeSpec.__post_init__` uses bare
+  `assert`, inert under `python -O`) — delete/harden.
+- Two cheap seam tests: stale-`evaluate_result.json`-not-reused
+  (symmetric to the preflight stale test) and the
+  `PREFLIGHT_VERDICTS.get(out-of-domain rc) == "ambiguous"` fallback.
+- `graph/nodes.py:265` `_record_zero_row` cause string
+  `"obj_unparseable"` is cosmetically stale (obj is never "parsed" now).
+- test_flock: post-release SH re-acquisition probe + one comment on the
+  TMPDIR-not-NFS assumption.
+- Wiki drift: `drivers/bo-driver.md` still describes KNOB_NAMES/CALO_COL
+  as driver-owned and omits the `--emit-json` verbs; `graph/nodes.py`
+  preflight comments could point at `bo_driver.PREFLIGHT_VERDICTS`
+  (plan Task 6 step skipped, recorded here).
+- Pre-existing open question flagged as scientifically consequential:
+  does the hybrid-picker scipy-retry nondeterminism (wiki incident
+  2026-07-19) matter for live campaign reproducibility? Audit before the
+  next campaign leans on `--round-idx` reproducibility.
+
 ## Block B — non-production sweep (hygiene, small yield)
 
 1. `.claude/commands/closed-loop-status.md` re-audit (the audit's open
