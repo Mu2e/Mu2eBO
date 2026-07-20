@@ -4,8 +4,10 @@ title: bo_driver.py — driver
 description: '`propose | evaluate | preflight` (6 modes; michael/helical retired
   2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)'
 status: active
-timestamp: '2026-07-18'
-updated_note: renamed from autoresearch_bo_michael.py (michael-name retirement)
+timestamp: '2026-07-19'
+updated_note: 'fixed recorded drift: KNOB_NAMES/KNOB_FMTS/CALO_COL are registry
+  properties (modes.SPECS) not driver-owned data; preflight/evaluate carry
+  --emit-json; build_space lockstep guard now lives in ModeSpec.__post_init__'
 ---
 
 # bo_driver.py — driver
@@ -53,14 +55,43 @@ after the michael mode was retired (2026-07-12).
   concrete-shared for the Foils family, see below). Shared concerns (history
   I/O, pending TSV, proposal write) are concrete on the base. `MODES` is
   the registry argparse selects from.
+- **`KNOB_NAMES`/`KNOB_FMTS`/`CALO_COL` are registry-reading PROPERTIES, not
+  driver-owned data (since `bd37aa3`, 2026-07-19 — fixes a wiki drift a prior
+  round flagged and skipped).** `BOMode.KNOB_NAMES`/`.KNOB_FMTS` read
+  `modes.SPECS[self.name].knob_names`/`.knob_fmts`; `.CALO_COL` reads
+  `modes.SPECS[self.name].metric_cols[1]` (Foils-family second-objective
+  column, `calo` vs `flash_edep`). The driver no longer stores these as
+  per-subclass class attrs — `core/modes.py` is the single source, and
+  `BOMode.format_row` additionally hard-guards `len(metric_cols) == 4` (a
+  future non-sob/calo/alpha/obj mode must override `format_row`, per the
+  `ProdTargetMode` pattern, instead of silently mis-writing the header).
 - **`build_space` is data-driven (2026-07-12; skopt-free since 2026-07-18):**
   one concrete base method reads `modes.SPECS[name].bounds_lo/hi/int_dims`
-  + a per-mode `KNOB_NAMES` tuple → plain `SpaceDim(name, low, high, is_int)`
-  rows. A `KNOB_NAMES`/bounds length mismatch is a loud `ValueError`; the
-  lockstep is pinned by `test_modes.TestBoundsLockstep`.
+  + the `KNOB_NAMES` property (above) → plain `SpaceDim(name, low, high,
+  is_int)` rows. The `KNOB_NAMES`/bounds lockstep check used to live IN
+  `build_space` (a `ValueError` raise); it is now DEAD CODE there by
+  construction (`ModeSpec.__post_init__` already enforces
+  `knob_names`/`knob_fmts`/`bounds_lo` lockstep whenever `bounds_lo is not
+  None`, raising `ValueError` — was a bare `assert`, strippable under
+  `python -O`, hardened to `raise` 2026-07-19) — deleted from `build_space`,
+  replaced with a pointer comment. Lockstep is pinned by
+  `test_modes.TestBoundsLockstep`. **Watch-note:** the `__post_init__` guard
+  is gated on `bounds_lo is not None`, so a future `bounds_lo=None` mode
+  (michael's now-retired Categorical pattern) would silently skip lockstep
+  validation.
   The Foils family (`foils`/`foilsf`/`foilsflash`) also shares one concrete
   `format_row`/`load_history_row` on `FoilsMode`, parameterized by `KNOB_NAMES`
   + `KNOB_FMTS` (per-position precision) + `CALO_COL` (`calo` vs `flash_edep`).
+- **`preflight`/`evaluate` cross the graph↔driver seam as typed JSON
+  (2026-07-19, `d07d668`/`6b81a17`): both verbs carry `--emit-json <path>`**
+  (`cmd_preflight`/`cmd_evaluate`, argparse at `core/bo_driver.py:1760,1767`).
+  When passed, the verb writes `state/<cfg>/{preflight_verdict,
+  evaluate_result}.json` atomically (tmp+rename) alongside its normal
+  stdout/exit-code behavior; `graph/pipeline_io.py` (`run_preflight`/
+  `run_evaluate`) reads the JSON as the primary signal, with the exit code
+  as a transport-failure-only backstop. See
+  [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md)
+  candidate 4.
 - **Deleted 2026-07-12:** `show-priors` verb + all `print_top` display methods
   (zero callers); the `--strategy` cl_min/mean/max flag (ADR-0001); `F_MAX`/
   `HT_FLOOR` class attrs (their 0.95/0.002 caps live in `modes.SPECS`).

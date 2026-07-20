@@ -3,8 +3,9 @@ type: driver
 title: pipeline.py — parametric grid runner
 description: 'per-config runner: forks config, submits grid, harvests'
 status: active
-timestamp: '2026-06-07'
-updated_note: added `harvest-pot-only` subcommand for bo-prodtarget
+timestamp: '2026-07-19'
+updated_note: 'cmd_harvest Steps 1+4 (EdepAna, sensitivity macro) delegate to
+  harvest.py runner seams (commit 1809635); Step 2 event-counting still inline'
 ---
 
 # pipeline.py — parametric grid runner
@@ -19,7 +20,8 @@ Replaced the per-config rsync+sed fork pattern (see [template-fcl-staleness](/in
 for the failure that motivated this).
 
 ## Key facts
-- **Path:** `pipeline.py` (project root)
+- **Path:** `core/pipeline.py` (moved from project root in the 2026-07-17
+  reorg; this page's "project root" wording was stale — fixed 2026-07-19)
 - **Templates:** `pipeline_templates/<stage>/template.fcl` with the geom
   basename slot marked `__GEOM_FILE__`. `submit_stage` substitutes
   `autoresearch_<cfg>_geom.txt` and writes the materialized FCL to
@@ -90,6 +92,24 @@ for the failure that motivated this).
   <cfg>` runs without manual prep.
 - **Harvest output:** `summary.json` with `s_over_sqrt_b`, `calo_per_pot`,
   and a `config` field naming the CFG.
+- **`cmd_harvest` delegates Steps 1+4 to `harvest.py` runner seams
+  (2026-07-19, commit 1809635 — friction-survey candidate 5's harvest
+  phase-2 slice, `graph/closed_loop.py`'s ChildTracker full-cut was
+  candidate 2's).** Step 1 (EdepAna over CeEndpoint outputs) and Step 4
+  (`rough_run1a_sensitivity.C` → `s_over_sqrt_b`) now call
+  `hv.run_edepana(...)` / `hv.run_sensitivity_macro(...)`, each taking an
+  injected `runner(cmd, cwd)` — `pipeline.py` still owns env/
+  `FHICL_FILE_PATH` binding via a local closure (`_mu2e_runner`/
+  `_root_runner`) so `harvest.py` stays stdlib-only and testable with
+  fakes. `EDEP_FCL`/`SENSITIVITY_MACRO` path constants moved to
+  `harvest.py` with their consumers. Hard-fail (`SystemExit`) semantics on
+  rc≠0 or unparseable output preserved exactly. Golden re-harvest of
+  `foilsflash13R00_02` verified all `summary.json` keys bit-identical
+  before/after. **`cmd_harvest` is NOT fully subprocess-free**: Step 2
+  (per-file event counting via `_count_events_art`, `pipeline.py:1115`,
+  called at `:1277`) is still an inline `subprocess.run` — out of this
+  round's scope. See
+  [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md).
 - **Calo extraction:** reuses `_extract_target_al_entries` from mmackenz's
   `Run1BAna/workflows/scripts/extract_analysis_results.py`, with
   `_MUBEAM_INPUT_EFFICIENCY_BY_FCL = 0.01278168` correction.
@@ -137,6 +157,7 @@ for the failure that motivated this).
 - Consumed by: [bo-driver](/drivers/bo-driver.md) `evaluate`, [graph-runner](/drivers/graph-runner.md) (per-stage nodes)
 - Geom rendered by: [bo-driver](/drivers/bo-driver.md) `propose` (auto-stages into work tree)
 - Regression tests: [tests](/drivers/tests.md) (pins the `_check_stage_config_sha` contract)
+- Related: [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) (candidate 5, harvest unification)
 - See: [grid-job-completion-check](/incidents/grid-job-completion-check.md) for monitoring conventions
 - History: [template-fcl-staleness](/incidents/template-fcl-staleness.md) (the bug this refactor closes)
 

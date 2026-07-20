@@ -8,7 +8,9 @@ description: 'friction map: mode dispatched at ~20 sites/6 files (silent `.get`
   zero-test-imports fact RESOLVED (4 new test files, 36 new tests, 196-test suite)'
 status: active
 timestamp: '2026-07-19'
-updated_note: 'candidates 3+4 resolved (tests/schema/protocol round, commits bd37aa3..6b81a17)'
+updated_note: 'candidate 5 (unified harvest) partially executed: cmd_harvest
+  Steps 1+4 moved behind harvest.py runner seams (slim round, commit 1809635);
+  Step 2 (per-file event counting) still inline — see Key facts'
 ---
 
 # Architecture friction survey (2026-07)
@@ -76,15 +78,33 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
   stamp-at-submit, poll exit conditions), and picker unit tests (history
   tensor loading, seeding, min-spacing, picks-JSON, one real GP fit +
   qNEHVI pick). See [tests](/drivers/tests.md).
+- **Candidate 5 (unified mode-parameterized harvest) — Steps 1+4 slice DONE
+  2026-07-19 (slim round, commit 1809635).** `cmd_harvest`'s Step 1
+  (EdepAna) and Step 4 (`rough_run1a_sensitivity.C`) subprocess calls moved
+  into `harvest.py` as `run_edepana`/`run_sensitivity_macro`, each taking
+  an injected `runner(cmd, cwd)` (the caller — `pipeline.py` — still binds
+  env/`FHICL_FILE_PATH`; `harvest.py` stays stdlib-only). Hard-fail
+  semantics preserved (`SystemExit` on rc≠0 or unparseable output).
+  Golden re-harvest of `foilsflash13R00_02` bit-identical across all
+  `summary.json` keys. **Honest scope note: `cmd_harvest` is NOT yet
+  subprocess-free** — Step 2 (per-file event counting in
+  `MuminusStopsCat`, `_count_events_art` at `pipeline.py:1115`, called
+  from `cmd_harvest` at `:1277`) is the one subprocess consumer still
+  inline; it was out of this round's scope (not touched by 1809635).
+  Candidate 5's broader "one unified mode-parameterized harvest function"
+  ambition remains unpicked — only the Steps 1+4 runner-seam slice landed.
 - **Search-space bounds are triplicated**: skopt `build_space` (per BOMode subclass),
   botorch `MODE_SPECS` (`botorch_predict.py:63-133`, inlined because the venv can't
   import the driver), and 12 external `gp_predict_*.py` files in mmackenz_table_plots
   (consumed by `_import_gp`).
 - Review verdict (candidates presented 2026-07-06): (1) single Mode
-  registry, (2) one child-status resolver — both LANDED 2026-07-12; (3) shared
+  registry — LANDED 2026-07-12, **full-cut 2026-07-19** (see
+  [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md));
+  (2) one child-status resolver — first cut LANDED 2026-07-12, **ChildTracker
+  is now the sole resolver, full-cut 2026-07-19** (556ac5c, 1d37217); (3) shared
   leaderboard schema, (4) typed JSON result protocol across the subprocess seam
-  — both RESOLVED 2026-07-19; (5) unified mode-parameterized harvest — still
-  unpicked.
+  — both RESOLVED 2026-07-19; (5) unified mode-parameterized harvest —
+  Steps 1+4 slice DONE 2026-07-19, broader unification still unpicked.
 
 ## 2026-07-12 size-reduction sweep (executed) — −348 production lines
 
@@ -162,7 +182,12 @@ questions above; 5 still unpicked).
   and 4 (typed JSON result protocol) landed via
   `docs/superpowers/specs/2026-07-18-tests-schema-protocol-design.md`
   (commits `bd37aa3`, `d07d668`, `6b81a17`); see Key facts above.
-- Candidate 5 (unified mode-parameterized harvest) remains unpicked.
+- RESOLVED 2026-07-19 (slim round, `docs/superpowers/specs/2026-07-19-slim-shrink-sweep-design.md`):
+  candidates 1+2's deferred full-cut landed (commits 556ac5c, 1d37217);
+  candidate 5's Steps 1+4 harvest slice landed (commit 1809635). Candidate
+  5's broader unification (fold Step 2's inline event-counting subprocess
+  + the wholly-parallel `cmd_harvest_pot_only` into one mode-parameterized
+  function) remains unpicked.
 
 ## 2026-07-11 re-survey (post speed-stack) — new friction, Explore-agent verified
 

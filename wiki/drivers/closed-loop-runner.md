@@ -4,8 +4,11 @@ title: closed-loop-runner — multi-round Pareto-pick BO driver
 description: 'multi-round Pareto-pick BO driver: wraps q parallel graph-runner children,
   refits GP between rounds'
 status: active
-timestamp: '2026-07-17'
-updated_note: pgrep-self-match PID trap; foilsflash18 launched on production defaults
+timestamp: '2026-07-19'
+updated_note: 'ChildTracker full-cut (2026-07-19): barrier is the sole resolver
+  of child state — STALE_CLUSTER resolves loudly at the barrier (not launch time),
+  launch-failed children resolve immediately (no 24h hang), barrier hard-guard
+  narrowed to empty-children-dict'
 ---
 
 # closed-loop-runner — multi-round Pareto-pick BO driver
@@ -28,6 +31,36 @@ loop (human computes 5 Pareto picks → launches 5 chains by hand → waits 2 h
 in this phase.
 
 ## Key facts
+- **ChildTracker is the SOLE resolver of child state (full-cut, 2026-07-19,
+  556ac5c + 1d37217).** `node_launch_children`/`node_assign_names` no
+  longer do their own completed/error bookkeeping — see
+  [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md)
+  for the full design. Operator-visible barrier semantics changed:
+  - **Stale-cluster children now resolve AT THE BARRIER as `STALE_CLUSTER`**
+    (was: `node_launch_children` routed them to `completed_names` with a
+    loud SKIP message before the barrier was ever entered). Same operator
+    recipe, moved: `rm <grid>/<name>/state/*_cluster.txt` and relaunch, or
+    use a fresh `--name-prefix`. See
+    [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md).
+  - **All-stale / all-resume rounds no longer `RuntimeError`.** The old
+    hard guard was `if not launched_names: raise RuntimeError(...)`; an
+    all-stale round legitimately has an empty `launched_names` with a
+    non-empty `children` dict, so it now logs "nothing launched this round
+    (N children resume/stale) — tracker will resolve them" and proceeds
+    into the barrier tick loop, which resolves each child to
+    `STALE_CLUSTER`/`DONE_ROW`/etc. **The raise moved to `if not
+    children:`** (an empty children DICT is still the real
+    state-corruption signal).
+  - **Launch-failed children resolve immediately, no 24h hang (1d37217,
+    a review finding on the full-cut).** A child whose `subprocess.Popen`
+    itself raises is stamped `launch_failed=True` (pid stays `None`); the
+    tracker checks `launch_failed` BEFORE `has_cluster` and resolves
+    `DEAD_UNRESOLVED` on the FIRST tick (no two-tick dead-pid grace — there
+    is no in-flight process/append to race). Before this fix such a child
+    silently stayed `RUNNING` until the 24h `barrier_max_min` backstop.
+  - Operator diagnostics improved: the barrier's `DEAD_UNRESOLVED` message
+    now distinguishes "launch failed, child never started" (pid is `None`)
+    from "child process `<pid>` died without resolution" (pid was set).
 - **`--rolling` FAILURE PATHS LIVE-VALIDATED 2026-07-13 (foilsflash15):**
   first real flight hit the MuBeamCat tape migration → all children died at
   mubeam submit; observed working: first-resolution barrier exit, replenish
@@ -647,9 +680,11 @@ grid queue was empty.
 ## Cross-links
 - Related: [tests](/drivers/tests.md), [graph-runner](/drivers/graph-runner.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-helical](/projects/bo-helical.md),
   [batch-bo](/concepts/batch-bo.md), [bo-driver](/drivers/bo-driver.md), [scalarized-objective](/concepts/scalarized-objective.md),
-  [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md), [g4-speed-knobs](/concepts/g4-speed-knobs.md)
+  [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md), [g4-speed-knobs](/concepts/g4-speed-knobs.md),
+  [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md),
+  [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)
 - Regression tests: [tests](/drivers/tests.md)
-- Source files: `graph/closed_loop.py`,
+- Source files: `graph/closed_loop.py`, `graph/child_tracker.py`,
   `graph/config.py` (CLOSED_LOOP_* constants),
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_helical.py`
   (`compute_explore_picks` library entry point)

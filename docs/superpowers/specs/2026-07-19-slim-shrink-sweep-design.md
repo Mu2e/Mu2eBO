@@ -1,7 +1,7 @@
 # Design: slimming round — giant-file shrink + non-production sweep
 
 Date: 2026-07-19
-Status: approved (brainstorming session 2026-07-19)
+Status: implemented 2026-07-19
 Predecessors: `2026-07-18-tests-schema-protocol-design.md` (prerequisite —
 lands first), wiki `concepts/mode-registry-childtracker-design` (A1 is its
 recorded follow-up), `concepts/architecture-friction-survey-2026-07` (A2 is
@@ -176,3 +176,68 @@ Suite green; goldens byte-identical; mock closed-loop round passes;
 ChildTracker is the only resolver of child state in closed_loop.py;
 cmd_harvest contains no inline subprocess calls; audit open-items executed
 or adjudicated; wiki records the round.
+
+## Execution amendments (2026-07-19)
+
+Recorded post-hoc against plan reality. Commits this round: `704682c` (B0
+batch), `1809635` (harvest seams), `556ac5c` (ChildTracker full-cut),
+`1d37217` (launch-failed fix). Suite 196 → 211, all green throughout;
+goldens (a)/(b) OK; Task 3's re-harvest of `foilsflash13R00_02` was
+bit-identical across all `summary.json` keys.
+
+**Four spec-reality corrections** (this design's premises, revised by
+execution):
+1. **Streak-move dissolved.** The "zero-rows/streak accounting moves onto
+   the tracker" line item (Block A1) was found already-landed via a
+   different, pre-existing mechanism — the 2026-07-16 name-based
+   `_leaderboard_names` fix (b98d5da) — and regression-pinned by the
+   existing ff18-w1 test. Not re-touched this round.
+2. **Mock closed-loop round verification is impossible as specified.**
+   The Verification section's "one mock closed-loop round (q=2, `--mock`
+   children, `--max-rounds 1`) end-to-end" cannot run: `--no-mock` is
+   hardcoded for real closed-loop children (there is no mock child path in
+   `graph/closed_loop.py`). Substituted verification = real-node unit
+   tests exercising `node_barrier`/`ChildTracker` through the
+   dead-pid/launch-failed/stale-cluster/timeout paths, a `graph.run
+   --mock` chain smoke (single-node, not the outer closed-loop), and live
+   validation riding the next real campaign — the same precedent the
+   ChildTracker first cut (421b1fc) set.
+3. **Run1BAna debris was 40 `config_bo` dirs, not 3.** Block B item 2
+   assumed `config_bo000..002` (three dirs); the actual untracked debris
+   under `Run1BAna/workflows/` was 40 `config_bo*` dirs. Deleted (Task 1);
+   the clone itself (load-bearing for `EDEP_FCL`/`SENSITIVITY_MACRO`)
+   untouched.
+4. **Root gitignored `.bak` sediment (Block B item 3) was already zero** —
+   nothing to delete; recorded as a verified-empty verdict, not a no-op
+   skip.
+
+**Additional execution facts** (fold into status/amendment record):
+5. Task 3 (harvest seams): the plan's deletion range for Steps 1+4 orphaned
+   `edep_log`/`macro_log` (paths the moved code no longer computed but
+   `cmd_harvest`'s summary-writing still needed) — fixed with two path
+   recomputations in `pipeline.py` immediately after the `hv.run_edepana`/
+   `hv.run_sensitivity_macro` calls. The plan's test fixtures were
+   corrected to match the real parser-regex strings. Net: **6 new
+   `test_harvest.py` tests, not the plan's estimated 7**.
+6. Task 4 (ChildTracker full-cut) review found + fixed a launch-failed
+   liveness gap: a child whose `Popen` raises resolved only via the
+   24h `barrier_max_min` backstop, not immediately. Fixed in `1d37217`
+   (`DEAD_UNRESOLVED` on the first tick, no dead-pid grace) — **the
+   round's second intended behavior change**, alongside the all-stale
+   `STALE_CLUSTER` resolution the design anticipated.
+7. Task 5 (test_closed_loop redundancy audit) verdict: **keep-all** — 18
+   `test_closed_loop.py` barrier/launch tests audited against the
+   injected-fake `test_child_tracker.py` coverage the full-cut added; none
+   are pure tracker-level duplicates (each also pins closed_loop-side
+   wiring). No commit.
+8. Recorded follow-ups (not filed as bugs, watch-notes for a future pass):
+   - `decide_next`'s "0/0 pending — carrying forward" log line is now
+     reachable for all-stale rounds and reads ambiguously there — a
+     log-clarity pass candidate.
+   - Harvest log-path literals (`edep.log`, `rough_run1a_sensitivity.log`)
+     are duplicated between `pipeline.py` and `harvest.py` rather than
+     `harvest.py`'s runner functions returning the path they wrote — a
+     return-the-path candidate.
+   - `ModeSpec.__post_init__`'s knob/bounds lockstep guard is gated on
+     `bounds_lo is not None`; a future `bounds_lo=None` mode would
+     silently skip lockstep validation.

@@ -7,7 +7,10 @@ description: 'relaunching closed-loop with same `--name-prefix` after a crash si
   prior run → `pending=[]` → barrier-polls forever. Fix: use new name-prefix or
   rm the stale cluster files'
 status: resolved
-timestamp: '2026-06-09'
+timestamp: '2026-07-19'
+updated_note: 'ChildTracker full-cut (2026-07-19, 556ac5c): the pathology now
+  resolves as a first-class STALE_CLUSTER Resolution at the barrier, not via
+  launch-side bookkeeping — see Resolution update below'
 ---
 
 # closed-loop relaunch silently skips all children when stale cluster.txt files survive
@@ -66,11 +69,39 @@ The existing empty-guard at `:474-479` then fires correctly within seconds when 
 - **All Popens raise** (e.g. log_path permission denied): today, barrier hangs full 240 min; fix correctly empties `launched_names` and the guard fires.
 
 ## Cross-links
-- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (scan_logs gating + cluster-file idempotency design), [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md) (the crash that triggered the recovery scenario), [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md) (separate but adjacent collision-on-resume hazard), [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) (other barrier silent-failure mode), [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md)
-- Source files: `graph/closed_loop.py:401-410` (`_already_running`), `graph/closed_loop.py:407-410` (`pending` filter), `graph/closed_loop.py:454-457` (returns `launched_names` from `children.keys()` even when `pending` was empty)
+- Related: [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (scan_logs gating + cluster-file idempotency design), [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md) (the crash that triggered the recovery scenario), [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md) (separate but adjacent collision-on-resume hazard), [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md) (other barrier silent-failure mode), [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md) (2026-07-19 full-cut moved the resolution mechanism to the barrier), [closed-loop-runner](/drivers/closed-loop-runner.md)
+- Source files: `graph/child_tracker.py` (`STALE_CLUSTER` Resolution, current), `graph/closed_loop.py` (`node_barrier`, current); historical: `graph/closed_loop.py:401-410` (`_already_running`), `graph/closed_loop.py:407-410` (`pending` filter), `graph/closed_loop.py:454-457` (returns `launched_names` from `children.keys()` even when `pending` was empty)
 
 ## Resolution (2026-06-09)
 Applied at `graph/closed_loop.py:454-481`: `launched_names` now sourced from `rec.get("pid")` only; stale-cluster skips route to `completed_names` with a loud per-name SKIP error; leaderboard/broken resumes stay silent (preserves the legit crash-resume contract). The existing empty-launch guard at `:474-479` now fires correctly within seconds when ALL children are stale-skipped instead of a 240-min silent hang. Regression tests at `tests/test_closed_loop.py::TestStaleClusterSkipIsLoud` (3 tests: mixed stale+fresh, all-stale-then-barrier-raises, leaderboard-resume-is-silent). All 28 closed-loop tests pass.
+
+## Resolution mechanism superseded (2026-07-19, ChildTracker full-cut)
+The 2026-06-09 fix lived at LAUNCH time (`node_launch_children` did its own
+stale-cluster bookkeeping, wrote `completed_names`/`errors`, and the barrier's
+empty-`launched_names` guard was the trigger for the loud failure). The
+[mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md)
+full-cut (commit 556ac5c) moved this to the BARRIER: `ChildTracker` gained a
+first-class `STALE_CLUSTER` `Resolution` (a pid-`None` child whose state dir
+has a `*_cluster.txt` from a prior aborted run), and `node_launch_children`
+now only skips the Popen (double-submit guard) — it no longer writes
+`completed_names`/`errors` itself. `node_barrier`'s hard guard also changed:
+`if not launched: raise RuntimeError(...)` (empty launched_names = always a
+bug) became `if not children: raise RuntimeError(...)` (empty children DICT
+is the real corruption signal; an all-stale round legitimately has empty
+`launched_names` with children present, and now resolves cleanly through the
+tracker's tick loop instead of raising). **Operator-facing behavior is
+unchanged**: same `rm <grid>/<name>/state/*_cluster.txt`-and-relaunch (or
+fresh `--name-prefix`) recipe, same loud per-name message, now printed from
+`node_barrier` instead of `node_launch_children`. A companion fix the same
+day (1d37217) closed an adjacent gap the full-cut review found: a child
+whose `Popen` itself raises (`launch_failed=True`, pid stays `None`) now
+resolves `DEAD_UNRESOLVED` on the first tick (no two-tick dead-pid grace),
+instead of falling through to the 24h `barrier_max_min` backstop. Status
+stays `resolved` — the pathology described above cannot recur; only its
+resolution site moved. Regression tests: `tests/test_child_tracker.py`
+(STALE_CLUSTER cases, `test_launch_failed_resolves_immediately_no_grace`),
+`tests/test_closed_loop.py` (all-stale-round-resolves-clean,
+`test_popen_failure_resolves_at_barrier`).
 
 ## Open questions / TODO
 - Consider: time-based cluster-file freshness check (e.g. cluster files >4h old → treat as stale, don't gate). Deferred — current loud-fail + operator-visible message is sufficient.
