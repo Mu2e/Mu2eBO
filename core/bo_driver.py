@@ -184,6 +184,12 @@ class BOMode(ABC):
 
     def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
         cols = _modes.SPECS[self.name].metric_cols
+        if len(cols) != 4:
+            raise ValueError(
+                f"{self.name}: BOMode.format_row writes a 4-column tail "
+                f"(sob-like, calo-like, alpha, obj) but metric_cols is "
+                f"{cols} — override format_row for this shape "
+                f"(ProdTargetMode pattern)")
         header = ("config\t" + "\t".join(self.KNOB_NAMES)
                   + "\t" + "\t".join(cols) + "\n")
         knobs = "\t".join(fmt.format(v) for fmt, v in zip(self.KNOB_FMTS, p.x))
@@ -203,10 +209,7 @@ class BOMode(ABC):
     # silently-truncated space.
     def build_space(self) -> list[SpaceDim]:
         spec = _modes.SPECS[self.name]
-        if len(self.KNOB_NAMES) != len(spec.bounds_lo):
-            raise ValueError(
-                f"{self.name}: KNOB_NAMES ({len(self.KNOB_NAMES)}) != registry "
-                f"bounds ({len(spec.bounds_lo)})")
+        # lockstep enforced at ModeSpec construction (modes.py __post_init__)
         int_dims = set(spec.int_dims or ())
         return [
             SpaceDim(nm, float(lo), float(hi), i in int_dims)

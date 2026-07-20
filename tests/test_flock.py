@@ -5,6 +5,8 @@ _flock_ex's @contextmanager decorator — every real lock acquisition raised
 TypeError while the whole suite stayed green (no test entered the
 contextmanagers). These tests hold locks for real and probe contention from
 a child process (flock exclusion is between processes/fds, not within one).
+Assumes tempfile.TemporaryDirectory resolves to local /tmp — flock semantics
+weaken on NFS/Ceph mounts.
 """
 import subprocess
 import sys
@@ -53,6 +55,7 @@ class TestFlockContention(unittest.TestCase):
                 self.assertEqual(_child_try(lp, "ex"), 3)  # blocked
                 self.assertEqual(_child_try(lp, "sh"), 3)  # readers blocked too
             self.assertEqual(_child_try(lp, "ex"), 0)      # released
+            self.assertEqual(_child_try(lp, "sh"), 0)
 
     def test_sh_allows_child_sh_blocks_child_ex(self):
         with tempfile.TemporaryDirectory() as tmp:

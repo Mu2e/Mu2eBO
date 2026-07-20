@@ -168,5 +168,32 @@ class TestRunEvaluateReadsJson(unittest.TestCase):
                 self._call(tmp, _fake_eval_run(None, rc=0))
 
 
+class TestSeamStaleAndFallback(unittest.TestCase):
+    def test_stale_evaluate_result_not_reused(self):
+        # Pre-seed a stale result; driver writes nothing, rc=1 → (None, tail)
+        # and the stale obj must NOT be returned.
+        with tempfile.TemporaryDirectory() as tmp:
+            stale = Path(tmp) / "cfgX" / "state" / "evaluate_result.json"
+            bo.write_json_atomic(stale, {"config": "cfgX", "obj": 9.9,
+                                         "sob": 9.9, "calo_or_flash": 1e-9,
+                                         "row_appended": True})
+            with mock.patch.object(pio, "GRID_DATA_ROOT", Path(tmp)), \
+                 mock.patch.object(pio.subprocess, "run",
+                                   side_effect=_fake_eval_run(None, rc=1)):
+                obj, _ = pio.run_evaluate("foilsflash", "cfgX",
+                                          {"s_over_sqrt_b": 1.0})
+            self.assertIsNone(obj)
+
+    def test_preflight_out_of_domain_rc_decodes_ambiguous(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(bo, "_cmd_preflight_impl", return_value=99):
+            out = Path(tmp) / "preflight_verdict.json"
+            rc = bo.cmd_preflight(SimpleNamespace(
+                mode="foilsflash", config_name="cfgX", emit_json=str(out)))
+            self.assertEqual(rc, 99)
+            self.assertEqual(json.loads(out.read_text())["verdict"],
+                             "ambiguous")
+
+
 if __name__ == "__main__":
     unittest.main()

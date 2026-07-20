@@ -116,7 +116,7 @@ def node_propose(state: BOIterationState) -> dict:
 def node_render_preflight(state: BOIterationState) -> dict:
     """Run mu2e -n 1 + surface-check on the proposal.
 
-    Outcomes:
+    Outcomes (vocabulary: bo_driver.PREFLIGHT_VERDICTS + "timeout"):
     - pass → real/mock grid chain
     - fail_managed → retry propose (managed-volume overlap, BO-fixable)
     - ambiguous (rc=3) → retry propose. rc=3 = subprocess died early
@@ -262,6 +262,7 @@ def node_evaluate(state: BOIterationState) -> dict:
     obj, tail = pio.run_evaluate(mode, name, metrics, alpha=alpha)
     if obj is None:
         errors.append(f"evaluate[{name}]: could not parse objective; tail={tail}")
+        # historical cause name; obj now arrives via evaluate_result.json
         _record_zero_row(name, "obj_unparseable", tail or "")
     return {"objective": obj, "errors": errors}
 

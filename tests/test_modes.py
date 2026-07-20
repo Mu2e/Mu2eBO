@@ -8,6 +8,7 @@ import sys
 import typing
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes  # noqa: E402
@@ -131,7 +132,7 @@ class TestSpotFacts(unittest.TestCase):
 class TestSchemaFields(unittest.TestCase):
     def test_lockstep_enforced_at_construction(self):
         import dataclasses
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(ValueError):
             dataclasses.replace(modes.SPECS["foils"], knob_names=("one",))
 
     def test_metric_cols_spot_pins(self):
@@ -154,6 +155,16 @@ class TestSchemaFields(unittest.TestCase):
         import bo_driver as bo
         self.assertEqual(bo.MODES["foilsflash"].CALO_COL, "flash_edep")
         self.assertEqual(bo.MODES["foils"].CALO_COL, "calo")
+
+    def test_format_row_rejects_non4_metric_tail(self):
+        import dataclasses
+        import bo_driver as bo
+        bad = dataclasses.replace(modes.SPECS["foils"],
+                                  metric_cols=("sob", "calo", "obj"))
+        with mock.patch.dict(modes.SPECS, {"foils": bad}):
+            with self.assertRaises(ValueError):
+                bo.MODES["foils"].format_row(
+                    bo.Point(cfg="x", x=[0.0] * 6, sob=0.0, calo=1.0), 1.0)
 
 
 if __name__ == "__main__":

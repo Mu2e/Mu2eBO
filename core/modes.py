@@ -80,9 +80,10 @@ class ModeSpec:
     metric_cols: Tuple[str, ...]
 
     def __post_init__(self):
-        if self.bounds_lo is not None:
-            assert (len(self.knob_names) == len(self.knob_fmts)
-                    == len(self.bounds_lo)), (
+        if self.bounds_lo is not None and not (
+                len(self.knob_names) == len(self.knob_fmts)
+                == len(self.bounds_lo)):
+            raise ValueError(
                 f"{self.name}: knob_names ({len(self.knob_names)}) / "
                 f"knob_fmts ({len(self.knob_fmts)}) / bounds "
                 f"({len(self.bounds_lo)}) lockstep broken")
