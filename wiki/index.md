@@ -58,7 +58,7 @@ See [CLAUDE](/CLAUDE.md) for the schema and maintenance contract.
 - [preflight](/drivers/preflight.md) — local `mu2e -n 1` G4 init feasibility check
 - [graph-runner](/drivers/graph-runner.md) — LangGraph state-machine orchestrator (Phase 1 mock-grid); Studio + Streamlit overlay
 - [closed-loop-runner](/drivers/closed-loop-runner.md) — multi-round Pareto-pick BO driver: wraps q parallel graph-runner children, refits GP between rounds
-- [tests](/drivers/tests.md) — `tests/` regression suite (12 files, 196 tests; test_wal_multiwriter_stress.py is a manual stress script with 0 TestCase), no grid contact; `PYTHONPATH= .venv/bin/python -m unittest discover -s tests -v`; golden parity harness: `PYTHONPATH= .venv/bin/python tests/golden_parity.py check`
+- [tests](/drivers/tests.md) — `tests/` regression suite (12 files, 196 tests; test_wal_multiwriter_stress.py is a manual stress script with 0 TestCase), no grid contact; `PYTHONPATH= .venv/bin/python -m unittest discover -s tests -v`; golden parity harness (manual, not in discover): `PYTHONPATH= .venv/bin/python tests/golden_parity.py check`
 - [refresh-foils-slides](/drivers/refresh-foils-slides.md) — (**script trio DELETED 2026-07-17** — captions stamper clobbered the live deck footer) now the record of per-deck figure→generator maps; refresh path = refresh-foils-talk skill
 
 ## Incidents (root-caused gotchas)

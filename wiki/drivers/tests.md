@@ -33,7 +33,7 @@ typed preflight/evaluate JSON seam tests).
 - **Golden parity harness:** `PYTHONPATH= .venv/bin/python
   tests/golden_parity.py check` (capture with `... capture`) — three
   sections: (a) per-mode `load_history()`→`format_row` round-trip vs the
-  live leaderboards (byte-compared, all 7 modes); (b) a deterministic
+  live leaderboards (byte-compared, all 6 modes); (b) a deterministic
   history-tensor fingerprint on a frozen `leaderboard_bo_foilsflash.tsv`
   copy (redesigned 2026-07-19 from the original fixed-seed-picks plan —
   the picker itself is non-deterministic at production scale, see
