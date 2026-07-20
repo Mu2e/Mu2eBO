@@ -14,6 +14,7 @@ class FakeSignals:
         self.broken = set()
         self.terminal = set()
         self.dead_pids = set()
+        self.clusters = set()
         self.leaderboard_reads = 0
 
     def leaderboard_names(self):
@@ -28,6 +29,9 @@ class FakeSignals:
 
     def pid_alive(self, pid):
         return pid not in self.dead_pids
+
+    def has_cluster(self, name):
+        return name in self.clusters
 
 
 def _children(*names, pid=1000):
@@ -112,6 +116,44 @@ class TestDeadPidGrace(unittest.TestCase):
         self.assertEqual(t.tick(), {})
         self.assertEqual(t.tick(), {})
         self.assertEqual(t.resolutions()["a"], Resolution.RUNNING)
+
+
+class TestStaleCluster(unittest.TestCase):
+    def test_stale_cluster_resolves_never_launched_child(self):
+        # pid None + has_cluster -> STALE_CLUSTER on first tick, sticky.
+        sig = FakeSignals()
+        t = ChildTracker({"a": {"pid": None}}, sig)
+        sig.clusters.add("a")
+        self.assertEqual(t.tick(), {"a": Resolution.STALE_CLUSTER})
+        self.assertTrue(t.all_resolved())
+        # Sticky: a later signal flap (cluster file removed by an operator)
+        # must not un-resolve the child.
+        sig.clusters.discard("a")
+        self.assertEqual(t.tick(), {})
+        self.assertEqual(t.resolutions()["a"], Resolution.STALE_CLUSTER)
+
+    def test_pid_none_without_cluster_stays_running(self):
+        sig = FakeSignals()
+        t = ChildTracker({"a": {"pid": None}}, sig)
+        self.assertEqual(t.tick(), {})
+        self.assertEqual(t.tick(), {})
+        self.assertEqual(t.resolutions()["a"], Resolution.RUNNING)
+        self.assertFalse(t.all_resolved())
+
+    def test_launched_child_never_stale(self):
+        # pid set + has_cluster True -> normal pid/row logic, not STALE.
+        # A launched child's OWN cluster.txt (written by this round's grid
+        # submission) must never be mistaken for a prior aborted run's; the
+        # pid-present branch takes priority and has_cluster is never even
+        # consulted while a pid is recorded.
+        sig = FakeSignals()
+        t = ChildTracker(_children("a"), sig)
+        sig.clusters.add("a")           # this child's own in-flight cluster.txt
+        self.assertEqual(t.tick(), {})  # pid alive, no row -> stays RUNNING
+        self.assertEqual(t.resolutions()["a"], Resolution.RUNNING)
+        sig.dead_pids.add(1000)
+        t.tick()                        # dead-pid grace tick (suspect only)
+        self.assertEqual(t.tick(), {"a": Resolution.DEAD_UNRESOLVED})
 
 
 class TestStickinessAndPreseed(unittest.TestCase):

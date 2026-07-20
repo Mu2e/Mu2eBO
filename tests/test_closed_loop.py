@@ -180,7 +180,9 @@ class TestAssignNames(unittest.TestCase):
         }
 
     def test_placeholders_become_real_names(self):
-        with mock.patch.object(cl, "_child_in_leaderboard", return_value=False), \
+        # node_assign_names now does ONE hoisted _leaderboard_names(mode)
+        # read instead of a per-child _child_in_leaderboard call.
+        with mock.patch.object(cl, "_leaderboard_names", return_value=set()), \
              mock.patch.object(cl, "_child_is_broken", return_value=False):
             out = cl.node_assign_names(self._state())
         self.assertEqual(
@@ -192,9 +194,8 @@ class TestAssignNames(unittest.TestCase):
         self.assertEqual(out["completed_names"], [])
 
     def test_already_in_leaderboard_skipped(self):
-        in_lb = {"foilsR00_00"}
-        with mock.patch.object(cl, "_child_in_leaderboard",
-                                lambda n, m: n in in_lb), \
+        with mock.patch.object(cl, "_leaderboard_names",
+                                return_value={"foilsR00_00"}), \
              mock.patch.object(cl, "_child_is_broken", return_value=False):
             out = cl.node_assign_names(self._state())
         self.assertNotIn("foilsR00_00", out["children"])
@@ -202,7 +203,7 @@ class TestAssignNames(unittest.TestCase):
         self.assertIn("foilsR00_00", out["completed_names"])
 
     def test_broken_skipped(self):
-        with mock.patch.object(cl, "_child_in_leaderboard", return_value=False), \
+        with mock.patch.object(cl, "_leaderboard_names", return_value=set()), \
              mock.patch.object(cl, "_child_is_broken",
                                 lambda n: n == "foilsR00_01"):
             out = cl.node_assign_names(self._state())
@@ -459,16 +460,22 @@ class TestIsChildTerminal(unittest.TestCase):
 
 
 class TestBarrierRefusesEmptyChildren(unittest.TestCase):
-    """Regression: barrier on empty launch set must raise, not silently exit.
+    """Regression: barrier on an EMPTY CHILDREN DICT must raise, not silently
+    exit.
 
     History: foilsZ06 (2026-06-05) exited via the all([])==True path after
     decide_next cleared `children`. The exit was misattributed to a LangGraph
     replay bug for several turns. Real trigger was a stale STOP_FLAG, but
     the latent vacuous-all() trap remains a correctness hazard if a future
     refactor ever delivers an empty children dict to the barrier.
+
+    NEW contract (ChildTracker full-cut): the guard narrows to "children
+    dict empty" specifically. An empty `launched_names` with a NON-empty
+    children dict (all-stale or all-resume round — nothing Popen'd this
+    round) is now legitimate and proceeds to the tracker instead of raising.
     """
 
-    def test_empty_launched_names_raises(self):
+    def test_empty_children_dict_raises(self):
         state = {
             "mode": "foils",
             "round_idx": 1,
@@ -479,7 +486,31 @@ class TestBarrierRefusesEmptyChildren(unittest.TestCase):
         }
         with self.assertRaises(RuntimeError) as cm:
             cl.node_barrier(state)
-        self.assertIn("launched_names empty", str(cm.exception))
+        self.assertIn("children dict empty", str(cm.exception))
+
+    def test_children_present_nothing_launched_proceeds(self):
+        # Nothing Popen'd this round (e.g. a pure resume) but the children
+        # dict is non-empty — the barrier must NOT raise; it hands off to
+        # the tracker, which resolves the child via the leaderboard row.
+        state = {
+            "mode": "foils",
+            "round_idx": 0,
+            "barrier_poll_sec": 0,
+            "barrier_max_min": 60,
+            "children": {"fooR00_00": {"pid": None, "thread_id": "fooR00_00_x"}},
+            "launched_names": [],
+            "completed_names": [],
+            "errors": [],
+        }
+        with mock.patch.object(cl, "_open_saver_conn", return_value=mock.Mock()), \
+             mock.patch.object(cl, "SqliteSaver", return_value=mock.Mock()), \
+             mock.patch("graph.build.build_graph", return_value=mock.Mock()), \
+             mock.patch("graph.build.is_child_terminal", return_value=False), \
+             mock.patch.object(cl, "_leaderboard_names", return_value={"fooR00_00"}), \
+             mock.patch.object(cl, "_child_is_broken", return_value=False), \
+             mock.patch.object(cl, "_stop_requested", return_value=False):
+            out = cl.node_barrier(state)
+        self.assertEqual(out["completed_names"], ["fooR00_00"])
 
 
 class TestBarrierDeadPid(unittest.TestCase):
@@ -606,13 +637,13 @@ class TestStaleClusterSkipIsLoud(unittest.TestCase):
                 out = cl.node_launch_children(self._two_child_state(tmp))
             self.assertEqual(len(captured), 1, "only the non-stale child should Popen")
             self.assertEqual(out["launched_names"], ["fooR00_01"])
-            self.assertIn("fooR00_00", out["completed_names"])
-            self.assertTrue(
-                any("SKIP fooR00_00" in e and "stale" in e for e in out["errors"]),
-                f"expected loud SKIP error for fooR00_00, got: {out['errors']}",
-            )
+            # node_launch_children no longer does its own completed/error
+            # bookkeeping for stale-cluster children (moved to the barrier's
+            # ChildTracker — see test_all_stale_resolves_via_tracker below).
+            self.assertNotIn("completed_names", out)
+            self.assertEqual(out["children"]["fooR00_00"]["pid"], None)
 
-    def test_all_stale_then_barrier_refuses(self):
+    def test_all_stale_resolves_via_tracker(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             for n in ("fooR00_00", "fooR00_01"):
@@ -624,19 +655,34 @@ class TestStaleClusterSkipIsLoud(unittest.TestCase):
                  mock.patch.object(cl, "_child_in_leaderboard", return_value=False):
                 out = cl.node_launch_children(self._two_child_state(tmp))
             self.assertEqual(out["launched_names"], [])
-            self.assertEqual(sorted(out["completed_names"]), ["fooR00_00", "fooR00_01"])
-            # Empty launched_names now correctly trips node_barrier's guard.
+            # Empty launched_names with a non-empty children dict no longer
+            # trips node_barrier's guard — it now RETURNS (no raise), with
+            # every stale name resolved via the tracker's STALE_CLUSTER path.
             state = {
                 "mode": "foils",
                 "round_idx": 0,
+                "barrier_poll_sec": 0,
+                "barrier_max_min": 60,
                 "children": out["children"],
                 "launched_names": out["launched_names"],
-                "completed_names": out["completed_names"],
+                "completed_names": [],
                 "errors": out["errors"],
             }
-            with self.assertRaises(RuntimeError) as cm:
-                cl.node_barrier(state)
-            self.assertIn("launched_names empty", str(cm.exception))
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "_open_saver_conn", return_value=mock.Mock()), \
+                 mock.patch.object(cl, "SqliteSaver", return_value=mock.Mock()), \
+                 mock.patch("graph.build.build_graph", return_value=mock.Mock()), \
+                 mock.patch("graph.build.is_child_terminal", return_value=False), \
+                 mock.patch.object(cl, "_leaderboard_names", return_value=set()), \
+                 mock.patch.object(cl, "_child_is_broken", return_value=False), \
+                 mock.patch.object(cl, "_stop_requested", return_value=False):
+                out2 = cl.node_barrier(state)
+            self.assertEqual(sorted(out2["completed_names"]),
+                              ["fooR00_00", "fooR00_01"])
+            stale_errors = [e for e in out2["errors"] if "STALE_CLUSTER" in e]
+            self.assertEqual(
+                len(stale_errors), 2,
+                f"expected one STALE_CLUSTER error line per name, got: {out2['errors']}")
 
     def test_leaderboard_resume_is_silent(self):
         """If a child is already in the leaderboard (legit resume), it should
@@ -659,8 +705,10 @@ class TestStaleClusterSkipIsLoud(unittest.TestCase):
                  mock.patch.object(cl, "_child_in_leaderboard", side_effect=_in_lb):
                 out = cl.node_launch_children(self._two_child_state(tmp))
             self.assertEqual(out["launched_names"], ["fooR00_01"])
-            # fooR00_00 is leaderboard-present → not in completed_names, no error.
-            self.assertNotIn("fooR00_00", out["completed_names"])
+            # node_launch_children no longer produces completed_names/errors
+            # bookkeeping at all (moved to the barrier's ChildTracker) — a
+            # leaderboard-present resume is silent by construction here.
+            self.assertNotIn("completed_names", out)
             self.assertFalse(
                 any("fooR00_00" in e for e in out["errors"]),
                 f"leaderboard resume should be silent, got: {out['errors']}",

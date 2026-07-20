@@ -198,6 +198,9 @@ class _DiskSignals:
     def pid_alive(self, pid: int) -> bool:
         return _pid_alive(pid)
 
+    def has_cluster(self, name: str) -> bool:
+        return any(_child_state_dir(name).glob("*_cluster.txt"))
+
 
 def _child_is_broken(name: str) -> bool:
     return (_child_state_dir(name) / "broken.txt").exists()
@@ -391,6 +394,7 @@ def node_assign_names(state: RoundState) -> dict:
     transient = state.get("children", {})
     children: Dict[str, ChildRecord] = {}
     completed: List[str] = list(state.get("completed_names", []))
+    lb_names = _leaderboard_names(mode)
     for j_str, rec in sorted(transient.items()):
         if not j_str.startswith("_pick_"):
             # Already a real name (resume path) — keep as-is.
@@ -398,7 +402,7 @@ def node_assign_names(state: RoundState) -> dict:
             continue
         j = int(j_str.split("_")[-1])
         name = f"{prefix}R{r:02d}_{j:02d}"
-        if _child_in_leaderboard(name, mode) or _child_is_broken(name):
+        if name in lb_names or _child_is_broken(name):
             completed.append(name)
             continue
         children[name] = {
@@ -477,35 +481,14 @@ def node_launch_children(state: RoundState) -> dict:
             time.sleep(stagger)
     # launched_names must reflect Popens that ACTUALLY fired this round, not
     # `children.keys()` — otherwise stale-cluster skips silently fill the dict
-    # with names that were never launched, defeating node_barrier's empty-guard
-    # at :474-479 and causing a 240-min silent hang.
+    # with names that were never launched. Unlaunched children (resume OR
+    # stale-cluster) are left for the barrier's ChildTracker to resolve —
+    # it owns all completed/error bookkeeping now (STALE_CLUSTER Resolution).
     # See wiki/incidents/closed-loop-stale-cluster-silent-no-launch.md.
     launched_this_round = sorted(n for n, rec in children.items() if rec.get("pid"))
-    completed = list(state.get("completed_names", []))
-    for name in sorted(children):
-        if children[name].get("pid"):
-            continue
-        if _child_in_leaderboard(name, mode) or _child_is_broken(name):
-            # Legit resume — barrier will mark done on first poll tick.
-            continue
-        # Stale *_cluster.txt only: skipped by _already_running but no
-        # leaderboard row and no broken.txt → grid was submitted by a prior
-        # aborted run that never harvested. The barrier will never resolve
-        # this child (no terminal checkpoint under the freshly-minted thread_id
-        # either). Route to completed_names so the round terminates, with a
-        # loud per-name error so the operator sees what happened.
-        msg = (f"launch_children[r{state['round_idx']}]: SKIP {name} — stale "
-               f"*_cluster.txt in {_child_state_dir(name)} (prior aborted submit, "
-               f"no leaderboard row). Run "
-               f"`rm {_child_state_dir(name)}/*_cluster.txt` and relaunch, or "
-               f"use a different --name-prefix.")
-        print(f"[closed_loop] {msg}", flush=True)
-        errors.append(msg)
-        completed.append(name)
     return {
         "children": children,
         "launched_names": launched_this_round,
-        "completed_names": completed,
         "errors": errors,
     }
 
@@ -535,15 +518,20 @@ def node_barrier(state: RoundState) -> dict:
     mode = state["mode"]
     children = state["children"]
     launched = state.get("launched_names", [])
-    # Hard guard: barrier on an empty launch set is always a state-management
-    # bug (children dict cleared/replaced between launch_children and barrier).
-    # all(n in completed for n in {}) == True would otherwise exit silently.
-    if not launched:
+    # Hard guard: barrier on an empty CHILDREN dict is always a state-
+    # management bug (children dict cleared/replaced between launch_children
+    # and barrier). all(n in completed for n in {}) == True would otherwise
+    # exit silently. An empty `launched` with children PRESENT is now a
+    # legitimate all-stale/all-resume round — the tracker resolves those
+    # children below (STALE_CLUSTER / DONE_ROW) instead of raising.
+    if not children:
         raise RuntimeError(
-            f"barrier[r{state.get('round_idx')}]: launched_names empty — "
-            f"state pipeline corrupted between launch_children and barrier "
-            f"(children dict was replaced or never written)"
-        )
+            f"barrier[r{state.get('round_idx')}]: children dict empty — "
+            f"state pipeline corrupted between launch_children and barrier")
+    if not launched:
+        print(f"[closed_loop] barrier[r{state.get('round_idx')}]: nothing "
+              f"launched this round ({len(children)} children resume/stale) — "
+              f"tracker will resolve them", flush=True)
     completed = set(state.get("completed_names", []))
     errors = list(state.get("errors", []))
     conn = _open_saver_conn()
@@ -582,6 +570,15 @@ def node_barrier(state: RoundState) -> dict:
                         f"without resolution (no leaderboard row / "
                         f"broken.txt / terminal checkpoint)"
                     )
+                    print(f"[closed_loop] {msg}", flush=True)
+                    errors.append(msg)
+                elif res is Resolution.STALE_CLUSTER:
+                    msg = (f"barrier[{name}]: STALE_CLUSTER — *_cluster.txt "
+                           f"in {_child_state_dir(name)} from a prior "
+                           f"aborted submit, no leaderboard row; child was "
+                           f"not launched. Run `rm "
+                           f"{_child_state_dir(name)}/*_cluster.txt` and "
+                           f"relaunch, or use a different --name-prefix.")
                     print(f"[closed_loop] {msg}", flush=True)
                     errors.append(msg)
             if tracker.all_resolved():

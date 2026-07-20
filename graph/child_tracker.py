@@ -27,14 +27,18 @@ un-resolve a child):
                        one full tick of grace (guards the race where the
                        process dies while its final leaderboard append is
                        landing — foilsf08 crash shape)
+  STALE_CLUSTER        never launched by this parent (pid is None) AND a
+                       prior run's *_cluster.txt exists — grid was submitted
+                       by an aborted earlier parent and can never resolve
+                       via row/broken/terminal/pid here
 
   RUNNING              none of the above; an alive child always progresses
                        (every stage inside it is bounded by pipeline.py caps)
 
-Stale-cluster children (never launched; a prior aborted run left
-*_cluster.txt) are resolved by node_launch_children BEFORE the tracker sees
-them (routed into already_done) — moving that under a STALE_CLUSTER
-Resolution is the launch/assign full-cut follow-up, not implemented yet.
+Stale-cluster children are now a first-class STALE_CLUSTER Resolution raised
+by the tracker itself; node_launch_children still skips the Popen
+(double-submit guard) but no longer does its own completed/error
+bookkeeping.
 """
 from __future__ import annotations
 
@@ -48,6 +52,7 @@ class Resolution(str, enum.Enum):
     DONE_BROKEN = "done_broken"
     DONE_TERMINAL_NO_ROW = "done_terminal_no_row"
     DEAD_UNRESOLVED = "dead_unresolved"
+    STALE_CLUSTER = "stale_cluster"
 
     @property
     def is_done(self) -> bool:
@@ -67,6 +72,10 @@ class Signals(Protocol):
     def is_terminal(self, thread_id: str) -> bool: ...
 
     def pid_alive(self, pid: int) -> bool: ...
+
+    def has_cluster(self, name: str) -> bool:
+        """A prior run's *_cluster.txt exists in the child's state dir."""
+        ...
 
 
 class ChildTracker:
@@ -124,7 +133,14 @@ class ChildTracker:
                 new = Resolution.DONE_TERMINAL_NO_ROW
             else:
                 pid = rec.get("pid")
-                if pid and not self._signals.pid_alive(pid):
+                if pid is None:
+                    # Never launched by this parent. If a prior aborted
+                    # run left *_cluster.txt, the grid was submitted but
+                    # never harvested — this child can never resolve via
+                    # row/broken/terminal here. Resolve loudly.
+                    if self._signals.has_cluster(name):
+                        new = Resolution.STALE_CLUSTER
+                elif not self._signals.pid_alive(pid):
                     if name in self._dead_suspect:
                         new = Resolution.DEAD_UNRESOLVED
                     else:
