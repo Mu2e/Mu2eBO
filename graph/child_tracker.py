@@ -26,7 +26,11 @@ un-resolve a child):
   DEAD_UNRESOLVED      child process gone with no artifact, confirmed after
                        one full tick of grace (guards the race where the
                        process dies while its final leaderboard append is
-                       landing — foilsf08 crash shape)
+                       landing — foilsf08 crash shape). ALSO raised
+                       IMMEDIATELY (no grace) for a child whose Popen itself
+                       raised in node_launch_children (`launch_failed` on
+                       the record, pid stays None) — it never started, so
+                       there is no in-flight append to race.
   STALE_CLUSTER        never launched by this parent (pid is None) AND a
                        prior run's *_cluster.txt exists — grid was submitted
                        by an aborted earlier parent and can never resolve
@@ -134,11 +138,18 @@ class ChildTracker:
             else:
                 pid = rec.get("pid")
                 if pid is None:
-                    # Never launched by this parent. If a prior aborted
-                    # run left *_cluster.txt, the grid was submitted but
-                    # never harvested — this child can never resolve via
-                    # row/broken/terminal here. Resolve loudly.
-                    if self._signals.has_cluster(name):
+                    if rec.get("launch_failed"):
+                        # Popen raised in node_launch_children — the child
+                        # never started and can never produce an artifact.
+                        # Immediate (no grace): there is no in-flight append
+                        # to race. The launch exception is already in the
+                        # round's errors list.
+                        new = Resolution.DEAD_UNRESOLVED
+                    elif self._signals.has_cluster(name):
+                        # Never launched by this parent. If a prior aborted
+                        # run left *_cluster.txt, the grid was submitted but
+                        # never harvested — this child can never resolve via
+                        # row/broken/terminal here. Resolve loudly.
                         new = Resolution.STALE_CLUSTER
                 elif not self._signals.pid_alive(pid):
                     if name in self._dead_suspect:

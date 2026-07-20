@@ -112,6 +112,7 @@ class ChildRecord(TypedDict, total=False):
     x_point: List[float]
     started_at: float
     thread_id: str  # per-launch unique; differs from config_name to dodge collisions
+    launch_failed: bool  # Popen raised in node_launch_children; pid stays None
 
 
 class RoundState(TypedDict, total=False):
@@ -476,6 +477,7 @@ def node_launch_children(state: RoundState) -> dict:
             print(f"[closed_loop] launched {name} pid={proc.pid} log={log_path}", flush=True)
         except Exception as exc:  # noqa: BLE001
             errors.append(f"launch[{name}]: {exc}")
+            rec["launch_failed"] = True
         children[name] = rec
         if idx < len(pending) - 1:
             time.sleep(stagger)
@@ -562,14 +564,21 @@ def node_barrier(state: RoundState) -> dict:
                         f"row (likely preflight/stage failure)"
                     )
                 elif res is Resolution.DEAD_UNRESOLVED:
-                    # Crashed mid-write (foilsf08 SqliteSaver shape) — the
-                    # process can never produce a resolution artifact.
+                    # Either crashed mid-write (foilsf08 SqliteSaver shape —
+                    # the process can never produce a resolution artifact) OR
+                    # Popen itself raised in node_launch_children (the child
+                    # never started at all; pid stays None).
                     pid = (children.get(name) or {}).get("pid")
-                    msg = (
-                        f"barrier[{name}]: child process {pid} died "
-                        f"without resolution (no leaderboard row / "
-                        f"broken.txt / terminal checkpoint)"
-                    )
+                    if pid is None:
+                        msg = (f"barrier[{name}]: launch failed (Popen "
+                               f"raised) — child never started; see the "
+                               f"launch error earlier in this round")
+                    else:
+                        msg = (
+                            f"barrier[{name}]: child process {pid} died "
+                            f"without resolution (no leaderboard row / "
+                            f"broken.txt / terminal checkpoint)"
+                        )
                     print(f"[closed_loop] {msg}", flush=True)
                     errors.append(msg)
                 elif res is Resolution.STALE_CLUSTER:

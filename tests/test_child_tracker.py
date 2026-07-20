@@ -156,6 +156,20 @@ class TestStaleCluster(unittest.TestCase):
         self.assertEqual(t.tick(), {"a": Resolution.DEAD_UNRESOLVED})
 
 
+class TestLaunchFailed(unittest.TestCase):
+    def test_launch_failed_resolves_immediately_no_grace(self):
+        # pid None + launch_failed True (Popen raised in node_launch_children)
+        # -> DEAD_UNRESOLVED on the FIRST tick, no two-tick dead-pid grace
+        # (there is no in-flight process/append to race).
+        sig = FakeSignals()
+        t = ChildTracker({"a": {"pid": None, "launch_failed": True}}, sig)
+        self.assertEqual(t.tick(), {"a": Resolution.DEAD_UNRESOLVED})
+        self.assertTrue(t.all_resolved())
+        # Sticky: a later signal flap must not un-resolve the child.
+        self.assertEqual(t.tick(), {})
+        self.assertEqual(t.resolutions()["a"], Resolution.DEAD_UNRESOLVED)
+
+
 class TestStickinessAndPreseed(unittest.TestCase):
     def test_resolution_is_sticky(self):
         sig = FakeSignals()

@@ -715,6 +715,77 @@ class TestStaleClusterSkipIsLoud(unittest.TestCase):
             )
 
 
+class TestLaunchFailedResolvesAtBarrier(unittest.TestCase):
+    """Review finding: a child whose `subprocess.Popen` RAISES in
+    node_launch_children ends up with pid=None and NO *_cluster.txt — the
+    old (deleted) launch bookkeeping force-completed it immediately, but the
+    ChildTracker only resolved pid-None children via has_cluster, so a
+    launch-failed child silently stayed RUNNING until the 24h barrier
+    backstop. `rec["launch_failed"]` + the tracker's immediate-resolve
+    branch restore loud, immediate resolution.
+    """
+
+    def _one_child_state(self, td):
+        return {
+            "mode": "foils",
+            "alpha": 0.0,
+            "round_idx": 0,
+            "stagger_sec": 0,
+            "errors": [],
+            "completed_names": [],
+            "children": {
+                "fooR00_00": {"x_point": [1.0, 2.0, 3.0, 4.0], "log": str(td / "a.log"), "pid": None, "started_at": 0.0},
+            },
+        }
+
+    def test_popen_failure_resolves_at_barrier(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+
+            def _raise_popen(cmd, **kwargs):
+                raise OSError("fork failed (simulated)")
+
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
+                 mock.patch.object(cl.subprocess, "Popen", _raise_popen), \
+                 mock.patch.object(cl, "_child_in_leaderboard", return_value=False):
+                out = cl.node_launch_children(self._one_child_state(tmp))
+            self.assertEqual(out["launched_names"], [])
+            self.assertTrue(
+                any("launch[fooR00_00]" in e for e in out["errors"]),
+                f"expected launch error, got: {out['errors']}")
+            self.assertTrue(out["children"]["fooR00_00"].get("launch_failed"))
+            self.assertIsNone(out["children"]["fooR00_00"]["pid"])
+
+            # Empty launched_names with a non-empty children dict does NOT
+            # trip node_barrier's empty-children guard (see
+            # TestBarrierRefusesEmptyChildren) — it proceeds to the tracker,
+            # which must resolve the launch-failed child immediately.
+            state = {
+                "mode": "foils",
+                "round_idx": 0,
+                "barrier_poll_sec": 0,
+                "barrier_max_min": 60,
+                "children": out["children"],
+                "launched_names": out["launched_names"],
+                "completed_names": [],
+                "errors": out["errors"],
+            }
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "_open_saver_conn", return_value=mock.Mock()), \
+                 mock.patch.object(cl, "SqliteSaver", return_value=mock.Mock()), \
+                 mock.patch("graph.build.build_graph", return_value=mock.Mock()), \
+                 mock.patch("graph.build.is_child_terminal", return_value=False), \
+                 mock.patch.object(cl, "_leaderboard_names", return_value=set()), \
+                 mock.patch.object(cl, "_child_is_broken", return_value=False), \
+                 mock.patch.object(cl, "_stop_requested", return_value=False):
+                out2 = cl.node_barrier(state)
+            self.assertEqual(out2["completed_names"], ["fooR00_00"])
+            self.assertTrue(
+                any("launch failed" in e for e in out2["errors"]),
+                f"expected 'launch failed' barrier message, got: {out2['errors']}")
+
+
 class TestRolling(unittest.TestCase):
     """--rolling pool-replenishment semantics (predict / barrier / decide /
     route). The barrier path (rolling=False) is pinned by every other class
