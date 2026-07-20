@@ -4,7 +4,7 @@ title: bo_driver.py — driver
 description: '`propose | evaluate | preflight` (6 modes; michael/helical retired
   2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)'
 status: active
-timestamp: '2026-07-19'
+timestamp: '2026-07-20'
 updated_note: 'fixed recorded drift: KNOB_NAMES/KNOB_FMTS/CALO_COL are registry
   properties (modes.SPECS) not driver-owned data; preflight/evaluate carry
   --emit-json; build_space lockstep guard now lives in ModeSpec.__post_init__'
@@ -13,8 +13,8 @@ updated_note: 'fixed recorded drift: KNOB_NAMES/KNOB_FMTS/CALO_COL are registry
 # bo_driver.py — driver
 
 ## Summary
-The multi-mode BO driver (all 7 live modes — foils/foilsf/foilsflash/foilsg/
-ipa/prodtarget/prodtarget6d). Implements the BO loop as subcommands, each
+The multi-mode BO driver (all 6 live modes — foils/foilsf/foilsflash/
+foilsg/prodtarget/prodtarget6d). Implements the BO loop as subcommands, each
 independently runnable. Born 2026-04 as the dedicated driver for
 [bo-michael](/projects/bo-michael.md) (hence its original name
 `autoresearch_bo_michael.py`); renamed to `core/bo_driver.py` on 2026-07-17

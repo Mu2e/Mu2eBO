@@ -4,7 +4,7 @@ title: closed-loop-runner — multi-round Pareto-pick BO driver
 description: 'multi-round Pareto-pick BO driver: wraps q parallel graph-runner children,
   refits GP between rounds'
 status: active
-timestamp: '2026-07-19'
+timestamp: '2026-07-20'
 updated_note: 'ChildTracker full-cut (2026-07-19): barrier is the sole resolver
   of child state — STALE_CLUSTER resolves loudly at the barrier (not launch time),
   launch-failed children resolve immediately (no 24h hang), barrier hard-guard
@@ -48,7 +48,11 @@ in this phase.
     non-empty `children` dict, so it now logs "nothing launched this round
     (N children resume/stale) — tracker will resolve them" and proceeds
     into the barrier tick loop, which resolves each child to
-    `STALE_CLUSTER`/`DONE_ROW`/etc. **The raise moved to `if not
+    `STALE_CLUSTER`/`DONE_ROW`/etc. In NON-rolling mode such a round then
+    carries forward (decide_next's zero-rows exit is gated on
+    `bool(launched)`) and the next round mints fresh names — self-healing,
+    bounded by `--max-rounds`, but the prior aborted run's grid work stays
+    orphaned until an operator recovers it manually. **The raise moved to `if not
     children:`** (an empty children DICT is still the real
     state-corruption signal).
   - **Launch-failed children resolve immediately, no 24h hang (1d37217,

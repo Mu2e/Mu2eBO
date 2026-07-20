@@ -7,7 +7,7 @@ description: 'friction map: mode dispatched at ~20 sites/6 files (silent `.get`
   metric_cols + preflight/evaluate JSON seam); pipeline.py/botorch_predict.py
   zero-test-imports fact RESOLVED (4 new test files, 36 new tests, 196-test suite)'
 status: active
-timestamp: '2026-07-19'
+timestamp: '2026-07-20'
 updated_note: 'candidate 5 (unified harvest) partially executed: cmd_harvest
   Steps 1+4 moved behind harvest.py runner seams (slim round, commit 1809635);
   Step 2 (per-file event counting) still inline — see Key facts'
@@ -101,7 +101,7 @@ before adding a mode or refactoring; the line numbers date from 2026-07-06.
   registry — LANDED 2026-07-12, **full-cut 2026-07-19** (see
   [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md));
   (2) one child-status resolver — first cut LANDED 2026-07-12, **ChildTracker
-  is now the sole resolver, full-cut 2026-07-19** (556ac5c, 1d37217); (3) shared
+  is now the sole resolver at the barrier, full-cut 2026-07-19** (556ac5c, 1d37217); (3) shared
   leaderboard schema, (4) typed JSON result protocol across the subprocess seam
   — both RESOLVED 2026-07-19; (5) unified mode-parameterized harvest —
   Steps 1+4 slice DONE 2026-07-19, broader unification still unpicked.

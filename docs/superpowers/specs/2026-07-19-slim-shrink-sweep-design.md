@@ -173,9 +173,11 @@ Each commit leaves the repo green and launch-ready:
 ## Success criteria
 
 Suite green; goldens byte-identical; mock closed-loop round passes;
-ChildTracker is the only resolver of child state in closed_loop.py;
-cmd_harvest contains no inline subprocess calls; audit open-items executed
-or adjudicated; wiki records the round.
+ChildTracker is the only resolver of child state at the barrier
+(assign_names still pre-resolves leaderboard/broken names — see
+amendments); cmd_harvest contains no inline subprocess calls (amended:
+Step 2 event counting remains inline — Execution amendments fact 5);
+audit open-items executed or adjudicated; wiki records the round.
 
 ## Execution amendments (2026-07-19)
 
@@ -241,3 +243,11 @@ execution):
    - `ModeSpec.__post_init__`'s knob/bounds lockstep guard is gated on
      `bounds_lo is not None`; a future `bounds_lo=None` mode would
      silently skip lockstep validation.
+9. **Final whole-branch review (2026-07-20) found + fixed a rolling-mode
+   interaction** introduced by the launch-failed fix: a resolved
+   launch-failed child re-entered the launch pending set on the next wave
+   (children dict persists in rolling mode) and was re-Popen'd UNTRACKED.
+   Fixed in `a9387b7` — the pending filter now excludes
+   `completed_names`; resume semantics untouched; regression-pinned by
+   `test_resolved_launch_failed_child_not_relaunched`. Records-precision
+   fixups (6-mode fact, resolver-scope qualifiers) landed alongside.

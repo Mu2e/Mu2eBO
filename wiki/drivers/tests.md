@@ -6,7 +6,7 @@ description: '`tests/` regression suite (12 files, 211 tests; test_wal_multiwrit
   .venv/bin/python -m unittest discover -s tests -v`; golden parity harness
   (manual, not in discover): `PYTHONPATH= .venv/bin/python tests/golden_parity.py check`'
 status: active
-timestamp: '2026-07-19'
+timestamp: '2026-07-20'
 updated_note: 'slimming round: ChildTracker full-cut + harvest seams + B0
   batch added STALE_CLUSTER/launch-failed/harvest/lockstep coverage;
   196 → 211 tests'
@@ -86,7 +86,8 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   - `tests/test_modes.py` (18, was 17) — `ModeSpec` registry; grew +4 in
     the tests/schema/protocol round (Phase 1 `knob_names`/`knob_fmts`/
     `metric_cols` lockstep spot-checks), +1 in the slimming round's B0
-    batch (704682c, pins `__post_init__` raising `ValueError` not a bare
+    batch (704682c, `test_format_row_rejects_non4_metric_tail`; the same
+    commit re-pinned the lockstep test to `ValueError` instead of a bare
     `assert`).
   - `tests/test_nodes.py` (12) — graph node logging/terminating-edge cases.
   - `tests/test_pipeline_verbs.py` (9, NEW 2026-07-19, `d6e9f53`+`0644565`) —

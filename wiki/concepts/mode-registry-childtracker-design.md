@@ -5,9 +5,9 @@ description: 'crystallized refactor design: ModeSpec registry in core/modes.py (
   fields required, no silent defaults) + stateful ChildTracker with injected signals
   adapter; cl_min picker retired (ADR-0001/0002); FULL-CUT DONE 2026-07-19 —
   STALE_CLUSTER Resolution + launch/assign rewiring + launch-failed immediate
-  resolution; ChildTracker is now the sole resolver of child state'
+  resolution; ChildTracker is now the sole resolver of child state at the barrier'
 status: resolved
-timestamp: '2026-07-19'
+timestamp: '2026-07-20'
 updated_note: 'ChildTracker FULL-CUT landed (556ac5c + 1d37217) — the first-cut
   gap this page flagged (launch/assign still self-checking) is closed'
 ---
@@ -88,8 +88,8 @@ or the driver mid-campaign changes running code.
     an empty `launched` with children present just logs
     "nothing launched this round (... resume/stale) — tracker will resolve
     them" and proceeds into the tick loop.
-  - `decide_next`: counts done_row vs rest via the tracker's name-based
-    accounting (`rolling-no-row-streak-false-increment` fix, pre-existing);
+  - `decide_next`: counts row vs rowless via its own name-based
+    `_leaderboard_names` accounting, not tracker Resolutions (`rolling-no-row-streak-false-increment` fix, pre-existing);
     `history_len_before` zero-rows guard unchanged.
   - **Streak-move**: the plan's separately-scoped "zero-rows/streak
     accounting move" line item was found ALREADY LANDED (the 2026-07-16
