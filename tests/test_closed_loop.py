@@ -785,6 +785,43 @@ class TestLaunchFailedResolvesAtBarrier(unittest.TestCase):
                 any("launch failed" in e for e in out2["errors"]),
                 f"expected 'launch failed' barrier message, got: {out2['errors']}")
 
+    def test_resolved_launch_failed_child_not_relaunched(self):
+        """Final-review finding (rolling zombie): a child that launch-failed
+        in an earlier wave and was resolved as DEAD_UNRESOLVED lands in
+        `completed_names`, but rolling mode never clears the `children`
+        dict between waves. Without a completed_names check, this record
+        (pid=None, no cluster.txt, no leaderboard row, no broken.txt) looks
+        indistinguishable from a fresh unlaunched pick and would be
+        re-Popen'd — running UNTRACKED since the tracker already counts it
+        done. `node_launch_children` must skip it instead."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            popen_mock = mock.Mock()
+            state = {
+                "mode": "foils",
+                "alpha": 0.0,
+                "round_idx": 1,
+                "rolling": True,
+                "stagger_sec": 0,
+                "errors": [],
+                "completed_names": ["fooR00_00"],
+                "children": {
+                    "fooR00_00": {
+                        "x_point": [1.0, 2.0, 3.0, 4.0],
+                        "log": str(tmp / "a.log"),
+                        "pid": None,
+                        "launch_failed": True,
+                    },
+                },
+            }
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
+                 mock.patch.object(cl.subprocess, "Popen", popen_mock), \
+                 mock.patch.object(cl, "_child_in_leaderboard", return_value=False):
+                out = cl.node_launch_children(state)
+            popen_mock.assert_not_called()
+            self.assertEqual(out["launched_names"], [])
+
 
 class TestRolling(unittest.TestCase):
     """--rolling pool-replenishment semantics (predict / barrier / decide /

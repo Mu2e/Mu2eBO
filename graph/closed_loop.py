@@ -433,9 +433,11 @@ def node_launch_children(state: RoundState) -> dict:
             return True
         return _child_in_leaderboard(name, mode) or _child_is_broken(name)
 
+    completed = set(state.get("completed_names", []))
     pending = [
         (n, rec) for n, rec in children.items()
-        if not rec.get("pid") and not _already_running(n)
+        if not rec.get("pid") and n not in completed
+        and not _already_running(n)
     ]
     (GRAPH_DATA / "closed_loop_logs").mkdir(parents=True, exist_ok=True)
     for idx, (name, rec) in enumerate(pending):
