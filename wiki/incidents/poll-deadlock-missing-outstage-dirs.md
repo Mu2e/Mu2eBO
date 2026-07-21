@@ -4,10 +4,12 @@ title: poll_cluster deadlocks 24h when workers vanish without /pnfs dirs
 description: '`pipeline.py:550 poll_cluster` waits the full 24h `cap_hours` when
   workers vanish without writing any /pnfs subdir (bare or hash); failure-aware
   exit at :612 requires `all_dirs >= njobs` — fails open silently; observed pt001
-  70267542 36/100 on 2026-06-08'
-status: open
-status_note: (recovery recipe documented, no code fix yet)
-timestamp: '2026-06-08'
+  70267542 36/100 on 2026-06-08; RECURRED foilsflash19 2026-07-16 at the all_dirs=0
+  corner (whole campaign lost, 0 rows)'
+status: recurring
+status_note: (recovery recipe documented, no code fix yet; recurred foilsflash19 2026-07-16, worst case all_dirs=0)
+timestamp: '2026-07-20'
+updated_note: added the foilsflash19 recurrence — the all_dirs=0 corner, which is invisible in the poll line
 ---
 
 # poll_cluster deadlocks 24h when workers vanish without /pnfs dirs
@@ -121,6 +123,37 @@ benign-looking line for hours.
   - Output filename mismatch — dir exists but invisible to
     `list_outputs` (`poll_cluster` counts the dir itself, not the
     files in it, so this is NOT the deadlock cause)
+
+## Recurrence: foilsflash19, 2026-07-16 (the `all_dirs = 0` corner)
+
+Whole campaign lost — 5 children, **zero** leaderboard rows. Worse shape
+than pt001: not a partial stage-out, a *total* one.
+
+- Cluster 92502100 (`foilsflash19R00_00/graph_logs/poll_mubeam_*.log`):
+  `queue:0/15` at 15:53 → **`queue:15/15` at 15:57**. All fifteen jobs
+  left the queue within ~4 min of submission — far too fast to have run
+  a 30-min payload, so they died on the worker almost immediately.
+- `settled:0/15` for all **714** poll cycles (~24 h). The outstage base
+  for the cluster was never created at all, so `all_dirs = 0` — the
+  failure-aware exit needs `all_dirs >= njobs`, and 0 never gets there.
+  Poll sat until the 24h cap, then "proceeding with whatever landed".
+- Root cause of the job deaths is **unrecoverable**: no logs staged out.
+- The tree died together at 2026-07-17 21:48 (all child logs frozen at
+  the same second) — see
+  [closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md).
+
+**Reading trap (cost a wrong diagnosis on 2026-07-20):** the poll line
+prints `queue:{finished_q}/{njobs}` where `finished_q = njobs -
+in_queue`. So `queue:15/15` means all fifteen have **left** the queue,
+NOT fifteen still waiting. Read as the latter it looks like grid
+starvation; it is the opposite — the jobs left immediately and produced
+nothing.
+
+**Detection gap this exposes:** `all_dirs = 0` with a drained queue is
+the *most* diagnosable failure state available (nothing staged out at
+all, minutes after submit) and yet produces the longest possible hang.
+An early exit on "queue drained AND all_dirs == 0 AND elapsed > ~15 min"
+would have failed this campaign loudly in minutes instead of a day.
 
 ## Cross-links
 - Related: [stage-out-rename-race](/incidents/stage-out-rename-race.md) (similar /pnfs convergence
