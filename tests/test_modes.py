@@ -38,6 +38,26 @@ class TestRegistryCompleteness(unittest.TestCase):
             self.assertIn(spec.harvest_verb, ("harvest", "harvest-pot-only"), name)
             self.assertIn(spec.preflight_fcl, ("surfacecheck", "preflight"), name)
 
+    def test_obs_noise_declared_per_family(self):
+        # The foils family has replicate-measured sigma and MUST pin it
+        # (free MLL noise ranked the best-ever eval 16th of 324). The
+        # ProdTarget family declares None EXPLICITLY because its GP axis 1
+        # is a raw negated value whose units depend on which fallback fired.
+        for name in ("foils", "foilsf", "foilsflash", "foilsg"):
+            noise = modes.SPECS[name].obs_noise
+            self.assertIsNotNone(noise, name)
+            self.assertEqual(len(noise), 2, name)
+            self.assertTrue(all(v > 0 for v in noise), name)
+        for name in ("prodtarget", "prodtarget6d"):
+            self.assertIsNone(modes.SPECS[name].obs_noise, name)
+
+    def test_obs_noise_malformed_rejected_at_construction(self):
+        import dataclasses
+        spec = modes.SPECS["foilsflash"]
+        for bad in ((0.006,), (0.006, 0.0), (0.006, -1.0), (0.006, 0.01, 0.02)):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                dataclasses.replace(spec, obs_noise=bad)
+
 
 class TestBoundsLockstep(unittest.TestCase):
     def test_build_space_matches_spec(self):

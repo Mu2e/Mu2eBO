@@ -44,6 +44,18 @@ _PRODTARGET_TARBALL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_MDC20
 
 _CE_CALO_CHAIN = ("mubeam", "run1b_mubeam", "concat", "mustops_ce")
 
+# Replicate-measured observation noise (see ModeSpec.obs_noise).
+# sigma(sob): pooled within-group sd over repeated geometries — 0.0059 raw
+# on foilsflash (9 groups, df=12), 0.0051 after removing the 0.01
+# leaderboard quantization; 0.0030 on foils_v3 (3 groups, df=8). 0.006 is
+# the conservative round number covering both.
+_SIGMA_SOB = 0.006
+# calo modes: axis 1 is -log10(calo), so sigma = sigma_rel / ln(10).
+# Uses the 8% budget from wiki/concepts/bo-noise-budget.md rather than the
+# 3.29% replicate estimate (df=8, dominated by one 11% group) — deliberately
+# conservative on the axis that is NOT the decision axis.
+_FOILS_FAMILY_NOISE = (_SIGMA_SOB, 0.035)
+
 
 @dataclass(frozen=True)
 class ModeSpec:
@@ -79,6 +91,17 @@ class ModeSpec:
     knob_fmts: Tuple[str, ...]
     metric_cols: Tuple[str, ...]
 
+    # Measured observation noise, as ABSOLUTE sigma on each GP output axis
+    # (botorch_predict._load_history_tensor's Y columns, in that order).
+    # Fed to SingleTaskGP as train_Yvar so the GP stops inferring noise by
+    # MLL. Left free, the foilsflash fit lands at sigma(sob)=0.0507 against
+    # a replicate-measured 0.0051 — a 12x overestimate that shrank the
+    # line's best-ever eval (SOBX01, sob=3.90) to a predicted 3.787 and
+    # ranked it 16th of 324. See wiki/incidents/gp-free-noise-erases-champion.
+    # None means "axis-1 units are data-dependent, a fixed sigma is
+    # undefined" — passed EXPLICITLY by the ProdTarget family, not a default.
+    obs_noise: Optional[Tuple[float, ...]]
+
     def __post_init__(self):
         if self.bounds_lo is not None and not (
                 len(self.knob_names) == len(self.knob_fmts)
@@ -87,6 +110,12 @@ class ModeSpec:
                 f"{self.name}: knob_names ({len(self.knob_names)}) / "
                 f"knob_fmts ({len(self.knob_fmts)}) / bounds "
                 f"({len(self.bounds_lo)}) lockstep broken")
+        if self.obs_noise is not None and not (
+                len(self.obs_noise) == 2
+                and all(v > 0 for v in self.obs_noise)):
+            raise ValueError(
+                f"{self.name}: obs_noise must be 2 positive sigmas "
+                f"(one per GP output axis), got {self.obs_noise!r}")
 
 
 SPECS: Dict[str, ModeSpec] = {
@@ -110,6 +139,7 @@ SPECS: Dict[str, ModeSpec] = {
                     "extra_rIn_up", "extra_rIn_dn"),
         knob_fmts=("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"),
         metric_cols=("sob", "calo", "alpha", "obj"),
+        obs_noise=_FOILS_FAMILY_NOISE,
     ),
     "foilsf": ModeSpec(
         name="foilsf",
@@ -130,6 +160,7 @@ SPECS: Dict[str, ModeSpec] = {
                     "extra_f_up", "extra_f_dn"),
         knob_fmts=("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"),
         metric_cols=("sob", "calo", "alpha", "obj"),
+        obs_noise=_FOILS_FAMILY_NOISE,
     ),
     "foilsflash": ModeSpec(
         name="foilsflash",
@@ -156,6 +187,8 @@ SPECS: Dict[str, ModeSpec] = {
                     "extra_f_up", "extra_f_dn"),
         knob_fmts=("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"),
         metric_cols=("sob", "flash_edep", "alpha", "obj"),
+        # axis 1 is -log10(flash_edep): sigma_rel 2.31% / ln(10) = 0.0100.
+        obs_noise=(_SIGMA_SOB, 0.010),
     ),
     "foilsg": ModeSpec(
         name="foilsg",
@@ -175,6 +208,7 @@ SPECS: Dict[str, ModeSpec] = {
                     "rOut_g2", "hT_g2", "f_g2", "rOut_g3", "hT_g3", "f_g3"),
         knob_fmts=("{:.4f}", "{:.6f}", "{:.4f}") * 4,
         metric_cols=("sob", "calo", "alpha", "obj"),
+        obs_noise=_FOILS_FAMILY_NOISE,
     ),
     "prodtarget": ModeSpec(
         name="prodtarget",
@@ -195,6 +229,13 @@ SPECS: Dict[str, ModeSpec] = {
         knob_fmts=("{:.4f}",) * 9 + ("{:d}",),
         metric_cols=("mu_per_POT", "edep_per_POT_MeV",
                      "peak_dose_Gy_per_POT", "peak_plate_idx", "obj"),
+        # EXPLICIT None, not a default: this family's GP axis 1 is a raw
+        # negated value whose units depend on which fallback fired
+        # (-peak_dose_Gy_per_POT, else -edep_per_POT_MeV — see
+        # botorch_predict._load_history_tensor). One absolute sigma cannot
+        # cover both scales, and no replicate evals exist to measure one.
+        # Keeps the MLL-fitted noise until somebody measures it.
+        obs_noise=None,
     ),
     "prodtarget6d": ModeSpec(
         name="prodtarget6d",
@@ -214,5 +255,12 @@ SPECS: Dict[str, ModeSpec] = {
         knob_fmts=("{:.4f}",) * 6,
         metric_cols=("mu_per_POT", "edep_per_POT_MeV",
                      "peak_dose_Gy_per_POT", "peak_plate_idx", "obj"),
+        # EXPLICIT None, not a default: this family's GP axis 1 is a raw
+        # negated value whose units depend on which fallback fired
+        # (-peak_dose_Gy_per_POT, else -edep_per_POT_MeV — see
+        # botorch_predict._load_history_tensor). One absolute sigma cannot
+        # cover both scales, and no replicate evals exist to measure one.
+        # Keeps the MLL-fitted noise until somebody measures it.
+        obs_noise=None,
     ),
 }

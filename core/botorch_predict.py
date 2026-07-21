@@ -45,7 +45,8 @@ import modes as _modes  # noqa: E402
 
 MODE_SPECS = {
     name: {"lo": list(s.bounds_lo), "hi": list(s.bounds_hi),
-           "int_dims": list(s.int_dims)}
+           "int_dims": list(s.int_dims),
+           "obs_noise": None if s.obs_noise is None else list(s.obs_noise)}
     for name, s in _modes.SPECS.items() if s.bounds_lo is not None
 }
 
@@ -197,29 +198,56 @@ def _sobol_cold_start(bounds: torch.Tensor, q: int, round_idx: int) -> torch.Ten
     return cands.detach()
 
 
-def _fit_gp(X, Y, bounds):
-    """Fit a 2-output SingleTaskGP with input normalization + output stdize."""
+def _fit_gp(X, Y, bounds, obs_noise=None):
+    """Fit a 2-output SingleTaskGP with input normalization + output stdize.
+
+    obs_noise: per-output-axis ABSOLUTE sigma from modes.ModeSpec.obs_noise,
+    or None to leave noise as a free MLL hyperparameter. When supplied it is
+    squared into train_Yvar, which switches SingleTaskGP to a fixed-noise
+    likelihood. This matters: left free on the foilsflash history the fit
+    lands at sigma(sob)=0.0507 against a replicate-measured 0.0051, and that
+    12x overestimate shrinks the line's best eval (SOBX01, observed 3.90) to
+    a predicted 3.787 — ranking it 16th of 324 and steering every picker away
+    from the true optimum. Pinning the measured sigma restores it to rank 1.
+    """
     from botorch.fit import fit_gpytorch_mll
     from botorch.models import SingleTaskGP
     from botorch.models.transforms.input import Normalize
     from botorch.models.transforms.outcome import Standardize
     from gpytorch.mlls import ExactMarginalLogLikelihood
 
+    m = Y.shape[-1]
+    train_Yvar = None
+    if obs_noise is not None:
+        # Y columns are (sob, <second axis>); sob_only fits use just the
+        # first. Broadcast the per-axis sigma^2 across all n rows — the
+        # noise is a property of the pipeline's event budget, not the point.
+        sig = torch.tensor([float(v) for v in obs_noise[:m]],
+                           dtype=Y.dtype, device=Y.device)
+        train_Yvar = (sig ** 2).expand(Y.shape[0], m).contiguous()
+
     model = SingleTaskGP(
         train_X=X,
         train_Y=Y,
+        train_Yvar=train_Yvar,
         input_transform=Normalize(d=X.shape[-1], bounds=bounds),
-        outcome_transform=Standardize(m=Y.shape[-1]),
+        outcome_transform=Standardize(m=m),
     )
     mll = ExactMarginalLogLikelihood(model.likelihood, model)
     fit_gpytorch_mll(mll)
     # Noise audit: likelihood.noise is in Standardize'd units; × stdvs
     # recovers raw-output σ, comparable to the measured budget in
     # wiki/concepts/bo-noise-budget.md (σ_sob≈0.4% rel, σ_calo≈8%).
-    noise_std = model.likelihood.noise.detach().sqrt().reshape(-1)
+    # A fitted likelihood carries one noise per output (m,); a fixed-noise
+    # one carries the full train_Yvar (m, n). Collapse the latter to its
+    # per-output value — it is constant within an output by construction.
+    noise = model.likelihood.noise.detach()
+    noise_std = (noise.reshape(-1) if noise.numel() == m
+                 else noise.reshape(m, -1)[:, 0]).sqrt()
     stdvs = model.outcome_transform.stdvs.detach().reshape(-1)
     raw = [f"{v:.3e}" for v in (noise_std * stdvs).tolist()]
-    print(f"[botorch_predict] fitted GP noise sigma per output: raw={raw} "
+    src = "FIXED (modes.obs_noise)" if train_Yvar is not None else "MLL-fitted"
+    print(f"[botorch_predict] GP noise sigma per output [{src}]: raw={raw} "
           f"standardized={[f'{v:.3f}' for v in noise_std.tolist()]}", flush=True)
     return model
 
@@ -491,7 +519,7 @@ def compute_explore_picks(q: int = 5,
               f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)
         cands = _sobol_cold_start(bounds, q=q, round_idx=round_idx)
         return _emit_picks(cands, int_dims)
-    model = _fit_gp(X, Y, bounds)
+    model = _fit_gp(X, Y, bounds, obs_noise=MODE_SPECS[mode]["obs_noise"])
     if picker == "qlnei":
         cands = _qlnei_picks(model, X, bounds, q=q, round_idx=round_idx,
                              x_pending=pend)

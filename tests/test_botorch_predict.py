@@ -121,6 +121,51 @@ class TestComputeExplorePicks(unittest.TestCase):
             for p in picks:
                 self.assertTrue(in_bounds(p))
 
+    def test_obs_noise_reaches_the_likelihood(self):
+        # The wiring this file exists to pin: modes.obs_noise must land in
+        # the GP as train_Yvar, not be silently dropped. Recovering raw
+        # sigma = sqrt(likelihood.noise) * Standardize.stdvs must return the
+        # declared per-axis sigma. Dropping the kwarg makes the fit infer
+        # noise ~12x too large (see _fit_gp docstring).
+        import torch
+        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
+            X, Y, bounds, _ = bp._load_history_tensor("foilsflash")
+        declared = bp.MODE_SPECS["foilsflash"]["obs_noise"]
+        model = bp._fit_gp(X, Y, bounds, obs_noise=declared)
+        m = Y.shape[-1]
+        noise = model.likelihood.noise.detach()
+        # Fixed-noise likelihoods carry the full (m, n) train_Yvar, not (m,);
+        # the audit print in _fit_gp collapses it the same way.
+        per_axis = (noise.reshape(-1) if noise.numel() == m
+                    else noise.reshape(m, -1)[:, 0]).sqrt()
+        raw = per_axis * model.outcome_transform.stdvs.detach().reshape(-1)
+        for got, want in zip(raw.tolist(), declared):
+            self.assertAlmostEqual(got, want, places=6)
+        self.assertIsInstance(
+            model.likelihood,
+            torch.nn.Module)  # sanity: real likelihood, not a stub
+
+    def test_pinned_noise_does_not_shrink_a_high_observation(self):
+        # Behavioural half: with honest noise the posterior must stay close
+        # to what was measured at a training point. The production failure
+        # was a 0.113 shrink on the best row, which demoted it to rank 16.
+        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
+            X, Y, bounds, _ = bp._load_history_tensor("foilsflash")
+        declared = bp.MODE_SPECS["foilsflash"]["obs_noise"]
+        model = bp._fit_gp(X, Y, bounds, obs_noise=declared)
+        best = int(Y[:, 0].argmax())
+        mu = model.posterior(X).mean.detach()[:, 0]
+        self.assertAlmostEqual(float(mu[best]), float(Y[best, 0]), delta=0.05)
+        self.assertEqual(int(mu.argmax()), best,
+                         "highest observed sob must also be the GP's argmax")
+
+    def test_prodtarget_family_keeps_free_noise(self):
+        # obs_noise=None is a deliberate declaration (axis-1 units depend on
+        # which fallback fired), not an oversight. Guards against someone
+        # "completing" the registry with an invented sigma.
+        for name in ("prodtarget", "prodtarget6d"):
+            self.assertIsNone(bp.MODE_SPECS[name]["obs_noise"], name)
+
     def test_real_gp_qnehvi_pick_on_fixture(self):
         # The one real GP fit in the suite (CPU, ~seconds on 10 rows).
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
