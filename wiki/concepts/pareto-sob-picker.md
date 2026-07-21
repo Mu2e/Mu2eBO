@@ -2,10 +2,11 @@
 type: concept
 title: pareto-sob-picker
 description: '`--picker pareto_sob`: submits the GP-predicted highest-sob points
-  (top-q by posterior-mean sob, min-distance spread) as real evals; multi-obj (keeps
+  (top-q by posterior-mean sob, min-distance spread; the Pareto mask was removed — name is a misnomer) as real evals; multi-obj (keeps
   calo); by-hand sob-corner exploit; wired 2026-06-22'
 status: active
-timestamp: '2026-06-22'
+timestamp: '2026-07-21'
+updated_note: Pareto-mask claim corrected (removed in code long ago) + Sobol-resolution/bound-reachability limitation recorded
 ---
 
 # pareto-sob-picker
@@ -21,9 +22,22 @@ sob corner.
 ## Key facts
 - **Mechanism** (`botorch_predict.py:_pareto_sob_picks`): Sobol-sample N=16384 in
   the mode's box (seed `42 ^ round_idx`), evaluate GP posterior MEAN for both
-  objectives (output 0 = sob, output 1 = −log10 calo, both maximized), build the
-  non-dominated mask, return the q frontier points with the **highest predicted
-  sob**. Multi-objective fit (keeps calo) → runs the full 4-stage chain (does NOT
+  objectives (output 0 = sob, output 1 = −log10 calo, both maximized) and return
+  the **top-q by posterior-mean sob directly**. NOTE the name is now a misnomer:
+  the non-dominated (Pareto) mask this page originally documented was REMOVED as
+  a dev-time bug fix (see the explicit "do NOT pre-filter to the Pareto frontier"
+  comment at `botorch_predict.py:415-421`); nothing Pareto remains in the picker.
+  A `PARETO_SOB_MIN_SPACING = 0.10` filter de-clusters the batch against itself
+  and against in-flight `x_pending` points — NOT against history, which the
+  function never receives.
+- **KNOWN LIMITATION (2026-07-21): it cannot find its own model's argmax.** The
+  N=16384 Sobol pool is scored by plain `argsort` with NO refinement — no
+  `optimize_acqf`, no L-BFGS-B — which is ~0.20 normalized spacing in 6-D,
+  coarser than four of the six fitted lengthscales, leaving 0.03–0.07 predicted
+  sob on the table. It also can never return an exact box bound (scrambled Sobol
+  is open on the bounds): **0 of 40** pareto_sob rows sit on a bound vs **242 of
+  278** acquisition-picker rows. See
+  [gp-free-noise-erases-champion](/incidents/gp-free-noise-erases-champion.md). Multi-objective fit (keeps calo) → runs the full 4-stage chain (does NOT
   stamp AUTORESEARCH_NO_RUN1B, unlike [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md)).
 - **Registry wiring**: dispatched in `compute_explore_picks` alongside
   qnehvi/qlnei; added to `botorch_predict.py` `--picker` choices, closed_loop

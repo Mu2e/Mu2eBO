@@ -1,15 +1,17 @@
 ---
 type: concept
 title: ML/statistics stack review (2026-07)
-description: 'ML/stats audit: acquisition layer SOTA (keep); ranked gaps = measured
-  σ never fed to GP (train_Yvar), botorch 0.10 pre-Hvarfner defaults, ~~skopt EI~~
+description: 'ML/stats audit: acquisition layer SOTA (keep); ranked gaps = ~~measured
+  σ never fed to GP (train_Yvar)~~ (RESOLVED 2026-07-21 — free MLL noise was fitting
+  12× reality and had demoted the best foilsflash eval to 16th of 324; now
+  ModeSpec.obs_noise), botorch 0.10 pre-Hvarfner defaults, ~~skopt EI~~
   (RESOLVED 2026-07-18: kernel retired, all asks via botorch_ask), high-sob-corner
   misfit → Warp; Ax/Optuna/neural surrogates explicitly rejected; 0.10 RETIRED
   2026-07-18 (single .venv, foilsflash → 0.18-base); picker/botorch_predict.py
   test-coverage gap RESOLVED 2026-07-19 (unit tests + seam smoke in main suite)'
 status: active
-timestamp: '2026-07-19'
-updated_note: 'verdict rec #1 revised: 0.10 retired with the single-venv consolidation; picker/botorch_predict.py test-coverage gap resolved 2026-07-19'
+timestamp: '2026-07-21'
+updated_note: 'gap #1 (train_Yvar) RESOLVED 2026-07-21 via ModeSpec.obs_noise — see gp-free-noise-erases-champion; earlier: verdict rec #1 revised: 0.10 retired with the single-venv consolidation; picker/botorch_predict.py test-coverage gap resolved 2026-07-19'
 ---
 
 # ML/statistics stack review (2026-07)
@@ -32,7 +34,10 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   Recommendation #2 stands: per-row train_Yvar is the next env-flagged A/B
   (AUTORESEARCH_BOTORCH_VENV seam kept for exactly this).
 - **Ranked gaps (payoff-ordered):**
-  1. **Measured noise never reaches the GP** — `_fit_gp` (botorch_predict.py:215)
+  1. ~~**Measured noise never reaches the GP**~~ **RESOLVED 2026-07-21** (see
+     the RESOLUTION bullet below — the fitted σ turned out to be 12× the
+     measured one and had inverted the leaderboard ranking). Original finding:
+     `_fit_gp` (botorch_predict.py:215)
      infers one homoscedastic noise per output; we KNOW σ_sob≈0.4%,
      σ_flash≈2–4%@100j (+5–10% run-level systematic), σ_calo≈8%, and rows mix
      100-job and 400-job stats. Fix = per-row `train_Yvar` (needs njobs/σ column
@@ -100,6 +105,20 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   robustness+train_Yvar API, NOT accuracy; 12D foilsg/11D prodtarget are where
   new defaults should actually help. Both bases: sob axis OVERCONFIDENT
   (z_std 1.24–1.37), flash axis well-calibrated. warp/yvar verdict pending.
+- **RESOLUTION of gap #1 (2026-07-21) — the cost of NOT doing this turned out
+  to be far larger than the NLL deltas below suggested.** Left free, `_fit_gp`'s
+  MLL noise on the 324-row foilsflash history fits **σ(sob)=0.0507 against a
+  replicate-measured 0.0051** and demoted the line's best-ever eval from rank 1
+  to **rank 16 of 324**, steering every picker. Now wired as
+  `modes.ModeSpec.obs_noise` → `train_Yvar` (foils family; ProdTarget explicitly
+  None). Two corrections to the recommendation recorded below: (a) the σ to use
+  is the **replicate-measured** 0.0051, not the 0.4% assumed here — the z_std
+  readback that produced "effective σ≈0.5%" conflates model error with
+  observation noise; (b) it was wired **globally and unflagged** rather than
+  env-flagged/per-row, because a concrete rank inversion outranks an A/B. Per-row
+  noise (for 100-vs-400-job row mixing) still needs the leaderboard njobs/σ
+  column. Full write-up:
+  [gp-free-noise-erases-champion](/incidents/gp-free-noise-erases-champion.md).
 - **LOO result #2 (yvar = fixed measured train_Yvar, 0.18, n=274/0 failed):**
   best sob NLL of any variant (−0.824 vs −0.69/−0.43) despite WORSE sob RMSE
   (0.205 vs ~0.17) — honest variances beat sharper-but-overconfident point

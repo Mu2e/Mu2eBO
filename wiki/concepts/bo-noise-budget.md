@@ -1,11 +1,12 @@
 ---
 type: concept
 title: bo-noise-budget
-description: per-point event budget + measured σ(sob)=0.4% / σ(calo)=8%; calo is
-  binding noise channel near saturation
+description: per-point event budget + REPLICATE-measured σ(sob)=0.0051 abs (0.155% rel,
+  supersedes the 0.4% assumption) / σ_rel(flash)=2.31% / σ(calo)=8%; calo is binding
+  noise channel near saturation
 status: active
-timestamp: '2026-07-17'
-updated_note: GP noise audit logged + first reading
+timestamp: '2026-07-21'
+updated_note: replicate-measured sigma added (0.0051 sob / 2.31% flash) — supersedes the 0.4% assumption for train_Yvar
 ---
 
 # bo-noise-budget
@@ -250,6 +251,24 @@ equivalent ways:
   "is A truly > B".
 
 ## Key facts
+
+- **REPLICATE-MEASURED observation noise (2026-07-21) — use THIS for
+  `train_Yvar`, not the 0.4%/8% budget figures.** Campaigns re-propose
+  identical x, so the leaderboards contain free replicates. Recipe: group rows
+  on the rounded knob tuple, keep groups with n≥2, pool the within-group
+  variance. (Flash/calo is *deterministic* for identical geometry + file count,
+  so identical flash to 6 digits is the reliable duplicate marker.)
+  - foilsflash: **σ(sob) = 0.0059** raw over 9 groups (df=12), **0.0051** after
+    removing the 0.01 leaderboard quantization; **σ_rel(flash) = 2.31%**.
+  - foils_v3: **σ(sob) = 0.0030** over 3 groups (df=8); σ_rel(calo) = 3.29%
+    (dominated by one 11% group — prefer the 8% figure below for calo).
+  - In relative terms σ(sob) ≈ **0.155%**, i.e. ~2.5× TIGHTER than the 0.4% in
+    this page's own description. The 0.4% and the "effective σ≈0.5%" read out of
+    LOO z_std calibration both conflate **model** error with **observation**
+    noise; replicates isolate the latter, which is what `train_Yvar` means.
+    Deployed as `modes.ModeSpec.obs_noise` — see
+    [gp-free-noise-erases-champion](/incidents/gp-free-noise-erases-champion.md)
+    for why leaving it free cost the foilsflash line its best point.
 
 - **Per-BO-point event budget (`pipeline.py`):**
   - `mubeam` (Run1A signal denom): 200 jobs × 5,000 events = **1.0e6 events**
