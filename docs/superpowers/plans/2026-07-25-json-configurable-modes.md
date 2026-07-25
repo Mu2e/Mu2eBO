@@ -512,7 +512,9 @@ def _literal(type_: str, value: Any, where: str) -> str:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"{where}: type double needs a number, got {value!r}")
         return str(value)
-    raise ValueError(f"{where}: unknown type {type_!r}")
+    raise ValueError(
+        f"{where}: a fixed 'value' needs a scalar type {list(_SCALAR_TYPES)}, "
+        f"got {type_!r}; build vectors with 'segments' or 'per_index'")
 
 
 class GeomTemplate:
@@ -736,11 +738,13 @@ class TestGeomField(unittest.TestCase):
     def test_the_new_fields_are_required_not_defaulted(self):
         """A missing fact must be a TypeError, never a silent default."""
         import dataclasses
-        fields = {f.name for f in dataclasses.fields(modes.ModeSpec)}
+        by_name = {f.name: f for f in dataclasses.fields(modes.ModeSpec)}
         for field in ("geom", "metrics", "leaderboard_rel"):
-            self.assertIn(field, fields)
-            self.assertIs(dataclasses.fields(modes.ModeSpec)[0].default,
-                          dataclasses.MISSING)
+            self.assertIn(field, by_name)
+            self.assertIs(by_name[field].default, dataclasses.MISSING,
+                          f"{field} must not have a default")
+            self.assertIs(by_name[field].default_factory, dataclasses.MISSING,
+                          f"{field} must not have a default_factory")
         with self.assertRaises(TypeError):
             modes.ModeSpec(name="x")  # type: ignore[call-arg]
 ```
@@ -1034,11 +1038,6 @@ def load_mode_file(path: Path) -> "object":
         metrics=metrics,
         leaderboard_rel=leaderboard["file"],
     )
-    if spec.name != path.stem and path.stem != "foilsflash":
-        # fixture aside, the file name is the mode name -- keeps modes/ greppable
-        raise ValueError(
-            f"{where}: mode name {spec.name!r} does not match file name "
-            f"{path.stem!r}")
     return spec
 
 
@@ -1051,6 +1050,12 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
     out: Dict[str, object] = {}
     for path in sorted(directory.glob("*.json")):
         spec = load_mode_file(path)
+        # Registered modes must be findable by file name. Checked HERE, not in
+        # load_mode_file, so test fixtures can be loaded from any path.
+        if spec.name != path.stem:
+            raise ValueError(
+                f"{path}: mode name {spec.name!r} does not match its file name "
+                f"{path.stem!r}; modes/ must stay greppable by name")
         if spec.name in existing or spec.name in out:
             raise ValueError(
                 f"{path}: mode name {spec.name!r} collides with an existing "
