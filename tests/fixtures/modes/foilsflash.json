@@ -1,0 +1,113 @@
+{
+  "name": "foilsflash",
+  "note": "6D extra-foil geometry vs early-flash tracker edep (DS-on), S/sqrt(B) preserved. REFERENCE FIXTURE: reproduces the live foilsflash line; the acceptance test compares this against FoilsFlashMode at default env.",
+
+  "software": {
+    "musing":       "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
+  },
+
+  "run": {
+    "stages":          ["mubeam", "mustops_ce", "elebeam_flash"],
+    "harvest":         "harvest",
+    "jobs_per_stage":  {"mubeam": 15, "mustops_ce": 15, "elebeam_flash": 100},
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
+    "stage_tuning": {
+      "mubeam":        {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8},
+      "mustops_ce":    {"events_per_job":  75000, "memory_mb": 2000, "quorum": 0.8},
+      "elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}
+    }
+  },
+
+  "knobs": [
+    {"name": "extra_rOut_up",          "min": 50.0,  "max": 250.0, "fmt": "{:.4f}"},
+    {"name": "extra_rOut_dn",          "min": 50.0,  "max": 250.0, "fmt": "{:.4f}"},
+    {"name": "extra_halfThickness_up", "min": 0.002, "max": 1.0,   "fmt": "{:.6f}"},
+    {"name": "extra_halfThickness_dn", "min": 0.002, "max": 1.0,   "fmt": "{:.6f}"},
+    {"name": "extra_f_up",             "min": 0.0,   "max": 0.95,  "fmt": "{:.4f}"},
+    {"name": "extra_f_dn",             "min": 0.0,   "max": 0.95,  "fmt": "{:.4f}"}
+  ],
+  "int_dims": [],
+
+  "leaderboard": {
+    "file":      "leaderboards/leaderboard_bo_foilsflash.tsv",
+    "columns":   ["sob", "flash_edep", "alpha", "obj"],
+    "obs_noise": [0.006, 0.010],
+    "metrics": {
+      "sob":        ["s_over_sqrt_b"],
+      "flash_edep": ["flash_edep_per_pot", "flash_edep_per_event", "calo_per_pot"]
+    }
+  },
+
+  "preflight": {
+    "fcl":                    "surfacecheck",
+    "dumps_gdml":             true,
+    "verifies_foil_gdml":     true,
+    "preserves_gdml":         false,
+    "checks_managed_overlap": true
+  },
+
+  "geom": {
+    "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+
+    "consts": {
+      "n_up":      6,
+      "n_dn":      6,
+      "base_n":    37,
+      "base_rOut": 75.0,
+      "base_hT":   0.0528,
+      "base_hole": 21.5
+    },
+
+    "derived": {
+      "rIn_up": "extra_f_up * extra_rOut_up",
+      "rIn_dn": "extra_f_dn * extra_rOut_dn"
+    },
+
+    "lines": [
+      {"comment": "=== foilsflash (6D, hole = fraction of that side's rOut) ==="},
+      {"comment": "{base_n} base foils (DOE-2017, rOut={base_rOut}, hT={base_hT}, holeRadius={base_hole})"},
+      {"comment": "+ {n_up} up at (rOut={extra_rOut_up:.2f}, hT={extra_halfThickness_up:.4f}, rIn={rIn_up:.2f})"},
+      {"comment": "+ {n_dn} dn at (rOut={extra_rOut_dn:.2f}, hT={extra_halfThickness_dn:.4f}, rIn={rIn_dn:.2f})"},
+      {"comment": "holeRadii vector decouples extras-rIn from base-rIn (patched lib)."},
+
+      {"key": "hasTSdA",            "type": "bool", "value": false},
+      {"key": "tsda.helical.build", "type": "bool", "value": false},
+
+      {"key": "stoppingTarget.radii", "type": "vector<double>", "fmt": "{:.4f}",
+       "segments": [{"count": "n_up",   "expr": "extra_rOut_up"},
+                    {"count": "base_n", "expr": "base_rOut"},
+                    {"count": "n_dn",   "expr": "extra_rOut_dn"}]},
+
+      {"key": "stoppingTarget.halfThicknesses", "type": "vector<double>", "fmt": "{:.6f}",
+       "segments": [{"count": "n_up",   "expr": "extra_halfThickness_up"},
+                    {"count": "base_n", "expr": "base_hT"},
+                    {"count": "n_dn",   "expr": "extra_halfThickness_dn"}]},
+
+      {"comment": "POISON PILL: an unpatched StoppingTargetMaker ignores holeRadii and reads"},
+      {"comment": "this scalar. 1e6 forces a loud G4Tubs crash instead of a silently uniform"},
+      {"comment": "stack -- emitting a 'sensible' scalar is how 62 foilsg rows were lost."},
+      {"key": "stoppingTarget.holeRadius", "type": "double", "raw": "1.0e6"},
+
+      {"key": "stoppingTarget.holeRadii", "type": "vector<double>", "fmt": "{:.4f}",
+       "segments": [{"count": "n_up",   "expr": "rIn_up"},
+                    {"count": "base_n", "expr": "base_hole"},
+                    {"count": "n_dn",   "expr": "rIn_dn"}]},
+
+      {"comment": "Degrader parked at 120 deg (mmackenz hardware detent)"},
+      {"key": "degrader.build",         "type": "bool",   "value": false},
+      {"key": "degrader.rotation",      "type": "double", "value": 120.0},
+      {"key": "ts.coll5.material1Name", "type": "string", "value": "COL5Poly"},
+
+      {"comment": "TT_MidInner -> DS2Vacuum fix (manually patched, mirrors v111)"},
+      {"key": "tracker.inDS2Vacuum", "type": "bool",   "value": true},
+      {"key": "ds2.halfLength",      "type": "int",    "value": 3825},
+      {"key": "ds.hasServicePipes",  "type": "bool",   "value": false},
+
+      {"comment": "Overlap-suppression (foil-support off + rail shrink)"},
+      {"key": "stoppingTarget.foilTarget_supportStructure", "type": "bool",   "value": false},
+      {"key": "ds.lengthRail2", "type": "double", "value": 0.1},
+      {"key": "ds.lengthRail3", "type": "double", "value": 0.1}
+    ]
+  }
+}

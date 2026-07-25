@@ -145,6 +145,7 @@ Each entry in `lines` is one of:
 |---|---|
 | `{"comment": "..."}` | A comment line; `{name:fmt}` placeholders interpolate knobs/derived. |
 | `{"key", "type", "value"}` | A fixed assignment. Most lines are these. |
+| `{"key", "type", "raw"}` | A fixed assignment rendered as **exact literal text**. |
 | `{"key", "type", "fmt", "expr"}` | A scalar computed from knobs. |
 | `{"key", "type", "fmt", "segments": [{"count", "expr"\|"value"}]}` | Repeat each segment's value `count` times, concatenated. |
 | `{"key", "type", "fmt", "per_index": {"count", "expr"}}` | Evaluate per element; `i` is the index, `n` the count. |
@@ -156,6 +157,13 @@ Each entry in `lines` is one of:
 counts stay named (`"count": "n_foils"`) rather than repeated as magic numbers. Inside a
 segment, `expr` and `value` are interchangeable — `expr` referencing a const is preferred
 over a bare literal, so the constant is declared once and cannot drift between lines.
+
+`raw` exists because JSON numbers do not round-trip their literal form. The poison-pill
+scalar is written `1.0e6` by the Python renderer, but `json.load` yields the float
+`1000000.0`, which renders as `"1000000.0"` — a different string. Ordinary ints and floats
+round-trip fine (`3825` -> `"3825"`, `120.0` -> `"120.0"`), so `raw` is only needed where
+the exact characters matter. It takes a string and is emitted verbatim, with `type` still
+declared for readability.
 
 **Profiles** expand a few control points into a smooth per-index curve, using the same
 Lagrange quadratic as `ProdTargetMode._profile` (`bo_driver.py:913-920`): control values
@@ -176,6 +184,10 @@ This indexing also makes per-foil knob arrays expressible later, should they be 
 
 The live line, expressed entirely in the schema. Values from `modes.py:165-192`, the
 `pipeline.py` tuning block, and `FoilsMode._geom_text` (`bo_driver.py:417-469`).
+
+**The complete file is committed at `tests/fixtures/modes/foilsflash.json`** — this
+section shows excerpts, but the fixture is the artifact the acceptance test (§9) loads,
+so the target is a real file rather than a description to interpret.
 
 Geometry: 6 upstream extras + 37 pinned base + 6 downstream, via `segments`. Hole radius
 is a fraction of that side's outer radius, so it needs `derived`:
@@ -269,11 +281,29 @@ caught by preflight — the same gate as today, no regression.
 
 ## 9. Testing
 
-**Acceptance test:** render the `foilsflash` JSON and the current
-`FoilsFlashMode._geom_text` at the same sampled x-points (Sobol, fixed seed) and require
-**byte-identical** output. If the schema can regenerate a live campaign's geometry
-exactly, it can carry a new line. Repeat for `foils` and `prodtarget`, which exercise
-`segments` and `profiles` respectively.
+**Acceptance test.** The target is committed as
+`tests/fixtures/modes/foilsflash.json` — a complete reproduction of the live line, whose
+spec fields are cross-checked against `modes.SPECS["foilsflash"]` (all 17 facts verified
+equal at the time of writing). Render it and the current `FoilsFlashMode._geom_text` at
+the same sampled x-points (Sobol, fixed seed) and require the results to agree.
+
+"Agree" means **semantic equality, not byte equality**: parse both outputs into
+`key -> value(s)` and require an exact match, including every one of the 49 numbers per
+vector at full emitted precision. Byte equality was the original criterion and is the
+wrong one — it would force the JSON to reproduce cosmetic alignment (the renderer pads
+`stoppingTarget.radii` with ten spaces so `=` lines up with `halfThicknesses`), non-ASCII
+comment characters (`120°`, `TT_MidInner→DS2Vacuum`), and an inherited comment header that
+calls foilsflash *"foils mode v2, 6D"*. None of that reaches Geant4. The fixture
+deliberately writes accurate comments rather than replicating the inherited quirk, since
+it doubles as the template someone copies for a new line.
+
+The comparison is defined **at default environment**. `FoilsMode` reads three env
+overrides — `AUTORESEARCH_BASE_HOLE_RADIUS_MM`, `AUTORESEARCH_N_UP`, `AUTORESEARCH_N_DOWN`
+— which the JSON freezes to `21.5`, `6`, `6` (§6). With any of them set the two diverge by
+construction, so the test must clear them rather than inherit the caller's shell.
+
+Repeat the same comparison for `foils` and `prodtarget`, which exercise `segments` and
+`profiles` respectively.
 
 Supporting tests: loader rejections (missing field, unresolved name, type mismatch, name
 collision), an evaluator test confirming a hostile expression is refused, and profile
