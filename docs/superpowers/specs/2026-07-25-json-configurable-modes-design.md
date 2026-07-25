@@ -302,8 +302,26 @@ overrides — `AUTORESEARCH_BASE_HOLE_RADIUS_MM`, `AUTORESEARCH_N_UP`, `AUTORESE
 — which the JSON freezes to `21.5`, `6`, `6` (§6). With any of them set the two diverge by
 construction, so the test must clear them rather than inherit the caller's shell.
 
-Repeat the same comparison for `foils` and `prodtarget`, which exercise `segments` and
-`profiles` respectively.
+Repeat the comparison for `foils`, which exercises `segments` with absolute hole radii
+(no `derived` step).
+
+**`prodtarget` parity is NOT attempted** — corrected 2026-07-25 while planning, having
+originally been promised here. Two blockers, both real:
+
+- Its `metric_cols` has **five** entries (`mu_per_POT`, `edep_per_POT_MeV`,
+  `peak_dose_Gy_per_POT`, `peak_plate_idx`, `obj`), and `BOMode.format_row`
+  (`bo_driver.py:185-198`) raises unless there are exactly four — `ProdTargetMode`
+  overrides `format_row` to cope. A JSON mode of that shape cannot be written until
+  `format_row` is generalized.
+- `_expand` clips one profile against **another profile's per-element value**
+  (`lPlate` to `tPlate + margin`, `bo_driver.py:936-938`), which the constant `clip`
+  cannot express. A `per_index` expression using `min`/`max` over two profiles could,
+  but that is not what `clip` does.
+
+Profiles are therefore proven by **unit test** instead: the pure-Python
+`lagrange_profile` is pinned against `ProdTargetMode._profile` to 12 decimal places
+across several control-point sets and element counts, and the renderer's profile path is
+covered directly. That tests the construct without requiring a five-column mode.
 
 Supporting tests: loader rejections (missing field, unresolved name, type mismatch, name
 collision), an evaluator test confirming a hostile expression is refused, and profile
@@ -318,6 +336,13 @@ The existing 217 tests must stay green — nothing about the six Python modes ch
 - Does not add new measurements — Tier 3 stays Python in `harvest.py`.
 - Does not migrate the six existing modes.
 - Does not provide buildability constraints, geom round-trip, or prior seeding.
+- **Does not support ProdTarget-shaped modes**, i.e. those needing a metric tail other
+  than the four-column `(sob-like, second-objective, alpha, obj)` that
+  `BOMode.format_row` writes. A JSON mode must declare exactly four `columns`; anything
+  else is a load error naming the constraint. Lifting this means generalizing
+  `format_row` first.
+- Does not let a profile's `clip` depend on another profile (prodtarget's `lPlate`-vs-
+  `tPlate` guard). `clip` takes two constants.
 
 ## 11. Settled decisions
 
