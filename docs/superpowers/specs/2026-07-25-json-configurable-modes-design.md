@@ -319,11 +319,16 @@ The existing 217 tests must stay green — nothing about the six Python modes ch
 - Does not migrate the six existing modes.
 - Does not provide buildability constraints, geom round-trip, or prior seeding.
 
-## 11. Open items
+## 11. Settled decisions
 
-- Whether to add per-knob **arrays** (`{"name": "rOut", "count": 49, ...}` with `rOut[i]`)
-  for fully independent per-element knobs. Deferred: the profile form covers the tractable
-  cases, and 49 foils x 3 parameters is 147 dimensions against ~4.5 h evals — far past the
-  12D widest this project has run.
-- Whether `buildable` expressions should be promoted from deferred to day one. The profile
-  form needs them least, since `clip` projects instead of rejecting.
+Both remaining questions were resolved on 2026-07-25. Neither is in scope.
+
+- **Per-knob arrays — NO.** `{"name": "rOut", "count": 49, ...}` with `rOut[i]`, giving
+  every element an independent knob, is not included. The profile form already varies all
+  49 foils; independent knobs would mean 49 x 3 = 147 dimensions against ~4.5 h evals,
+  when the widest space this project has run is 12D. Array indexing (`rOut[i]`) still
+  exists for referencing profiles, so adding this later is additive, not a redesign.
+- **`buildable` expressions — NO.** Rejecting infeasible points stays out. The profile
+  form handles the same problem better by projection: `clip` trims an out-of-range value
+  instead of discarding the eval, matching `ProdTargetMode._expand`. Revisit only if a
+  new line has a constraint that clipping cannot express.
