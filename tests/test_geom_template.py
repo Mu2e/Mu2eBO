@@ -98,5 +98,106 @@ class TestProfile(unittest.TestCase):
             lagrange_profile((1.0, 2.0), 5, None)
 
 
+from core.geom_template import GeomTemplate
+
+KNOBS = ("a", "b")
+
+
+def _tpl(lines, consts=None, derived=None, profiles=None):
+    d = {"base": "Offline/base.txt", "lines": lines}
+    if consts:
+        d["consts"] = consts
+    if derived:
+        d["derived"] = derived
+    if profiles:
+        d["profiles"] = profiles
+    return GeomTemplate.from_dict(d, KNOBS, "t.json")
+
+
+class TestRender(unittest.TestCase):
+    def test_base_include_is_first_line(self):
+        out = _tpl([]).render([1.0, 2.0])
+        self.assertTrue(
+            out.startswith('#include "Offline/base.txt"\n'), repr(out[:60]))
+
+    def test_fixed_values_by_type(self):
+        out = _tpl([
+            {"key": "k.b", "type": "bool", "value": False},
+            {"key": "k.i", "type": "int", "value": 3825},
+            {"key": "k.d", "type": "double", "value": 120.0},
+            {"key": "k.s", "type": "string", "value": "COL5Poly"},
+        ]).render([1.0, 2.0])
+        self.assertIn("bool k.b = false;", out)
+        self.assertIn("int k.i = 3825;", out)
+        self.assertIn("double k.d = 120.0;", out)
+        self.assertIn('string k.s = "COL5Poly";', out)
+
+    def test_raw_emits_exact_literal(self):
+        """JSON floats lose 1.0e6; raw preserves the characters."""
+        out = _tpl([
+            {"key": "k.hole", "type": "double", "raw": "1.0e6"},
+        ]).render([1.0, 2.0])
+        self.assertIn("double k.hole = 1.0e6;", out)
+        self.assertNotIn("1000000.0", out)
+
+    def test_scalar_expression(self):
+        out = _tpl([
+            {"key": "k.x", "type": "double", "fmt": "{:.4f}", "expr": "a * b"},
+        ]).render([3.0, 4.0])
+        self.assertIn("double k.x = 12.0000;", out)
+
+    def test_segments_concatenate(self):
+        out = _tpl(
+            [{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+              "segments": [{"count": 2, "expr": "a"},
+                           {"count": 3, "expr": "base"},
+                           {"count": 1, "expr": "b"}]}],
+            consts={"base": 9.0},
+        ).render([1.0, 2.0])
+        self.assertIn(
+            "vector<double> k.v = { 1.0, 1.0, 9.0, 9.0, 9.0, 2.0 };", out)
+
+    def test_count_accepts_const_name(self):
+        out = _tpl(
+            [{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+              "segments": [{"count": "n", "expr": "a"}]}],
+            consts={"n": 3},
+        ).render([5.0, 0.0])
+        self.assertIn("vector<double> k.v = { 5.0, 5.0, 5.0 };", out)
+
+    def test_per_index_exposes_i_and_n(self):
+        out = _tpl(
+            [{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+              "per_index": {"count": 3, "expr": "a + i"}}],
+        ).render([10.0, 0.0])
+        self.assertIn("vector<double> k.v = { 10.0, 11.0, 12.0 };", out)
+
+    def test_derived_values_usable_in_expressions(self):
+        out = _tpl(
+            [{"key": "k.x", "type": "double", "fmt": "{:.2f}", "expr": "prod"}],
+            derived={"prod": "a * b"},
+        ).render([3.0, 4.0])
+        self.assertIn("double k.x = 12.00;", out)
+
+    def test_profiles_referenced_by_index(self):
+        out = _tpl(
+            [{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+              "per_index": {"count": 3, "expr": "p[i]"}}],
+            profiles={"p": {"count": 3, "control": ["a", "b", "a"],
+                            "clip": [0.0, 100.0]}},
+        ).render([10.0, 20.0])
+        self.assertIn("vector<double> k.v = { 10.0, 20.0, 10.0 };", out)
+
+    def test_comments_interpolate_knobs(self):
+        out = _tpl([{"comment": "up rOut={a:.2f} n={n}"}],
+                   consts={"n": 6}).render([1.5, 0.0])
+        self.assertIn("// up rOut=1.50 n=6", out)
+
+    def test_unknown_name_rejected_at_from_dict(self):
+        with self.assertRaises(ExprError):
+            _tpl([{"key": "k.x", "type": "double", "fmt": "{:.1f}",
+                   "expr": "nope"}])
+
+
 if __name__ == "__main__":
     unittest.main()
