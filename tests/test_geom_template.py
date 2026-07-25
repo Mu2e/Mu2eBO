@@ -198,6 +198,62 @@ class TestRender(unittest.TestCase):
             _tpl([{"key": "k.x", "type": "double", "fmt": "{:.1f}",
                    "expr": "nope"}])
 
+    def test_comment_with_undefined_name_rejected_at_from_dict(self):
+        """Bad comment name caught at from_dict, not at render (Critical finding #1)."""
+        with self.assertRaises(ExprError) as cm:
+            _tpl([{"comment": "value is {undefined_knob}"}])
+        msg = str(cm.exception)
+        self.assertIn("undefined_knob", msg)
+        self.assertIn("t.json", msg)  # file locator
+
+    def test_namespace_collision_knob_vs_const(self):
+        """Const name colliding with knob name is rejected at from_dict (Important finding #2)."""
+        with self.assertRaises(ValueError) as cm:
+            _tpl([], consts={"a": 5.0})  # knobs are ("a", "b")
+        msg = str(cm.exception)
+        self.assertIn("a", msg)
+        self.assertIn("knobs", msg)
+        self.assertIn("consts", msg)
+
+    def test_namespace_collision_knob_vs_derived(self):
+        """Derived name colliding with knob name is rejected at from_dict."""
+        with self.assertRaises(ValueError) as cm:
+            _tpl([], derived={"a": "b * 2"})  # knobs are ("a", "b")
+        msg = str(cm.exception)
+        self.assertIn("a", msg)
+
+    def test_namespace_collision_knob_vs_profile(self):
+        """Profile name colliding with knob name is rejected at from_dict."""
+        with self.assertRaises(ValueError) as cm:
+            _tpl([], profiles={"a": {"count": 3, "control": ["b", "b", "b"],
+                                     "clip": [0.0, 100.0]}})  # knobs are ("a", "b")
+        msg = str(cm.exception)
+        self.assertIn("a", msg)
+
+    def test_segment_value_rejects_bool(self):
+        """Segment value=true is rejected, not silently converted to 1.0 (Important finding #3)."""
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+                   "segments": [{"count": 1, "value": True}]}])
+        msg = str(cm.exception)
+        self.assertIn("segments[0]", msg)
+        self.assertIn("bool", msg)
+
+    def test_segment_value_rejects_non_numeric(self):
+        """Segment value with invalid type is rejected with context."""
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+                   "segments": [{"count": 1, "value": "not_a_number"}]}])
+        msg = str(cm.exception)
+        self.assertIn("segments[0]", msg)
+
+    def test_segment_value_numeric_still_works(self):
+        """Segment value with a valid number still renders correctly (coverage fix)."""
+        out = _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+                     "segments": [{"count": 2, "value": 3.14}, {"count": 1, "value": 2}]}]
+        ).render([1.0, 2.0])
+        self.assertIn("vector<double> k.v = { 3.1, 3.1, 2.0 };", out)
+
 
 if __name__ == "__main__":
     unittest.main()

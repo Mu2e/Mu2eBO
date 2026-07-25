@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import math
+import string
 from typing import Any, Dict, Iterable, List, Set
 
 _ALLOWED_FUNCS = {"min": min, "max": max, "abs": abs, "sqrt": math.sqrt}
@@ -115,6 +116,32 @@ _VECTOR_TYPES = ("vector<double>", "vector<string>")
 _VALID_TYPES = _SCALAR_TYPES + _VECTOR_TYPES
 
 
+def _validate_comment_names(text: str, available_names: Set[str], where: str) -> None:
+    """Extract and validate placeholder names in a format string.
+
+    Raises ExprError if any placeholder name is unknown or if the format string
+    is malformed.
+    """
+    try:
+        formatter = string.Formatter()
+        field_names = set()
+        for _, field_name, _, _ in formatter.parse(text):
+            if field_name is not None:  # None means literal text with no placeholder
+                # field_name can be like "a" or "a.x[0]" — we only care about the root
+                root_name = field_name.split('.')[0].split('[')[0]
+                if root_name:  # empty after split means something like ".x"
+                    field_names.add(root_name)
+
+        for name in field_names:
+            if name not in available_names:
+                raise ExprError(
+                    f"{where}: unknown name {name!r} in comment placeholder; "
+                    f"known names are {sorted(available_names)}")
+    except ValueError as exc:
+        # Malformed format string (e.g., unmatched brace)
+        raise ExprError(f"{where}: malformed comment format string: {exc}") from None
+
+
 def _literal(type_: str, value: Any, where: str) -> str:
     """Render a JSON value as simpleConfig literal text."""
     if type_ == "bool":
@@ -162,17 +189,44 @@ class GeomTemplate:
             if isinstance(v, bool) or not isinstance(v, (int, float)):
                 raise ValueError(f"{where}: const {k!r} must be a number, got {v!r}")
 
+        # Check for namespace collisions: each name may appear in only one category
+        # (knobs, consts, derived, or profiles).
+        knob_set = set(knob_names)
+        const_set = set(consts)
+        collision = knob_set & const_set
+        if collision:
+            raise ValueError(
+                f"{where}: name(s) {sorted(collision)} defined in both knobs and consts")
+
         # derived may reference knobs and consts, NOT other derived values --
         # acyclic by construction, so there is no ordering rule to get wrong.
-        base_names = set(knob_names) | set(consts)
+        base_names = knob_set | const_set
         derived = {}
+        derived_set = set()
         for name, src in (d.get("derived") or {}).items():
+            if name in knob_set:
+                raise ValueError(
+                    f"{where}: name {name!r} defined in both knobs and derived")
+            if name in const_set:
+                raise ValueError(
+                    f"{where}: name {name!r} defined in both consts and derived")
             derived[name] = compile_expr(src, base_names, f"{where}[derived.{name}]")
+            derived_set.add(name)
 
-        scalar_names = base_names | set(derived)
+        scalar_names = base_names | derived_set
 
         profiles = {}
+        profiles_set = set()
         for name, p in (d.get("profiles") or {}).items():
+            if name in knob_set:
+                raise ValueError(
+                    f"{where}: name {name!r} defined in both knobs and profiles")
+            if name in const_set:
+                raise ValueError(
+                    f"{where}: name {name!r} defined in both consts and profiles")
+            if name in derived_set:
+                raise ValueError(
+                    f"{where}: name {name!r} defined in both derived and profiles")
             count = cls._resolve_count(p.get("count"), consts, f"{where}[profiles.{name}]")
             control = p.get("control")
             if not control or len(control) != 3:
@@ -186,13 +240,17 @@ class GeomTemplate:
             compiled = [compile_expr(c, scalar_names, f"{where}[profiles.{name}]")
                         for c in control]
             profiles[name] = (count, compiled, (float(clip[0]), float(clip[1])))
+            profiles_set.add(name)
 
-        elementwise_names = scalar_names | set(profiles) | {"i", "n"}
+        elementwise_names = scalar_names | profiles_set | {"i", "n"}
+        # For comment validation, the available names include everything except i/n
+        # (which are only valid in per_index, not in comments)
+        comment_names = knob_set | const_set | derived_set | profiles_set
 
         lines = []
         for idx, raw_line in enumerate(d.get("lines") or []):
             lines.append(cls._prepare_line(
-                raw_line, consts, scalar_names, elementwise_names,
+                raw_line, consts, scalar_names, elementwise_names, comment_names,
                 f"{where}[lines[{idx}]]"))
         return cls(base, knob_names, consts, derived, profiles, lines)
 
@@ -211,9 +269,11 @@ class GeomTemplate:
         return count
 
     @classmethod
-    def _prepare_line(cls, ln, consts, scalar_names, elementwise_names, where):
+    def _prepare_line(cls, ln, consts, scalar_names, elementwise_names, comment_names, where):
         if "comment" in ln:
-            return {"kind": "comment", "text": ln["comment"]}
+            comment_text = ln["comment"]
+            _validate_comment_names(comment_text, comment_names, where)
+            return {"kind": "comment", "text": comment_text}
 
         key, type_ = ln.get("key"), ln.get("type")
         if not key:
@@ -248,7 +308,14 @@ class GeomTemplate:
                 if "expr" in seg:
                     compiled = compile_expr(seg["expr"], scalar_names, sw)
                 elif "value" in seg:
-                    compiled = compile_expr(repr(float(seg["value"])), set(), sw)
+                    # Validate the value with the same discipline as _literal
+                    val = seg["value"]
+                    if isinstance(val, bool):
+                        raise ValueError(f"{sw}: segment value must be a number, not a bool")
+                    if not isinstance(val, (int, float)):
+                        raise ValueError(
+                            f"{sw}: segment value must be a number, got {val!r}")
+                    compiled = compile_expr(repr(float(val)), set(), sw)
                 else:
                     raise ValueError(f"{sw}: segment needs 'expr' or 'value'")
                 segs.append((count, compiled))
