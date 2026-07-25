@@ -78,3 +78,33 @@ def eval_expr(compiled: ast.Expression, env: Dict[str, Any]) -> float:
     """Evaluate a compiled formula against `env`. Builtins are stripped."""
     return eval(  # noqa: S307 — AST was whitelisted by compile_expr
         compile(compiled, "<geom>", "eval"), {"__builtins__": {}, **_ALLOWED_FUNCS}, env)
+
+
+def lagrange_profile(control: Iterable[float], count: int,
+                     clip: tuple | None) -> List[float]:
+    """Lagrange quadratic through (c0, c1, c2) at u = 0, 0.5, 1, sampled at
+    `count` uniform points in [0, 1].
+
+    Mirrors ProdTargetMode._profile (core/bo_driver.py:913-920) in pure Python
+    because this module must stay stdlib-only. Control points are in physical
+    units, so bounds mean what they say -- unlike raw polynomial coefficients,
+    where c1 = -2 would drive a radius negative.
+
+    `clip` is (lo, hi) and is required by the schema for exactly one reason:
+    a quadratic through in-range control points can still overshoot between
+    them -- (50, 250, 250) reaches ~275 near i=36. Clipping projects the value
+    instead of discarding the eval (same choice as ProdTargetMode._expand).
+    """
+    control = list(control)
+    if len(control) != 3:
+        raise ValueError(
+            f"profile needs exactly 3 control points, got {len(control)}")
+    c0, c1, c2 = control
+    out: List[float] = []
+    for k in range(count):
+        u = 0.0 if count == 1 else k / (count - 1)
+        v = c0 * (1 - 2 * u) * (1 - u) + c1 * 4 * u * (1 - u) + c2 * u * (2 * u - 1)
+        if clip is not None:
+            v = min(max(v, clip[0]), clip[1])
+        out.append(v)
+    return out

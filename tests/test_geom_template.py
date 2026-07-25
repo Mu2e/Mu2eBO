@@ -58,5 +58,45 @@ class TestExpr(unittest.TestCase):
             compile_expr("a ** 2", {"a"}, "w")
 
 
+from core.geom_template import lagrange_profile
+
+
+class TestProfile(unittest.TestCase):
+    def test_hits_control_points_at_ends_and_middle(self):
+        vals = lagrange_profile((10.0, 20.0, 30.0), 5, None)
+        self.assertEqual(len(vals), 5)
+        self.assertAlmostEqual(vals[0], 10.0)
+        self.assertAlmostEqual(vals[2], 20.0)
+        self.assertAlmostEqual(vals[-1], 30.0)
+
+    def test_matches_prodtarget_profile(self):
+        """Byte-for-byte agreement with the numpy original it replaces."""
+        from core.bo_driver import ProdTargetMode
+        for ctrl in [(2.0, 3.0, 4.5), (4.5, 2.0, 4.5), (3.0, 3.0, 3.0)]:
+            for n in (5, 35, 49):
+                want = list(ProdTargetMode._profile(ctrl, n))
+                got = lagrange_profile(ctrl, n, None)
+                for a, b in zip(want, got):
+                    self.assertAlmostEqual(a, b, places=12,
+                                           msg=f"ctrl={ctrl} n={n}")
+
+    def test_overshoot_is_real_without_clip(self):
+        """(50,250,250) exceeds 250 -- this is why clip is mandatory."""
+        vals = lagrange_profile((50.0, 250.0, 250.0), 49, None)
+        self.assertGreater(max(vals), 250.0)
+
+    def test_clip_bounds_the_overshoot(self):
+        vals = lagrange_profile((50.0, 250.0, 250.0), 49, (50.0, 250.0))
+        self.assertLessEqual(max(vals), 250.0)
+        self.assertGreaterEqual(min(vals), 50.0)
+
+    def test_single_element(self):
+        self.assertEqual(lagrange_profile((7.0, 8.0, 9.0), 1, None), [7.0])
+
+    def test_requires_three_control_points(self):
+        with self.assertRaises(ValueError):
+            lagrange_profile((1.0, 2.0), 5, None)
+
+
 if __name__ == "__main__":
     unittest.main()
