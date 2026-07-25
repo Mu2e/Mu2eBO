@@ -53,6 +53,10 @@ class TestExpr(unittest.TestCase):
         with self.assertRaises(ExprError):
             compile_expr("a +", {"a"}, "w")
 
+    def test_exponentiation_rejected(self):
+        with self.assertRaises(ExprError):
+            compile_expr("a ** 2", {"a"}, "w")
+
 
 if __name__ == "__main__":
     unittest.main()

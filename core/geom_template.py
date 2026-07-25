@@ -11,7 +11,10 @@ import math
 from typing import Any, Dict, Iterable, List, Set
 
 _ALLOWED_FUNCS = {"min": min, "max": max, "abs": abs, "sqrt": math.sqrt}
-_ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod)
+# ast.Pow is excluded: large exponents hang Python (e.g. 99999999 ** 99999999),
+# and negative base + fractional exp returns complex (e.g. (-2.0)**0.5 → complex).
+# Profiles write i*i instead; roots use sqrt(). No formula needs **.
+_ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod)
 _ALLOWED_UNARYOPS = (ast.UAdd, ast.USub)
 
 
