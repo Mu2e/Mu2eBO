@@ -228,6 +228,140 @@ class TestRejections(unittest.TestCase):
             d["knobs"][0]["max"] = 250.0
         self._expect_error(mutate, "min", "max")
 
+    # -- F5: stage_tuning keys are validated against run.stages, exactly as
+    # its two siblings (_validate_jobs_per_stage/_validate_presubmit_after)
+    # already do. Values were strictly checked; the STAGE NAME was not. ------
+    def test_stage_tuning_typo_stage_rejected(self):
+        """A pure typo loads fine today and raises only at core/pipeline.py
+        module import -- i.e. inside every child at first submit, AFTER
+        propose and preflight have already passed (F5)."""
+        def mutate(d):
+            d["run"]["stage_tuning"]["mubeem"] = {"memory_mb": 2000}
+        self._expect_error(mutate, "mubeem")
+
+    def test_stage_tuning_stage_outside_this_chain_rejected(self):
+        """'concat' is a real core/pipeline.py STAGES entry but is NOT in
+        foilsflash's chain, so the tuning loads clean and is SILENTLY INERT
+        forever -- the intended events_per_job never applies, no error (F5)."""
+        def mutate(d):
+            d["run"]["stage_tuning"]["concat"] = {"events_per_job": 424242}
+        self._expect_error(mutate, "concat")
+
+    # -- F6: jobs_per_stage VALUES are validated (keys already were) ---------
+    def test_jobs_per_stage_bool_value_rejected(self):
+        """Verified: {"mubeam": true} loaded OK. The value flows to
+        pipeline.STAGES[...]['njobs'] and then to str(cfg['njobs']) in the
+        jobsub command -- loud, but only after the earlier stages' hours have
+        already run. isinstance(True, int) is True, so bool needs its own
+        rejection (F6)."""
+        def mutate(d):
+            d["run"]["jobs_per_stage"]["mubeam"] = True
+        self._expect_error(mutate, "mubeam", "positive int")
+
+    def test_jobs_per_stage_float_value_rejected(self):
+        def mutate(d):
+            d["run"]["jobs_per_stage"]["mubeam"] = 15.5
+        self._expect_error(mutate, "15.5")
+
+    def test_jobs_per_stage_string_value_rejected(self):
+        def mutate(d):
+            d["run"]["jobs_per_stage"]["mubeam"] = "20"
+        self._expect_error(mutate, "'20'")
+
+    def test_jobs_per_stage_zero_rejected(self):
+        def mutate(d):
+            d["run"]["jobs_per_stage"]["mubeam"] = 0
+        self._expect_error(mutate, "mubeam", "positive int")
+
+    # -- F11: a knob may not be named after a leaderboard column ------------
+    def test_knob_named_after_the_sob_column_rejected(self):
+        """Verified: a knob named 'sob' makes format_row write a DUPLICATE
+        'sob' column; csv.DictReader keeps the last, so load_history_row
+        reads the METRIC into that knob coordinate and the GP trains on
+        garbage (F11)."""
+        def mutate(d):
+            d["knobs"][0]["name"] = "sob"
+        self._expect_error(mutate, "sob", "reserved leaderboard column")
+
+    def test_knob_named_after_the_second_objective_column_rejected(self):
+        def mutate(d):
+            d["knobs"][0]["name"] = "flash_edep"
+        self._expect_error(mutate, "flash_edep", "reserved leaderboard column")
+
+    def test_knob_named_config_rejected(self):
+        def mutate(d):
+            d["knobs"][0]["name"] = "config"
+        self._expect_error(mutate, "config", "reserved leaderboard column")
+
+    def test_knob_named_alpha_rejected(self):
+        def mutate(d):
+            d["knobs"][0]["name"] = "alpha"
+        self._expect_error(mutate, "alpha", "reserved leaderboard column")
+
+    def test_knob_named_obj_rejected(self):
+        def mutate(d):
+            d["knobs"][0]["name"] = "obj"
+        self._expect_error(mutate, "obj", "reserved leaderboard column")
+
+    # -- F2: `i`/`n` are reserved (the per_index loop scope) -----------------
+    def test_knob_named_n_rejected_with_the_knob_locator(self):
+        def mutate(d):
+            d["knobs"][0]["name"] = "n"
+        self._expect_error(mutate, "knobs[0]", "reserved")
+
+    # -- F13: pot_only ships prodtarget's tarball, hardcoded ----------------
+    def test_pot_only_chain_with_a_foreign_tarball_rejected(self):
+        """core/pipeline.py sets STAGES['pot_only']['code_tarball'] to
+        prodtarget's tarball and the per-stage value WINS over the
+        SPECS-driven one. A JSON mode declaring run.stages: ['pot_only']
+        would silently ship prodtarget's code to the grid while preflight
+        validated its OWN musing -- the preflight-passes/grid-diverges
+        mechanism of the foilsflash-tarball and foilsg-tarball incidents
+        (F13)."""
+        def mutate(d):
+            d["run"]["stages"] = ["pot_only"]
+        self._expect_error(mutate, "pot_only", "code_tarball")
+
+
+class TestDuplicateJsonKeys(unittest.TestCase):
+    """F3(a): plain json.loads accepts duplicate object keys and keeps the
+    LAST silently. Editing the first of two duplicated blocks then has no
+    effect and no error -- the same silent-wrong-geometry class that tainted
+    62 foilsg rows."""
+
+    def _load_text(self, text: str):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "demo.json"
+            p.write_text(text)
+            return load_mode_file(p)
+
+    def test_plain_json_loads_would_keep_the_last(self):
+        """Premise check: this is what the loader used to do."""
+        self.assertEqual(
+            json.loads('{"consts": {"n_up": 6}, "consts": {"n_up": 7}}'),
+            {"consts": {"n_up": 7}})
+
+    def test_duplicate_top_level_key_rejected(self):
+        doc = _valid_doc()
+        text = json.dumps(doc)
+        # splice a second "name" in at the top level
+        dup = "{" + json.dumps("name") + ": \"other\", " + text[1:]
+        with self.assertRaises(ValueError) as cm:
+            self._load_text(dup)
+        msg = str(cm.exception)
+        self.assertIn("name", msg)
+        self.assertIn("duplicate", msg.lower())
+
+    def test_duplicate_nested_key_rejected(self):
+        doc = _valid_doc()
+        text = json.dumps(doc)
+        dup = text.replace('"consts": {', '"consts": {"n_up": 99}, "consts": {', 1)
+        with self.assertRaises(ValueError) as cm:
+            self._load_text(dup)
+        msg = str(cm.exception)
+        self.assertIn("consts", msg)
+        self.assertIn("duplicate", msg.lower())
+
 
 class TestCollision(unittest.TestCase):
     def test_name_collision_with_python_mode_is_hard_error(self):
@@ -240,6 +374,93 @@ class TestCollision(unittest.TestCase):
 
     def test_missing_directory_yields_no_modes(self):
         self.assertEqual(load_mode_dir(Path("/nonexistent/modes"), {}), {})
+
+
+class TestLeaderboardUniqueness(unittest.TestCase):
+    """F4: nothing stopped two modes from writing the SAME leaderboard.
+
+    The copy-paste failure is concrete: clone a fixture into mode_specs/,
+    change the name and a knob, miss the leaderboard line (it looks
+    plausible) -- and the new line appends into the LIVE foils TSV under an
+    identical column schema, which FoilsMode.load_history() then parses as
+    foils evals. Silent cross-mode GP contamination, in both directions.
+    """
+
+    def _spec_doc(self, name: str, leaderboard: str) -> dict:
+        doc = json.loads(FIXTURE.read_text())
+        doc["name"] = name
+        doc["leaderboard"]["file"] = leaderboard
+        return doc
+
+    def test_two_json_modes_sharing_a_leaderboard_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _write(tmp, "lineone", self._spec_doc(
+                "lineone", "leaderboards/leaderboard_bo_shared.tsv"))
+            _write(tmp, "linetwo", self._spec_doc(
+                "linetwo", "leaderboards/leaderboard_bo_shared.tsv"))
+            with self.assertRaises(ValueError) as cm:
+                load_mode_dir(tmp, {})
+        msg = str(cm.exception)
+        self.assertIn("leaderboard_bo_shared.tsv", msg)
+        self.assertIn("lineone", msg)
+
+    def test_json_mode_pointing_at_a_live_python_leaderboard_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _write(tmp, "myline", self._spec_doc(
+                "myline", "leaderboards/leaderboard_bo_foils_v2.tsv"))
+            with self.assertRaises(ValueError) as cm:
+                load_mode_dir(tmp, modes.SPECS)
+        msg = str(cm.exception)
+        self.assertIn("leaderboard_bo_foils_v2.tsv", msg)
+        self.assertIn("foils", msg)
+
+    def test_dotted_path_does_not_defeat_the_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _write(tmp, "myline", self._spec_doc(
+                "myline", "./leaderboards/leaderboard_bo_foilsflash.tsv"))
+            with self.assertRaises(ValueError) as cm:
+                load_mode_dir(tmp, modes.SPECS)
+        self.assertIn("foilsflash", str(cm.exception))
+
+    def test_parent_traversal_in_leaderboard_path_rejected(self):
+        doc = self._spec_doc("myline", "../elsewhere/leaderboard.tsv")
+        with tempfile.TemporaryDirectory() as td:
+            p = _write(Path(td), "myline", doc)
+            with self.assertRaises(ValueError) as cm:
+                load_mode_file(p)
+        self.assertIn("..", str(cm.exception))
+
+    def test_distinct_leaderboards_load_fine(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _write(tmp, "lineone", self._spec_doc(
+                "lineone", "leaderboards/leaderboard_bo_lineone.tsv"))
+            _write(tmp, "linetwo", self._spec_doc(
+                "linetwo", "leaderboards/leaderboard_bo_linetwo.tsv"))
+            out = load_mode_dir(tmp, modes.SPECS)
+        self.assertEqual(sorted(out), ["lineone", "linetwo"])
+
+    def test_python_leaderboard_table_matches_the_driver_classes(self):
+        """The loader cannot import bo_driver (bo_driver -> modes ->
+        mode_json is already a cycle), so the six live leaderboard paths are
+        frozen in core/mode_json.py. This is the lockstep test that makes a
+        renamed Python leaderboard fail HERE instead of re-opening the hole."""
+        import bo_driver as bo
+        import mode_json
+        root = Path(__file__).resolve().parent.parent
+        # CLASS attribute, not the instance one: botorch_predict.main's
+        # --leaderboard override (exercised by tests/test_botorch_predict.py)
+        # assigns bo.MODES[...].leaderboard on the INSTANCE and never puts it
+        # back, so reading the instance here makes this test order-dependent.
+        live = {
+            str(type(bo.MODES[n]).leaderboard.relative_to(root)): n
+            for n in ("foils", "foilsf", "foilsflash", "foilsg",
+                      "prodtarget", "prodtarget6d")
+        }
+        self.assertEqual(dict(mode_json.PYTHON_MODE_LEADERBOARDS), live)
 
 
 class TestSingleModeSpecClass(unittest.TestCase):

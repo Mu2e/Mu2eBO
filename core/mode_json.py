@@ -20,9 +20,11 @@ from typing import Dict, Tuple
 # different sys.modules key -- reproducing the two-non-identical-classes bug
 # Task 4 fixed for this exact class (see core/modes.py's tail comment).
 if __package__:
-    from core.geom_template import GeomTemplate, _validate_fmt
+    from core.geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
+                                    _validate_fmt)
 else:
-    from geom_template import GeomTemplate, _validate_fmt
+    from geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
+                               _validate_fmt)
 
 _REQUIRED_TOP = ("name", "software", "run", "knobs", "leaderboard",
                  "preflight", "geom")
@@ -44,6 +46,78 @@ _ALLOWED_KNOB = ("name", "min", "max", "fmt")
 # STAGES field this schema doesn't cover) is a load error -- see I4/I5.
 _STAGE_TUNING_KEYS = ("events_per_job", "memory_mb", "quorum")
 
+# Leaderboard columns a knob may NOT be named after. A collision makes
+# BOMode.format_row emit the column twice; csv.DictReader keeps the LAST, so
+# load_history_row reads the METRIC into that knob's coordinate and the GP
+# trains on garbage -- silently. `config` is the writer-side leading column
+# (format_row hardcodes it); `alpha`/`obj` are normally in leaderboard.columns
+# already but are listed here so they are rejected even if a spec renames the
+# tail. The spec's own leaderboard.columns are added on top at load.
+_RESERVED_KNOB_COLUMNS = ("config", "alpha", "obj")
+
+# The leaderboards the six PYTHON modes own, repo-relative. Frozen here
+# because this module cannot import bo_driver (bo_driver -> modes ->
+# mode_json is already a cycle) and the paths are class attributes there.
+# tests/test_mode_json.py TestLeaderboardUniqueness pins this against the
+# live classes, so a renamed Python leaderboard fails there rather than
+# silently re-opening the shared-leaderboard hole.
+PYTHON_MODE_LEADERBOARDS = {
+    "leaderboards/leaderboard_bo_foils_v2.tsv":        "foils",
+    "leaderboards/leaderboard_bo_foils_v3.tsv":        "foilsf",
+    "leaderboards/leaderboard_bo_foilsflash.tsv":      "foilsflash",
+    "leaderboards/leaderboard_bo_foilsg.tsv":          "foilsg",
+    "leaderboards/leaderboard_bo_prodtarget_v0.tsv":   "prodtarget",
+    "leaderboards/leaderboard_bo_prodtarget6d_v0.tsv": "prodtarget6d",
+}
+
+# core/pipeline.py hardcodes STAGES["pot_only"]["code_tarball"] to
+# prodtarget's tarball (and dsconf_musing to MDC2025aq), and the per-stage
+# code_tarball WINS over the SPECS-driven MUSE_BASE_TARBALL. A JSON mode
+# whose chain includes pot_only therefore ships prodtarget's code to the
+# grid no matter what its own software.grid_tarball says, while preflight
+# validates its OWN musing -- exactly the preflight-passes/grid-diverges
+# mechanism of the foilsflash-tarball-mode-key-omission and
+# foilsg-grid-tarball-scalar-holeradius-fallback incidents.
+_POT_ONLY_STAGE = "pot_only"
+
+
+class _DuplicateJsonKey(ValueError):
+    """A JSON object carried the same key twice."""
+
+    def __init__(self, key):
+        super().__init__(key)
+        self.key = key
+
+
+def _reject_duplicate_json_keys(pairs):
+    """json.loads object_pairs_hook: plain json.loads accepts duplicate object
+    keys and silently keeps the LAST one, so editing the first of two
+    duplicated blocks has no effect and no error -- the same
+    silent-wrong-geometry class that tainted 62 foilsg rows."""
+    out = {}
+    for k, v in pairs:
+        if k in out:
+            raise _DuplicateJsonKey(k)
+        out[k] = v
+    return out
+
+
+def _normalize_leaderboard_rel(rel: str, where: str) -> str:
+    """Canonical form for comparing two leaderboard declarations.
+
+    Collapses './' and doubled slashes so 'leaderboards/x.tsv' and
+    './leaderboards/x.tsv' cannot name the same file past the uniqueness
+    check. '..' is rejected outright: it both escapes the repo and defeats
+    that comparison.
+    """
+    p = Path(rel)
+    if ".." in p.parts:
+        raise ValueError(
+            f"{where}[leaderboard]: 'file' must not contain '..' (got "
+            f"{rel!r}); it escapes the repo root and defeats the "
+            f"leaderboard-uniqueness check across modes")
+    return p.as_posix()
+
 
 def _need(d: dict, keys, where: str) -> None:
     missing = [k for k in keys if k not in d]
@@ -63,11 +137,22 @@ def _reject_unknown(d: dict, allowed, where: str) -> None:
             f"{sorted(allowed)}")
 
 
-def _validate_stage_tuning(run: dict, where: str) -> Dict[str, Dict[str, object]]:
+def _validate_stage_tuning(run: dict, declared_stages,
+                           where: str) -> Dict[str, Dict[str, object]]:
     """Validate + normalize run.stage_tuning (core/pipeline.py STAGES
     overrides applied on top of pipeline defaults -- see core/pipeline.py's
     _apply_stage_tuning). Defaults to {} when absent, never silently drops an
-    unknown tuning key."""
+    unknown tuning key.
+
+    Stage NAMES are checked against this mode's run.stages, exactly as
+    _validate_jobs_per_stage and _validate_presubmit_after already do. Without
+    that, two things escaped load time: a name that exists in pipeline.STAGES
+    but not in this mode's chain loaded fine and was SILENTLY INERT forever
+    (the intended tuning never applied, no error), and a pure typo
+    ('mubeem') loaded fine and raised only at core/pipeline.py module
+    import -- inside every child at first submit, after propose and preflight
+    had already passed.
+    """
     raw = run.get("stage_tuning")
     if raw is None:
         return {}
@@ -75,6 +160,7 @@ def _validate_stage_tuning(run: dict, where: str) -> Dict[str, Dict[str, object]
         raise ValueError(
             f"{where}[run.stage_tuning]: must be an object of "
             f"{{stage: {{tuning}}}}, got {raw!r}")
+    _reject_unknown(raw, declared_stages, f"{where}[run.stage_tuning]")
     out: Dict[str, Dict[str, object]] = {}
     for stage, tuning in raw.items():
         sw = f"{where}[run.stage_tuning.{stage}]"
@@ -118,6 +204,18 @@ def _validate_jobs_per_stage(run: dict, declared_stages, where: str) -> Dict[str
             f"{where}[run.jobs_per_stage]: must be an object of "
             f"{{stage: njobs}}, got {raw!r}")
     _reject_unknown(raw, declared_stages, f"{where}[run.jobs_per_stage]")
+    # Values were passed through raw: true / 15.5 / "20" all loaded. The value
+    # flows to graph/config.py STAGE_TARGETS.update -> pipeline.STAGES[...]
+    # ["njobs"] -> str(cfg["njobs"]) in the jobsub command, so a bad value on
+    # a LATER stage surfaces only after the earlier stages' hours have run.
+    # isinstance(True, int) is True, so bool needs its own rejection.
+    for stage, njobs in raw.items():
+        if isinstance(njobs, bool) or not isinstance(njobs, int) or njobs <= 0:
+            raise ValueError(
+                f"{where}[run.jobs_per_stage.{stage}]: must be a positive int "
+                f"(grid job count), got {njobs!r}; this value reaches the "
+                f"jobsub command line unchanged and would fail only after the "
+                f"earlier stages have already run")
     return dict(raw)
 
 
@@ -162,9 +260,15 @@ def load_mode_file(path: Path) -> "object":
 
     where = str(path)
     try:
-        doc = json.loads(path.read_text())
+        doc = json.loads(path.read_text(),
+                         object_pairs_hook=_reject_duplicate_json_keys)
     except json.JSONDecodeError as exc:
         raise ValueError(f"{where}: invalid JSON: {exc}") from None
+    except _DuplicateJsonKey as exc:
+        raise ValueError(
+            f"{where}: duplicate JSON key {exc.key!r}. json.loads keeps the "
+            f"LAST of two identical keys with no error, so editing the first "
+            f"one would silently have no effect") from None
 
     _need(doc, _REQUIRED_TOP, where)
     _reject_unknown(doc, _ALLOWED_TOP, where)
@@ -187,7 +291,30 @@ def load_mode_file(path: Path) -> "object":
             f"got {stages!r} (a bare string here silently becomes a tuple "
             f"of its characters)")
 
-    stage_tuning = _validate_stage_tuning(run, where)
+    if _POT_ONLY_STAGE in stages:
+        # Lazy import for the same reason as ModeSpec above (see the header
+        # comment): resolve the ALREADY-loaded modes module, bare or
+        # `core.`-qualified. _PRODTARGET_TARBALL is the single source for
+        # this path -- tests/test_modes.py pins it == the value
+        # core/pipeline.py stamps into STAGES["pot_only"]["code_tarball"].
+        if __package__:
+            from core.modes import _PRODTARGET_TARBALL
+        else:
+            from modes import _PRODTARGET_TARBALL
+        if software.get("grid_tarball") != _PRODTARGET_TARBALL:
+            raise ValueError(
+                f"{where}[run.stages]: stage {_POT_ONLY_STAGE!r} hardcodes "
+                f"code_tarball={_PRODTARGET_TARBALL} (and "
+                f"dsconf_musing='MDC2025aq') in core/pipeline.py, and the "
+                f"per-stage code_tarball WINS over this mode's "
+                f"software.grid_tarball ({software.get('grid_tarball')!r}). "
+                f"The grid would run prodtarget's code while preflight "
+                f"validated this mode's own musing -- the silent "
+                f"preflight-passes/grid-diverges split behind the "
+                f"foilsflash-tarball and foilsg-tarball incidents. Declare "
+                f"the same grid_tarball, or use a different stage.")
+
+    stage_tuning = _validate_stage_tuning(run, stages, where)
     jobs_per_stage = _validate_jobs_per_stage(run, stages, where)
     presubmit_after = _validate_presubmit_after(run, stages, where)
 
@@ -204,6 +331,17 @@ def load_mode_file(path: Path) -> "object":
         # same point and the GP trains on garbage -- silently. Same guard
         # geom_template.py already applies to computed geometry lines.
         _validate_fmt(k["fmt"], kw)
+        # `i`/`n` are injected by the geometry renderer's per_index loop and
+        # would silently shadow the knob there (see geom_template's
+        # _RESERVED_ELEMENTWISE_NAMES). Checked here too so the error names
+        # the knob index rather than the whole geom block.
+        if k["name"] in _RESERVED_ELEMENTWISE_NAMES:
+            raise ValueError(
+                f"{kw}: knob name {k['name']!r} is reserved -- 'i' (element "
+                f"index) and 'n' (element count) are injected by the geometry "
+                f"renderer's per_index loop and would SILENTLY shadow the "
+                f"knob there, rendering the loop variable instead of the "
+                f"proposed value")
         lo, hi = float(k["min"]), float(k["max"])
         if not lo < hi:
             raise ValueError(
@@ -241,6 +379,22 @@ def load_mode_file(path: Path) -> "object":
             f"swallows silently -- yielding ZERO history rows and an "
             f"eternal BO cold-start instead of a visible error.")
 
+    # A knob column and a metric column share one TSV header row
+    # (BOMode.format_row writes `config` + KNOB_NAMES + metric_cols). A knob
+    # named after any of them emits that column TWICE; csv.DictReader keeps
+    # the LAST, so load_history_row reads the METRIC back into that knob's
+    # coordinate and the GP trains on garbage -- silently.
+    reserved_cols = set(columns) | set(_RESERVED_KNOB_COLUMNS)
+    for i, nm in enumerate(names):
+        if nm in reserved_cols:
+            raise ValueError(
+                f"{where}[knobs[{i}]]: knob name {nm!r} is a reserved "
+                f"leaderboard column (leaderboard.columns + "
+                f"{list(_RESERVED_KNOB_COLUMNS)}). The header would carry it "
+                f"twice and csv.DictReader keeps the last, so "
+                f"BOMode.load_history_row would read the METRIC into this "
+                f"knob's coordinate on every past row")
+
     noise = leaderboard["obs_noise"]
     if noise is not None:
         if len(noise) != 2 or not all(v > 0 for v in noise):
@@ -277,6 +431,7 @@ def load_mode_file(path: Path) -> "object":
             f"`ROOT / spec.leaderboard_rel`; pathlib's '/' operator silently "
             f"DISCARDS the left side when the right side is absolute, so an "
             f"absolute 'file' escapes the repo root instead of erroring.")
+    lb_file = _normalize_leaderboard_rel(lb_file, where)
 
     geom = GeomTemplate.from_dict(doc["geom"], names, f"{where}[geom]")
 
@@ -311,10 +466,17 @@ def load_mode_file(path: Path) -> "object":
 def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, object]:
     """Load every mode_specs/*.json. A name already present in `existing` is a
     hard error: silently shadowing a Python mode would be a new way to build
-    the wrong geometry."""
+    the wrong geometry. So is a leaderboard file already claimed by another
+    mode (see below).
+
+    Both checks live HERE and not in load_mode_file, so test fixtures -- which
+    deliberately declare the LIVE names and leaderboards to prove parity --
+    can still be loaded from any path.
+    """
     if not directory.is_dir():
         return {}
     out: Dict[str, object] = {}
+    seen_leaderboards: Dict[str, Path] = {}
     for path in sorted(directory.glob("*.json")):
         spec = load_mode_file(path)
         # Registered modes must be findable by file name. Checked HERE, not in
@@ -327,5 +489,26 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
             raise ValueError(
                 f"{path}: mode name {spec.name!r} collides with an existing "
                 f"mode; JSON modes never override Python modes")
+        # Two modes writing one leaderboard is silent cross-mode GP
+        # contamination in BOTH directions: the schemas match column-for-
+        # column, so each mode's load_history() happily parses the other's
+        # rows as its own evals. The realistic path is a copy-pasted spec
+        # whose leaderboard line was never edited -- it looks plausible.
+        lb = spec.leaderboard_rel
+        owner = PYTHON_MODE_LEADERBOARDS.get(lb)
+        if owner is not None:
+            raise ValueError(
+                f"{path}: leaderboard {lb!r} belongs to the Python mode "
+                f"{owner!r}. Two modes sharing one leaderboard silently "
+                f"cross-contaminate their GP history (identical column "
+                f"schema, so each parses the other's rows as its own evals). "
+                f"Give {spec.name!r} its own leaderboards/*.tsv.")
+        if lb in seen_leaderboards:
+            raise ValueError(
+                f"{path}: leaderboard {lb!r} is already declared by "
+                f"{seen_leaderboards[lb]}. Two modes sharing one leaderboard "
+                f"silently cross-contaminate their GP history; give each mode "
+                f"its own leaderboards/*.tsv.")
+        seen_leaderboards[lb] = path
         out[spec.name] = spec
     return out
