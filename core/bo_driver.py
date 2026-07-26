@@ -618,8 +618,11 @@ class FoilsFlashMode(FoilsFracMode):
     # geometry-sensitive lever (harvest writes flash_edep_per_pot). The old
     # per-event MEAN (flash_edep_per_event) divides out the flash-event count and
     # is BLIND to the geometry — it produced the spurious "foils are not a flash
-    # lever" null (see wiki/projects/bo-foilsflash.md). Fall back to per_event then
-    # calo_per_pot so --dry-run/mock (which only write calo_per_pot) still work.
+    # lever" null (see wiki/projects/bo-foilsflash.md). Falls back to
+    # flash_edep_per_event when flash_edep_per_pot is absent -- there is NO
+    # further fallback to calo_per_pot (that would silently write a different
+    # physical quantity into this column). A summary with neither key present,
+    # or a zero/negative resolved value, hits the guard below and raises.
     def extract_metrics(self, summary: dict) -> tuple[float, float]:
         sob = summary["s_over_sqrt_b"]
         edep = summary.get("flash_edep_per_pot")
@@ -1184,15 +1187,30 @@ class JsonMode(BOMode):
     def extract_metrics(self, summary: dict) -> tuple[float, float]:
         spec = _modes.SPECS[self.name]
         out = []
+        used_keys = []
         for col in spec.metric_cols[:2]:
             for key in spec.metrics[col]:
                 if summary.get(key) is not None:
                     out.append(float(summary[key]))
+                    used_keys.append(key)
                     break
             else:
                 raise KeyError(
                     f"{self.name}: summary.json has none of "
                     f"{list(spec.metrics[col])} for column {col!r}")
+        # The SECOND objective must never silently collapse to zero/negative:
+        # a fake zero row at good sob dominates the entire Pareto front at the
+        # next GP refit (this is the same failure class FoilsFlashMode.
+        # extract_metrics guards against -- 7 poison rows landed this way
+        # 2026-07-10). sob (index 0) is deliberately left unguarded: any real
+        # value is a legitimate BO objective there.
+        if out[1] is None or out[1] <= 0:
+            raise SystemExit(
+                f"[{self.name}] second-objective column "
+                f"{spec.metric_cols[1]!r} resolved to {out[1]!r} from "
+                f"summary.json key {used_keys[1]!r} -- refusing to append a "
+                f"row; a zero/negative second metric would dominate the "
+                f"Pareto front at the next GP refit")
         return out[0], out[1]
 
 

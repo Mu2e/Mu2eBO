@@ -171,6 +171,63 @@ class TestRejections(unittest.TestCase):
             lambda d: d["leaderboard"].update({"file": "/tmp/escaped.tsv"}),
             "/tmp/escaped.tsv", "repo-relative")
 
+    # -- R1: knob fmt is validated the same way geom lines are --------------
+    def test_knob_fmt_without_replacement_field_rejected(self):
+        """Verified bug: fmt='75.0' (no replacement field) writes a CONSTANT
+        into every knob column of the leaderboard; load_history_row parses
+        it back as a valid float, so every past eval collapses to the same
+        point and the GP trains on garbage -- silently (R1 in the final
+        review)."""
+        def mutate(d):
+            d["knobs"][0]["fmt"] = "75.0"
+        self._expect_error(mutate, "75.0", "replacement field")
+
+    def test_knob_fmt_malformed_rejected(self):
+        def mutate(d):
+            d["knobs"][0]["fmt"] = "{:.4q}"
+        self._expect_error(mutate, "{:.4q}")
+
+    # -- X3: jobs_per_stage / presubmit_after / metrics validated against
+    # declared stages / required list shape ----------------------------------
+    def test_jobs_per_stage_unknown_stage_rejected(self):
+        """Verified bug: a typo'd stage ('mubeem') loads fine and silently
+        adds a dead key to STAGE_TARGETS, leaving the real stage at its
+        default job count (X3 in the final review)."""
+        self._expect_error(
+            lambda d: d["run"]["jobs_per_stage"].update({"mubeem": 15}),
+            "mubeem")
+
+    def test_presubmit_after_unknown_stage_key_rejected(self):
+        self._expect_error(
+            lambda d: d["run"]["presubmit_after"].update(
+                {"mubeem": ["elebeam_flash"]}),
+            "mubeem")
+
+    def test_presubmit_after_bare_string_value_rejected(self):
+        """A bare string value silently becomes a tuple of its characters
+        via tuple(str) (X3)."""
+        def mutate(d):
+            d["run"]["presubmit_after"]["mubeam"] = "elebeam_flash"
+        self._expect_error(mutate, "presubmit_after")
+
+    def test_metrics_bare_string_value_rejected(self):
+        """A bare string value here fails the same way, but only after a
+        ~4.5h grid evaluation (X3)."""
+        def mutate(d):
+            d["leaderboard"]["metrics"]["sob"] = "s_over_sqrt_b"
+        self._expect_error(mutate, "metrics")
+
+    # -- Minor: int_dims index must be within the knob count -----------------
+    def test_int_dims_out_of_range_rejected(self):
+        self._expect_error(lambda d: d.update({"int_dims": [99]}), "99")
+
+    # -- Minor: knob min must be < max ---------------------------------------
+    def test_knob_min_ge_max_rejected(self):
+        def mutate(d):
+            d["knobs"][0]["min"] = 300.0
+            d["knobs"][0]["max"] = 250.0
+        self._expect_error(mutate, "min", "max")
+
 
 class TestCollision(unittest.TestCase):
     def test_name_collision_with_python_mode_is_hard_error(self):

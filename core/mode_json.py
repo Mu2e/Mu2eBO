@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 # Mirror our own package-qualification when importing the sibling module: if
 # we were loaded as `core.mode_json` (repo-root imports, __package__=="core"),
@@ -20,9 +20,9 @@ from typing import Dict
 # different sys.modules key -- reproducing the two-non-identical-classes bug
 # Task 4 fixed for this exact class (see core/modes.py's tail comment).
 if __package__:
-    from core.geom_template import GeomTemplate
+    from core.geom_template import GeomTemplate, _validate_fmt
 else:
-    from geom_template import GeomTemplate
+    from geom_template import GeomTemplate, _validate_fmt
 
 _REQUIRED_TOP = ("name", "software", "run", "knobs", "leaderboard",
                  "preflight", "geom")
@@ -104,6 +104,49 @@ def _validate_stage_tuning(run: dict, where: str) -> Dict[str, Dict[str, object]
     return out
 
 
+def _validate_jobs_per_stage(run: dict, declared_stages, where: str) -> Dict[str, int]:
+    """Validate run.jobs_per_stage keys against the mode's declared
+    run.stages. A typo'd stage name (e.g. 'mubeem') otherwise loads fine and
+    silently adds a dead key to graph.config.STAGE_TARGETS via a plain
+    dict.update -- the REAL stage is left at its default job count with no
+    error anywhere (X3 in the json-configurable-modes final review)."""
+    raw = run.get("jobs_per_stage")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"{where}[run.jobs_per_stage]: must be an object of "
+            f"{{stage: njobs}}, got {raw!r}")
+    _reject_unknown(raw, declared_stages, f"{where}[run.jobs_per_stage]")
+    return dict(raw)
+
+
+def _validate_presubmit_after(run: dict, declared_stages, where: str) -> Dict[str, Tuple[str, ...]]:
+    """Validate run.presubmit_after the same way as jobs_per_stage: keys are
+    stage names and must be declared in run.stages, and each value must be a
+    list of stage-name strings -- a bare string value silently becomes a
+    tuple of its characters via tuple(str) (X3)."""
+    raw = run.get("presubmit_after")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"{where}[run.presubmit_after]: must be an object of "
+            f"{{stage: [stages]}}, got {raw!r}")
+    _reject_unknown(raw, declared_stages, f"{where}[run.presubmit_after]")
+    out: Dict[str, Tuple[str, ...]] = {}
+    for stage, targets in raw.items():
+        sw = f"{where}[run.presubmit_after.{stage}]"
+        if not isinstance(targets, list) or not all(
+                isinstance(t, str) for t in targets):
+            raise ValueError(
+                f"{sw}: must be a list of stage-name strings, got "
+                f"{targets!r} (a bare string here silently becomes a tuple "
+                f"of its characters)")
+        out[stage] = tuple(targets)
+    return out
+
+
 def load_mode_file(path: Path) -> "object":
     """Parse one mode JSON file into a ModeSpec. Raises ValueError on any
     schema problem, always naming the file."""
@@ -145,17 +188,42 @@ def load_mode_file(path: Path) -> "object":
             f"of its characters)")
 
     stage_tuning = _validate_stage_tuning(run, where)
+    jobs_per_stage = _validate_jobs_per_stage(run, stages, where)
+    presubmit_after = _validate_presubmit_after(run, stages, where)
 
     knobs = doc["knobs"]
     if not knobs:
         raise ValueError(f"{where}[knobs]: at least one knob is required")
     for i, k in enumerate(knobs):
-        _need(k, _ALLOWED_KNOB, f"{where}[knobs[{i}]]")
-        _reject_unknown(k, _ALLOWED_KNOB, f"{where}[knobs[{i}]]")
+        kw = f"{where}[knobs[{i}]]"
+        _need(k, _ALLOWED_KNOB, kw)
+        _reject_unknown(k, _ALLOWED_KNOB, kw)
+        # R1: an unvalidated fmt like "75.0" (no replacement field) writes a
+        # CONSTANT into every knob column of the leaderboard; load_history_row
+        # parses it back as a valid float, so every past eval collapses to the
+        # same point and the GP trains on garbage -- silently. Same guard
+        # geom_template.py already applies to computed geometry lines.
+        _validate_fmt(k["fmt"], kw)
+        lo, hi = float(k["min"]), float(k["max"])
+        if not lo < hi:
+            raise ValueError(
+                f"{kw}: min ({lo}) must be < max ({hi}); a knob with "
+                f"min >= max is a degenerate or inverted search-space "
+                f"dimension")
 
     names = tuple(k["name"] for k in knobs)
     if len(set(names)) != len(names):
         raise ValueError(f"{where}[knobs]: duplicate knob names in {list(names)}")
+
+    int_dims_raw = doc.get("int_dims") or ()
+    n_knobs = len(knobs)
+    for idx in int_dims_raw:
+        if isinstance(idx, bool) or not isinstance(idx, int) or not (0 <= idx < n_knobs):
+            raise ValueError(
+                f"{where}[int_dims]: index {idx!r} is out of range for "
+                f"{n_knobs} knob(s) (valid indices are 0..{n_knobs - 1}); an "
+                f"out-of-range index otherwise silently leaves an integer "
+                f"knob continuous")
 
     columns = tuple(leaderboard["columns"])
     if len(columns) != 4:
@@ -181,7 +249,20 @@ def load_mode_file(path: Path) -> "object":
                 f"got {noise!r}")
         noise = tuple(float(v) for v in noise)
 
-    metrics = {k: tuple(v) for k, v in leaderboard["metrics"].items()}
+    metrics_raw = leaderboard["metrics"]
+    if not isinstance(metrics_raw, dict):
+        raise ValueError(
+            f"{where}[leaderboard.metrics]: must be an object of "
+            f"{{column: [summary.json keys]}}, got {metrics_raw!r}")
+    metrics: Dict[str, Tuple[str, ...]] = {}
+    for col, keys in metrics_raw.items():
+        if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+            raise ValueError(
+                f"{where}[leaderboard.metrics.{col}]: must be a list of "
+                f"summary.json key strings, got {keys!r} (a bare string here "
+                f"silently becomes a tuple of its characters, which then "
+                f"fails only after a ~4.5h grid evaluation)")
+        metrics[col] = tuple(keys)
     for col in columns[:2]:
         if col not in metrics:
             raise ValueError(
@@ -205,12 +286,11 @@ def load_mode_file(path: Path) -> "object":
         grid_tarball=software["grid_tarball"],
         grid_stages=tuple(stages),
         harvest_verb=run["harvest"],
-        stage_target_overrides=dict(run.get("jobs_per_stage") or {}),
-        presubmit_after={k: tuple(v)
-                         for k, v in (run.get("presubmit_after") or {}).items()},
+        stage_target_overrides=jobs_per_stage,
+        presubmit_after=presubmit_after,
         bounds_lo=tuple(float(k["min"]) for k in knobs),
         bounds_hi=tuple(float(k["max"]) for k in knobs),
-        int_dims=tuple(doc.get("int_dims") or ()),
+        int_dims=tuple(int_dims_raw),
         preflight_fcl=preflight["fcl"],
         dumps_gdml=preflight["dumps_gdml"],
         verifies_foil_gdml=preflight["verifies_foil_gdml"],

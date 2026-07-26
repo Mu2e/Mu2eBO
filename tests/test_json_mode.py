@@ -73,6 +73,40 @@ class TestJsonMode(unittest.TestCase):
             self.mode.extract_metrics({"s_over_sqrt_b": 3.9})
         self.assertIn("flash_edep", str(cm.exception))
 
+    # -- Critical: the second objective must never silently collapse to a
+    # poison zero row (mirrors FoilsFlashMode.extract_metrics's SystemExit
+    # guard, which JsonMode lacked entirely).
+    def test_extract_metrics_zero_second_metric_refused(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.mode.extract_metrics(
+                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 0.0})
+        msg = str(cm.exception)
+        self.assertIn("demoflash", msg)
+        self.assertIn("flash_edep_per_pot", msg)
+
+    def test_extract_metrics_negative_second_metric_refused(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.mode.extract_metrics(
+                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": -1e-6})
+        self.assertIn("flash_edep_per_pot", str(cm.exception))
+
+    def test_extract_metrics_valid_second_metric_passes(self):
+        self.assertEqual(
+            self.mode.extract_metrics(
+                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}),
+            (3.9, 1e-6))
+
+    def test_extract_metrics_calo_per_pot_no_longer_a_fallback(self):
+        """Root-cause regression: the fixture's flash_edep fallback chain
+        used to list calo_per_pot -- copied from the STALE comment above
+        FoilsFlashMode.extract_metrics, which claims that fallback but never
+        implements it. A calo-only summary must raise (missing key), not
+        silently write calo into the flash column."""
+        with self.assertRaises(KeyError) as cm:
+            self.mode.extract_metrics(
+                {"s_over_sqrt_b": 3.9, "calo_per_pot": 1.2e-6})
+        self.assertIn("flash_edep", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

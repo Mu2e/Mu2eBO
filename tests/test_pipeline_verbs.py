@@ -5,9 +5,13 @@ jobsub/subprocess boundary is faked."""
 import contextlib
 import copy
 import io
+import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -202,12 +206,89 @@ class TestStageTuning(unittest.TestCase):
     def test_foilsflash_python_mode_stage_tuning_is_a_noop(self):
         """The Python foilsflash mode's stage_tuning is {} (core/modes.py);
         applying it must not touch STAGES at all -- the hardcoded
-        AUTORESEARCH_MODE == "foilsflash" block owns that mode's tuning."""
+        AUTORESEARCH_MODE == "foilsflash" block (core/pipeline.py, above
+        _apply_stage_tuning) owns that mode's tuning instead.
+
+        R2 in the json-configurable-modes final review: the ORIGINAL version
+        of this test built local_stages from copy.deepcopy(pipeline.STAGES)
+        (whatever ambient values that happened to hold under the unittest
+        process's AUTORESEARCH_MODE, which is normally unset -- so NOT the
+        foilsflash hardcoded values at all) and asserted before == after
+        applying {}. That is trivially true for ANY starting dict and ANY
+        correct-or-broken _apply_stage_tuning, since updating with {} is a
+        no-op regardless -- it never actually checked the hardcoded
+        foilsflash tuning was present. This version seeds local_stages with
+        those literal hardcoded values (mirroring the pipeline.py block) and
+        asserts they are both PRESENT beforehand and UNMODIFIED afterward."""
         import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
-        local_stages = copy.deepcopy(pipeline.STAGES)
-        before = copy.deepcopy(local_stages)
+        local_stages = {
+            "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8},
+            "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8},
+            "elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000},
+        }
+        # Present beforehand (the premise this test is checking).
+        self.assertEqual(local_stages["mubeam"]["events_per_job"], 200000)
+        self.assertEqual(local_stages["mustops_ce"]["events_per_job"], 75000)
+        self.assertEqual(local_stages["elebeam_flash"]["events_per_job"], 110000)
+
         pipeline._apply_stage_tuning(local_stages, _modes.SPECS["foilsflash"].stage_tuning)
-        self.assertEqual(local_stages, before)
+
+        # Unmodified afterward.
+        self.assertEqual(local_stages["mubeam"]["events_per_job"], 200000)
+        self.assertEqual(local_stages["mustops_ce"]["events_per_job"], 75000)
+        self.assertEqual(local_stages["elebeam_flash"]["events_per_job"], 110000)
+        self.assertEqual(local_stages["mubeam"]["memory_mb"], 2000)
+        self.assertEqual(local_stages["mubeam"]["quorum"], 0.8)
+
+
+class TestStageTuningModuleLevelWiring(unittest.TestCase):
+    """R2 in the json-configurable-modes final review: every test in
+    TestStageTuning above calls `pipeline._apply_stage_tuning` directly on a
+    local dict, so deleting the MODULE-LEVEL call in core/pipeline.py
+    (~line 319, right after `_apply_stage_tuning` is defined) fails nothing
+    in that class.
+
+    This test genuinely exercises that module-level call: it hand-registers
+    a throwaway ModeSpec carrying a non-empty run.stage_tuning directly into
+    a fresh subprocess's `modes.SPECS` (bypassing mode_specs/ directory
+    discovery entirely -- core/modes.py's MODES_DIR is a hardcoded path, not
+    overridable via env, and the real mode_specs/ directory must stay
+    clean), then imports core/pipeline.py under that mode and reads back the
+    REAL module-level pipeline.STAGES dict. If the module-level
+    `_apply_stage_tuning(STAGES, ...)` call is ever deleted, this fails."""
+
+    def test_json_mode_stage_tuning_lands_on_real_stages_at_import(self):
+        root = Path(__file__).resolve().parent.parent
+        mode_name = f"stagetuningprobe{uuid.uuid4().hex[:8]}"
+        doc = json.loads(
+            (Path(__file__).parent / "fixtures" / "modes" / "foils.json").read_text())
+        doc["name"] = mode_name
+        doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{mode_name}.tsv"
+        doc["run"]["stage_tuning"] = {"mubeam": {"events_per_job": 424242}}
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp_json = Path(td) / f"{mode_name}.json"
+            tmp_json.write_text(json.dumps(doc))
+            script = (
+                "import sys, os\n"
+                "sys.path.insert(0, 'core')\n"
+                "from pathlib import Path\n"
+                "import modes\n"
+                "from mode_json import load_mode_file\n"
+                f"spec = load_mode_file(Path({str(tmp_json)!r}))\n"
+                "modes.SPECS[spec.name] = spec\n"
+                "os.environ['AUTORESEARCH_MODE'] = spec.name\n"
+                "import pipeline\n"
+                "print(pipeline.STAGES['mubeam']['events_per_job'])\n"
+            )
+            env = dict(os.environ)
+            env.pop("PYTHONPATH", None)
+            r = subprocess.run(
+                [sys.executable, "-c", script],
+                cwd=str(root), capture_output=True, text=True,
+                env=env, timeout=120)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout.strip(), "424242")
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@
     "obs_noise": [0.006, 0.010],
     "metrics": {
       "sob":        ["s_over_sqrt_b"],
-      "flash_edep": ["flash_edep_per_pot", "flash_edep_per_event", "calo_per_pot"]
+      "flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"]
     }
   },
 

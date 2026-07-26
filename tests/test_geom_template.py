@@ -382,6 +382,60 @@ class TestRender(unittest.TestCase):
         self.assertLessEqual(max(vals), 250.0)
         self.assertGreaterEqual(min(vals), 50.0)
 
+    # -- X2: line/profile/segment dicts reject unknown keys and mutually
+    # exclusive combinations (final review) ----------------------------------
+    def test_value_with_expr_is_rejected_not_silently_ignored(self):
+        """Verified bug: {"value": 5.0, "expr": "a*2"} rendered the constant
+        and silently dropped the expr (X2 in the final review)."""
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "k.x", "type": "double", "value": 5.0, "expr": "a * 2"}])
+        msg = str(cm.exception)
+        self.assertIn("value", msg)
+        self.assertIn("expr", msg)
+
+    def test_value_with_segments_is_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+                   "value": 5.0,
+                   "segments": [{"count": 2, "expr": "a"}]}])
+        msg = str(cm.exception)
+        self.assertIn("value", msg)
+        self.assertIn("segments", msg)
+
+    def test_unknown_line_key_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "k.x", "type": "double", "value": 5.0, "typo_key": 1}])
+        msg = str(cm.exception)
+        self.assertIn("typo_key", msg)
+
+    def test_unknown_comment_line_key_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"comment": "hi", "key": "k.x"}])
+        msg = str(cm.exception)
+        self.assertIn("key", msg)
+
+    def test_unknown_profile_key_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([], profiles={"p": {"count": 3, "control": ["a", "b", "a"],
+                                     "clip": [0.0, 100.0], "typo_key": 1}})
+        msg = str(cm.exception)
+        self.assertIn("typo_key", msg)
+
+    def test_unknown_segment_key_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+                   "segments": [{"count": 2, "expr": "a", "typo_key": 1}]}])
+        msg = str(cm.exception)
+        self.assertIn("typo_key", msg)
+
+    def test_segment_expr_with_value_is_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+                   "segments": [{"count": 2, "expr": "a", "value": 3.0}]}])
+        msg = str(cm.exception)
+        self.assertIn("expr", msg)
+        self.assertIn("value", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

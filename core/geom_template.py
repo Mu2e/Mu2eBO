@@ -115,6 +115,17 @@ _SCALAR_TYPES = ("bool", "int", "double", "string")
 _VECTOR_TYPES = ("vector<double>", "vector<string>")
 _VALID_TYPES = _SCALAR_TYPES + _VECTOR_TYPES
 
+# A line dict picks exactly ONE of these "content" keys to say how its value
+# is produced; the rest of _LINE_ALLOWED_KEYS ("key"/"type"/"fmt") are shared
+# metadata. Two content keys together (e.g. 'value' + 'expr') used to render
+# the first one silently and drop the second with no error (X2 in the
+# json-configurable-modes final review).
+_LINE_KIND_KEYS = ("raw", "value", "expr", "segments", "per_index")
+_LINE_ALLOWED_KEYS = ("key", "type", "fmt") + _LINE_KIND_KEYS
+_PROFILE_ALLOWED_KEYS = ("count", "control", "clip")
+_SEGMENT_ALLOWED_KEYS = ("count", "expr", "value")
+_PER_INDEX_ALLOWED_KEYS = ("count", "expr")
+
 
 def _validate_comment_names(text: str, available_names: Set[str], where: str) -> None:
     """Extract and validate placeholder names in a format string.
@@ -267,6 +278,7 @@ class GeomTemplate:
             if name in derived_set:
                 raise ValueError(
                     f"{where}: name {name!r} defined in both derived and profiles")
+            _reject_unknown_keys(p, _PROFILE_ALLOWED_KEYS, f"{where}[profiles.{name}]")
             count = cls._resolve_count(p.get("count"), consts, f"{where}[profiles.{name}]")
             control = p.get("control")
             if not control or len(control) != 3:
@@ -318,9 +330,20 @@ class GeomTemplate:
     @classmethod
     def _prepare_line(cls, ln, consts, scalar_names, elementwise_names, comment_names, where):
         if "comment" in ln:
+            _reject_unknown_keys(ln, ("comment",), where)
             comment_text = ln["comment"]
             _validate_comment_names(comment_text, comment_names, where)
             return {"kind": "comment", "text": comment_text}
+
+        _reject_unknown_keys(ln, _LINE_ALLOWED_KEYS, where)
+        kind_present = [k for k in _LINE_KIND_KEYS if k in ln]
+        if len(kind_present) > 1:
+            raise ValueError(
+                f"{where}: line has mutually exclusive keys "
+                f"{sorted(kind_present)} -- exactly one of "
+                f"{list(_LINE_KIND_KEYS)} is allowed; e.g. 'value' with "
+                f"'expr' would otherwise render the constant and silently "
+                f"drop the expr")
 
         key, type_ = ln.get("key"), ln.get("type")
         if not key:
@@ -355,6 +378,11 @@ class GeomTemplate:
             segs = []
             for j, seg in enumerate(ln["segments"]):
                 sw = f"{where}.segments[{j}]"
+                _reject_unknown_keys(seg, _SEGMENT_ALLOWED_KEYS, sw)
+                if "expr" in seg and "value" in seg:
+                    raise ValueError(
+                        f"{sw}: 'expr' and 'value' are mutually exclusive "
+                        f"(only 'expr' would take effect, silently)")
                 count = cls._resolve_count(seg.get("count"), consts, sw)
                 if "expr" in seg:
                     compiled = compile_expr(seg["expr"], scalar_names, sw)
@@ -379,6 +407,7 @@ class GeomTemplate:
                     f"{where}: 'per_index' produces a vector; type must be "
                     f"one of {list(_VECTOR_TYPES)}, got {type_!r}")
             pi = ln["per_index"]
+            _reject_unknown_keys(pi, _PER_INDEX_ALLOWED_KEYS, where)
             count = cls._resolve_count(pi.get("count"), consts, where)
             if "expr" not in pi:
                 raise ValueError(f"{where}: per_index needs an 'expr'")
