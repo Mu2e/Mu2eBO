@@ -25,6 +25,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
+try:
+    from core.geom_template import GeomTemplate
+except ImportError:
+    # Fallback when core is on sys.path directly (subprocess case;
+    # see wiki/incidents/claude-bash-no-ssh-agent.md for cross-shell context)
+    from geom_template import GeomTemplate  # type: ignore[no-redef]
+
 _RUN1BAK = "/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bak/setup.sh"
 # foils family preflight MUST see the patched StoppingTargetMaker
 # (stoppingTarget.holeRadii vector) or it diverges from the grid tarball and
@@ -102,6 +109,14 @@ class ModeSpec:
     # undefined" — passed EXPLICITLY by the ProdTarget family, not a default.
     obs_noise: Optional[Tuple[float, ...]]
 
+    # Declarative geometry, metric mapping, and leaderboard path. Present ONLY
+    # on JSON-defined modes (core/mode_json.py); the six Python modes render via
+    # their BOMode subclass, set `leaderboard` as a class attribute, and pass
+    # None here EXPLICITLY, never by default.
+    geom: Optional[GeomTemplate]
+    metrics: Optional[Dict[str, Tuple[str, ...]]]
+    leaderboard_rel: Optional[str]
+
     def __post_init__(self):
         if self.bounds_lo is not None and not (
                 len(self.knob_names) == len(self.knob_fmts)
@@ -140,6 +155,9 @@ SPECS: Dict[str, ModeSpec] = {
         knob_fmts=("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"),
         metric_cols=("sob", "calo", "alpha", "obj"),
         obs_noise=_FOILS_FAMILY_NOISE,
+        geom=None,
+        metrics=None,
+        leaderboard_rel=None,
     ),
     "foilsf": ModeSpec(
         name="foilsf",
@@ -161,6 +179,9 @@ SPECS: Dict[str, ModeSpec] = {
         knob_fmts=("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"),
         metric_cols=("sob", "calo", "alpha", "obj"),
         obs_noise=_FOILS_FAMILY_NOISE,
+        geom=None,
+        metrics=None,
+        leaderboard_rel=None,
     ),
     "foilsflash": ModeSpec(
         name="foilsflash",
@@ -189,6 +210,9 @@ SPECS: Dict[str, ModeSpec] = {
         metric_cols=("sob", "flash_edep", "alpha", "obj"),
         # axis 1 is -log10(flash_edep): sigma_rel 2.31% / ln(10) = 0.0100.
         obs_noise=(_SIGMA_SOB, 0.010),
+        geom=None,
+        metrics=None,
+        leaderboard_rel=None,
     ),
     "foilsg": ModeSpec(
         name="foilsg",
@@ -209,6 +233,9 @@ SPECS: Dict[str, ModeSpec] = {
         knob_fmts=("{:.4f}", "{:.6f}", "{:.4f}") * 4,
         metric_cols=("sob", "calo", "alpha", "obj"),
         obs_noise=_FOILS_FAMILY_NOISE,
+        geom=None,
+        metrics=None,
+        leaderboard_rel=None,
     ),
     "prodtarget": ModeSpec(
         name="prodtarget",
@@ -236,6 +263,9 @@ SPECS: Dict[str, ModeSpec] = {
         # cover both scales, and no replicate evals exist to measure one.
         # Keeps the MLL-fitted noise until somebody measures it.
         obs_noise=None,
+        geom=None,
+        metrics=None,
+        leaderboard_rel=None,
     ),
     "prodtarget6d": ModeSpec(
         name="prodtarget6d",
@@ -262,5 +292,8 @@ SPECS: Dict[str, ModeSpec] = {
         # cover both scales, and no replicate evals exist to measure one.
         # Keeps the MLL-fitted noise until somebody measures it.
         obs_noise=None,
+        geom=None,
+        metrics=None,
+        leaderboard_rel=None,
     ),
 }

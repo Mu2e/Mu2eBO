@@ -187,5 +187,26 @@ class TestSchemaFields(unittest.TestCase):
                     bo.Point(cfg="x", x=[0.0] * 6, sob=0.0, calo=1.0), 1.0)
 
 
+class TestGeomField(unittest.TestCase):
+    def test_python_modes_declare_the_json_fields_as_none(self):
+        for name, spec in modes.SPECS.items():
+            self.assertIsNone(spec.geom, f"{name} should have no geom template")
+            self.assertIsNone(spec.metrics, f"{name} should have no metrics map")
+            self.assertIsNone(spec.leaderboard_rel, f"{name} sets leaderboard on the class")
+
+    def test_the_new_fields_are_required_not_defaulted(self):
+        """A missing fact must be a TypeError, never a silent default."""
+        import dataclasses
+        by_name = {f.name: f for f in dataclasses.fields(modes.ModeSpec)}
+        for field in ("geom", "metrics", "leaderboard_rel"):
+            self.assertIn(field, by_name)
+            self.assertIs(by_name[field].default, dataclasses.MISSING,
+                          f"{field} must not have a default")
+            self.assertIs(by_name[field].default_factory, dataclasses.MISSING,
+                          f"{field} must not have a default_factory")
+        with self.assertRaises(TypeError):
+            modes.ModeSpec(name="x")  # type: ignore[call-arg]
+
+
 if __name__ == "__main__":
     unittest.main()
