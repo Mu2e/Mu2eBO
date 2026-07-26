@@ -210,5 +210,75 @@ class TestEvaluateZeroRowClassifier(unittest.TestCase):
             self.assertIsNone(self._read_sidecar(tmp, "fooR00_04"))
 
 
+class TestPresubmitOverlapSeam(unittest.TestCase):
+    """The elebeam_flash overlap (config.PRESUBMIT_AFTER) — worth ~40% of eval
+    wall on foilsflash, and until 2026-07-26 it had NO behavioral test.
+
+    The load-bearing property is the DEGRADATION path: a presubmit is
+    best-effort, so a failing early submit must leave the eval untouched and
+    let the stage's own node submit sequentially. If that ever regresses into
+    a raise, a transient jobsub hiccup would kill the whole child instead of
+    costing it the overlap.
+    """
+
+    OK = {"cluster_id": "abc", "status": "succeeded", "n_done": 1,
+          "n_failed": 0, "last_poll_ts": 0.0}
+
+    def _run(self, stage, presubmit_map, presubmit_side_effect=None):
+        node = nd.make_stage_node(stage)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), \
+             mock.patch.dict(nd.PRESUBMIT_AFTER, presubmit_map, clear=True), \
+             mock.patch.object(nd.pio, "run_stage", return_value=self.OK), \
+             mock.patch.object(nd.pio, "presubmit_stage",
+                               side_effect=presubmit_side_effect) as ps:
+            out = node({"config_name": "ffR00_03", "stages": {}, "errors": []})
+        return out, ps, buf.getvalue()
+
+    def test_fires_for_the_mapped_after_stage(self):
+        out, ps, log = self._run("mubeam", {"mubeam": ["elebeam_flash"]})
+        ps.assert_called_once_with("ffR00_03", "elebeam_flash")
+        self.assertEqual(out["stages"]["mubeam"]["status"], "succeeded")
+        self.assertIn("presubmit[elebeam_flash/ffR00_03] submitted early", log)
+
+    def test_does_not_fire_for_an_unmapped_stage(self):
+        # mustops_ce carries no overlap: nothing may be submitted early.
+        _, ps, log = self._run("mustops_ce", {"mubeam": ["elebeam_flash"]})
+        ps.assert_not_called()
+        self.assertNotIn("presubmit", log)
+
+    def test_presubmit_failure_degrades_instead_of_failing_the_eval(self):
+        out, ps, log = self._run("mubeam", {"mubeam": ["elebeam_flash"]},
+                                 presubmit_side_effect=RuntimeError("jobsub hiccup"))
+        ps.assert_called_once()
+        # The eval is untouched: stage succeeded, and the failure is NOT
+        # recorded in errors (which would mark the child degraded).
+        self.assertEqual(out["stages"]["mubeam"]["status"], "succeeded")
+        self.assertEqual(out["errors"], [])
+        self.assertIn("jobsub hiccup", log)
+        self.assertIn("will submit sequentially", log)
+
+    def test_not_reached_when_the_stage_itself_fails(self):
+        # No cluster to overlap with if the after-stage never landed.
+        node = nd.make_stage_node("mubeam")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), \
+             mock.patch.dict(nd.PRESUBMIT_AFTER,
+                             {"mubeam": ["elebeam_flash"]}, clear=True), \
+             mock.patch.object(nd.pio, "run_stage",
+                               side_effect=RuntimeError("boom")), \
+             mock.patch.object(nd.pio, "presubmit_stage") as ps:
+            out = node({"config_name": "ffR00_03", "stages": {}, "errors": []})
+        ps.assert_not_called()
+        self.assertEqual(out["stages"]["mubeam"]["status"], "failed")
+
+    def test_foilsflash_declares_the_overlap_in_its_spec(self):
+        """The map is a ModeSpec field, so this is the real production value —
+        not a graph/ constant. Guards against a silent drop to {}."""
+        import modes as _modes
+        self.assertEqual(_modes.SPECS["foilsflash"].presubmit_after,
+                         {"mubeam": ("elebeam_flash",)})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
