@@ -142,6 +142,44 @@ def _validate_comment_names(text: str, available_names: Set[str], where: str) ->
                 f"known names are {sorted(available_names)}")
 
 
+def _reject_unknown_keys(d: dict, allowed: Iterable[str], where: str) -> None:
+    """Fail loud on a typo'd or unrecognized key instead of silently no-oping
+    it (e.g. a misspelled schema key parsed by nothing, doing nothing)."""
+    unknown = set(d) - set(allowed)
+    if unknown:
+        raise ValueError(
+            f"{where}: unknown key(s) {sorted(unknown)}; accepted keys are "
+            f"{sorted(allowed)}")
+
+
+def _validate_fmt(fmt: Any, where: str) -> None:
+    """A computed line's 'fmt' must (a) exist, (b) contain a replacement
+    field, and (c) actually be able to format a float. Checked at load so a
+    format string like "75.0" (no field -- every element renders as the same
+    constant, the knob goes inert with no error) or "{:.4q}" (malformed --
+    would only fail the first time render() runs) is caught here instead.
+    """
+    if not fmt:
+        raise ValueError(f"{where}: computed line needs a 'fmt'")
+    if not isinstance(fmt, str):
+        raise ValueError(f"{where}: 'fmt' must be a string, got {fmt!r}")
+    try:
+        has_field = any(field is not None
+                         for _, field, _, _ in string.Formatter().parse(fmt))
+    except ValueError as exc:
+        raise ValueError(f"{where}: malformed fmt {fmt!r}: {exc}") from None
+    if not has_field:
+        raise ValueError(
+            f"{where}: fmt {fmt!r} has no replacement field (e.g. '{{:.4f}}'); "
+            f"every element would render as the same literal text, silently "
+            f"making the knob inert")
+    try:
+        fmt.format(1.0)
+    except (ValueError, IndexError, KeyError, TypeError) as exc:
+        raise ValueError(
+            f"{where}: fmt {fmt!r} cannot format a float: {exc}") from None
+
+
 def _literal(type_: str, value: Any, where: str) -> str:
     """Render a JSON value as simpleConfig literal text."""
     if type_ == "bool":
@@ -179,6 +217,8 @@ class GeomTemplate:
     # -- construction / validation ------------------------------------------
     @classmethod
     def from_dict(cls, d: dict, knob_names: Iterable[str], where: str) -> "GeomTemplate":
+        _reject_unknown_keys(
+            d, ("base", "consts", "derived", "profiles", "lines"), where)
         knob_names = tuple(knob_names)
         base = d.get("base")
         if not base:
@@ -237,9 +277,16 @@ class GeomTemplate:
                 raise ValueError(
                     f"{where}[profiles.{name}]: 'clip' is required and must be "
                     f"[lo, hi] (a quadratic overshoots between control points)")
+            clip_lo, clip_hi = float(clip[0]), float(clip[1])
+            if clip_lo > clip_hi:
+                raise ValueError(
+                    f"{where}[profiles.{name}]: clip lo={clip_lo} > hi={clip_hi}; "
+                    f"this pins every element of the profile to {clip_hi} "
+                    f"(byte-identical for every optimizer point), silently "
+                    f"making the knob inert")
             compiled = [compile_expr(c, scalar_names, f"{where}[profiles.{name}]")
                         for c in control]
-            profiles[name] = (count, compiled, (float(clip[0]), float(clip[1])))
+            profiles[name] = (count, compiled, (clip_lo, clip_hi))
             profiles_set.add(name)
 
         elementwise_names = scalar_names | profiles_set | {"i", "n"}
@@ -291,8 +338,7 @@ class GeomTemplate:
                     "text": _literal(type_, ln["value"], where)}
 
         fmt = ln.get("fmt")
-        if not fmt:
-            raise ValueError(f"{where}: computed line needs a 'fmt'")
+        _validate_fmt(fmt, where)
 
         if "expr" in ln:
             if type_ not in _SCALAR_TYPES:
@@ -301,6 +347,11 @@ class GeomTemplate:
                     "expr": compile_expr(ln["expr"], scalar_names, where)}
 
         if "segments" in ln:
+            if type_ not in _VECTOR_TYPES:
+                raise ValueError(
+                    f"{where}: 'segments' produces a vector; type must be one "
+                    f"of {list(_VECTOR_TYPES)}, got {type_!r} (a scalar type "
+                    f"here silently renders 'double k = {{ 7.00, 7.00 }};')")
             segs = []
             for j, seg in enumerate(ln["segments"]):
                 sw = f"{where}.segments[{j}]"
@@ -323,6 +374,10 @@ class GeomTemplate:
                     "segments": segs}
 
         if "per_index" in ln:
+            if type_ not in _VECTOR_TYPES:
+                raise ValueError(
+                    f"{where}: 'per_index' produces a vector; type must be "
+                    f"one of {list(_VECTOR_TYPES)}, got {type_!r}")
             pi = ln["per_index"]
             count = cls._resolve_count(pi.get("count"), consts, where)
             if "expr" not in pi:

@@ -3,6 +3,7 @@ poll exit conditions (via injected jobsub_q runner), list-outputs gating.
 No grid contact: STATE/STAGES/OUTSTAGE are patched to tmp dirs and the
 jobsub/subprocess boundary is faked."""
 import contextlib
+import copy
 import io
 import sys
 import tempfile
@@ -154,6 +155,59 @@ class TestListOutputsGating(unittest.TestCase):
             pipeline.cmd_list_outputs(SimpleNamespace(stage="poke",
                                                       force=False))
             lo.assert_called_once_with("poke", 123)
+
+
+class TestStageTuning(unittest.TestCase):
+    """core/mode_json.py `run.stage_tuning` -> pipeline.STAGES wiring (I4 in
+    the json-configurable-modes final review). All tests operate on a local
+    deepcopy of pipeline.STAGES, never the live module dict -- STAGES is
+    shared mutable module state and mock.patch.dict only shallow-restores
+    it, so mutating the nested per-stage dicts in place would leak into
+    other tests."""
+
+    def test_stage_tuning_lands_on_stages(self):
+        local_stages = {
+            "mubeam": {"events_per_job": 5000, "memory_mb": 2500, "quorum": 0.9},
+            "mustops_ce": {"events_per_job": 2500},
+        }
+        pipeline._apply_stage_tuning(
+            local_stages,
+            {"mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}})
+        self.assertEqual(local_stages["mubeam"]["events_per_job"], 200000)
+        self.assertEqual(local_stages["mubeam"]["memory_mb"], 2000)
+        self.assertEqual(local_stages["mubeam"]["quorum"], 0.8)
+        # Untouched: stage_tuning only had a "mubeam" key.
+        self.assertEqual(local_stages["mustops_ce"]["events_per_job"], 2500)
+
+    def test_stage_tuning_unknown_stage_name_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            pipeline._apply_stage_tuning({"mubeam": {}}, {"not_a_stage": {"memory_mb": 1}})
+        self.assertIn("not_a_stage", str(cm.exception))
+
+    def test_json_spec_stage_tuning_applies_to_real_stages(self):
+        """End-to-end: the foilsflash fixture's run.stage_tuning (mirrors
+        the live Python foilsflash mode's hardcoded values) actually lands
+        on a copy of pipeline.STAGES for its stages."""
+        from mode_json import load_mode_file  # noqa: E402 (bare, core/ on sys.path)
+        fixture = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
+        spec = load_mode_file(fixture)
+        local_stages = copy.deepcopy(pipeline.STAGES)
+        pipeline._apply_stage_tuning(local_stages, spec.stage_tuning)
+        self.assertEqual(local_stages["mubeam"]["events_per_job"], 200000)
+        self.assertEqual(local_stages["mustops_ce"]["events_per_job"], 75000)
+        self.assertEqual(local_stages["elebeam_flash"]["events_per_job"], 110000)
+        self.assertEqual(local_stages["mubeam"]["memory_mb"], 2000)
+        self.assertEqual(local_stages["mubeam"]["quorum"], 0.8)
+
+    def test_foilsflash_python_mode_stage_tuning_is_a_noop(self):
+        """The Python foilsflash mode's stage_tuning is {} (core/modes.py);
+        applying it must not touch STAGES at all -- the hardcoded
+        AUTORESEARCH_MODE == "foilsflash" block owns that mode's tuning."""
+        import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
+        local_stages = copy.deepcopy(pipeline.STAGES)
+        before = copy.deepcopy(local_stages)
+        pipeline._apply_stage_tuning(local_stages, _modes.SPECS["foilsflash"].stage_tuning)
+        self.assertEqual(local_stages, before)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,16 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes  # noqa: E402
 
+# The six hand-written Python modes -- frozen here, deliberately NOT derived
+# from modes.SPECS. Dropping a real mode_specs/*.json file in (the entire
+# point of the json-modes branch) adds a 7th SPECS entry; tests that assert
+# facts about "the Python modes" must key off this frozen set, not "every key
+# in SPECS", or they break the moment the feature they exist to enable is
+# first used. See I6 in the json-configurable-modes final review.
+PYTHON_MODE_NAMES = frozenset({
+    "foils", "foilsf", "foilsflash", "foilsg", "prodtarget", "prodtarget6d",
+})
+
 
 class TestRegistryCompleteness(unittest.TestCase):
     def test_keys_match_driver_modes(self):
@@ -182,10 +192,13 @@ class TestSchemaFields(unittest.TestCase):
 
 class TestGeomField(unittest.TestCase):
     def test_python_modes_declare_the_json_fields_as_none(self):
-        for name, spec in modes.SPECS.items():
+        for name in PYTHON_MODE_NAMES:
+            spec = modes.SPECS[name]
             self.assertIsNone(spec.geom, f"{name} should have no geom template")
             self.assertIsNone(spec.metrics, f"{name} should have no metrics map")
             self.assertIsNone(spec.leaderboard_rel, f"{name} sets leaderboard on the class")
+            self.assertEqual(spec.stage_tuning, {},
+                             f"{name} (Python mode) must declare stage_tuning={{}} explicitly")
 
     def test_the_new_fields_are_required_not_defaulted(self):
         """A missing fact must be a TypeError, never a silent default."""
@@ -209,10 +222,19 @@ class TestSubprocessImport(unittest.TestCase):
         """
         import subprocess
         core = Path(__file__).resolve().parent.parent / "core"
-        r = subprocess.run([sys.executable, "-c", "import modes; print(len(modes.SPECS))"],
+        # Count only the frozen Python-mode names (see PYTHON_MODE_NAMES
+        # above), not len(modes.SPECS): a live mode_specs/*.json file adds
+        # extra SPECS entries and must not break this pin.
+        script = (
+            "import modes; "
+            "python_names = {'foils', 'foilsf', 'foilsflash', 'foilsg', "
+            "'prodtarget', 'prodtarget6d'}; "
+            "print(len(python_names & set(modes.SPECS)))"
+        )
+        r = subprocess.run([sys.executable, "-c", script],
                            cwd=str(core), capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, f"import failed: {r.stderr}")
-        self.assertEqual(r.stdout.strip(), "6", "must expose all six specs")
+        self.assertEqual(r.stdout.strip(), "6", "must expose all six python specs")
 
 
 if __name__ == "__main__":

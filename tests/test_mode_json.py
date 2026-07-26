@@ -93,6 +93,84 @@ class TestRejections(unittest.TestCase):
                 "p": {"count": 3, "control": ["extra_f_up"] * 3}}
         self._expect_error(add_bad_profile, "clip")
 
+    # -- C1: columns[0] must be exactly "sob" ------------------------------
+    def test_columns_first_entry_must_be_sob(self):
+        """Verified bug: any other first-column name is silently swallowed by
+        BOMode.load_history's `except (KeyError, ValueError): continue`,
+        yielding ZERO history rows and an eternal BO cold-start (Critical
+        finding #1)."""
+        self._expect_error(
+            lambda d: d["leaderboard"].update(
+                {"columns": ["s_over_sqrt_b", "flash_edep", "alpha", "obj"]}),
+            "sob", "load_history_row")
+
+    # -- I4: run.stage_tuning keys are validated ----------------------------
+    def test_stage_tuning_unknown_key_rejected(self):
+        def mutate(d):
+            d["run"]["stage_tuning"]["mubeam"]["njobs"] = 99
+        self._expect_error(mutate, "njobs")
+
+    def test_stage_tuning_events_per_job_must_be_positive_int(self):
+        def mutate(d):
+            d["run"]["stage_tuning"]["mubeam"]["events_per_job"] = -1
+        self._expect_error(mutate, "events_per_job")
+
+    def test_stage_tuning_quorum_must_be_in_unit_interval(self):
+        def mutate(d):
+            d["run"]["stage_tuning"]["mubeam"]["quorum"] = 1.5
+        self._expect_error(mutate, "quorum")
+
+    # -- I5: unknown keys are rejected at every level -----------------------
+    def test_unknown_top_level_key_rejected(self):
+        self._expect_error(
+            lambda d: d.update({"intdims": [0]}),  # typo of int_dims
+            "intdims")
+
+    def test_unknown_run_key_rejected(self):
+        """Verified bug: 'jobs_per_stagez' (typo of jobs_per_stage) silently
+        no-ops to stage_target_overrides={} with no error (Important
+        finding #5)."""
+        self._expect_error(
+            lambda d: d["run"].update({"jobs_per_stagez": {"mubeam": 5}}),
+            "jobs_per_stagez")
+
+    def test_unknown_software_key_rejected(self):
+        self._expect_error(
+            lambda d: d["software"].update({"typo_key": "x"}), "typo_key")
+
+    def test_unknown_leaderboard_key_rejected(self):
+        self._expect_error(
+            lambda d: d["leaderboard"].update({"typo_key": "x"}), "typo_key")
+
+    def test_unknown_preflight_key_rejected(self):
+        self._expect_error(
+            lambda d: d["preflight"].update({"typo_key": "x"}), "typo_key")
+
+    def test_unknown_knob_key_rejected(self):
+        def mutate(d):
+            d["knobs"][0]["typo_key"] = 1
+        self._expect_error(mutate, "typo_key")
+
+    def test_unknown_geom_top_level_key_rejected(self):
+        self._expect_error(
+            lambda d: d["geom"].update({"typo_key": {}}), "typo_key")
+
+    # -- Minor: run.stages must be a list, not a bare string ----------------
+    def test_run_stages_as_string_rejected(self):
+        """A bare string silently becomes a tuple of its characters via
+        tuple(str) (Minor finding)."""
+        self._expect_error(
+            lambda d: d["run"].update({"stages": "mubeam"}), "stages")
+
+    # -- Minor: leaderboard.file must be repo-relative ----------------------
+    def test_leaderboard_file_absolute_path_rejected(self):
+        """An absolute path silently escapes ROOT: pathlib's '/' operator
+        discards the left operand when the right is absolute (Minor
+        finding)."""
+        self._expect_error(
+            lambda d: d["leaderboard"].update({"file": "/tmp/escaped.tsv"}),
+            "/tmp/escaped.tsv", "repo-relative")
+
 
 class TestCollision(unittest.TestCase):
     def test_name_collision_with_python_mode_is_hard_error(self):
@@ -108,13 +186,18 @@ class TestCollision(unittest.TestCase):
 
 
 class TestSingleModeSpecClass(unittest.TestCase):
-    """Only ONE modes module may be live in the suite process.
+    """Only ONE copy of each of these modules may be live in the suite process.
 
-    `core/modes.py` is importable two ways -- bare `modes` (core/ on sys.path,
-    which is how bo_driver.py runs as a subprocess and how this suite imports)
-    and qualified `core.modes`. If both load, Python builds two non-identical
-    ModeSpec classes and any isinstance check across them silently returns
-    False. Every test file here must therefore use the bare convention.
+    `core/modes.py` (and its siblings core/geom_template.py, core/bo_driver.py)
+    are importable two ways -- bare (core/ on sys.path, which is how
+    bo_driver.py runs as a subprocess and how this suite imports) and
+    qualified `core.<module>`. If both load, Python builds two non-identical
+    copies of the same class (ModeSpec, GeomTemplate, ...) and any isinstance
+    check or `is`-identity across them silently returns False. Every test
+    file here must therefore use the bare convention. tests/test_geom_template.py
+    was the gap that motivated the geom_template/bo_driver entries below (I7
+    in the json-configurable-modes final review) -- it used qualified
+    `core.geom_template`/`core.bo_driver` imports until fixed.
     """
     def test_qualified_modes_module_is_not_loaded(self):
         self.assertNotIn(
@@ -123,6 +206,24 @@ class TestSingleModeSpecClass(unittest.TestCase):
             "non-identical ModeSpec classes. Some test module is importing "
             "`from core import modes` -- switch it to the sys.path.insert + "
             "bare `import modes` convention used by tests/test_modes.py.")
+
+    def test_qualified_geom_template_module_is_not_loaded(self):
+        self.assertNotIn(
+            "core.geom_template", sys.modules,
+            "core.geom_template is loaded alongside bare `geom_template`, "
+            "which creates two non-identical GeomTemplate/ExprError classes. "
+            "Some test module is importing `from core.geom_template import "
+            "...` -- switch it to the sys.path.insert + bare `import "
+            "geom_template` convention used by tests/test_mode_json.py.")
+
+    def test_qualified_bo_driver_module_is_not_loaded(self):
+        self.assertNotIn(
+            "core.bo_driver", sys.modules,
+            "core.bo_driver is loaded alongside bare `bo_driver`, which "
+            "creates two non-identical MODES/ModeSpec-consuming classes. "
+            "Some test module is importing `from core.bo_driver import "
+            "...` -- switch it to the sys.path.insert + bare `import "
+            "bo_driver` convention used by tests/test_json_mode.py.")
 
 
 if __name__ == "__main__":

@@ -71,6 +71,15 @@ class ModeSpec:
     harvest_verb: str                 # pipeline.py verb: "harvest" | "harvest-pot-only"
     stage_target_overrides: Dict[str, int]   # njobs overrides on graph.config.STAGE_TARGETS
     presubmit_after: Dict[str, Tuple[str, ...]]  # after-stage -> stages to presubmit
+    # Per-stage core/pipeline.py STAGES overrides (events_per_job/memory_mb/
+    # quorum), applied by pipeline.py's _apply_stage_tuning on top of the
+    # pipeline defaults. The six Python modes pass {} explicitly (this
+    # module's rule: a missing fact is an import error, never a default);
+    # foilsflash keeps its separate hardcoded `AUTORESEARCH_MODE ==
+    # "foilsflash"` block in pipeline.py rather than migrating to this field
+    # (out of scope — see core/pipeline.py comment at that block). JSON modes
+    # populate this from `run.stage_tuning` (core/mode_json.py).
+    stage_tuning: Dict[str, Dict[str, object]]
     # Search-space box (numeric modes; michael's Categorical space is not a
     # box — None is passed EXPLICITLY there, it is not a default).
     bounds_lo: Optional[Tuple[float, ...]]
@@ -139,6 +148,7 @@ SPECS: Dict[str, ModeSpec] = {
         harvest_verb="harvest",
         stage_target_overrides={},
         presubmit_after={},
+        stage_tuning={},
         # last two dims are hole RADII [mm] (foilsf/foilsflash use fractions)
         bounds_lo=(50.0, 50.0, 0.01, 0.01, 0.0, 0.0),
         bounds_hi=(250.0, 250.0, 1.0, 1.0, 50.0, 50.0),
@@ -164,6 +174,7 @@ SPECS: Dict[str, ModeSpec] = {
         harvest_verb="harvest",
         stage_target_overrides={},
         presubmit_after={},
+        stage_tuning={},
         bounds_lo=(50.0, 50.0, 0.01, 0.01, 0.0, 0.0),
         bounds_hi=(250.0, 250.0, 1.0, 1.0, 0.95, 0.95),
         int_dims=(),
@@ -193,6 +204,11 @@ SPECS: Dict[str, ModeSpec] = {
         stage_target_overrides={"mubeam": 15, "mustops_ce": 15,
                                 "elebeam_flash": 100},
         presubmit_after={"mubeam": ("elebeam_flash",)},
+        # Python foilsflash keeps its hardcoded tuning in the
+        # `AUTORESEARCH_MODE == "foilsflash"` block in core/pipeline.py
+        # (migrating it there is explicitly out of scope); {} here so this
+        # field is never silently defaulted for the mode that most needs it.
+        stage_tuning={},
         # hT floor 0.002 = the 2026-07-09 widened thickness-probe box.
         bounds_lo=(50.0, 50.0, 0.002, 0.002, 0.0, 0.0),
         bounds_hi=(250.0, 250.0, 1.0, 1.0, 0.95, 0.95),
@@ -219,6 +235,7 @@ SPECS: Dict[str, ModeSpec] = {
         harvest_verb="harvest",
         stage_target_overrides={},
         presubmit_after={},
+        stage_tuning={},
         bounds_lo=(50.0, 0.01, 0.0) * 4,
         bounds_hi=(250.0, 1.0, 0.95) * 4,
         int_dims=(),
@@ -242,6 +259,7 @@ SPECS: Dict[str, ModeSpec] = {
         harvest_verb="harvest-pot-only",
         stage_target_overrides={},
         presubmit_after={},
+        stage_tuning={},
         bounds_lo=(2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 25.0),
         bounds_hi=(4.5, 4.5, 4.5, 8.0, 8.0, 8.0, 12.0, 12.0, 12.0, 45.0),
         int_dims=(9,),   # numberOfPlates
@@ -272,6 +290,7 @@ SPECS: Dict[str, ModeSpec] = {
         harvest_verb="harvest-pot-only",
         stage_target_overrides={},
         presubmit_after={},
+        stage_tuning={},
         bounds_lo=(2.0, 2.0, 2.0, 3.0, 3.0, 3.0),
         bounds_hi=(4.5, 4.5, 4.5, 8.0, 8.0, 8.0),
         int_dims=(),

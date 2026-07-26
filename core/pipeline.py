@@ -292,6 +292,35 @@ if os.environ.get("AUTORESEARCH_MODE") == "foilsflash":
     STAGES["mustops_ce"]["quorum"] = 0.8
 
 
+def _apply_stage_tuning(stages: dict, tuning: dict) -> None:
+    """Apply a mode's ModeSpec.stage_tuning (core/mode_json.py `run.stage_tuning`)
+    onto `stages` in place -- each stage key updates that stage's dict with
+    the tuning dict's keys (events_per_job/memory_mb/quorum; already
+    type/range-validated at JSON-load time by mode_json._validate_stage_tuning).
+    A stage name that doesn't exist in `stages` is a loud ValueError, not a
+    silently-created no-op entry.
+    """
+    for stage, overrides in tuning.items():
+        if stage not in stages:
+            raise ValueError(
+                f"stage_tuning references unknown stage {stage!r}; known "
+                f"pipeline stages are {sorted(stages)}")
+        stages[stage].update(overrides)
+
+
+# Generic per-mode stage tuning (core/mode_json.py `run.stage_tuning`): the
+# JSON schema's declarative equivalent of the hardcoded foilsflash block
+# above. Applied AFTER that block ON PURPOSE so the two mechanisms coexist
+# without one clobbering the other -- the Python foilsflash mode's hardcoded
+# tuning is untouched (migrating it to stage_tuning is explicitly out of
+# scope; see the block above), and JSON modes get theirs here. The six
+# Python modes all declare stage_tuning={} (core/modes.py), so this is a
+# no-op for every mode except a JSON mode that sets it.
+_apply_stage_tuning(
+    STAGES,
+    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")].stage_tuning)
+
+
 # EleBeamCat resampler normalization: each resampled electron corresponds to
 # dh.gencount/event_count = 25e6 POT / 2,166,994 electrons ~= 11.537 POT. Used to
 # turn the elebeam_flash TOTAL edep into an absolute MeV/POT rate (the flash-per-POT
