@@ -9,13 +9,20 @@ fixed for GeomTemplate -- see core/modes.py's tail comment), and
 tests.test_mode_json.TestSingleModeSpecClass asserts "core.modes" never
 lands in sys.modules across the whole suite.
 """
+import argparse
+import csv
 import dataclasses
+import json
+import shutil
 import sys
+import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes  # noqa: E402
+import bo_driver  # noqa: E402
 from bo_driver import JsonMode  # noqa: E402
 from mode_json import load_mode_file  # noqa: E402
 
@@ -106,6 +113,99 @@ class TestJsonMode(unittest.TestCase):
             self.mode.extract_metrics(
                 {"s_over_sqrt_b": 3.9, "calo_per_pot": 1.2e-6})
         self.assertIn("flash_edep", str(cm.exception))
+
+
+class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
+    """F1: a JSON-defined mode must be able to LAND A LEADERBOARD ROW.
+
+    Every earlier test in this file stops at a seam. The defect they all
+    missed lived in `cmd_evaluate`, which called `mode.parse_geom(...)`
+    unconditionally -- JsonMode raises NotImplementedError there, which is
+    NOT in cmd_evaluate's `except (KeyError, TypeError)`. Propose, preflight,
+    submit, ~4.5h of grid and harvest all succeed; evaluate then dies and
+    graph/pipeline_io.run_evaluate records a zero-row for every child. This
+    test drives the REAL cmd_evaluate against a scratch leaderboard and
+    asserts the row is actually there.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="jsonmode_eval_"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        # Unique name: the probe is registered into the process-global
+        # modes.SPECS / bo_driver.MODES, and tests/test_modes.py asserts
+        # those two keysets are equal -- so both registrations are undone by
+        # addCleanup even if this setUp raises partway through.
+        self.name = "evalprobe" + uuid.uuid4().hex[:8]
+        spec = dataclasses.replace(load_mode_file(FIXTURE), name=self.name)
+        modes.SPECS[self.name] = spec
+        self.addCleanup(modes.SPECS.pop, self.name, None)
+        mode = JsonMode(self.name)
+        # Never touch a real leaderboard under leaderboards/.
+        mode.leaderboard = self.tmp / f"leaderboard_bo_{self.name}.tsv"
+        mode.proposal_dir = self.tmp / "proposals"
+        bo_driver.MODES[self.name] = mode
+        self.addCleanup(bo_driver.MODES.pop, self.name, None)
+        self.mode = mode
+
+    def _args(self, config_name, summary_path, alpha=1.0e5, emit_json=None):
+        return argparse.Namespace(
+            mode=self.name, summary=str(summary_path),
+            config_name=config_name, alpha=alpha, emit_json=emit_json)
+
+    def _summary(self, payload) -> Path:
+        p = self.tmp / "summary.json"
+        p.write_text(json.dumps(payload))
+        return p
+
+    def test_evaluate_appends_a_leaderboard_row(self):
+        x = [120.0, 130.0, 0.1, 0.2, 0.3, 0.4]
+        self.mode.render_proposal("PROBE01", x)
+        self.mode.append_pending("PROBE01", x, 1.0e5)
+        summary = self._summary(
+            {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
+
+        rc = bo_driver.cmd_evaluate(self._args("PROBE01", summary))
+
+        self.assertEqual(rc, 0, "evaluate must succeed for a JSON mode")
+        self.assertTrue(self.mode.leaderboard.exists(),
+                        "no leaderboard file was written")
+        with self.mode.leaderboard.open() as f:
+            rows = list(csv.DictReader(f, delimiter="\t"))
+        self.assertEqual(len(rows), 1, rows)
+        row = rows[0]
+        self.assertEqual(row["config"], "PROBE01")
+        self.assertAlmostEqual(float(row["sob"]), 3.9, places=5)
+        self.assertAlmostEqual(float(row["flash_edep"]), 1.5e-6, places=12)
+        # The x recovered by evaluate must be the x that was proposed.
+        for col, want in zip(self.mode.KNOB_NAMES, x):
+            self.assertAlmostEqual(float(row[col]), want, places=4, msg=col)
+        # And the row must read back through the normal history path.
+        hist = self.mode.load_history()
+        self.assertEqual(len(hist), 1)
+        self.assertEqual(hist[0].cfg, "PROBE01")
+        for got, want in zip(hist[0].x, x):
+            self.assertAlmostEqual(float(got), want, places=4)
+        # Pending is cleared exactly as for a Python mode.
+        self.assertEqual(self.mode.load_pending(), [])
+
+    def test_evaluate_without_a_pending_row_fails_loudly(self):
+        """The x is recovered from the pending TSV; if the config is not
+        there (evaluate re-run after a successful one already cleared it),
+        refuse with a message naming the pending file and the config --
+        never a guessed or partial x."""
+        x = [120.0, 130.0, 0.1, 0.2, 0.3, 0.4]
+        self.mode.render_proposal("PROBE02", x)   # geom exists, pending does not
+        summary = self._summary(
+            {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
+
+        with self.assertRaises(SystemExit) as cm:
+            bo_driver.cmd_evaluate(self._args("PROBE02", summary))
+
+        msg = str(cm.exception)
+        self.assertIn("PROBE02", msg)
+        self.assertIn(str(self.mode.pending_path()), msg)
+        self.assertFalse(self.mode.leaderboard.exists(),
+                         "refused evaluate must not append anything")
 
 
 if __name__ == "__main__":

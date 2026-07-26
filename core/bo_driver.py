@@ -161,6 +161,24 @@ class BOMode(ABC):
     @abstractmethod
     def parse_geom(self, text: str): ...
 
+    # --- x recovery at evaluate time (the seam cmd_evaluate calls) ---
+    def x_for_evaluate(self, config_name: str, geom_text: str):
+        """Recover the x that was actually evaluated, for the leaderboard row.
+
+        The six Python modes round-trip their own rendered geometry, which is
+        what this default does. A mode with no parser (JsonMode) overrides
+        this and recovers x from the pending TSV instead — `x` is persisted
+        there by append_pending at propose time and is still present here,
+        because cmd_evaluate calls remove_pending only AFTER this point.
+
+        This indirection exists because cmd_evaluate used to call parse_geom
+        directly: JsonMode.parse_geom raises NotImplementedError, which is not
+        in cmd_evaluate's `except (KeyError, TypeError)`, so every JSON-mode
+        child died at evaluate after its full ~4.5h grid run and the campaign
+        landed zero rows.
+        """
+        return self.parse_geom(geom_text)
+
     # Leaderboard row shape shared by every sob/calo-schema mode: knob columns
     # = KNOB_NAMES, per-position precision = KNOB_FMTS, second-objective column
     # = CALO_COL. These are registry-reading properties now (modes.SPECS is
@@ -1184,6 +1202,26 @@ class JsonMode(BOMode):
             f"round-trip (parse_geom). It is out of scope by design; see "
             f"docs/superpowers/specs/2026-07-25-json-configurable-modes-design.md")
 
+    def x_for_evaluate(self, config_name: str, geom_text: str):
+        """Recover x from the pending TSV instead of parsing the geometry.
+
+        append_pending wrote the exact proposed x as JSON at propose time and
+        cmd_evaluate clears pending only after this call, so the row is still
+        there. An absent config is a HARD refusal: a partial or guessed x
+        would put a real (sob, calo) measurement at the wrong coordinates and
+        train the GP on a point that was never evaluated.
+        """
+        for name, x in self.load_pending():
+            if name == config_name:
+                return list(x)
+        raise SystemExit(
+            f"[{self.name}] cannot recover x for {config_name!r}: no such row "
+            f"in {self.pending_path()}. JSON-defined modes have no geometry "
+            f"parser, so the pending TSV is the ONLY record of the proposed "
+            f"x; it is written by propose and cleared by a SUCCESSFUL "
+            f"evaluate. Re-running evaluate for an already-recorded config "
+            f"hits this. Refusing to append a row rather than guess x.")
+
     def extract_metrics(self, summary: dict) -> tuple[float, float]:
         spec = _modes.SPECS[self.name]
         out = []
@@ -1395,7 +1433,7 @@ def cmd_evaluate(args):
     if not geom.exists():
         print(f"Proposal geom not found: {geom}", file=sys.stderr)
         return 1
-    x = mode.parse_geom(geom.read_text())
+    x = mode.x_for_evaluate(args.config_name, geom.read_text())
     if x is None:
         print(f"Failed to parse {mode.name} params from {geom}", file=sys.stderr)
         return 1
