@@ -417,13 +417,16 @@ class TestLeaderboardUniqueness(unittest.TestCase):
         self.assertIn("foils", msg)
 
     def test_dotted_path_does_not_defeat_the_check(self):
+        # foils, not foilsflash: foilsflash became JSON-defined 2026-07-26 and
+        # its leaderboard is no longer Python-owned, so it can no longer serve
+        # as the "belongs to a Python mode" example here.
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             _write(tmp, "myline", self._spec_doc(
-                "myline", "./leaderboards/leaderboard_bo_foilsflash.tsv"))
+                "myline", "./leaderboards/leaderboard_bo_foils_v2.tsv"))
             with self.assertRaises(ValueError) as cm:
                 load_mode_dir(tmp, modes.SPECS)
-        self.assertIn("foilsflash", str(cm.exception))
+        self.assertIn("foils", str(cm.exception))
 
     def test_parent_traversal_in_leaderboard_path_rejected(self):
         doc = self._spec_doc("myline", "../elsewhere/leaderboard.tsv")
@@ -445,9 +448,17 @@ class TestLeaderboardUniqueness(unittest.TestCase):
 
     def test_python_leaderboard_table_matches_the_driver_classes(self):
         """The loader cannot import bo_driver (bo_driver -> modes ->
-        mode_json is already a cycle), so the six live leaderboard paths are
-        frozen in core/mode_json.py. This is the lockstep test that makes a
-        renamed Python leaderboard fail HERE instead of re-opening the hole."""
+        mode_json is already a cycle), so the live Python leaderboard paths
+        are frozen in core/mode_json.py. This is the lockstep test that makes
+        a renamed Python leaderboard fail HERE instead of re-opening the hole.
+
+        The mode list is DERIVED, not hardcoded: retiring a Python mode must
+        also prune its entry from PYTHON_MODE_LEADERBOARDS, or the JSON spec
+        that replaces it is locked out of the very leaderboard it is meant to
+        inherit. A hardcoded list made that a silent trap (hit for real when
+        foilsflash was retired 2026-07-26); deriving it means the retirement
+        and the pruning are checked against each other automatically.
+        """
         import bo_driver as bo
         import mode_json
         root = Path(__file__).resolve().parent.parent
@@ -456,11 +467,14 @@ class TestLeaderboardUniqueness(unittest.TestCase):
         # assigns bo.MODES[...].leaderboard on the INSTANCE and never puts it
         # back, so reading the instance here makes this test order-dependent.
         live = {
-            str(type(bo.MODES[n]).leaderboard.relative_to(root)): n
-            for n in ("foils", "foilsf", "foilsflash", "foilsg",
-                      "prodtarget", "prodtarget6d")
+            str(type(m).leaderboard.relative_to(root)): n
+            for n, m in bo.MODES.items()
+            if not isinstance(m, bo.JsonMode)
         }
         self.assertEqual(dict(mode_json.PYTHON_MODE_LEADERBOARDS), live)
+        self.assertNotIn("foilsflash", live.values(),
+                         "foilsflash is JSON-defined; it must not appear in "
+                         "the Python-owned leaderboard table")
 
 
 class TestCopyPasteTemplate(unittest.TestCase):

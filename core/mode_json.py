@@ -64,7 +64,11 @@ _RESERVED_KNOB_COLUMNS = ("config", "alpha", "obj")
 PYTHON_MODE_LEADERBOARDS = {
     "leaderboards/leaderboard_bo_foils_v2.tsv":        "foils",
     "leaderboards/leaderboard_bo_foils_v3.tsv":        "foilsf",
-    "leaderboards/leaderboard_bo_foilsflash.tsv":      "foilsflash",
+    # foilsflash removed 2026-07-26: its Python mode was retired, so
+    # mode_specs/foilsflash.json now legitimately OWNS that leaderboard and
+    # its 392 rows. This map must be pruned whenever a Python mode is retired
+    # — a stale entry locks the JSON replacement out of the very history it
+    # is meant to inherit (which is exactly how this line was found).
     "leaderboards/leaderboard_bo_foilsg.tsv":          "foilsg",
     "leaderboards/leaderboard_bo_prodtarget_v0.tsv":   "prodtarget",
     "leaderboards/leaderboard_bo_prodtarget6d_v0.tsv": "prodtarget6d",

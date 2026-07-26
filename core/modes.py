@@ -191,42 +191,13 @@ SPECS: Dict[str, ModeSpec] = {
         metrics=None,
         leaderboard_rel=None,
     ),
-    "foilsflash": ModeSpec(
-        name="foilsflash",
-        musing=_HELICAL_LOCAL,
-        grid_tarball=_HOLERADII_TARBALL,
-        # concat dropped 2026-07-10 (mu- purity filter lives in the mubeam
-        # template); elebeam_flash resamples the external EleBeamCat.
-        grid_stages=("mubeam", "mustops_ce", "elebeam_flash"),
-        harvest_verb="harvest",
-        # Lever-1 fast sob stages; elebeam stays 100 (σ_flash 2.52%, the
-        # 2026-07-09 standard). AUTORESEARCH_ELEBEAM_NJOBS env overrides on top.
-        stage_target_overrides={"mubeam": 15, "mustops_ce": 15,
-                                "elebeam_flash": 100},
-        presubmit_after={"mubeam": ("elebeam_flash",)},
-        # Python foilsflash keeps its hardcoded tuning in the
-        # `AUTORESEARCH_MODE == "foilsflash"` block in core/pipeline.py
-        # (migrating it there is explicitly out of scope); {} here so this
-        # field is never silently defaulted for the mode that most needs it.
-        stage_tuning={},
-        # hT floor 0.002 = the 2026-07-09 widened thickness-probe box.
-        bounds_lo=(50.0, 50.0, 0.002, 0.002, 0.0, 0.0),
-        bounds_hi=(250.0, 250.0, 1.0, 1.0, 0.95, 0.95),
-        int_dims=(),
-        preflight_fcl="surfacecheck",
-        dumps_gdml=True, verifies_foil_gdml=True, preserves_gdml=False,
-        checks_managed_overlap=True,
-        knob_names=("extra_rOut_up", "extra_rOut_dn",
-                    "extra_halfThickness_up", "extra_halfThickness_dn",
-                    "extra_f_up", "extra_f_dn"),
-        knob_fmts=("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"),
-        metric_cols=("sob", "flash_edep", "alpha", "obj"),
-        # axis 1 is -log10(flash_edep): sigma_rel 2.31% / ln(10) = 0.0100.
-        obs_noise=(_SIGMA_SOB, 0.010),
-        geom=None,
-        metrics=None,
-        leaderboard_rel=None,
-    ),
+    # "foilsflash" RETIRED from this table 2026-07-26 — it is now declared by
+    # mode_specs/foilsflash.json and merged in by the load_mode_dir() call at
+    # the tail of this file. Every field above (stages, njobs overrides,
+    # presubmit map, the 0.002 hT floor, knob fmts, obs_noise) moved into that
+    # file verbatim; the stage_tuning it used to leave {} now carries the
+    # values that were hardcoded in core/pipeline.py. See bo_driver.py's
+    # "FoilsFlashMode RETIRED" note for why the Python class went too.
     "foilsg": ModeSpec(
         name="foilsg",
         musing=_HELICAL_LOCAL,

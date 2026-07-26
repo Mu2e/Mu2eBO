@@ -22,8 +22,13 @@ import modes  # noqa: E402
 # facts about "the Python modes" must key off this frozen set, not "every key
 # in SPECS", or they break the moment the feature they exist to enable is
 # first used. See I6 in the json-configurable-modes final review.
+# Modes still defined by a Python class in core/modes.py's SPECS table.
+# foilsflash left this set 2026-07-26 when it became mode_specs/foilsflash.json
+# — see bo_driver.py's "FoilsFlashMode RETIRED" note. Retiring a mode means
+# removing it here too; test_python_mode_names_matches_the_live_registry below
+# derives the truth from the registry so a stale name cannot linger unnoticed.
 PYTHON_MODE_NAMES = frozenset({
-    "foils", "foilsf", "foilsflash", "foilsg", "prodtarget", "prodtarget6d",
+    "foils", "foilsf", "foilsg", "prodtarget", "prodtarget6d",
 })
 
 
@@ -36,6 +41,19 @@ class TestRegistryCompleteness(unittest.TestCase):
     def test_name_field_matches_key(self):
         for name, spec in modes.SPECS.items():
             self.assertEqual(spec.name, name)
+
+    def test_python_mode_names_matches_the_live_registry(self):
+        """PYTHON_MODE_NAMES drives which modes are asserted to carry no JSON
+        fields. Derive the truth from the registry rather than trusting the
+        hand-maintained set: when foilsflash was retired to JSON (2026-07-26)
+        a stale entry here turned into a confusing failure in a test that was
+        not about retirement at all."""
+        import bo_driver as bo
+        live = {n for n, m in bo.MODES.items()
+                if not isinstance(m, bo.JsonMode)}
+        self.assertEqual(set(PYTHON_MODE_NAMES), live,
+                         "PYTHON_MODE_NAMES is stale: a mode was retired to "
+                         "JSON (or added) without updating this set")
 
     def test_every_fact_populated(self):
         for name, spec in modes.SPECS.items():
@@ -295,9 +313,22 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
                           "DRIVER_CLASS JsonMode",
                           "GEOM_RENDERS True"], r.stdout)
 
+    # Specs deliberately shipped in the real mode_specs/ directory. Every file
+    # here is loaded by EVERY process that imports modes, so the point of the
+    # test below is that nothing arrives unnoticed -- adding a line here is a
+    # conscious act, which is exactly the review checkpoint we want.
+    SHIPPED_SPECS = {"foilsflash.json"}
+
     def test_mode_specs_directory_holds_only_the_readme(self):
-        """The real directory stays clean: a stray *.json checked in here
-        would be loaded by every process that imports modes.
+        """The real directory holds the README plus exactly the shipped specs:
+        a STRAY *.json checked in here would be loaded by every process that
+        imports modes.
+
+        Was "only the README" until foilsflash became JSON-defined
+        (2026-07-26). Kept as an explicit allow-list rather than relaxed to
+        "any *.json": the whole value of this guard is that an unintended file
+        fails loudly, and `assertEqual` against a named set preserves that
+        while a laxer check would not.
 
         `wiringprobe*.json` is excluded deliberately. The test above stages
         one into this same real directory, and a SECOND suite process running
@@ -310,7 +341,16 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         stray = sorted(p.name for p in (root / "mode_specs").iterdir()
                        if not p.name.startswith("wiringprobe"))
-        self.assertEqual(stray, ["README.md"])
+        self.assertEqual(stray, sorted({"README.md"} | self.SHIPPED_SPECS))
+
+    def test_every_shipped_spec_is_a_registered_json_mode(self):
+        """A file in mode_specs/ that never became a live mode means the
+        loader silently skipped it."""
+        import bo_driver as bo
+        for fname in self.SHIPPED_SPECS:
+            name = fname[:-len(".json")]
+            self.assertIn(name, modes.SPECS, f"{fname} did not reach SPECS")
+            self.assertIsInstance(bo.MODES[name], bo.JsonMode)
 
 
 if __name__ == "__main__":

@@ -606,63 +606,18 @@ class FoilsFracMode(FoilsMode):
 
 
 
-class FoilsFlashMode(FoilsFracMode):
-    """Same 6D foils geometry + S/√B signal as FoilsFracMode, but the SECOND
-    objective is the tracker StrawGasStep ionizing edep from the ELECTRON beam
-    EARLY-FLASH peak (DS on), not the Run1B calo-stop background. The foils sit
-    in the DS beam path, so they scatter/absorb flash electrons → flash tracker
-    occupancy is responsive to the foil geometry. Geometry layer (build_space,
-    _geom_text, parse_geom, is_buildable, load_priors) inherited unchanged; only
-    the leaderboard + the 2nd-objective plumbing differ. See
-    wiki/projects/bo-foilsflash.md. The flash edep is carried in the generic
-    Point.calo slot (reused)."""
-    name = "foilsflash"
-    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foilsflash.tsv"
-    proposal_dir = ROOT / "bo_work" / "proposals" / "foilsflash"
-    preflight_dir = ROOT / "bo_work" / "preflight" / "foilsflash"
-
-
-    # Search space = FoilsFracMode's (inherited KNOB_NAMES) but with a widened
-    # halfThickness floor of 0.002 mm (=4 µm full, vs the 0.01 mm=20 µm the
-    # optimizer rail-pinned against) for the thickness-probe experiment
-    # (2026-07-09). That floor lives in modes.SPECS["foilsflash"].bounds_lo,
-    # which the picker reads too — see wiki/projects/bo-foilsflash.md
-    # "SEARCH-BOX FLOOR" and tests/test_modes.py (bounds lockstep enforced).
-
-    def load_priors(self):
-        return []
-
-    # 2nd objective = TOTAL early-flash tracker edep PER POT (MeV/POT), the
-    # geometry-sensitive lever (harvest writes flash_edep_per_pot). The old
-    # per-event MEAN (flash_edep_per_event) divides out the flash-event count and
-    # is BLIND to the geometry — it produced the spurious "foils are not a flash
-    # lever" null (see wiki/projects/bo-foilsflash.md). Falls back to
-    # flash_edep_per_event when flash_edep_per_pot is absent -- there is NO
-    # further fallback to calo_per_pot (that would silently write a different
-    # physical quantity into this column). A summary with neither key present,
-    # or a zero/negative resolved value, hits the guard below and raises.
-    def extract_metrics(self, summary: dict) -> tuple[float, float]:
-        sob = summary["s_over_sqrt_b"]
-        edep = summary.get("flash_edep_per_pot")
-        if edep is None:
-            edep = summary.get("flash_edep_per_event")
-        if edep is None or edep <= 0:
-            # Flash-less summary = the elebeam stage failed fail-soft. NEVER
-            # coerce to 0: a fake zero-flash row at good sob dominates the
-            # entire Pareto front at the next GP refit (7 poison rows landed
-            # this way 2026-07-10 via the direct-CLI evaluate path; the graph
-            # path was guarded in node_evaluate, this path was not).
-            raise SystemExit(
-                f"[foilsflash] flash edep missing/zero in summary for "
-                f"{summary.get('config', '?')} — refusing to append a row; "
-                f"recover the elebeam stage first (see wiki "
-                f"elebeamcat-tape-migration-elebeam-wipeout)")
-        return sob, edep
-
-    # Only the objective column name differs from FoilsFracMode: the flash
-    # edep-per-POT lands under "flash_edep" (Point.calo carries it) — that's
-    # modes.SPECS["foilsflash"].metric_cols[1]. Row shape, knob names, and
-    # parse all inherit unchanged.
+# FoilsFlashMode RETIRED 2026-07-26 — the line is now defined entirely by
+# mode_specs/foilsflash.json (JSON-configurable modes). The class was a pure
+# duplicate of what the spec declares: geometry inherited from FoilsFracMode
+# (reproduced by the spec's geom block, parity-proven against
+# tests/fixtures/golden_geom/foilsflash_*.txt, captured from THIS class before
+# deletion) and a 2-line extract_metrics whose flash_edep_per_pot →
+# flash_edep_per_event chain plus zero/negative refusal are now
+# ModeSpec.metrics + JsonMode.extract_metrics. Its leaderboard, all 392 rows,
+# carries over untouched — the JSON spec declares the same path and an
+# identical column header. Validated on the real grid by ffjson01 (2026-07-26)
+# before this deletion. Live behaviour is unchanged; there is no Python
+# fallback left, so see wiki/projects/bo-foilsflash.md for the line itself.
 
 
 class FoilsGroupMode(BOMode):
@@ -1276,7 +1231,6 @@ class JsonMode(BOMode):
 MODES: dict[str, BOMode] = {
     "foils":        FoilsMode(),
     "foilsf":       FoilsFracMode(),
-    "foilsflash":   FoilsFlashMode(),
     "foilsg":       FoilsGroupMode(),
     "prodtarget":   ProdTargetMode(),
     "prodtarget6d": ProdTarget6DMode(),
@@ -1443,7 +1397,26 @@ def cmd_evaluate(args):
     # `obj_unparseable`, and SqliteSaver crashes serializing the None-bearing
     # state (foilsf08R00 10/10 children, 2026-06-08). See wiki/incidents/
     # closed-loop-sqlite-checkpoint-transient-corruption.md.
+    # ...but ONLY for a mode that actually HAS run1b_mubeam to drop. The
+    # substitution's entire justification is "qlnei removed the stage that
+    # produces this metric, so its absence is expected." For a mode whose
+    # chain never contained run1b_mubeam (foilsflash: mubeam/mustops_ce/
+    # elebeam_flash), a missing second objective means the stage that WAS
+    # supposed to produce it failed fail-soft — and coercing that to 0.0
+    # writes a fake zero-flash row at good sob, which dominates the entire
+    # Pareto front at the next GP refit. That is exactly the 7-poison-row
+    # incident of 2026-07-10, and the retired FoilsFlashMode refused it by
+    # raising. Gating on the stage chain restores that guarantee generically:
+    # it is derived from the mode's own spec, so it cannot go stale the way a
+    # mode-name list would.
+    _has_run1b = "run1b_mubeam" in _modes.SPECS[mode.name].grid_stages
     if calo is None and os.environ.get("AUTORESEARCH_NO_RUN1B") == "1":
+        if not _has_run1b:
+            print(f"[{mode.name}] second objective missing and this mode has "
+                  f"no run1b_mubeam stage to drop — NOT substituting 0.0; "
+                  f"refusing to append a row (a fake zero would dominate the "
+                  f"Pareto front). Recover the failed stage first.")
+            return 1
         print(f"[{mode.name}] calo is None (AUTORESEARCH_NO_RUN1B=1); "
               f"substituting 0.0 for sob-only objective")
         calo = 0.0

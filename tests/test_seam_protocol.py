@@ -102,6 +102,12 @@ class TestCmdEvaluateEmit(unittest.TestCase):
             with patches[0], patches[1]:
                 x = [100.0, 100.0, 0.05, 0.05, 0.5, 0.5]
                 mode.render_proposal("cfgE", x)
+                # propose writes BOTH the geom and the pending row
+                # (graph/pipeline_io.py:82+89, bo_driver.py:1364+1372).
+                # Rendering alone under-simulates it: since foilsflash became
+                # JSON-defined it has no geometry parser, so the pending TSV
+                # is the only record of x that evaluate can read.
+                mode.append_pending("cfgE", x, bo.DEFAULT_ALPHA)
                 summary = Path(tmp) / "summary.json"
                 summary.write_text(json.dumps(
                     {"s_over_sqrt_b": 3.5, "flash_edep_per_pot": 1e-6}))
@@ -118,19 +124,75 @@ class TestCmdEvaluateEmit(unittest.TestCase):
                 self.assertAlmostEqual(payload["sob"], 3.5)
 
     def test_refusal_emits_nothing(self):
+        """Flash edep missing → no row, no emit. Since foilsflash became
+        JSON-defined the refusal is rc=1 rather than the retired
+        FoilsFlashMode's SystemExit; what must not change is that nothing is
+        appended and nothing is emitted."""
         with tempfile.TemporaryDirectory() as tmp:
             mode, patches = self._tmp_mode(tmp)
             with patches[0], patches[1]:
+                x = [100.0, 100.0, 0.05, 0.05, 0.5, 0.5]
+                mode.render_proposal("cfgE", x)
+                mode.append_pending("cfgE", x, bo.DEFAULT_ALPHA)
                 summary = Path(tmp) / "summary.json"
                 summary.write_text(json.dumps({"s_over_sqrt_b": 3.5}))
                 out = Path(tmp) / "evaluate_result.json"
-                # flash edep missing → extract_metrics SystemExit → refusal
-                with self.assertRaises(SystemExit):
+                rc = bo.cmd_evaluate(SimpleNamespace(
+                    mode="foilsflash", config_name="cfgE",
+                    summary=str(summary), alpha=bo.DEFAULT_ALPHA,
+                    emit_json=str(out)))
+                self.assertEqual(rc, 1)
+                self.assertFalse(out.exists())
+                self.assertFalse(mode.leaderboard.exists())
+
+    def test_zero_flash_is_never_substituted_for_a_flash_mode(self):
+        """The 7-poison-row guard, generically.
+
+        AUTORESEARCH_NO_RUN1B=1 exists so qlnei can drop run1b_mubeam and
+        still land a sob-only row with calo=0. foilsflash has no
+        run1b_mubeam stage at all, so a missing second objective means the
+        elebeam stage failed fail-soft — substituting 0.0 there would append
+        a fake zero-flash row at good sob that dominates the Pareto front at
+        the next GP refit (2026-07-10). The retired FoilsFlashMode refused
+        this by raising; cmd_evaluate must still refuse.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            mode, patches = self._tmp_mode(tmp)
+            with patches[0], patches[1], \
+                 mock.patch.dict(bo.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
+                x = [100.0, 100.0, 0.05, 0.05, 0.5, 0.5]
+                mode.render_proposal("cfgE", x)
+                mode.append_pending("cfgE", x, bo.DEFAULT_ALPHA)
+                summary = Path(tmp) / "summary.json"
+                summary.write_text(json.dumps({"s_over_sqrt_b": 3.5}))
+                out = Path(tmp) / "evaluate_result.json"
+                rc = bo.cmd_evaluate(SimpleNamespace(
+                    mode="foilsflash", config_name="cfgE",
+                    summary=str(summary), alpha=bo.DEFAULT_ALPHA,
+                    emit_json=str(out)))
+                self.assertEqual(rc, 1)
+                self.assertFalse(mode.leaderboard.exists(),
+                                 "a zero-flash poison row was appended")
+                self.assertFalse(out.exists())
+
+    def test_missing_pending_row_refuses_loudly(self):
+        """Without a geometry parser the pending TSV is the only record of x.
+        If it is absent (e.g. evaluate re-run after a successful one cleared
+        it) the refusal must be loud and must not guess."""
+        with tempfile.TemporaryDirectory() as tmp:
+            mode, patches = self._tmp_mode(tmp)
+            with patches[0], patches[1]:
+                mode.render_proposal("cfgE", [100.0, 100.0, 0.05, 0.05, 0.5, 0.5])
+                summary = Path(tmp) / "summary.json"
+                summary.write_text(json.dumps(
+                    {"s_over_sqrt_b": 3.5, "flash_edep_per_pot": 1e-6}))
+                with self.assertRaises(SystemExit) as cm:
                     bo.cmd_evaluate(SimpleNamespace(
                         mode="foilsflash", config_name="cfgE",
                         summary=str(summary), alpha=bo.DEFAULT_ALPHA,
-                        emit_json=str(out)))
-                self.assertFalse(out.exists())
+                        emit_json=None))
+                self.assertIn("cannot recover x", str(cm.exception))
+                self.assertFalse(mode.leaderboard.exists())
 
 
 def _fake_eval_run(write_json=None, rc=0):

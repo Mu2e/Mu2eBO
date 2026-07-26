@@ -220,19 +220,48 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
     # -- F7 case 1: UNRESOLVED second objective ----------------------------
     def test_evaluate_substitutes_zero_for_an_unresolved_second_objective(self):
         """The qlnei picker stamps AUTORESEARCH_NO_RUN1B=1 and drops the
-        second-objective stage BY DESIGN. Python modes return None there and
+        run1b_mubeam stage BY DESIGN. Python modes return None there and
         cmd_evaluate substitutes 0.0 so the row still lands; JsonMode used to
-        raise KeyError instead, so every child failed at evaluate."""
-        self._propose("PROBE03")
-        summary = self._summary({"s_over_sqrt_b": 3.9})
-        with unittest.mock.patch.dict(
-                bo_driver.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
-            rc = bo_driver.cmd_evaluate(self._args("PROBE03", summary))
+        raise KeyError instead, so every child failed at evaluate.
+
+        Requires a chain that actually CONTAINS run1b_mubeam — the fixture is
+        foilsflash-shaped and has none, and for such a mode the substitution
+        is a poison row rather than a design choice (see the companion test
+        below). So this registers a run1b-bearing variant.
+        """
+        spec = modes.SPECS[self.name]
+        variant = dataclasses.replace(
+            spec, grid_stages=("mubeam", "run1b_mubeam", "mustops_ce"))
+        with unittest.mock.patch.dict(modes.SPECS, {self.name: variant}):
+            self._propose("PROBE03")
+            summary = self._summary({"s_over_sqrt_b": 3.9})
+            with unittest.mock.patch.dict(
+                    bo_driver.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
+                rc = bo_driver.cmd_evaluate(self._args("PROBE03", summary))
         self.assertEqual(rc, 0)
         with self.mode.leaderboard.open() as f:
             row = next(csv.DictReader(f, delimiter="\t"))
         self.assertAlmostEqual(float(row["sob"]), 3.9, places=5)
         self.assertEqual(float(row["flash_edep"]), 0.0)
+
+    def test_no_substitution_when_the_mode_never_had_a_run1b_stage(self):
+        """The substitution is justified ONLY by "qlnei removed the stage that
+        produces this metric". For a flash-shaped chain (mubeam/mustops_ce/
+        elebeam_flash — no run1b_mubeam) an absent second objective instead
+        means the elebeam stage failed fail-soft, and coercing it to 0.0
+        writes a fake zero-flash row at good sob that dominates the Pareto
+        front at the next GP refit. The retired FoilsFlashMode refused this by
+        raising; the stage-chain gate restores that guarantee generically.
+        """
+        self.assertNotIn("run1b_mubeam", modes.SPECS[self.name].grid_stages)
+        self._propose("PROBE03B")
+        summary = self._summary({"s_over_sqrt_b": 3.9})
+        with unittest.mock.patch.dict(
+                bo_driver.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
+            rc = bo_driver.cmd_evaluate(self._args("PROBE03B", summary))
+        self.assertEqual(rc, 1)
+        self.assertFalse(self.mode.leaderboard.exists(),
+                         "a zero-flash poison row was appended")
 
     def test_evaluate_refuses_unresolved_second_objective_without_no_run1b(self):
         self._propose("PROBE04")

@@ -258,26 +258,16 @@ STAGES = {
 # mustops_ce events_per_job are SHARED, so override ONLY for foilsflash here.
 # Stamped-at-submit (see [[events-per-job-mid-flight-edit]]); safe for a FRESH
 # campaign (kill+relaunch), NOT for mid-flight edits.
-if os.environ.get("AUTORESEARCH_MODE") == "foilsflash":
-    STAGES["mubeam"]["events_per_job"] = 200000
-    STAGES["mustops_ce"]["events_per_job"] = 75000
-    STAGES["elebeam_flash"]["events_per_job"] = 110000
-    # Measured VmHWM (2026-07-09, ff09 job logs): elebeam 1311-1313 MB
-    # (near-deterministic, 3 samples), mustops_ce 1129 MB. 2000 MB is ~1.5×
-    # the resident peak (VmPeak ~1.4-1.7 GB is virtual) and matches the
-    # standard 2 GB/core slot exactly → best matchability + smallest
-    # footprint against the ~1,250-slot ceiling. Watch the first round for
-    # OOM-holds on extreme geometries; bump back to 2500 if any appear.
-    # See wiki/concepts/bo-noise-budget.md.
-    for _s in ("mubeam", "mustops_ce", "elebeam_flash"):
-        STAGES[_s]["memory_mb"] = 2000
-    # Narrow 15-job stages are the erratic ones: quorum 0.9 → target 13/15
-    # still waits on stragglers and one slow node ~doubles the stage (mustops
-    # 75-175 min on identical payloads). 12/15 clips the tail; σ_sob 0.09%
-    # has huge margin for the lost ~7% stats. elebeam keeps the 0.9 default
-    # (200-wide averages stragglers; flash stats are the binding channel).
-    STAGES["mubeam"]["quorum"] = 0.8
-    STAGES["mustops_ce"]["quorum"] = 0.8
+# The hardcoded `AUTORESEARCH_MODE == "foilsflash"` block that used to live
+# here was RETIRED 2026-07-26 with the Python FoilsFlashMode: its values moved
+# verbatim into mode_specs/foilsflash.json `run.stage_tuning` and are applied
+# by the generic _apply_stage_tuning() call below. Keeping both would have left
+# two mechanisms writing the same three stages, with the generic one silently
+# winning (it ran last) — so an edit to the JSON would appear to work while an
+# edit here did nothing. Values preserved exactly: mubeam 200k ev / 2000 MB /
+# quorum 0.8, mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 /
+# (default quorum). The rationale for each still lives in the JSON's comments
+# and wiki/concepts/bo-noise-budget.md.
 
 
 def _apply_stage_tuning(stages: dict, tuning: dict) -> None:
