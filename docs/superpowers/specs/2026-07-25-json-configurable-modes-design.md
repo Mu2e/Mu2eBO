@@ -70,7 +70,7 @@ into literals that drift; (b) plugin Python renderers — lowest risk but fails 
 goal, since adding a line still means writing code.
 
 - `core/modes.py` keeps its six Python specs **unchanged** and gains a loader for
-  `modes/*.json`, merged into `SPECS` through the same `__post_init__` validation.
+  `mode_specs/*.json`, merged into `SPECS` through the same `__post_init__` validation.
 - `ModeSpec` gains one optional `geom` field. The six Python modes pass `None`
   **explicitly** — matching the module's "a missing fact is an import error, never a
   default" rule.
@@ -87,7 +87,7 @@ live campaign's geometry is a change to prove, not to assume.
 
 ## 5. File format — one file per optimization job
 
-`modes/<name>.json`, at the repo root beside `leaderboards/`.
+`mode_specs/<name>.json`, at the repo root beside `leaderboards/`.
 
 ```
 {

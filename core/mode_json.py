@@ -1,6 +1,6 @@
 """Load and validate JSON-defined modes into ModeSpec objects.
 
-One JSON file per optimization line, in modes/. Every check happens at load
+One JSON file per optimization line, in mode_specs/. Every check happens at load
 time so a typo is an import error, never a corrupt geometry six hours into a
 campaign. STDLIB ONLY (see core/modes.py:1-8).
 """
@@ -129,9 +129,9 @@ def load_mode_file(path: Path) -> "object":
 
 
 def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, object]:
-    """Load every modes/*.json. A name already present in `existing` is a hard
-    error: silently shadowing a Python mode would be a new way to build the
-    wrong geometry."""
+    """Load every mode_specs/*.json. A name already present in `existing` is a
+    hard error: silently shadowing a Python mode would be a new way to build
+    the wrong geometry."""
     if not directory.is_dir():
         return {}
     out: Dict[str, object] = {}
@@ -142,7 +142,7 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
         if spec.name != path.stem:
             raise ValueError(
                 f"{path}: mode name {spec.name!r} does not match its file name "
-                f"{path.stem!r}; modes/ must stay greppable by name")
+                f"{path.stem!r}; mode_specs/ must stay greppable by name")
         if spec.name in existing or spec.name in out:
             raise ValueError(
                 f"{path}: mode name {spec.name!r} collides with an existing "

@@ -317,5 +317,5 @@ if __package__:
 else:
     from mode_json import load_mode_dir  # noqa: E402
 
-MODES_DIR = Path(__file__).resolve().parent.parent / "modes"
+MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 SPECS.update(load_mode_dir(MODES_DIR, SPECS))

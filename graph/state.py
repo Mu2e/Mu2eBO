@@ -31,7 +31,7 @@ class BOIterationState(TypedDict, total=False):
     """Per-iteration state. Persisted by SqliteSaver between node transitions."""
 
     config_name: str
-    # Mode name. NOT a Literal: JSON-defined modes (modes/*.json) are
+    # Mode name. NOT a Literal: JSON-defined modes (mode_specs/*.json) are
     # discovered at import, so the set is not knowable statically. The real
     # completeness check is tests/test_modes.py::test_keys_match_driver_modes,
     # which asserts set(modes.SPECS) == set(bo_driver.MODES).
