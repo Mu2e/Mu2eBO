@@ -10,15 +10,11 @@ template into <work_root>/<cfg>/state/<stage>_template_materialized.fcl
 before handing it to mu2ejobdef.
 
 Per-config working tree (auto-created):
-  /exp/mu2e/data/users/oksuzian/autoresearch_grid/<cfg>/   (small, quota-bound)
+  /exp/mu2e/data/users/oksuzian/autoresearch_grid/<cfg>/
     geom/autoresearch_<cfg>_geom.txt   (placed by bo_driver.py propose)
-    <stage>/Code/                      (transient unpack tree, removed after repack)
+    <stage>/                           (cnf tarballs, Code.tar.bz2)
     state/                             (cluster IDs, output lists, materialized FCL)
     harvest/                           (summary.json, EdepAna outputs)
-  /pnfs/mu2e/scratch/users/oksuzian/autoresearch_grid/<cfg>/  (big, LRU-purged)
-    Code.<base>.tar.bz2                (per-config code tarball cache)
-    <stage>/cnf.*.tar                  (mu2ejobdef jobdefs, ~677 MB each)
-    staged/<stage>/                    (hard-link input farms)
 
 Stages run in sequence at a fixed BO knob point:
   mubeam (200) + run1b_mubeam (200) -> concat (1) -> mustops_ce (200) -> harvest
@@ -123,13 +119,12 @@ ROOT: Path = Path()
 STATE: Path = Path()
 GEOM_FILE: Path = Path()
 DSCONF: str = ""
-PNFS_ROOT: Path = Path()
 PNFS_STAGE: Path = Path()
 
 
 def _bind_config(cfg: str) -> None:
     """Resolve all per-config paths from CFG. Called once by main()."""
-    global CONFIG, ROOT, STATE, GEOM_FILE, DSCONF, PNFS_ROOT, PNFS_STAGE
+    global CONFIG, ROOT, STATE, GEOM_FILE, DSCONF, PNFS_STAGE
     CONFIG = cfg
     ROOT = DATA_ROOT / cfg
     STATE = ROOT / "state"
@@ -138,14 +133,7 @@ def _bind_config(cfg: str) -> None:
     # foils). Per-stage override via STAGES[s]["dsconf_musing"] for modes
     # backing a different Musing (e.g. pot_only -> MDC2025aq).
     DSCONF = f"Run1Bak_{cfg}"
-    # The two ~677 MB blobs per stage (code tarball + cnf jobdef) live on
-    # dCache scratch, not the 2 TB /exp/mu2e/data quota: they are write-once
-    # sequential writes (the pattern dCache supports — random-access writes
-    # are refused), and dCache LRU purges them for us after ~5-8 weeks of
-    # disuse, which is far beyond a cluster's <24 h lifetime. Before this
-    # they accumulated at ~2.7 GB/eval and had to be hand-deleted.
-    PNFS_ROOT = Path(f"/pnfs/mu2e/scratch/users/{USER}/autoresearch_grid/{cfg}")
-    PNFS_STAGE = PNFS_ROOT / "staged"
+    PNFS_STAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/autoresearch_grid/{cfg}/staged")
 
 
 def _stage_dsconf(stage: str) -> str:
@@ -560,9 +548,7 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
     # newer than both inputs (a re-proposed geom or a rebuilt base
     # invalidates). A config's submits are serial (incl. the elebeam
     # presubmit, which runs inside the mubeam node), so no build race.
-    # Lives on dCache scratch (PNFS_ROOT), not the /exp quota — see _bind_config.
-    PNFS_ROOT.mkdir(parents=True, exist_ok=True)
-    cache = PNFS_ROOT / f"Code.{base_tarball.stem.split('.')[0]}.tar.bz2"
+    cache = ROOT / f"Code.{base_tarball.stem.split('.')[0]}.tar.bz2"
     if (cache.exists()
             and cache.stat().st_mtime > GEOM_FILE.stat().st_mtime
             and cache.stat().st_mtime > base_tarball.stat().st_mtime):
@@ -578,17 +564,13 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
         'export MU2E_SEARCH_PATH="$CODE_DIR:$MU2E_SEARCH_PATH"\n'
         'export FHICL_FILE_PATH="$CODE_DIR:$FHICL_FILE_PATH"\n'
     )
-    # bzip2 streams straight to dCache: one sequential write, which is the only
-    # write pattern dCache accepts (random-access writes raise EPERM). Writing
-    # there directly also skips a 677 MB local intermediate. dCache has no
-    # O_TRUNC overwrite either, so unlink any stale target before writing.
+    tarball = stage_dir / "Code.tar.bz2"
+    if tarball.exists():
+        tarball.unlink()
+    run(["bash", "-c", f"cd {stage_dir} && tar cf - Code/ | bzip2 > {tarball.name}"])
     tmp = cache.with_suffix(".tmp")
-    for stale in (tmp, cache):
-        if stale.exists():
-            stale.unlink()
-    run(["bash", "-c", f"cd {shlex.quote(str(stage_dir))} && "
-                       f"tar cf - Code/ | bzip2 > {shlex.quote(str(tmp))}"])
-    tmp.rename(cache)  # namespace rename: readers never see a partial file
+    shutil.move(tarball, tmp)
+    tmp.rename(cache)  # atomic within ROOT: readers never see a partial file
     shutil.rmtree(code_dir, ignore_errors=True)
     return cache
 
@@ -713,21 +695,12 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
     template_fcl = _materialize_template(stage)
 
     dsconf = _stage_dsconf(stage)
-    # The cnf jobdef embeds the whole code tarball (~677 MB/stage), so it lives
-    # on dCache scratch and ages out on its own — see _bind_config. mu2ejobdef
-    # writes it with sysopen(O_CREAT|O_EXCL|O_WRONLY) + one Archive::Tar->write
-    # (it deliberately avoids `tar --append`), i.e. a pure sequential write,
-    # which is what dCache supports. O_EXCL also means a stale target must be
-    # unlinked first — dCache cannot overwrite in place.
-    cnf_dir = PNFS_ROOT / stage
-    cnf_dir.mkdir(parents=True, exist_ok=True)
-    cnf = cnf_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
+    cnf = stage_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
     if cnf.exists():
         print(f"[{stage}] removing existing cnf: {cnf.name}")
         cnf.unlink()
 
-    jobdef = ["mu2ejobdef", "--outdir", str(cnf_dir),
-              "--dsconf", dsconf, "--dsowner", USER, "--desc", desc,
+    jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER, "--desc", desc,
               "--embed", str(template_fcl)]
     if cfg["ships_geom"]:
         base = Path(cfg["code_tarball"]) if "code_tarball" in cfg else None
@@ -753,16 +726,14 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
     if "auxinput" in cfg:
         jobdef += [f"--auxinput={cfg['auxinput']}"]
 
-    # --outdir sends cnf.* to scratch; cwd stays local for everything else.
+    # mu2ejobdef writes cnf.* in cwd
     print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
     subprocess.run(jobdef, cwd=stage_dir, env=env, check=True)
 
     # smoke-test: ask mu2ejobfcl to print job-0's resolved fcl, then probe
     # that the resolved input URLs are actually readable (liveness gate).
     default_loc = f"dir:{staged_input_dir}" if staged_input_dir else cfg["default_loc"]
-    # Absolute path: cnf now lives on scratch while cwd stays local. Both
-    # mu2ejobfcl and mu2ejobsub resolve --jobdef via abs_path(), so this is fine.
-    fcl_check = ["mu2ejobfcl", "--jobdef", str(cnf), "--index", "0",
+    fcl_check = ["mu2ejobfcl", "--jobdef", cnf.name, "--index", "0",
                  "--default-proto", "root", "--default-loc", default_loc]
     print(f"$ (cd {stage_dir} && {shlex.join(fcl_check)})", flush=True)
     fcl_proc = subprocess.run(fcl_check, cwd=stage_dir, env=env, check=True,
@@ -788,7 +759,7 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
             raise subprocess.CalledProcessError(
                 tok.returncode, "getToken", output=tok.stdout, stderr=tok.stderr)
 
-        submit = ["mu2ejobsub", "--jobdef", str(cnf),
+        submit = ["mu2ejobsub", "--jobdef", cnf.name,
                   "--firstjob", "0", "--njobs", str(cfg["njobs"]),
                   "--default-location", default_loc, "--default-protocol", "root",
                   "--predefined-args=al9"]
