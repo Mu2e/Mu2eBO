@@ -108,22 +108,21 @@ class TestCollision(unittest.TestCase):
 
 
 class TestSingleModeSpecClass(unittest.TestCase):
-    def test_only_one_modespec_class_is_live_in_this_process(self):
-        """This suite runs test_modes.py (bare `import modes`) and this file
-        in the same process. If this file used `from core import modes`
-        instead, a second, non-identical ModeSpec class would exist under
-        `core.modes` -- silent divergence between test and production
-        identity (the exact class of bug Task 4 fixed for GeomTemplate).
-        `sys.modules` must never hold both a bare and a `core.`-qualified
-        copy of this module with different classes.
-        """
-        if "core.modes" in sys.modules:
-            self.assertIs(
-                sys.modules["core.modes"].ModeSpec, modes.ModeSpec,
-                "core.modes and bare modes disagree on ModeSpec identity")
-        spec = load_mode_file(FIXTURE)
-        self.assertIs(spec.__class__, modes.ModeSpec)
-        self.assertIs(modes.SPECS["foils"].__class__, modes.ModeSpec)
+    """Only ONE modes module may be live in the suite process.
+
+    `core/modes.py` is importable two ways -- bare `modes` (core/ on sys.path,
+    which is how bo_driver.py runs as a subprocess and how this suite imports)
+    and qualified `core.modes`. If both load, Python builds two non-identical
+    ModeSpec classes and any isinstance check across them silently returns
+    False. Every test file here must therefore use the bare convention.
+    """
+    def test_qualified_modes_module_is_not_loaded(self):
+        self.assertNotIn(
+            "core.modes", sys.modules,
+            "core.modes is loaded alongside bare `modes`, which creates two "
+            "non-identical ModeSpec classes. Some test module is importing "
+            "`from core import modes` -- switch it to the sys.path.insert + "
+            "bare `import modes` convention used by tests/test_modes.py.")
 
 
 if __name__ == "__main__":
