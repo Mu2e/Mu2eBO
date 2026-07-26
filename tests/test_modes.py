@@ -208,5 +208,19 @@ class TestGeomField(unittest.TestCase):
             modes.ModeSpec(name="x")  # type: ignore[call-arg]
 
 
+class TestSubprocessImport(unittest.TestCase):
+    def test_imports_with_only_core_on_syspath(self):
+        """Verify modes imports cleanly with only core/ on sys.path
+        (the production path when bo_driver is invoked as a subprocess).
+        TYPE_CHECKING guard ensures this works despite GeomTemplate annotation.
+        """
+        import subprocess
+        core = Path(__file__).resolve().parent.parent / "core"
+        r = subprocess.run([sys.executable, "-c", "import modes; print(len(modes.SPECS))"],
+                           cwd=str(core), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, f"import failed: {r.stderr}")
+        self.assertEqual(r.stdout.strip(), "6", "must expose all six specs")
+
+
 if __name__ == "__main__":
     unittest.main()

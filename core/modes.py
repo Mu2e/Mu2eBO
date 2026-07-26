@@ -23,14 +23,10 @@ Literal, and driver build_space bounds == spec bounds per mode (replacing the
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
-try:
+if TYPE_CHECKING:  # annotation-only: PEP 563 means this is never resolved at runtime
     from core.geom_template import GeomTemplate
-except ImportError:
-    # Fallback when core is on sys.path directly (subprocess case;
-    # see wiki/incidents/claude-bash-no-ssh-agent.md for cross-shell context)
-    from geom_template import GeomTemplate  # type: ignore[no-redef]
 
 _RUN1BAK = "/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bak/setup.sh"
 # foils family preflight MUST see the patched StoppingTargetMaker
