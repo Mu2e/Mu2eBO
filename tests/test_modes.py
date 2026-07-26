@@ -4,8 +4,12 @@ These are the tests that turn "MUST stay in lockstep" comments into failures:
 a new mode, a moved bound, or a renamed stage now breaks HERE instead of
 silently building the wrong geometry on the grid.
 """
+import json
+import os
+import subprocess
 import sys
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -235,6 +239,69 @@ class TestSubprocessImport(unittest.TestCase):
                            cwd=str(core), capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, f"import failed: {r.stderr}")
         self.assertEqual(r.stdout.strip(), "6", "must expose all six python specs")
+
+
+class TestModeSpecsDirectoryWiring(unittest.TestCase):
+    """F8: the two lines that ARE the json-modes feature had zero coverage.
+
+    Deleting either `SPECS.update(load_mode_dir(MODES_DIR, SPECS))` at the
+    tail of core/modes.py or the `MODES[_name] = JsonMode(_name)` loop in
+    core/bo_driver.py left the whole suite green -- verified by mutation,
+    twice. Every other test registers its spec by hand into modes.SPECS and
+    so deliberately bypasses the real mode_specs/ directory; nothing
+    exercised "drop a JSON file in mode_specs/, get a runnable mode".
+
+    This test does exactly that, in a fresh subprocess (core/modes.py's
+    MODES_DIR is a hardcoded path resolved at import, not overridable), and
+    checks all three links of the chain: the spec is discovered, a JsonMode
+    is registered under that name in the driver, and it renders geometry.
+    """
+
+    def test_a_json_file_in_mode_specs_becomes_a_runnable_mode(self):
+        root = Path(__file__).resolve().parent.parent
+        name = "wiringprobe" + uuid.uuid4().hex[:8]
+        doc = json.loads(
+            (Path(__file__).parent / "fixtures" / "modes" / "foils.json").read_text())
+        doc["name"] = name
+        # Its own leaderboard: the loader now rejects a spec that claims one
+        # already owned by another mode (F4).
+        doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{name}.tsv"
+
+        target = root / "mode_specs" / f"{name}.json"
+        # addCleanup (not a trailing unlink): mode_specs/ is the REAL
+        # directory the production loader reads, and it must be left exactly
+        # as found even if an assertion below fails.
+        self.addCleanup(target.unlink, True)   # missing_ok=True
+        target.write_text(json.dumps(doc))
+
+        script = (
+            "import sys\n"
+            "sys.path.insert(0, 'core')\n"
+            "import modes, bo_driver\n"
+            f"n = {name!r}\n"
+            "print('SPEC_DISCOVERED', n in modes.SPECS)\n"
+            "m = bo_driver.MODES.get(n)\n"
+            "print('DRIVER_CLASS', type(m).__name__)\n"
+            "print('GEOM_RENDERS', bool(m) and 'stoppingTarget.radii' in "
+            "m._geom_text([120.0, 130.0, 0.1, 0.2, 15.0, 40.0]))\n"
+        )
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        r = subprocess.run([sys.executable, "-c", script], cwd=str(root),
+                           capture_output=True, text=True, env=env, timeout=180)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(),
+                         ["SPEC_DISCOVERED True",
+                          "DRIVER_CLASS JsonMode",
+                          "GEOM_RENDERS True"], r.stdout)
+
+    def test_mode_specs_directory_holds_only_the_readme(self):
+        """The real directory stays clean: a stray *.json checked in here
+        would be loaded by every process that imports modes."""
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(
+            sorted(p.name for p in (root / "mode_specs").iterdir()),
+            ["README.md"])
 
 
 if __name__ == "__main__":
