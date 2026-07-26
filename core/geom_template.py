@@ -122,24 +122,24 @@ def _validate_comment_names(text: str, available_names: Set[str], where: str) ->
     Raises ExprError if any placeholder name is unknown or if the format string
     is malformed.
     """
+    field_names = set()
     try:
         formatter = string.Formatter()
-        field_names = set()
         for _, field_name, _, _ in formatter.parse(text):
             if field_name is not None:  # None means literal text with no placeholder
                 # field_name can be like "a" or "a.x[0]" — we only care about the root
                 root_name = field_name.split('.')[0].split('[')[0]
                 if root_name:  # empty after split means something like ".x"
                     field_names.add(root_name)
-
-        for name in field_names:
-            if name not in available_names:
-                raise ExprError(
-                    f"{where}: unknown name {name!r} in comment placeholder; "
-                    f"known names are {sorted(available_names)}")
     except ValueError as exc:
         # Malformed format string (e.g., unmatched brace)
         raise ExprError(f"{where}: malformed comment format string: {exc}") from None
+
+    for name in field_names:
+        if name not in available_names:
+            raise ExprError(
+                f"{where}: unknown name {name!r} in comment placeholder; "
+                f"known names are {sorted(available_names)}")
 
 
 def _literal(type_: str, value: Any, where: str) -> str:

@@ -1,4 +1,8 @@
+import sys
 import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
 from core.geom_template import ExprError, compile_expr, eval_expr
 
@@ -205,6 +209,25 @@ class TestRender(unittest.TestCase):
         msg = str(cm.exception)
         self.assertIn("undefined_knob", msg)
         self.assertIn("t.json", msg)  # file locator
+
+    def test_comment_undefined_name_not_wrapped_as_malformed(self):
+        """Unknown comment name error is not re-wrapped as malformed (Fix A)."""
+        with self.assertRaises(ExprError) as cm:
+            _tpl([{"comment": "val={typo_name}"}])
+        msg = str(cm.exception)
+        # Should mention the typo, not mislabel it as malformed
+        self.assertIn("typo_name", msg)
+        self.assertNotIn("malformed", msg.lower())
+        # Should not double the locator
+        self.assertEqual(msg.count("t.json"), 1)
+
+    def test_comment_malformed_format_string_detected(self):
+        """Malformed format string (unmatched brace) raises ExprError (Fix A)."""
+        with self.assertRaises(ExprError) as cm:
+            _tpl([{"comment": "value is {a"}])  # missing closing brace
+        msg = str(cm.exception)
+        self.assertIn("malformed", msg.lower())
+        self.assertIn("t.json", msg)
 
     def test_namespace_collision_knob_vs_const(self):
         """Const name colliding with knob name is rejected at from_dict (Important finding #2)."""
