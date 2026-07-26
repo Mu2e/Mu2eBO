@@ -30,7 +30,7 @@ _REQUIRED_SOFTWARE = ("musing", "grid_tarball")
 _REQUIRED_RUN = ("stages", "harvest")
 _REQUIRED_PREFLIGHT = ("fcl", "dumps_gdml", "verifies_foil_gdml",
                        "preserves_gdml", "checks_managed_overlap")
-_REQUIRED_LEADERBOARD = ("columns", "obs_noise", "metrics")
+_REQUIRED_LEADERBOARD = ("file", "columns", "obs_noise", "metrics")
 
 
 def _need(d: dict, keys, where: str) -> None:
@@ -98,15 +98,7 @@ def load_mode_file(path: Path) -> "object":
                 f"{where}[leaderboard.metrics]: no summary.json keys given for "
                 f"column {col!r}")
 
-    # Any name GeomTemplate can't resolve (typo, or a knob dropped from
-    # `knobs` without updating the formulas that reference it -- both
-    # observed failure modes) IS a knobs/geom lockstep break; say so
-    # explicitly while keeping GeomTemplate's own detail (which names, where).
-    try:
-        geom = GeomTemplate.from_dict(doc["geom"], names, f"{where}[geom]")
-    except ValueError as exc:
-        raise ValueError(
-            f"{where}: knobs and geom must stay in lockstep -- {exc}") from None
+    geom = GeomTemplate.from_dict(doc["geom"], names, f"{where}[geom]")
 
     spec = ModeSpec(
         name=doc["name"],

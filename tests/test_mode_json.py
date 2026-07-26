@@ -1,10 +1,18 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from core import modes
-from core.mode_json import load_mode_dir, load_mode_file
+# Match the rest of the suite (tests/test_modes.py, test_harvest.py,
+# test_input_probe.py): insert core/ onto sys.path and import `modes` bare,
+# so exactly one `modes` module (and one ModeSpec class) is ever live in
+# this process. `from core import modes` here as well would load a SECOND,
+# non-identical copy under the `core.modes` sys.modules key -- see
+# TestSingleModeSpecClass below, which pins this.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+import modes  # noqa: E402
+from mode_json import load_mode_dir, load_mode_file  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
 
@@ -69,10 +77,15 @@ class TestRejections(unittest.TestCase):
             lambda d: d["leaderboard"].update({"columns": ["sob", "obj"]}),
             "columns")
 
-    def test_knob_bounds_lockstep(self):
+    def test_dropping_a_knob_referenced_by_geom_is_rejected(self):
+        """Dropping a knob leaves a geom formula referencing a name that no
+        longer exists; GeomTemplate's own error must name it."""
         def drop_a_knob(d):
             d["knobs"] = d["knobs"][:-1]
-        self._expect_error(drop_a_knob, "lockstep")
+        self._expect_error(drop_a_knob, "extra_f_dn")
+
+    def test_missing_leaderboard_file_is_rejected(self):
+        self._expect_error(lambda d: d["leaderboard"].pop("file"), "file")
 
     def test_profile_without_clip_rejected(self):
         def add_bad_profile(d):
@@ -92,6 +105,25 @@ class TestCollision(unittest.TestCase):
 
     def test_missing_directory_yields_no_modes(self):
         self.assertEqual(load_mode_dir(Path("/nonexistent/modes"), {}), {})
+
+
+class TestSingleModeSpecClass(unittest.TestCase):
+    def test_only_one_modespec_class_is_live_in_this_process(self):
+        """This suite runs test_modes.py (bare `import modes`) and this file
+        in the same process. If this file used `from core import modes`
+        instead, a second, non-identical ModeSpec class would exist under
+        `core.modes` -- silent divergence between test and production
+        identity (the exact class of bug Task 4 fixed for GeomTemplate).
+        `sys.modules` must never hold both a bare and a `core.`-qualified
+        copy of this module with different classes.
+        """
+        if "core.modes" in sys.modules:
+            self.assertIs(
+                sys.modules["core.modes"].ModeSpec, modes.ModeSpec,
+                "core.modes and bare modes disagree on ModeSpec identity")
+        spec = load_mode_file(FIXTURE)
+        self.assertIs(spec.__class__, modes.ModeSpec)
+        self.assertIs(modes.SPECS["foils"].__class__, modes.ModeSpec)
 
 
 if __name__ == "__main__":
