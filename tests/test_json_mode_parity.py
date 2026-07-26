@@ -25,6 +25,10 @@ from bo_driver import MODES, FoilsMode  # noqa: E402
 from mode_json import load_mode_file  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures" / "modes"
+# Frozen captures of the Python renderers, taken 2026-07-26 while every Python
+# mode still existed. Re-capture with tools/capture_golden_geom.py if a
+# surviving Python renderer legitimately changes.
+GOLDEN = Path(__file__).parent / "fixtures" / "golden_geom"
 
 # Captures the FHiCL type keyword (group 1), not just the key/value (groups
 # 2/3): a fixture line whose type disagrees with the renderer -- e.g. `int`
@@ -111,13 +115,44 @@ class ParityMixin:
         cls.spec = load_mode_file(FIXTURES / f"{cls.mode_name}.json")
 
     def test_same_geometry_as_python_renderer(self):
-        python_mode = MODES[self.mode_name]
-        for x in SAMPLE_X[self.mode_name]:
-            want = parse_assignments(python_mode._geom_text(x))
+        """Compares against the FROZEN golden capture of the Python renderer,
+        not the live class.
+
+        The oracle had to become data: retiring a Python mode (FoilsFlashMode,
+        2026-07-26) deletes the very renderer this test compares against, so a
+        live-object oracle would have to be deleted WITH it -- silently taking
+        the parity proof along. The goldens in fixtures/golden_geom/ were
+        captured from the Python renderers while they still existed, so parity
+        remains provable for a mode whose Python implementation is gone.
+        `test_golden_still_matches_the_live_python_mode` keeps the goldens
+        honest for as long as a Python counterpart survives.
+        """
+        for i, x in enumerate(SAMPLE_X[self.mode_name]):
+            golden = GOLDEN / f"{self.mode_name}_{i}.txt"
+            self.assertTrue(golden.exists(), f"missing golden {golden}")
+            want = parse_assignments(golden.read_text())
             got = parse_assignments(self.spec.geom.render(x))
             self.assertEqual(set(want), set(got), f"key sets differ at x={x}")
             for key in want:
                 self.assertEqual(want[key], got[key], f"{key} differs at x={x}")
+
+    def test_golden_still_matches_the_live_python_mode(self):
+        """A frozen oracle can rot: if the Python mode still exists and its
+        renderer changes, the golden must be re-captured, not silently left
+        behind. Skips once the Python mode is retired -- at which point the
+        golden IS the definition."""
+        if self.mode_name not in MODES:
+            self.skipTest(f"{self.mode_name} has no Python mode (retired); "
+                          "the golden is now the sole oracle")
+        python_mode = MODES[self.mode_name]
+        if not hasattr(python_mode, "_geom_text"):
+            self.skipTest(f"{self.mode_name} is JSON-defined; no Python renderer")
+        for i, x in enumerate(SAMPLE_X[self.mode_name]):
+            want = parse_assignments((GOLDEN / f"{self.mode_name}_{i}.txt").read_text())
+            live = parse_assignments(python_mode._geom_text(x))
+            self.assertEqual(want, live,
+                             f"golden {self.mode_name}_{i}.txt is STALE vs the "
+                             f"live Python renderer at x={x} -- re-capture it")
 
     def test_the_49_numbers_are_all_compared(self):
         """Guards the guard: a vector really does carry 49 entries."""

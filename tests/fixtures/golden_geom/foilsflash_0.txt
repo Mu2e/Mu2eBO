@@ -1,0 +1,28 @@
+#include "Offline/Mu2eG4/geom/geom_run1_a.txt"
+
+// === bo_driver (foils mode v2, 6D) proposal ===
+// 37 base foils (DOE-2017, rOut=75, hT=0.0528, holeRadius=21.5)
+// + 6 up at (rOut=120.00, hT=0.1000, rIn=36.00)
+// + 6 dn at (rOut=130.00, hT=0.2000, rIn=52.00)
+// holeRadii vector decouples extras-rIn from base-rIn (patched lib).
+bool hasTSdA = false;
+bool tsda.helical.build = false;
+vector<double> stoppingTarget.radii          = { 120.0000, 120.0000, 120.0000, 120.0000, 120.0000, 120.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 75.0000, 130.0000, 130.0000, 130.0000, 130.0000, 130.0000, 130.0000 };
+vector<double> stoppingTarget.halfThicknesses = { 0.100000, 0.100000, 0.100000, 0.100000, 0.100000, 0.100000, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.052800, 0.200000, 0.200000, 0.200000, 0.200000, 0.200000, 0.200000 };
+double stoppingTarget.holeRadius = 1.0e6;
+vector<double> stoppingTarget.holeRadii      = { 36.0000, 36.0000, 36.0000, 36.0000, 36.0000, 36.0000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 21.5000, 52.0000, 52.0000, 52.0000, 52.0000, 52.0000, 52.0000 };
+
+// Degrader parked at 120° (mmackenz hardware detent)
+bool degrader.build = false;
+double degrader.rotation = 120.0;
+string ts.coll5.material1Name = "COL5Poly";
+
+// TT_MidInner→DS2Vacuum fix (manually patched, mirrors v111)
+bool tracker.inDS2Vacuum = true;
+double ds2.halfLength = 3825;
+bool ds.hasServicePipes = false;
+
+// Overlap-suppression (foil-support off + rail shrink)
+bool stoppingTarget.foilTarget_supportStructure = false;
+double ds.lengthRail2 = 0.1;
+double ds.lengthRail3 = 0.1;
