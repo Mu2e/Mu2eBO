@@ -23,6 +23,7 @@ Literal, and driver build_space bounds == spec bounds per mode (replacing the
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 if TYPE_CHECKING:  # annotation-only: PEP 563 means this is never resolved at runtime
@@ -293,3 +294,28 @@ SPECS: Dict[str, ModeSpec] = {
         leaderboard_rel=None,
     ),
 }
+
+# JSON-defined modes (one file per line) are merged in AFTER the Python table,
+# and may never shadow it -- see core/mode_json.py.
+#
+# Import mirrors our own package-qualification (__package__): this module is
+# loaded two ways in production -- `core.modes` from the repo root, and bare
+# `modes` when bo_driver.py runs as a grid-submitted subprocess with only
+# core/ on sys.path (see tests/test_modes.py TestSubprocessImport, which
+# pins the bare path). A hardcoded `from core.mode_json import ...` fails
+# outright under the bare path (no `core` package to find there). A
+# hardcoded bare `from mode_json import ...` would, under the qualified
+# path, load core/mode_json.py a SECOND time under a different sys.modules
+# key, which in turn would need a second, non-identical copy of THIS
+# module's own ModeSpec to build specs from -- the exact
+# two-non-identical-classes bug fixed for GeomTemplate in Task 4 (commit
+# 9180eb3), resurrected here for ModeSpec. Mirroring __package__ guarantees
+# mode_json.py resolves the ALREADY-loaded `modes`/`core.modes` instead of
+# re-executing this file.
+if __package__:
+    from core.mode_json import load_mode_dir  # noqa: E402 - SPECS must exist first
+else:
+    from mode_json import load_mode_dir  # noqa: E402
+
+MODES_DIR = Path(__file__).resolve().parent.parent / "modes"
+SPECS.update(load_mode_dir(MODES_DIR, SPECS))
