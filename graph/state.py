@@ -31,10 +31,11 @@ class BOIterationState(TypedDict, total=False):
     """Per-iteration state. Persisted by SqliteSaver between node transitions."""
 
     config_name: str
-    # Pinned against modes.SPECS by tests/test_modes.py — a new mode must
-    # land in BOTH places or the completeness test fails.
-    mode: Literal["foils", "foilsf", "foilsflash",
-                  "foilsg", "prodtarget", "prodtarget6d"]
+    # Mode name. NOT a Literal: JSON-defined modes (modes/*.json) are
+    # discovered at import, so the set is not knowable statically. The real
+    # completeness check is tests/test_modes.py::test_every_spec_has_a_driver,
+    # which asserts every modes.SPECS entry has a driver in bo_driver.MODES.
+    mode: str
     alpha: float
 
     x_point: List[float]
