@@ -1149,6 +1149,53 @@ class ProdTarget6DMode(ProdTargetMode):
 
 
 
+class JsonMode(BOMode):
+    """The single driver class behind every JSON-defined mode.
+
+    All the leaderboard/search-space behaviour is inherited: BOMode reads
+    KNOB_NAMES, KNOB_FMTS, CALO_COL, format_row and build_space straight from
+    modes.SPECS, so a JSON spec gets them with no code. Only the three abstract
+    methods need filling, and two of them are deliberately empty:
+    priors (a new line has none -- botorch Sobol cold-starts) and parse_geom
+    (geometry round-trip is out of scope by design decision).
+    """
+
+    def __init__(self, name: str):
+        spec = _modes.SPECS[name]
+        if spec.geom is None:
+            raise ValueError(f"{name}: JsonMode requires a geom template")
+        self.name = name
+        self.leaderboard = ROOT / spec.leaderboard_rel
+        self.proposal_dir = ROOT / "bo_work" / "proposals" / name
+        self.preflight_dir = ROOT / "bo_work" / "preflight" / name
+
+    def load_priors(self) -> list[Point]:
+        return []
+
+    def _geom_text(self, x) -> str:
+        return _modes.SPECS[self.name].geom.render(x)
+
+    def parse_geom(self, text: str):
+        raise NotImplementedError(
+            f"{self.name}: JSON-defined modes do not support geometry "
+            f"round-trip (parse_geom). It is out of scope by design; see "
+            f"docs/superpowers/specs/2026-07-25-json-configurable-modes-design.md")
+
+    def extract_metrics(self, summary: dict) -> tuple[float, float]:
+        spec = _modes.SPECS[self.name]
+        out = []
+        for col in spec.metric_cols[:2]:
+            for key in spec.metrics[col]:
+                if summary.get(key) is not None:
+                    out.append(float(summary[key]))
+                    break
+            else:
+                raise KeyError(
+                    f"{self.name}: summary.json has none of "
+                    f"{list(spec.metrics[col])} for column {col!r}")
+        return out[0], out[1]
+
+
 MODES: dict[str, BOMode] = {
     "foils":        FoilsMode(),
     "foilsf":       FoilsFracMode(),
@@ -1157,6 +1204,13 @@ MODES: dict[str, BOMode] = {
     "prodtarget":   ProdTargetMode(),
     "prodtarget6d": ProdTarget6DMode(),
 }
+
+# JSON-defined modes: one JsonMode per spec carrying a geom template. The six
+# Python modes are already in MODES above and are never replaced -- the loader
+# in core/mode_json.py has already rejected any name collision.
+for _name, _spec in _modes.SPECS.items():
+    if _spec.geom is not None:
+        MODES[_name] = JsonMode(_name)
 
 
 # ============================================================================
