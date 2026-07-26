@@ -1222,34 +1222,55 @@ class JsonMode(BOMode):
             f"evaluate. Re-running evaluate for an already-recorded config "
             f"hits this. Refusing to append a row rather than guess x.")
 
-    def extract_metrics(self, summary: dict) -> tuple[float, float]:
+    @staticmethod
+    def _resolve_metric(summary: dict, keys) -> tuple:
+        """First candidate key that is present AND non-null wins.
+        Returns (value, key), or (None, None) when none resolves."""
+        for key in keys:
+            if summary.get(key) is not None:
+                return float(summary[key]), key
+        return None, None
+
+    def extract_metrics(self, summary: dict) -> tuple[float, float | None]:
+        """Map summary.json onto (sob, second objective).
+
+        UNRESOLVED and RESOLVED-TO-ZERO are deliberately different cases:
+
+        * Unresolved (no candidate key present and non-null) returns None for
+          that column, mirroring the Python modes. cmd_evaluate then either
+          substitutes 0.0 (AUTORESEARCH_NO_RUN1B=1 — the qlnei picker drops
+          the second-objective stage BY DESIGN and the objective is sob-only)
+          or exits rc=1 "metric is None". Raising here instead — which is
+          what this method used to do — made every child of a qlnei-launched
+          JSON mode fail at evaluate, after the full wall-clock.
+        * Resolved to zero or negative from a REAL key is refused outright.
+          A fake zero row at good sob dominates the entire Pareto front at the
+          next GP refit; 7 poison rows landed that way 2026-07-10. This is
+          FoilsFlashMode.extract_metrics's guard and it does not weaken.
+
+        sob (column 0) keeps the Python modes' KeyError, which cmd_evaluate's
+        `except (KeyError, TypeError)` turns into rc=1: any real value is a
+        legitimate BO objective there, so there is nothing to substitute.
+        """
         spec = _modes.SPECS[self.name]
-        out = []
-        used_keys = []
-        for col in spec.metric_cols[:2]:
-            for key in spec.metrics[col]:
-                if summary.get(key) is not None:
-                    out.append(float(summary[key]))
-                    used_keys.append(key)
-                    break
-            else:
-                raise KeyError(
-                    f"{self.name}: summary.json has none of "
-                    f"{list(spec.metrics[col])} for column {col!r}")
-        # The SECOND objective must never silently collapse to zero/negative:
-        # a fake zero row at good sob dominates the entire Pareto front at the
-        # next GP refit (this is the same failure class FoilsFlashMode.
-        # extract_metrics guards against -- 7 poison rows landed this way
-        # 2026-07-10). sob (index 0) is deliberately left unguarded: any real
-        # value is a legitimate BO objective there.
-        if out[1] is None or out[1] <= 0:
+        sob_col, second_col = spec.metric_cols[0], spec.metric_cols[1]
+        sob, _sob_key = self._resolve_metric(summary, spec.metrics[sob_col])
+        if sob is None:
+            raise KeyError(
+                f"{self.name}: summary.json has none of "
+                f"{list(spec.metrics[sob_col])} for column {sob_col!r}")
+        second, second_key = self._resolve_metric(
+            summary, spec.metrics[second_col])
+        if second is None:
+            return sob, None
+        if second <= 0:
             raise SystemExit(
-                f"[{self.name}] second-objective column "
-                f"{spec.metric_cols[1]!r} resolved to {out[1]!r} from "
-                f"summary.json key {used_keys[1]!r} -- refusing to append a "
-                f"row; a zero/negative second metric would dominate the "
-                f"Pareto front at the next GP refit")
-        return out[0], out[1]
+                f"[{self.name}] second-objective column {second_col!r} "
+                f"resolved to {second!r} from summary.json key "
+                f"{second_key!r} -- refusing to append a row; a "
+                f"zero/negative second metric would dominate the Pareto "
+                f"front at the next GP refit")
+        return sob, second
 
 
 MODES: dict[str, BOMode] = {

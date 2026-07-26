@@ -17,6 +17,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import uuid
 from pathlib import Path
 
@@ -75,10 +76,31 @@ class TestJsonMode(unittest.TestCase):
                 {"s_over_sqrt_b": 3.9, "flash_edep_per_event": 2e-6}),
             (3.9, 2e-6))
 
-    def test_extract_metrics_missing_key_names_the_column(self):
+    # -- F7: UNRESOLVED and RESOLVED-TO-ZERO are different cases ------------
+    # JsonMode used to raise KeyError when no candidate key resolved. That
+    # broke the sob-only / qlnei path the Python modes support: cmd_evaluate's
+    # deliberate `calo is None and AUTORESEARCH_NO_RUN1B == "1" -> 0.0`
+    # substitution depends on extract_metrics RETURNING None, and KeyError is
+    # not that. A JSON mode launched with --picker qlnei (which drops the calo
+    # stage BY DESIGN) failed at evaluate on every child -- zero rows after
+    # the full wall-clock.
+    def test_extract_metrics_unresolved_second_objective_returns_none(self):
+        self.assertEqual(
+            self.mode.extract_metrics({"s_over_sqrt_b": 3.9}), (3.9, None))
+
+    def test_extract_metrics_null_second_objective_returns_none(self):
+        self.assertEqual(
+            self.mode.extract_metrics(
+                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": None,
+                 "flash_edep_per_event": None}),
+            (3.9, None))
+
+    def test_extract_metrics_missing_sob_still_raises(self):
+        """Column 0 keeps the Python modes' behaviour (KeyError), which
+        cmd_evaluate's `except (KeyError, TypeError)` turns into rc=1."""
         with self.assertRaises(KeyError) as cm:
-            self.mode.extract_metrics({"s_over_sqrt_b": 3.9})
-        self.assertIn("flash_edep", str(cm.exception))
+            self.mode.extract_metrics({"flash_edep_per_pot": 1e-6})
+        self.assertIn("sob", str(cm.exception))
 
     # -- Critical: the second objective must never silently collapse to a
     # poison zero row (mirrors FoilsFlashMode.extract_metrics's SystemExit
@@ -107,12 +129,14 @@ class TestJsonMode(unittest.TestCase):
         """Root-cause regression: the fixture's flash_edep fallback chain
         used to list calo_per_pot -- copied from the STALE comment above
         FoilsFlashMode.extract_metrics, which claims that fallback but never
-        implements it. A calo-only summary must raise (missing key), not
-        silently write calo into the flash column."""
-        with self.assertRaises(KeyError) as cm:
-            self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "calo_per_pot": 1.2e-6})
-        self.assertIn("flash_edep", str(cm.exception))
+        implements it. A calo-only summary must NOT put calo in the flash
+        column. (It now reports the column as unresolved -- None -- rather
+        than raising; see the F7 block above. The guarantee this test exists
+        for is unchanged: the calo value must never appear.)"""
+        sob, second = self.mode.extract_metrics(
+            {"s_over_sqrt_b": 3.9, "calo_per_pot": 1.2e-6})
+        self.assertEqual(sob, 3.9)
+        self.assertIsNone(second)
 
 
 class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
@@ -187,6 +211,56 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
             self.assertAlmostEqual(float(got), want, places=4)
         # Pending is cleared exactly as for a Python mode.
         self.assertEqual(self.mode.load_pending(), [])
+
+    def _propose(self, cfg, x=(120.0, 130.0, 0.1, 0.2, 0.3, 0.4)):
+        self.mode.render_proposal(cfg, list(x))
+        self.mode.append_pending(cfg, list(x), 1.0e5)
+        return list(x)
+
+    # -- F7 case 1: UNRESOLVED second objective ----------------------------
+    def test_evaluate_substitutes_zero_for_an_unresolved_second_objective(self):
+        """The qlnei picker stamps AUTORESEARCH_NO_RUN1B=1 and drops the
+        second-objective stage BY DESIGN. Python modes return None there and
+        cmd_evaluate substitutes 0.0 so the row still lands; JsonMode used to
+        raise KeyError instead, so every child failed at evaluate."""
+        self._propose("PROBE03")
+        summary = self._summary({"s_over_sqrt_b": 3.9})
+        with unittest.mock.patch.dict(
+                bo_driver.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
+            rc = bo_driver.cmd_evaluate(self._args("PROBE03", summary))
+        self.assertEqual(rc, 0)
+        with self.mode.leaderboard.open() as f:
+            row = next(csv.DictReader(f, delimiter="\t"))
+        self.assertAlmostEqual(float(row["sob"]), 3.9, places=5)
+        self.assertEqual(float(row["flash_edep"]), 0.0)
+
+    def test_evaluate_refuses_unresolved_second_objective_without_no_run1b(self):
+        self._propose("PROBE04")
+        summary = self._summary({"s_over_sqrt_b": 3.9})
+        env = dict(bo_driver.os.environ)
+        env.pop("AUTORESEARCH_NO_RUN1B", None)
+        with unittest.mock.patch.dict(bo_driver.os.environ, env, clear=True):
+            rc = bo_driver.cmd_evaluate(self._args("PROBE04", summary))
+        self.assertEqual(rc, 1)
+        self.assertFalse(self.mode.leaderboard.exists())
+
+    # -- F7 case 2: RESOLVED-TO-ZERO must still be refused -----------------
+    def test_evaluate_still_refuses_a_second_objective_that_resolves_to_zero(self):
+        """The zero-refusal guard must NOT weaken: a second objective that
+        RESOLVES to 0.0 from a real summary key is a fake row that dominates
+        the entire Pareto front at the next GP refit (7 poison rows landed
+        this way 2026-07-10). Distinct from 'unresolved' above -- and it is
+        refused even under AUTORESEARCH_NO_RUN1B=1, because the key WAS
+        there."""
+        self._propose("PROBE05")
+        summary = self._summary(
+            {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 0.0})
+        with unittest.mock.patch.dict(
+                bo_driver.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
+            with self.assertRaises(SystemExit) as cm:
+                bo_driver.cmd_evaluate(self._args("PROBE05", summary))
+        self.assertIn("flash_edep_per_pot", str(cm.exception))
+        self.assertFalse(self.mode.leaderboard.exists())
 
     def test_evaluate_without_a_pending_row_fails_loudly(self):
         """The x is recovered from the pending TSV; if the config is not
