@@ -33,8 +33,8 @@ class BOIterationState(TypedDict, total=False):
     config_name: str
     # Mode name. NOT a Literal: JSON-defined modes (modes/*.json) are
     # discovered at import, so the set is not knowable statically. The real
-    # completeness check is tests/test_modes.py::test_every_spec_has_a_driver,
-    # which asserts every modes.SPECS entry has a driver in bo_driver.MODES.
+    # completeness check is tests/test_modes.py::test_keys_match_driver_modes,
+    # which asserts set(modes.SPECS) == set(bo_driver.MODES).
     mode: str
     alpha: float
 
