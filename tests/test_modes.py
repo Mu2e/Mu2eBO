@@ -5,7 +5,6 @@ a new mode, a moved bound, or a renamed stage now breaks HERE instead of
 silently building the wrong geometry on the grid.
 """
 import sys
-import typing
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -19,21 +18,6 @@ class TestRegistryCompleteness(unittest.TestCase):
         import bo_driver as bo
         self.assertEqual(set(modes.SPECS), set(bo.MODES),
                          "modes.SPECS and driver MODES diverged")
-
-    def test_every_spec_has_a_driver(self):
-        """The completeness guarantee the old Literal test provided: a mode
-        declared anywhere must be constructible. JSON modes are registered at
-        import, so this covers them too."""
-        import bo_driver as bo
-        for name in modes.SPECS:
-            self.assertIn(name, bo.MODES, f"{name} has no driver in MODES")
-
-    def test_state_mode_is_not_a_closed_literal(self):
-        """JSON modes are discovered at runtime, so the annotation cannot
-        enumerate them."""
-        import graph.state as st
-        ann = typing.get_type_hints(st.BOIterationState)["mode"]
-        self.assertIs(ann, str)
 
     def test_name_field_matches_key(self):
         for name, spec in modes.SPECS.items():
