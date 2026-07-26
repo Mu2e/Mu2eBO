@@ -125,6 +125,18 @@ class ParityMixin:
         _type, radii = parse_assignments(text)["stoppingTarget.radii"]
         self.assertEqual(len(radii.strip("{}").split(",")), 49)
 
+    def test_header_comment_names_this_mode(self):
+        """F12: the rendered header comment travels into the geometry file of
+        every line cloned from this fixture, and parse_assignments (rightly)
+        ignores comments -- so nothing pinned it. tests/fixtures/modes/
+        foils.json opened with '=== foilsflash (6D, hole = fraction of that
+        side's rOut) ===': wrong mode name AND wrong semantics."""
+        text = self.spec.geom.render(SAMPLE_X[self.mode_name][0])
+        header = next(ln for ln in text.splitlines() if ln.startswith("//"))
+        m = re.match(r"^// === (\S+) ", header)
+        self.assertIsNotNone(m, f"unrecognised header comment: {header!r}")
+        self.assertEqual(m.group(1), self.mode_name, header)
+
     def test_poison_pill_scalar_survives(self):
         text = self.spec.geom.render(SAMPLE_X[self.mode_name][0])
         self.assertEqual(
@@ -138,6 +150,17 @@ class TestFoilsflashParity(ParityMixin, unittest.TestCase):
 
 class TestFoilsParity(ParityMixin, unittest.TestCase):
     mode_name = "foils"
+
+    def test_comments_describe_absolute_hole_radii_not_fractions(self):
+        """foils holes are absolute radii (extra_rIn_*, mm); only the
+        foilsf/foilsflash family parameterises them as a fraction of that
+        side's rOut. The fixture's header claimed the fraction semantics
+        (F12)."""
+        text = self.spec.geom.render(SAMPLE_X["foils"][0])
+        comments = "\n".join(ln for ln in text.splitlines()
+                             if ln.startswith("//"))
+        self.assertNotIn("fraction", comments)
+        self.assertNotIn("foilsflash", comments)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {
-  "name": "foils",
-  "note": "6D extra-foil geometry vs Run1B calo-stop background, S/sqrt(B) preserved. REFERENCE FIXTURE: reproduces the live foils line; the acceptance test compares this against FoilsMode at default env.",
+  "name": "template",
+  "note": "COPY-PASTE TEMPLATE for a new JSON-defined optimization line. Copy to mode_specs/<yourline>.json, then change: (1) name -- it must equal the file stem, (2) leaderboard.file -- it must be a path NO other mode uses (the loader rejects a collision, including against the six Python modes), (3) the knobs and the geometry. Deliberately NOT pointed at a live leaderboard. tests/fixtures/modes/foils.json and foilsflash.json are the reference fixtures that reproduce live lines byte-for-byte; they declare LIVE leaderboards to prove parity and must not be used as the starting point.",
 
   "software": {
     "musing":       "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
@@ -12,21 +12,19 @@
     "harvest":         "harvest",
     "jobs_per_stage":  {},
     "presubmit_after": {},
-    "stage_tuning": {}
+    "stage_tuning":    {}
   },
 
   "knobs": [
     {"name": "extra_rOut_up",          "min": 50.0, "max": 250.0, "fmt": "{:.4f}"},
     {"name": "extra_rOut_dn",          "min": 50.0, "max": 250.0, "fmt": "{:.4f}"},
     {"name": "extra_halfThickness_up", "min": 0.01, "max": 1.0,   "fmt": "{:.6f}"},
-    {"name": "extra_halfThickness_dn", "min": 0.01, "max": 1.0,   "fmt": "{:.6f}"},
-    {"name": "extra_rIn_up",           "min": 0.0,  "max": 50.0,  "fmt": "{:.4f}"},
-    {"name": "extra_rIn_dn",           "min": 0.0,  "max": 50.0,  "fmt": "{:.4f}"}
+    {"name": "extra_halfThickness_dn", "min": 0.01, "max": 1.0,   "fmt": "{:.6f}"}
   ],
   "int_dims": [],
 
   "leaderboard": {
-    "file":      "leaderboards/leaderboard_bo_foils_v2.tsv",
+    "file":      "leaderboards/leaderboard_bo_template.tsv",
     "columns":   ["sob", "calo", "alpha", "obj"],
     "obs_noise": [0.006, 0.035],
     "metrics": {
@@ -56,11 +54,10 @@
     },
 
     "lines": [
-      {"comment": "=== foils (6D, hole = absolute inner radius per side, mm) ==="},
+      {"comment": "=== template (4D) -- rename this line with your mode ==="},
       {"comment": "{base_n} base foils (DOE-2017, rOut={base_rOut}, hT={base_hT}, holeRadius={base_hole})"},
-      {"comment": "+ {n_up} up at (rOut={extra_rOut_up:.2f}, hT={extra_halfThickness_up:.4f}, rIn={extra_rIn_up:.2f})"},
-      {"comment": "+ {n_dn} dn at (rOut={extra_rOut_dn:.2f}, hT={extra_halfThickness_dn:.4f}, rIn={extra_rIn_dn:.2f})"},
-      {"comment": "holeRadii vector decouples extras-rIn from base-rIn (patched lib)."},
+      {"comment": "+ {n_up} up at (rOut={extra_rOut_up:.2f}, hT={extra_halfThickness_up:.4f})"},
+      {"comment": "+ {n_dn} dn at (rOut={extra_rOut_dn:.2f}, hT={extra_halfThickness_dn:.4f})"},
 
       {"key": "hasTSdA",            "type": "bool", "value": false},
       {"key": "tsda.helical.build", "type": "bool", "value": false},
@@ -81,9 +78,9 @@
       {"key": "stoppingTarget.holeRadius", "type": "double", "raw": "1.0e6"},
 
       {"key": "stoppingTarget.holeRadii", "type": "vector<double>", "fmt": "{:.4f}",
-       "segments": [{"count": "n_up",   "expr": "extra_rIn_up"},
+       "segments": [{"count": "n_up",   "expr": "base_hole"},
                     {"count": "base_n", "expr": "base_hole"},
-                    {"count": "n_dn",   "expr": "extra_rIn_dn"}]},
+                    {"count": "n_dn",   "expr": "base_hole"}]},
 
       {"comment": "Degrader parked at 120 deg (mmackenz hardware detent)"},
       {"key": "degrader.build",         "type": "bool",   "value": false},

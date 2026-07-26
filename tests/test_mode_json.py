@@ -463,6 +463,47 @@ class TestLeaderboardUniqueness(unittest.TestCase):
         self.assertEqual(dict(mode_json.PYTHON_MODE_LEADERBOARDS), live)
 
 
+class TestCopyPasteTemplate(unittest.TestCase):
+    """F4 (second half): mode_specs/README.md advertised
+    tests/fixtures/modes/foilsflash.json as the thing to copy -- and that
+    file declares the LIVE foilsflash leaderboard, because it exists to prove
+    parity against the Python renderer. Copy it, miss the leaderboard line
+    (it looks plausible) and the new line appends into a live TSV. The
+    loader now rejects that outright, but what the README hands an author
+    must not be a live-leaderboard file in the first place.
+    """
+
+    ROOT = Path(__file__).resolve().parent.parent
+    TEMPLATE = Path(__file__).parent / "fixtures" / "modes" / "template.json"
+
+    def readme(self) -> str:
+        return (self.ROOT / "mode_specs" / "README.md").read_text()
+
+    def test_readme_advertises_the_template(self):
+        self.assertIn("tests/fixtures/modes/template.json", self.readme())
+
+    def test_template_loads(self):
+        spec = load_mode_file(self.TEMPLATE)
+        self.assertEqual(spec.name, "template")
+        self.assertIsNotNone(spec.geom)
+        self.assertTrue(spec.geom.render([v for v in spec.bounds_lo]))
+
+    def test_template_leaderboard_is_not_a_live_one(self):
+        import mode_json
+        spec = load_mode_file(self.TEMPLATE)
+        self.assertNotIn(spec.leaderboard_rel,
+                         mode_json.PYTHON_MODE_LEADERBOARDS)
+
+    def test_readme_documents_the_int_fmt_limitation(self):
+        """F14: _validate_fmt probes with a float, so "{:d}" is rejected at
+        load even for a knob listed in int_dims -- authors must write
+        "{:.0f}". Loud, not silent; documented rather than changed (a {:d}
+        fmt genuinely breaks on the float path)."""
+        readme = self.readme()
+        self.assertIn("{:d}", readme)
+        self.assertIn("{:.0f}", readme)
+
+
 class TestSingleModeSpecClass(unittest.TestCase):
     """Only ONE copy of each of these modules may be live in the suite process.
 
