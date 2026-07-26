@@ -16,9 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 from geom_template import ExprError, compile_expr, eval_expr  # noqa: E402
 
 
-def _ev(src, env, allowed=None):
+def _ev(src, env, allowed=None, profiles=frozenset()):
     allowed = allowed if allowed is not None else set(env)
-    return eval_expr(compile_expr(src, allowed, "test.json[k]"), env)
+    return eval_expr(
+        compile_expr(src, allowed, "test.json[k]", profiles), env)
 
 
 class TestExpr(unittest.TestCase):
@@ -36,7 +37,18 @@ class TestExpr(unittest.TestCase):
 
     def test_profile_subscript(self):
         env = {"rOut": [10.0, 20.0, 30.0], "i": 1}
-        self.assertAlmostEqual(_ev("rOut[i] * 2", env), 40.0)
+        # Subscripting is legal only on a DECLARED profile name (F9); every
+        # other known name is a float at render time.
+        self.assertAlmostEqual(
+            _ev("rOut[i] * 2", env, profiles={"rOut"}), 40.0)
+
+    def test_subscripting_a_non_profile_rejected(self):
+        with self.assertRaises(ExprError) as cm:
+            compile_expr("a[i]", {"a", "i"}, "modes/x.json[radii]",
+                         profiles={"p"})
+        msg = str(cm.exception)
+        self.assertIn("a", msg)
+        self.assertIn("modes/x.json[radii]", msg)
 
     def test_unknown_name_names_the_typo_and_location(self):
         with self.assertRaises(ExprError) as cm:
@@ -171,10 +183,12 @@ class TestRender(unittest.TestCase):
             "vector<double> k.v = { 1.0, 1.0, 9.0, 9.0, 9.0, 2.0 };", out)
 
     def test_count_accepts_const_name(self):
+        # NB: the const is n_foils, not n -- `n` is reserved (F9/F2: the
+        # per_index loop injects it) and is rejected at from_dict.
         out = _tpl(
             [{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
-              "segments": [{"count": "n", "expr": "a"}]}],
-            consts={"n": 3},
+              "segments": [{"count": "n_foils", "expr": "a"}]}],
+            consts={"n_foils": 3},
         ).render([5.0, 0.0])
         self.assertIn("vector<double> k.v = { 5.0, 5.0, 5.0 };", out)
 
@@ -202,8 +216,8 @@ class TestRender(unittest.TestCase):
         self.assertIn("vector<double> k.v = { 10.0, 20.0, 10.0 };", out)
 
     def test_comments_interpolate_knobs(self):
-        out = _tpl([{"comment": "up rOut={a:.2f} n={n}"}],
-                   consts={"n": 6}).render([1.5, 0.0])
+        out = _tpl([{"comment": "up rOut={a:.2f} n={n_foils}"}],
+                   consts={"n_foils": 6}).render([1.5, 0.0])
         self.assertIn("// up rOut=1.50 n=6", out)
 
     def test_unknown_name_rejected_at_from_dict(self):
@@ -427,6 +441,107 @@ class TestRender(unittest.TestCase):
                    "segments": [{"count": 2, "expr": "a", "typo_key": 1}]}])
         msg = str(cm.exception)
         self.assertIn("typo_key", msg)
+
+    # -- F2: `i` and `n` are reserved (the per_index loop scope) -----------
+    def test_knob_named_i_rejected(self):
+        """Verified bug: `_render_line` writes i (loop index) and n (count)
+        into the per_index scope AFTER the env, so a knob/const/derived/
+        profile of either name is silently shadowed there -- knob i=99
+        rendered { 0.0, 1.0, 2.0 } (the loop index), const n=6 rendered
+        { 3.0, 3.0, 3.0 } (the count). Loads clean, renders clean, wrong
+        geometry (F2)."""
+        with self.assertRaises(ValueError) as cm:
+            GeomTemplate.from_dict(
+                {"base": "Offline/base.txt", "lines": []}, ("i", "b"), "t.json")
+        msg = str(cm.exception)
+        self.assertIn("'i'", msg)
+        self.assertIn("t.json", msg)
+
+    def test_const_named_n_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([], consts={"n": 6})
+        msg = str(cm.exception)
+        self.assertIn("'n'", msg)
+        self.assertIn("t.json", msg)
+
+    def test_derived_named_i_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([], derived={"i": "a * 2"})
+        self.assertIn("'i'", str(cm.exception))
+
+    def test_profile_named_n_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([], profiles={"n": {"count": 3, "control": ["a", "b", "a"],
+                                     "clip": [0.0, 100.0]}})
+        self.assertIn("'n'", str(cm.exception))
+
+    # -- F3(b): the same geometry key may not be emitted twice --------------
+    def test_duplicate_line_key_rejected(self):
+        """Verified against the Offline this project runs: GeometryService.hh
+        defaults allowReplacement=true / messageOnReplacement=false and
+        SimpleConfig.cc replaces with no message, so G4 silently takes the
+        LAST of two identical keys. Editing the first of a duplicated pair
+        leaves the stale one winning -- the silent-wrong-geometry class that
+        tainted 62 foilsg rows (F3)."""
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "stoppingTarget.holeRadius", "type": "double",
+                   "raw": "1.0e6"},
+                  {"key": "stoppingTarget.holeRadius", "type": "double",
+                   "value": 21.5}])
+        msg = str(cm.exception)
+        self.assertIn("stoppingTarget.holeRadius", msg)
+        self.assertIn("lines[1]", msg)
+        self.assertIn("lines[0]", msg)
+
+    def test_duplicate_comment_lines_are_fine(self):
+        """Comments have no key; repeating one is not a redefinition."""
+        out = _tpl([{"comment": "note"}, {"comment": "note"}]).render([1.0, 2.0])
+        self.assertEqual(out.count("// note"), 2)
+
+    # -- F9: subscripting is only legal on a declared profile ---------------
+    def test_subscripting_a_scalar_rejected_at_load(self):
+        """`expr: "a[b]"` used to load fine and die at RENDER with a bare
+        `TypeError: 'float' object is not subscriptable` -- no file, no key
+        (F9). Spec section 8 allows subscripting declared profiles only."""
+        with self.assertRaises(ExprError) as cm:
+            _tpl([{"key": "k.x", "type": "double", "fmt": "{:.1f}",
+                   "expr": "a[b]"}])
+        msg = str(cm.exception)
+        self.assertIn("a", msg)
+        self.assertIn("t.json", msg)
+
+    def test_subscripting_a_scalar_in_per_index_rejected(self):
+        with self.assertRaises(ExprError) as cm:
+            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+                   "per_index": {"count": 3, "expr": "a[i]"}}])
+        self.assertIn("t.json", str(cm.exception))
+
+    def test_subscripting_a_declared_profile_still_works(self):
+        out = _tpl(
+            [{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
+              "per_index": {"count": 3, "expr": "p[i]"}}],
+            profiles={"p": {"count": 3, "control": ["a", "b", "a"],
+                            "clip": [0.0, 100.0]}},
+        ).render([10.0, 20.0])
+        self.assertIn("vector<double> k.v = { 10.0, 20.0, 10.0 };", out)
+
+    # -- F10: a newline in a comment injects a live assignment --------------
+    def test_newline_in_comment_rejected(self):
+        """Verified bug: `_render_line` prefixes only the FIRST line with
+        '// ', so a comment carrying a newline renders a real geometry
+        assignment on the following line (F10)."""
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"comment":
+                   "harmless note\ndouble stoppingTarget.holeRadius = 21.5;"}])
+        msg = str(cm.exception)
+        self.assertIn("newline", msg)
+        self.assertIn("t.json", msg)
+
+    def test_newline_in_raw_rejected(self):
+        with self.assertRaises(ValueError) as cm:
+            _tpl([{"key": "k.hole", "type": "double",
+                   "raw": "1.0e6;\ndouble other = 3.0"}])
+        self.assertIn("newline", str(cm.exception))
 
     def test_segment_expr_with_value_is_rejected(self):
         with self.assertRaises(ValueError) as cm:

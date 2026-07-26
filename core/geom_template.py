@@ -23,21 +23,28 @@ class ExprError(ValueError):
     """A formula was unparseable, used an unknown name, or used forbidden syntax."""
 
 
-def compile_expr(src: str, allowed_names: Set[str], where: str) -> ast.Expression:
+def compile_expr(src: str, allowed_names: Set[str], where: str,
+                 profiles: Set[str] = frozenset()) -> ast.Expression:
     """Parse `src` and verify every construct is permitted.
 
     `where` is a human locator (file + geometry key) included in every error.
+    `profiles` is the set of names that may be SUBSCRIPTED (declared profiles
+    are lists; every other known name is a float). It defaults to empty so a
+    caller that forgets it fails closed — `a[c]` on a scalar used to compile
+    fine and die at render with a bare "TypeError: 'float' object is not
+    subscriptable", carrying no file or key locator at all.
     Raises ExprError; never evaluates.
     """
     try:
         tree = ast.parse(src, mode="eval")
     except SyntaxError as exc:
         raise ExprError(f"{where}: cannot parse formula {src!r}: {exc}") from None
-    _verify(tree.body, allowed_names, src, where)
+    _verify(tree.body, allowed_names, src, where, profiles)
     return tree
 
 
-def _verify(node: ast.AST, allowed: Set[str], src: str, where: str) -> None:
+def _verify(node: ast.AST, allowed: Set[str], src: str, where: str,
+            profiles: Set[str] = frozenset()) -> None:
     if isinstance(node, ast.Constant):
         if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
             raise ExprError(
@@ -51,11 +58,11 @@ def _verify(node: ast.AST, allowed: Set[str], src: str, where: str) -> None:
                 f"known names are {sorted(allowed)}")
         return
     if isinstance(node, ast.BinOp) and isinstance(node.op, _ALLOWED_BINOPS):
-        _verify(node.left, allowed, src, where)
-        _verify(node.right, allowed, src, where)
+        _verify(node.left, allowed, src, where, profiles)
+        _verify(node.right, allowed, src, where, profiles)
         return
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, _ALLOWED_UNARYOPS):
-        _verify(node.operand, allowed, src, where)
+        _verify(node.operand, allowed, src, where, profiles)
         return
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name) or node.func.id not in _ALLOWED_FUNCS:
@@ -64,12 +71,21 @@ def _verify(node: ast.AST, allowed: Set[str], src: str, where: str) -> None:
         if node.keywords:
             raise ExprError(f"{where}: keyword arguments are not allowed in {src!r}")
         for arg in node.args:
-            _verify(arg, allowed, src, where)
+            _verify(arg, allowed, src, where, profiles)
         return
     if isinstance(node, ast.Subscript):
-        # profile indexing: rOut[i]
-        _verify(node.value, allowed, src, where)
-        _verify(node.slice, allowed, src, where)
+        # profile indexing: rOut[i]. ONLY a declared profile is a list; every
+        # other known name evaluates to a float, so subscripting it raises
+        # "'float' object is not subscriptable" at RENDER time with no
+        # locator. Rejected here instead (spec section 8).
+        if not isinstance(node.value, ast.Name) or node.value.id not in profiles:
+            target = getattr(node.value, "id", type(node.value).__name__)
+            raise ExprError(
+                f"{where}: only a declared profile may be subscripted in "
+                f"{src!r}; {target!r} is not one (declared profiles here: "
+                f"{sorted(profiles)}). Every other name is a scalar, and "
+                f"indexing it fails only at render time.")
+        _verify(node.slice, allowed, src, where, profiles)
         return
     raise ExprError(
         f"{where}: forbidden syntax {type(node).__name__} in formula {src!r}")
@@ -120,6 +136,14 @@ _VALID_TYPES = _SCALAR_TYPES + _VECTOR_TYPES
 # metadata. Two content keys together (e.g. 'value' + 'expr') used to render
 # the first one silently and drop the second with no error (X2 in the
 # json-configurable-modes final review).
+# `i` (element index) and `n` (element count) are written into the scope by
+# _render_line's per_index loop, AFTER the knob/const/derived/profile env --
+# so anything declared under either name is silently shadowed there and the
+# vector renders from the loop variable instead. Verified: knob i=99 rendered
+# { 0.0, 1.0, 2.0 }, const n=6 rendered { 3.0, 3.0, 3.0 }. `n` is a plausible
+# author choice (the shipped fixtures use n_up/n_dn). Rejected at load.
+_RESERVED_ELEMENTWISE_NAMES = ("i", "n")
+
 _LINE_KIND_KEYS = ("raw", "value", "expr", "segments", "per_index")
 _LINE_ALLOWED_KEYS = ("key", "type", "fmt") + _LINE_KIND_KEYS
 _PROFILE_ALLOWED_KEYS = ("count", "control", "clip")
@@ -151,6 +175,28 @@ def _validate_comment_names(text: str, available_names: Set[str], where: str) ->
             raise ExprError(
                 f"{where}: unknown name {name!r} in comment placeholder; "
                 f"known names are {sorted(available_names)}")
+
+
+def _reject_embedded_newline(text: str, field: str, where: str) -> None:
+    """Every rendered line is exactly one geometry statement. A newline
+    smuggled into a comment or a raw literal appends a second, live one."""
+    if "\n" in text or "\r" in text:
+        raise ValueError(
+            f"{where}: {field!r} contains a newline; each rendered line is "
+            f"one geometry statement, so the text after the newline becomes "
+            f"a LIVE assignment (only the first line is prefixed with '// '). "
+            f"Split it into separate entries instead: {text!r}")
+
+
+def _reject_reserved_name(name: str, category: str, where: str) -> None:
+    """A knob/const/derived/profile may not be called `i` or `n`."""
+    if name in _RESERVED_ELEMENTWISE_NAMES:
+        raise ValueError(
+            f"{where}: {category} name {name!r} is reserved -- 'i' (element "
+            f"index) and 'n' (element count) are injected by the per_index "
+            f"loop and would SILENTLY shadow it there, rendering the loop "
+            f"variable instead of your value. Rename it (e.g. "
+            f"{name}_foils).")
 
 
 def _reject_unknown_keys(d: dict, allowed: Iterable[str], where: str) -> None:
@@ -235,8 +281,12 @@ class GeomTemplate:
         if not base:
             raise ValueError(f"{where}: geom.base is required")
 
+        for nm in knob_names:
+            _reject_reserved_name(nm, "knob", where)
+
         consts = dict(d.get("consts") or {})
         for k, v in consts.items():
+            _reject_reserved_name(k, "const", where)
             if isinstance(v, bool) or not isinstance(v, (int, float)):
                 raise ValueError(f"{where}: const {k!r} must be a number, got {v!r}")
 
@@ -255,6 +305,7 @@ class GeomTemplate:
         derived = {}
         derived_set = set()
         for name, src in (d.get("derived") or {}).items():
+            _reject_reserved_name(name, "derived", where)
             if name in knob_set:
                 raise ValueError(
                     f"{where}: name {name!r} defined in both knobs and derived")
@@ -269,6 +320,7 @@ class GeomTemplate:
         profiles = {}
         profiles_set = set()
         for name, p in (d.get("profiles") or {}).items():
+            _reject_reserved_name(name, "profile", where)
             if name in knob_set:
                 raise ValueError(
                     f"{where}: name {name!r} defined in both knobs and profiles")
@@ -307,10 +359,30 @@ class GeomTemplate:
         comment_names = knob_set | const_set | derived_set | profiles_set
 
         lines = []
+        # Two lines emitting the same geometry key is silently last-wins in
+        # G4: GeometryService.hh defaults allowReplacement=true /
+        # messageOnReplacement=false and SimpleConfig.cc replaces with no
+        # message. Editing the first of a duplicated pair then leaves the
+        # stale one winning -- the silent-wrong-geometry class that tainted
+        # 62 foilsg rows. Rejected here, naming BOTH line indices.
+        seen_keys: Dict[str, int] = {}
         for idx, raw_line in enumerate(d.get("lines") or []):
-            lines.append(cls._prepare_line(
+            lw = f"{where}[lines[{idx}]]"
+            prepared = cls._prepare_line(
                 raw_line, consts, scalar_names, elementwise_names, comment_names,
-                f"{where}[lines[{idx}]]"))
+                profiles_set, lw)
+            key = prepared.get("key")
+            if key is not None:
+                if key in seen_keys:
+                    raise ValueError(
+                        f"{lw}: geometry key {key!r} is already emitted by "
+                        f"{where}[lines[{seen_keys[key]}]]. simpleConfig "
+                        f"silently keeps the LAST assignment (Offline "
+                        f"GeometryService.hh allowReplacement=true, "
+                        f"messageOnReplacement=false), so editing the first "
+                        f"one would have no effect and no error.")
+                seen_keys[key] = idx
+            lines.append(prepared)
         return cls(base, knob_names, consts, derived, profiles, lines)
 
     @staticmethod
@@ -328,10 +400,19 @@ class GeomTemplate:
         return count
 
     @classmethod
-    def _prepare_line(cls, ln, consts, scalar_names, elementwise_names, comment_names, where):
+    def _prepare_line(cls, ln, consts, scalar_names, elementwise_names,
+                      comment_names, profile_names, where):
         if "comment" in ln:
             _reject_unknown_keys(ln, ("comment",), where)
             comment_text = ln["comment"]
+            if not isinstance(comment_text, str):
+                raise ValueError(
+                    f"{where}: 'comment' must be a string, got {comment_text!r}")
+            # _render_line prefixes only the FIRST line with '// ', so an
+            # embedded newline turns the remainder into a live geometry
+            # assignment: {"comment": "note\ndouble stoppingTarget.holeRadius
+            # = 21.5;"} renders a real key.
+            _reject_embedded_newline(comment_text, "comment", where)
             _validate_comment_names(comment_text, comment_names, where)
             return {"kind": "comment", "text": comment_text}
 
@@ -355,6 +436,10 @@ class GeomTemplate:
         if "raw" in ln:
             if not isinstance(ln["raw"], str):
                 raise ValueError(f"{where}: 'raw' must be a string")
+            # 'raw' is deliberately a passthrough for literals the JSON number
+            # grammar loses (the 1.0e6 poison pill), but it is still ONE
+            # value on ONE line -- a newline in it appends extra geometry.
+            _reject_embedded_newline(ln["raw"], "raw", where)
             return {"kind": "raw", "key": key, "type": type_, "text": ln["raw"]}
         if "value" in ln:
             return {"kind": "literal", "key": key, "type": type_,
@@ -413,7 +498,8 @@ class GeomTemplate:
                 raise ValueError(f"{where}: per_index needs an 'expr'")
             return {"kind": "per_index", "key": key, "type": type_, "fmt": fmt,
                     "count": count,
-                    "expr": compile_expr(pi["expr"], elementwise_names, where)}
+                    "expr": compile_expr(pi["expr"], elementwise_names, where,
+                                         profile_names)}
 
         raise ValueError(
             f"{where}: line needs one of value / raw / expr / segments / per_index")
