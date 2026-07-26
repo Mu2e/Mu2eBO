@@ -297,11 +297,20 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
 
     def test_mode_specs_directory_holds_only_the_readme(self):
         """The real directory stays clean: a stray *.json checked in here
-        would be loaded by every process that imports modes."""
+        would be loaded by every process that imports modes.
+
+        `wiringprobe*.json` is excluded deliberately. The test above stages
+        one into this same real directory, and a SECOND suite process running
+        concurrently (observed in this environment) would otherwise see the
+        other run's in-flight probe and fail here for no reason. Within one
+        serial `unittest discover` that cannot happen -- the probe's
+        addCleanup fires before this test runs -- but the exclusion costs
+        nothing and only blinds this check to a committed file that is
+        already self-evidently a test artifact by name."""
         root = Path(__file__).resolve().parent.parent
-        self.assertEqual(
-            sorted(p.name for p in (root / "mode_specs").iterdir()),
-            ["README.md"])
+        stray = sorted(p.name for p in (root / "mode_specs").iterdir()
+                       if not p.name.startswith("wiringprobe"))
+        self.assertEqual(stray, ["README.md"])
 
 
 if __name__ == "__main__":
