@@ -92,7 +92,7 @@
 
       {"comment": "TT_MidInner -> DS2Vacuum fix (manually patched, mirrors v111)"},
       {"key": "tracker.inDS2Vacuum", "type": "bool",   "value": true},
-      {"key": "ds2.halfLength",      "type": "int",    "value": 3825},
+      {"key": "ds2.halfLength",      "type": "double", "value": 3825},
       {"key": "ds.hasServicePipes",  "type": "bool",   "value": false},
 
       {"comment": "Overlap-suppression (foil-support off + rail shrink)"},
