@@ -1,0 +1,96 @@
+{
+  "name": "foilspf",
+  "note": "10D all-foils stopping target: three Lagrange-quadratic profiles (rOut, halfThickness, hole fraction) across 49 foils plus a stack-length knob, vs the foilsflash sob+flash objective. Replaces the deployed 37-foil base entirely -- there is no pinned baseline. Design: docs/superpowers/specs/2026-07-27-foilspf-profile-stopping-target-design.md",
+  "software": {
+    "musing": "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
+  },
+  "run": {
+    "stages": ["mubeam", "mustops_ce", "elebeam_flash"],
+    "harvest": "harvest",
+    "jobs_per_stage": {"mubeam": 15, "mustops_ce": 15, "elebeam_flash": 100},
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
+    "stage_tuning": {
+      "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8},
+      "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8},
+      "elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}
+    }
+  },
+  "knobs": [
+    {"name": "rOut_0", "min": 50.0, "max": 120.0, "fmt": "{:.4f}"},
+    {"name": "rOut_1", "min": 50.0, "max": 120.0, "fmt": "{:.4f}"},
+    {"name": "rOut_2", "min": 50.0, "max": 120.0, "fmt": "{:.4f}"},
+    {"name": "hT_0", "min": 0.01, "max": 0.15, "fmt": "{:.6f}"},
+    {"name": "hT_1", "min": 0.01, "max": 0.15, "fmt": "{:.6f}"},
+    {"name": "hT_2", "min": 0.01, "max": 0.15, "fmt": "{:.6f}"},
+    {"name": "f_0", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
+    {"name": "f_1", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
+    {"name": "f_2", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
+    {"name": "extent", "min": 400.0, "max": 1200.0, "fmt": "{:.4f}"}
+  ],
+  "int_dims": [],
+  "leaderboard": {
+    "file": "leaderboards/leaderboard_bo_foilspf.tsv",
+    "columns": ["sob", "flash_edep", "alpha", "obj"],
+    "obs_noise": [0.006, 0.01],
+    "metrics": {
+      "sob": ["s_over_sqrt_b"],
+      "flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"]
+    }
+  },
+  "preflight": {
+    "fcl": "surfacecheck",
+    "dumps_gdml": true,
+    "verifies_foil_gdml": true,
+    "preserves_gdml": false,
+    "checks_managed_overlap": true
+  },
+  "geom": {
+    "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+    "consts": {
+      "n_foils": 49,
+      "z0": 5871.0
+    },
+    "derived": {
+      "deltaZ": "extent / 48"
+    },
+    "profiles": {
+      "rOut_p": {"count": "n_foils", "control": ["rOut_0", "rOut_1", "rOut_2"], "clip": [50.0, 120.0]},
+      "hT_p": {"count": "n_foils", "control": ["hT_0", "hT_1", "hT_2"], "clip": [0.01, 0.15]},
+      "f_p": {"count": "n_foils", "control": ["f_0", "f_1", "f_2"], "clip": [0.0, 0.95]}
+    },
+    "lines": [
+      {"comment": "=== foilspf (10D profile mode) === {n_foils} free foils, no pinned base"},
+      {"comment": "rOut  profile: {rOut_0:.2f} -> {rOut_1:.2f} -> {rOut_2:.2f} mm (Lagrange quadratic, u = i/48)"},
+      {"comment": "hT    profile: {hT_0:.4f} -> {hT_1:.4f} -> {hT_2:.4f} mm"},
+      {"comment": "hole  profile: f = {f_0:.3f} -> {f_1:.3f} -> {f_2:.3f}  (rIn_i = f_i * rOut_i)"},
+      {"comment": "extent {extent:.1f} mm over 48 gaps -> deltaZ {deltaZ:.6f} mm; centre pinned at z0 {z0:.1f}"},
+      {"key": "hasTSdA", "type": "bool", "value": false},
+      {"key": "tsda.helical.build", "type": "bool", "value": false},
+      {"key": "stoppingTarget.z0InMu2e", "type": "double", "expr": "z0", "fmt": "{:.4f}"},
+      {"key": "stoppingTarget.deltaZ", "type": "double", "expr": "deltaZ", "fmt": "{:.6f}"},
+      {"key": "stoppingTarget.radii", "type": "vector<double>", "fmt": "{:.4f}",
+       "per_index": {"count": "n_foils", "expr": "rOut_p[i]"}},
+      {"key": "stoppingTarget.halfThicknesses", "type": "vector<double>", "fmt": "{:.6f}",
+       "per_index": {"count": "n_foils", "expr": "hT_p[i]"}},
+      {"comment": "POISON PILL: an unpatched StoppingTargetMaker ignores holeRadii and reads"},
+      {"comment": "this scalar. 1e6 forces a loud G4Tubs crash instead of a silently uniform"},
+      {"comment": "stack -- emitting a 'sensible' scalar is how 62 foilsg rows were lost."},
+      {"key": "stoppingTarget.holeRadius", "type": "double", "raw": "1.0e6"},
+      {"key": "stoppingTarget.holeRadii", "type": "vector<double>", "fmt": "{:.4f}",
+       "per_index": {"count": "n_foils", "expr": "f_p[i] * rOut_p[i]"}},
+      {"comment": "Degrader parked at 120 deg (mmackenz hardware detent)"},
+      {"key": "degrader.build", "type": "bool", "value": false},
+      {"key": "degrader.rotation", "type": "double", "value": 120.0},
+      {"key": "ts.coll5.material1Name", "type": "string", "value": "COL5Poly"},
+      {"comment": "TT_MidInner -> DS2Vacuum fix (manually patched, mirrors v111)"},
+      {"key": "tracker.inDS2Vacuum", "type": "bool", "value": true},
+      {"key": "ds2.halfLength", "type": "double", "value": 3825},
+      {"key": "ds.hasServicePipes", "type": "bool", "value": false},
+      {"comment": "Overlap-suppression (foil-support off + rail shrink)"},
+      {"key": "stoppingTarget.foilTarget_supportStructure", "type": "bool", "value": false},
+      {"key": "ds.lengthRail2", "type": "double", "value": 0.1},
+      {"key": "ds.lengthRail3", "type": "double", "value": 0.1}
+    ]
+  }
+}

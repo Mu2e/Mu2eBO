@@ -317,7 +317,7 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
     # here is loaded by EVERY process that imports modes, so the point of the
     # test below is that nothing arrives unnoticed -- adding a line here is a
     # conscious act, which is exactly the review checkpoint we want.
-    SHIPPED_SPECS = {"foilsflash.json"}
+    SHIPPED_SPECS = {"foilsflash.json", "foilspf.json"}
 
     def test_mode_specs_directory_holds_only_the_readme(self):
         """The real directory holds the README plus exactly the shipped specs:
