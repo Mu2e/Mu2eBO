@@ -325,7 +325,22 @@ class BOMode(ABC):
             kept = [r for r in body if not r.startswith(name + "\t")]
             if len(kept) == len(body):
                 return False
-            pp.write_text("\n".join([header] + kept) + ("\n" if kept else ""))
+            # ALWAYS terminate with a newline, including when `kept` is empty.
+            # The old `("\n" if kept else "")` left the header unterminated
+            # once the last pending row was removed, and append_pending opens
+            # in "a" mode -- so the NEXT proposal was written straight onto the
+            # header line ("...submitted_atfoilsflash22R00_00\t[...]"). From
+            # then on the file was a single line forever: load_pending()
+            # returned 0 rows, silently. That went unnoticed for a long time
+            # because nothing depended on reading it back -- Python modes
+            # recovered x via parse_geom, and the only other consumers degrade
+            # quietly (the propose_one collision guard stops seeing pending
+            # names, and botorch_ask gets an empty X_pending so concurrent
+            # children no longer repel each other's in-flight points). It
+            # became fatal the moment foilsflash went JSON-defined and
+            # x_for_evaluate made the pending TSV the ONLY record of x:
+            # foilsflash24R00_00 lost a finished 3.5 h eval to it (2026-07-26).
+            pp.write_text("\n".join([header] + kept) + "\n")
             return True
 
 

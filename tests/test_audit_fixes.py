@@ -14,6 +14,7 @@ Run from project root:
 import argparse
 import io
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -779,6 +780,75 @@ class TestVerifyStoppingTargetGdml(unittest.TestCase):
         errs = self._run([("Foil_00", 0.0, 100.0, 1.0, "mm"),
                           ("Foil_01", 0.0, 200.0, 1.0, "mm")], geom=geom)
         self.assertEqual(errs, [])
+
+
+import bo_driver as bo  # noqa: E402
+
+
+class TestPendingTsvRoundTrip(unittest.TestCase):
+    """remove_pending must leave the file newline-terminated (2026-07-26).
+
+    The old code wrote `"\\n".join([header] + kept) + ("\\n" if kept else "")`,
+    so emptying the file left the header UNterminated. append_pending opens in
+    "a" mode, so the next proposal landed on the header line itself
+    ("...submitted_atfoilsflash22R00_00\\t[...]") and the file stayed a single
+    line forever — load_pending() silently returned 0 rows.
+
+    It survived unnoticed because every consumer degraded QUIETLY: Python modes
+    recovered x from parse_geom, the propose_one collision guard just stopped
+    seeing pending names, and botorch_ask got an empty X_pending (so concurrent
+    children stopped repelling each other's in-flight points). It only became
+    visible when foilsflash went JSON-defined and the pending TSV became the
+    sole record of x — costing foilsflash24R00_00 a finished 3.5 h eval.
+
+    Existing coverage checked only that remove_pending is CALLED before
+    append_history; nothing ever read the file back after a removal.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.mode = bo.MODES["foils"]
+        patcher = mock.patch.object(
+            self.mode, "leaderboard", self.tmp / "leaderboard_bo_probe.tsv")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _x(self, v):
+        return [float(v)] * len(self.mode.KNOB_NAMES)
+
+    def test_append_after_emptying_is_still_parseable(self):
+        """The exact production sequence: propose, evaluate (clears the last
+        row), propose again. The second proposal must be readable."""
+        self.mode.append_pending("cfgA", self._x(1), 1.0)
+        self.assertTrue(self.mode.remove_pending("cfgA"))
+        self.mode.append_pending("cfgB", self._x(2), 1.0)
+        got = self.mode.load_pending()
+        self.assertEqual([c for c, _ in got], ["cfgB"],
+                         "pending row lost: the file was not newline-terminated "
+                         "after the previous removal")
+
+    def test_file_is_newline_terminated_when_emptied(self):
+        self.mode.append_pending("cfgA", self._x(1), 1.0)
+        self.mode.remove_pending("cfgA")
+        self.assertTrue(self.mode.pending_path().read_text().endswith("\n"))
+
+    def test_many_propose_evaluate_cycles_never_corrupt(self):
+        """A single bad cycle poisons the file permanently, so iterate."""
+        for i in range(5):
+            self.mode.append_pending(f"cfg{i}", self._x(i), 1.0)
+            self.assertEqual([c for c, _ in self.mode.load_pending()], [f"cfg{i}"],
+                             f"cycle {i}: pending unreadable")
+            self.mode.remove_pending(f"cfg{i}")
+        self.assertEqual(self.mode.load_pending(), [])
+
+    def test_x_survives_the_round_trip_exactly(self):
+        """x_for_evaluate reconstructs the eval's coordinates from this file,
+        so the values must come back bit-for-bit, not merely parse."""
+        x = [250.0, 203.394671, 0.209299, 0.621833, 0.95, 0.720726]
+        self.mode.append_pending("cfgX", x, 1.0e5)
+        (_, got), = self.mode.load_pending()
+        self.assertEqual(got, x)
 
 
 if __name__ == "__main__":
