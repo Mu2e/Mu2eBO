@@ -5,7 +5,8 @@
 ## Goal
 
 A new BO line that varies **every foil** in the stopping target — outer radius,
-thickness, and central hole — instead of the current `foilsflash` line's fixed
+thickness, central hole, and overall stack length — instead of the current
+`foilsflash` line's fixed
 37-foil base plus a ±6-foil extras envelope. Per-foil values come from smooth
 profiles in foil index, the same parameterization `bo-prodtarget` uses for the
 production target's plates.
@@ -50,21 +51,48 @@ one is significant — `rOut_dn` −0.60, `hT_dn` +0.52, `hT_up` +0.51, `f_dn`
 
 ### Parameterization
 
-49 foils, uniform `deltaZ = 800/48 = 16.666666` mm, `z0InMu2e = 5871` — the
-same layout as `foilsg`, so the two lines are structurally comparable.
+49 foils, spacing uniform but adjustable, stack centre pinned at
+`z0InMu2e = 5871`. At the deployed extent of 800 mm this is the same layout as
+`foilsg`, so the two lines remain structurally comparable.
 
 Three quantities are Lagrange quadratics in normalized foil index
-`u = i/48`, each through control points at `u ∈ {0, 0.5, 1}`:
+`u = i/48`, each through control points at `u ∈ {0, 0.5, 1}`. A tenth knob
+sets the overall stack length:
 
 | knob group | bounds | clip | deployed value |
 |---|---|---|---|
 | `rOut_0`, `rOut_1`, `rOut_2` | [50, 120] mm | [50, 120] | 75 |
 | `hT_0`, `hT_1`, `hT_2` | [0.01, 0.15] mm | [0.01, 0.15] | 0.0528 |
 | `f_0`, `f_1`, `f_2` | [0, 0.95] | [0, 0.95] | 0.287 |
+| `extent` | [400, 1200] mm | n/a (scalar) | 800 |
 
-Per foil: `rIn_i = f_i · rOut_i`.
+Per foil: `rIn_i = f_i · rOut_i`. Derived: `deltaZ = extent / 48`, so
+`deltaZ` spans 8.33–25.0 mm against the deployed 16.666666.
 
-Search dimension is 9, all continuous, no integer dims.
+Search dimension is 10, all continuous, no integer dims.
+
+**Why `extent` and not a spacing profile.** Foil gaps are vacuum, so moving
+foils changes no muon's material budget — it changes *where along z* muons
+come to rest, and hence acceptance. A non-uniform spacing profile (`zVars`,
++3 knobs, 12-D) is feasible as pure config — `StoppingTargetMaker.cc:184`
+computes `z_i = offset + (i − n0)·deltaZ + zVars[i]` and reads `zVars` in
+**stock** Offline (`:85`, with a repeat-last fill rule; the base geometry sets
+it to all zeros). It was rejected because it is **partly degenerate with the
+thickness profile**: upstream material density can be raised either by
+thickening those foils or by bunching them, so the GP would spend evals
+separating two knobs doing overlapping work. A single `extent` knob has no
+such overlap — nothing else in the space can change total stack length.
+
+`extent` does **not** affect stack mass (same foils, spread differently), so
+the mass envelope below is unchanged by this knob.
+
+Bounds are 0.5×–1.5× deployed. The stack spans `5871 ± extent/2`, i.e.
+5271–6471 mm at the widest, well inside the OPA envelope (centre 6250,
+half-length 2250). At the shortest extent the foil-surface gap is
+`8.33 − 2(0.15) = 8.03` mm, so no overlap is possible at any thickness in
+range. The OPA-coupled support-wire calculation at `StoppingTargetMaker.cc:140`
+does not apply: it is gated on `foilTarget_supportStructure_endAtOPA`, and this
+geometry sets `stoppingTarget.foilTarget_supportStructure = false`.
 
 **Clipping is load-bearing.** A quadratic through in-range control points
 overshoots between them — at these bounds, control `(50, 120, 120)` peaks at
@@ -99,8 +127,9 @@ choose node positions deliberately rather than inheriting "evenly spaced".
 ### What the parameterization can and cannot express
 
 Deliberate and worth stating plainly, because it bounds what this line can
-ever find. Free per-foil control would be 49 × 3 = **147 dimensions**; this
-design uses **9**. The reachable shape family per quantity is:
+ever find. Free per-foil control would be 49 × 4 (radius, thickness, hole,
+position) = **196 dimensions**; this design uses **10**. The reachable shape
+family per profiled quantity is:
 
 - uniform (all three control points equal — reproduces the deployed-style
   stack and anything `foilsg` could do with a single group)
@@ -114,7 +143,7 @@ points, step changes, alternating thick/thin patterns, or "only the first six
 foils differ".
 
 Accepted because real targets are smooth, the underlying physics (muon
-slowing along z) is smooth, and 147-D is not searchable at ~4.5 h/eval. Note
+slowing along z) is smooth, and 196-D is not searchable at ~4.5 h/eval. Note
 `foilsg` has the complementary blind spot — its four z-groups express a step
 but not a smooth ramp — so neither parameterization dominates.
 
@@ -178,12 +207,17 @@ The spec is `mode_specs/foilspf.json`, modelled on `mode_specs/foilsflash.json`.
 Geometry block:
 
 ```json
+"derived": {
+  "deltaZ": "extent / 48"
+},
 "profiles": {
   "rOut_p": {"count": 49, "control": ["rOut_0","rOut_1","rOut_2"], "clip": [50, 120]},
   "hT_p":   {"count": 49, "control": ["hT_0","hT_1","hT_2"],       "clip": [0.01, 0.15]},
   "f_p":    {"count": 49, "control": ["f_0","f_1","f_2"],          "clip": [0, 0.95]}
 },
 "lines": [
+  {"key": "stoppingTarget.deltaZ",          "type": "double",
+   "expr": "deltaZ",                                            "fmt": "{:.6f}"},
   {"key": "stoppingTarget.radii",           "type": "vector<double>",
    "per_index": {"count": 49, "expr": "rOut_p[i]"},           "fmt": "{:.4f}"},
   {"key": "stoppingTarget.halfThicknesses", "type": "vector<double>",
@@ -203,12 +237,18 @@ stack — the exact failure that tainted all 62 `foilsg` rows
 All remaining geometry lines are copied verbatim from `foilsg`'s render, which
 is the validated stopping-target-replacement geometry:
 
+**`stoppingTarget.deltaZ` is NOT in this list** — it is knob-derived and
+emitted by the `expr` line above. Emitting it here as well would put the same
+key on two lines, where last-write-wins silently decides the geometry: the
+constant would override every `extent` the optimizer picked, and every eval
+would run at 800 mm while the leaderboard recorded the knob it never used.
+An implementation-time check should assert no key is emitted twice.
+
 ```
 #include "Offline/Mu2eG4/geom/geom_run1_a.txt"
 bool   hasTSdA = false;
 bool   tsda.helical.build = false;
 double stoppingTarget.z0InMu2e = 5871.0000;
-double stoppingTarget.deltaZ   = 16.666666;
 bool   degrader.build = false;
 double degrader.rotation = 120.0;
 string ts.coll5.material1Name = "COL5Poly";
@@ -239,9 +279,13 @@ Identical to `foilsflash` except the leaderboard:
 ### Cold start
 
 The 414 `foilsflash` rows are in the 6D extras-only space and are **not**
-transferable to this 9D profile space. `load_priors()` returns empty and the
+transferable to this 10D profile space. `load_priors()` returns empty and the
 GP starts cold: round 0 is Sobol. Budget ~20 evals before results are
 meaningful. This is inherent to changing the parameterization, not a defect.
+
+`extent` is the one knob whose effect can be read almost immediately: it is
+uncorrelated with the three shape families, so even the Sobol round should
+show whether stack length moves `sob` or `flash` at all.
 
 ## Validation
 
@@ -257,10 +301,17 @@ Staged, cheapest first. **No campaign until all four pass.** This mirrors the
      at the clip bound, never beyond.
    - `rIn_i < rOut_i` at every index across the corner set.
    - The poison pill renders exactly `1.0e6`, not `1000000.0`.
+   - `extent = 800` renders `stoppingTarget.deltaZ = 16.666667`; the bound
+     values 400 and 1200 render 8.333333 and 25.000000.
+   - **No geometry key is emitted twice** — scan the render for duplicate
+     keys. `deltaZ` is the live hazard: a leftover constant would silently
+     override the `extent` knob and pin every eval at 800 mm.
    - `foilspf` appears in `SPECS` and is a `JsonMode`.
-2. **Local G4 preflight** (`mu2e -n 1`, surface-check FCL) on three renders:
-   deployed-equivalent, and both extreme corners. Expect PASS with no
-   `GeomSolids`/`GeomNav` errors.
+2. **Local G4 preflight** (`mu2e -n 1`, surface-check FCL) on five renders:
+   deployed-equivalent, both extreme shape corners, and — because `extent` is
+   the one knob that moves foils rather than resizing them — the shortest and
+   longest stack at deployed shape. Expect PASS with no `GeomSolids`/`GeomNav`
+   errors.
 3. **One grid eval** — `--q 1 --max-rounds 1` under an isolated leaderboard
    path and a fresh name-prefix. Success criteria: preflight PASS carrying
    the patched-lib canary `holeRadii vector active (n=49)`; a row lands with
@@ -295,5 +346,12 @@ remaining effort belongs.
 
 - Is there a real Mu2e stopping-target mass budget? If one exists, it belongs
   here as a constraint and would change the bounds decision above.
-- Should a later revision profile `deltaZ` (non-uniform foil spacing)? Not in
-  v0 — it interacts with `z0InMu2e` pinning and adds a fourth profile family.
+- Is there an acceptance-driven limit on stack length that should tighten
+  `extent`'s [400, 1200] range? The bounds were set from geometry clearance
+  (OPA envelope, foil-overlap) and 0.5×–1.5× of deployed, not from a
+  stopping-distribution or tracker-acceptance argument. If the campaign rails
+  `extent` to either bound, that is the question to answer before widening it.
+- Non-uniform spacing (`zVars`, +3 knobs) is deliberately deferred, not
+  blocked — it is expressible in stock Offline today. Revisit only if `extent`
+  turns out to be a strong lever, since a spacing *profile* overlaps the
+  thickness profile and should not be bought before the cheap version pays.
