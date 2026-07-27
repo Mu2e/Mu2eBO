@@ -70,7 +70,7 @@ class TestFoilspfRegistration(unittest.TestCase):
         self.assertEqual(s.bounds_lo,
                          (50.0, 50.0, 50.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0, 400.0))
         self.assertEqual(s.bounds_hi,
-                         (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 1200.0))
+                         (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 1100.0))
         self.assertEqual(s.int_dims, ())
 
     def test_run_configuration_matches_foilsflash(self):
@@ -111,7 +111,7 @@ class TestFoilspfGeometry(unittest.TestCase):
     def test_extent_knob_drives_deltaZ(self):
         for extent, expected in ((400.0, "8.333333"),
                                  (800.0, "16.666667"),
-                                 (1200.0, "25.000000")):
+                                 (1100.0, "22.916667")):
             x = DEPLOYED[:9] + [extent]
             self.assertEqual(_scalar(_render(x), "stoppingTarget.deltaZ"), expected)
 
@@ -188,7 +188,7 @@ class TestFoilspfMassEnvelope(unittest.TestCase):
         """Spreading the same foils over more z adds no aluminium. If this
         fails, extent is wired to something it should not touch."""
         short = _mass_g(DEPLOYED[:9] + [400.0])
-        long_ = _mass_g(DEPLOYED[:9] + [1200.0])
+        long_ = _mass_g(DEPLOYED[:9] + [1100.0])
         self.assertAlmostEqual(short, long_, places=6)
 
 

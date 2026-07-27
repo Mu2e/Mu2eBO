@@ -13,7 +13,7 @@
 Copied verbatim from the design spec. Every task's requirements implicitly include these.
 
 - Mode name is `foilspf`. Leaderboard is `leaderboards/leaderboard_bo_foilspf.tsv` — a NEW file, shared with no other mode.
-- Bounds: `rOut_{0,1,2}` ∈ [50, 120] mm · `hT_{0,1,2}` ∈ [0.01, 0.15] mm · `f_{0,1,2}` ∈ [0, 0.95] · `extent` ∈ [400, 1200] mm.
+- Bounds: `rOut_{0,1,2}` ∈ [50, 120] mm · `hT_{0,1,2}` ∈ [0.01, 0.15] mm · `f_{0,1,2}` ∈ [0, 0.95] · `extent` ∈ [400, 1100] mm (ceiling measured, see design spec: EMC_Source clearance).
 - Profile clips equal the bounds exactly: rOut [50, 120], hT [0.01, 0.15], f [0, 0.95].
 - 49 foils. `z0InMu2e = 5871.0` pinned. `deltaZ = extent / 48` derived — **`deltaZ` is emitted once, from the expression, and never as a constant.**
 - `stoppingTarget.holeRadius` is the poison pill and MUST render as the literal `1.0e6`, never `1000000.0`. It is emitted via `"raw"`, because JSON's number grammar loses the exponent form.
@@ -129,7 +129,7 @@ class TestFoilspfRegistration(unittest.TestCase):
         self.assertEqual(s.bounds_lo,
                          (50.0, 50.0, 50.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0, 400.0))
         self.assertEqual(s.bounds_hi,
-                         (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 1200.0))
+                         (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 1100.0))
         self.assertEqual(s.int_dims, ())
 
     def test_run_configuration_matches_foilsflash(self):
@@ -170,7 +170,7 @@ class TestFoilspfGeometry(unittest.TestCase):
     def test_extent_knob_drives_deltaZ(self):
         for extent, expected in ((400.0, "8.333333"),
                                  (800.0, "16.666667"),
-                                 (1200.0, "25.000000")):
+                                 (1100.0, "22.916667")):
             x = DEPLOYED[:9] + [extent]
             self.assertEqual(_scalar(_render(x), "stoppingTarget.deltaZ"), expected)
 
@@ -247,7 +247,7 @@ class TestFoilspfMassEnvelope(unittest.TestCase):
         """Spreading the same foils over more z adds no aluminium. If this
         fails, extent is wired to something it should not touch."""
         short = _mass_g(DEPLOYED[:9] + [400.0])
-        long_ = _mass_g(DEPLOYED[:9] + [1200.0])
+        long_ = _mass_g(DEPLOYED[:9] + [1100.0])
         self.assertAlmostEqual(short, long_, places=6)
 
 
@@ -296,7 +296,7 @@ Create `mode_specs/foilspf.json`. This exact content has been loaded and rendere
     {"name": "f_0", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
     {"name": "f_1", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
     {"name": "f_2", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
-    {"name": "extent", "min": 400.0, "max": 1200.0, "fmt": "{:.4f}"}
+    {"name": "extent", "min": 400.0, "max": 1100.0, "fmt": "{:.4f}"}
   ],
   "int_dims": [],
   "leaderboard": {
@@ -450,7 +450,7 @@ CASES = {
     "corner_hi": [120, 120, 120, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 800.0],
     "corner_lo": [50, 50, 50, 0.01, 0.01, 0.01, 0.95, 0.95, 0.95, 800.0],
     "short":     [75, 75, 75, 0.0528, 0.0528, 0.0528, 0.287, 0.287, 0.287, 400.0],
-    "long":      [75, 75, 75, 0.0528, 0.0528, 0.0528, 0.287, 0.287, 0.287, 1200.0],
+    "long":      [75, 75, 75, 0.0528, 0.0528, 0.0528, 0.287, 0.287, 0.287, 1100.0],
 }
 for name, x in CASES.items():
     p = OUT / f"geom_foilspf_{name}.txt"

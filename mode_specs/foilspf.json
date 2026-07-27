@@ -26,7 +26,7 @@
     {"name": "f_0", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
     {"name": "f_1", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
     {"name": "f_2", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
-    {"name": "extent", "min": 400.0, "max": 1200.0, "fmt": "{:.4f}"}
+    {"name": "extent", "min": 400.0, "max": 1100.0, "fmt": "{:.4f}"}
   ],
   "int_dims": [],
   "leaderboard": {

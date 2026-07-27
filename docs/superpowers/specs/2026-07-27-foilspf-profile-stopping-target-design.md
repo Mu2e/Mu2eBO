@@ -64,10 +64,10 @@ sets the overall stack length:
 | `rOut_0`, `rOut_1`, `rOut_2` | [50, 120] mm | [50, 120] | 75 |
 | `hT_0`, `hT_1`, `hT_2` | [0.01, 0.15] mm | [0.01, 0.15] | 0.0528 |
 | `f_0`, `f_1`, `f_2` | [0, 0.95] | [0, 0.95] | 0.287 |
-| `extent` | [400, 1200] mm | n/a (scalar) | 800 |
+| `extent` | [400, 1100] mm | n/a (scalar) | 800 |
 
 Per foil: `rIn_i = f_i · rOut_i`. Derived: `deltaZ = extent / 48`, so
-`deltaZ` spans 8.33–25.0 mm against the deployed 16.666666.
+`deltaZ` spans 8.33–22.92 mm against the deployed 16.666666.
 
 Search dimension is 10, all continuous, no integer dims.
 
@@ -86,13 +86,42 @@ such overlap — nothing else in the space can change total stack length.
 `extent` does **not** affect stack mass (same foils, spread differently), so
 the mass envelope below is unchanged by this knob.
 
-Bounds are 0.5×–1.5× deployed. The stack spans `5871 ± extent/2`, i.e.
-5271–6471 mm at the widest, well inside the OPA envelope (centre 6250,
+Bounds are 0.5×–1.375× deployed. The stack spans `5871 ± extent/2`, i.e.
+5321–6421 mm at the widest, well inside the OPA envelope (centre 6250,
 half-length 2250). At the shortest extent the foil-surface gap is
 `8.33 − 2(0.15) = 8.03` mm, so no overlap is possible at any thickness in
 range. The OPA-coupled support-wire calculation at `StoppingTargetMaker.cc:140`
 does not apply: it is gated on `foilTarget_supportStructure_endAtOPA`, and this
 geometry sets `stoppingTarget.foilTarget_supportStructure = false`.
+
+**The 1100 ceiling is measured, not round (revised 2026-07-27 from an initial
+1200).** `VirtualDetector_EMC_Source` sits at a fixed `z = 5300`; the stack's
+upstream edge is `5871 − extent/2`, so it reaches that detector at
+`extent ≈ 1142`. Live preflight confirms the boundary sharply:
+
+| extent | upstream edge | overlaps reported |
+|---|---|---|
+| 1100 | 5321 | **1** — `VirtualDetector_EMC_0_Front` only |
+| 1140 | 5301 | 2 — `VirtualDetector_EMC_Source` joins |
+| 1200 | 5271 | 2 |
+
+One overlap is exactly what production `foilsflash` carries (`EMC_0_Front`
+against `StoppingTargetMother`, at 17.06 cm — larger than anything `foilspf`
+produces). Capping at 1100 therefore keeps this line inside the **same
+geometry regime the existing campaigns have validated**, instead of letting
+the optimizer explore a two-overlap regime nothing in this project has run.
+
+Disabling `VirtualDetector_EMC_Source` was considered and rejected: it treats
+the symptom rather than the stack growing into detector space, it diverges
+`foilspf`'s geometry from every sibling line for a non-knob reason (undoing
+the comparability the 49-foil layout was chosen to preserve), and no one
+disabled a detector for the pre-existing `EMC_0_Front` overlap. The honest
+caveat behind the conservatism: both overlaps involve **massless** virtual
+detectors and G4 calls them warnings, but navigation ambiguity in a region
+containing the stopping-target foils could in principle perturb where muons
+stop — which is the signal. Production tolerates the existing one by
+precedent, not by analysis. That is a reason not to add a second one when
+the fix costs 100 mm of a range that was speculative anyway.
 
 **Clipping is load-bearing.** A quadratic through in-range control points
 overshoots between them — at these bounds, control `(50, 120, 120)` peaks at
@@ -302,7 +331,7 @@ Staged, cheapest first. **No campaign until all four pass.** This mirrors the
    - `rIn_i < rOut_i` at every index across the corner set.
    - The poison pill renders exactly `1.0e6`, not `1000000.0`.
    - `extent = 800` renders `stoppingTarget.deltaZ = 16.666667`; the bound
-     values 400 and 1200 render 8.333333 and 25.000000.
+     values 400 and 1100 render 8.333333 and 22.916667.
    - **No geometry key is emitted twice** — scan the render for duplicate
      keys. `deltaZ` is the live hazard: a leftover constant would silently
      override the `extent` knob and pin every eval at 800 mm.
@@ -347,7 +376,7 @@ remaining effort belongs.
 - Is there a real Mu2e stopping-target mass budget? If one exists, it belongs
   here as a constraint and would change the bounds decision above.
 - Is there an acceptance-driven limit on stack length that should tighten
-  `extent`'s [400, 1200] range? The bounds were set from geometry clearance
+  `extent`'s [400, 1100] range? The ceiling is set by the EMC_Source clearance
   (OPA envelope, foil-overlap) and 0.5×–1.5× of deployed, not from a
   stopping-distribution or tracker-acceptance argument. If the campaign rails
   `extent` to either bound, that is the question to answer before widening it.
