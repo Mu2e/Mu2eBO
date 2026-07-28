@@ -120,15 +120,43 @@ structure left ON, zero `stoppingTarget` overrides — reports **114** overlaps:
 (`stoppingTarget.foilTarget_supportStructure = false`, `ds.lengthRail2/3 = 0.1`)
 are what remove the other 113.
 
-The survivor cannot be removed. `VirtualDetector_EMC_0_Front` is a disk at a
-fixed `z = 5830`, `r = 454`; the target is centred at `z = 5871` and so spans
-5830 for **any** `extent > 82` mm. Eliminating it would require moving the
-stopping target off its real position — changing the physics under study — or
-deleting a stock Mu2e detector, which would make results incomparable to
-Mu2e's own simulations and to the 414 existing `foilsflash` rows. The overlap
-is present in every official Mu2e simulation; it is inherited, not introduced.
-This corroborates the characterization already recorded at
+The survivor cannot be removed **within this Musing**.
+`VirtualDetector_EMC_0_Front` is a disk at a fixed `z = 5830`, `r = 454`; the
+target is centred at `z = 5871` and so spans 5830 for **any** `extent > 82` mm.
+Within Run1Bak, eliminating it would require moving the stopping target off its
+real position — changing the physics under study — or deleting a stock Mu2e
+detector. This corroborates the characterization already recorded at
 `core/bo_driver.py:1602`.
+
+**CORRECTION (measured 2026-07-27): it is NOT inherent to Mu2e — it is fixed
+upstream in `SimJob/Run1Bap`, four releases newer than our Run1Bak base.**
+An earlier revision of this section claimed the overlap was "present in every
+official Mu2e simulation". That is false. Same pure-stock probe, same
+surface-check settings, run under each Musing:
+
+| | Run1Bak (our base) | Run1Bap (current) |
+|---|---|---|
+| overlaps, stock `geom_run1_a.txt` | **117** | **0** |
+| volumes surface-checked | 10,496 | 10,495 |
+| result | **abort, core dumped** | clean exit, status 0 |
+
+Run1Bap reports 10,495 of 10,495 volumes OK with zero `G4Exception` blocks, so
+the check genuinely ran. Our geometry's three suppression layers
+(`foilTarget_supportStructure=false`, the `inDS2Vacuum`/`ds2.halfLength` fix,
+`ds.lengthRail2/3=0.1`) are therefore **workarounds for a stale Offline whose
+stock geometry does not even run**, not general hygiene.
+
+**Why we have not migrated:** Run1Bap does **not** support the per-foil
+`holeRadii` vector this line depends on — verified directly, the poison pill
+fired under Run1Bap with `pRMin = 1e+06, pRMax = 75` (a live confirmation that
+the pill works as designed in a genuinely unpatched environment). Migration
+therefore requires rebuilding the patch against Run1Bap
+(see `wiki/external/muse-backing-pattern.md`), revalidating, and accepting a
+**leaderboard discontinuity** — the 414 existing `foilsflash` rows were
+measured under Run1Bak, and an Offline release change moves the physics
+baseline. That is a scoped piece of work affecting the whole foils family, not
+a `foilspf` decision, and it is deliberately out of scope here. It should be
+near the top of the project's queue.
 
 Disabling `VirtualDetector_EMC_Source` was considered and rejected: it treats
 the symptom rather than the stack growing into detector space, it diverges
