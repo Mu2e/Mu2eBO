@@ -111,6 +111,25 @@ produces). Capping at 1100 therefore keeps this line inside the **same
 geometry regime the existing campaigns have validated**, instead of letting
 the optimizer explore a two-overlap regime nothing in this project has run.
 
+**Zero overlaps is not reachable, and one is the floor (measured 2026-07-27).**
+A preflight on a stock probe — same base include, deployed 37 foils, support
+structure left ON, zero `stoppingTarget` overrides — reports **114** overlaps:
+111 `FoilSupportStructure_*`, 1 `VirtualDetector_EMC_0_Front`, and 1 each of
+`NorthRailDS3`/`SouthRailDS3`. `foilspf` reports **1**. The two
+"Overlap-suppression" lines in the geometry
+(`stoppingTarget.foilTarget_supportStructure = false`, `ds.lengthRail2/3 = 0.1`)
+are what remove the other 113.
+
+The survivor cannot be removed. `VirtualDetector_EMC_0_Front` is a disk at a
+fixed `z = 5830`, `r = 454`; the target is centred at `z = 5871` and so spans
+5830 for **any** `extent > 82` mm. Eliminating it would require moving the
+stopping target off its real position — changing the physics under study — or
+deleting a stock Mu2e detector, which would make results incomparable to
+Mu2e's own simulations and to the 414 existing `foilsflash` rows. The overlap
+is present in every official Mu2e simulation; it is inherited, not introduced.
+This corroborates the characterization already recorded at
+`core/bo_driver.py:1602`.
+
 Disabling `VirtualDetector_EMC_Source` was considered and rejected: it treats
 the symptom rather than the stack growing into detector space, it diverges
 `foilspf`'s geometry from every sibling line for a non-knob reason (undoing
