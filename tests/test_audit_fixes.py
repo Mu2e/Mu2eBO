@@ -644,6 +644,27 @@ class TestRunSourcedBash(unittest.TestCase):
         self.assertEqual(m.call_count, 1)      # timeout = running, not a flake
         sleep.assert_not_called()
 
+    def test_spack_cache_export_prepended(self):
+        # NFSv4.0 seqid-wedge mitigation: every command must run with
+        # spack's cache (and its fcntl locks) on node-local /tmp, not
+        # NFS HOME. See wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md.
+        with mock.patch.object(self.sb.subprocess, "run",
+                               return_value=self._proc(0)) as m:
+            self.sb.run_sourced_bash("source setup.sh && getToken")
+        argv = m.call_args[0][0]
+        self.assertEqual(argv[:2], ["bash", "-c"])
+        self.assertTrue(argv[2].startswith(
+            "export SPACK_USER_CACHE_PATH=/tmp/spack_cache_"))
+        self.assertTrue(argv[2].endswith(" && source setup.sh && getToken"))
+
+    def test_spack_cache_export_prepended_login_shell(self):
+        with mock.patch.object(self.sb.subprocess, "run",
+                               return_value=self._proc(0)) as m:
+            self.sb.run_sourced_bash("getToken", login=True)
+        argv = m.call_args[0][0]
+        self.assertEqual(argv[:2], ["bash", "-lc"])
+        self.assertTrue(argv[2].startswith("export SPACK_USER_CACHE_PATH="))
+
 
 class TestPreflightFatalAbortClassification(unittest.TestCase):
     """Regression for wiki/incidents/preflight-past-init-false-pass.md:
