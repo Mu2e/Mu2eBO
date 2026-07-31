@@ -456,10 +456,11 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # mu2ejobdef,mu2eprodsys}) via the active Musing's env, replacing the
         # legacy UPS `setup mu2egrid`.
         # NOTE: this swap does NOT prevent rc=127. That failure comes from a
-        # transient cvmfs I/O flake (==> Error: [Errno 5]) inside
-        # setupmu2e-art.sh that leaves museDefine.sh unsourced and the `muse`
-        # function itself undefined -- upstream of this line. The retry loop
-        # below is what actually recovers it.
+        # transient [Errno 5] inside setupmu2e-art.sh (cvmfs read flake OR
+        # the NFSv4.0 seqid wedge on ~/.spack locks -- see wiki/incidents/
+        # nfsv4-badseqid-lock-wedge-nashome.md) that leaves museDefine.sh
+        # unsourced and the `muse` function undefined -- upstream of this
+        # line. The retry loop below is what actually recovers it.
         # See wiki/incidents/sourced-env-stderr-swallowed.md.
         prelude = (
             f"source {SETUPMU2E} && "
@@ -471,12 +472,12 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
     # spack load. See wiki/incidents/foilsx04-all-preflight-ambiguous.md.
     spack_cache = f"/tmp/spack_cache_{os.environ.get('USER','x')}"
     cmd = f"export SPACK_USER_CACHE_PATH={spack_cache} && {prelude}{extra} env"
-    # Transient cvmfs read flakes (==> Error: [Errno 5] Input/output error)
-    # leave museDefine.sh unsourced -> `muse` undefined -> rc=127
-    # "command not found". These are NOT deterministic: a re-run seconds later
-    # succeeds, so retry with backoff before giving up. 8+ closed-loop children
-    # were lost to this across X05/X06/X08 before retries were added. Shared
-    # retry lives in graph/sourced_bash.py (run_sourced_bash).
+    # Transient [Errno 5] env-source failures (cvmfs read flake OR NFSv4.0
+    # seqid wedge on ~/.spack locks; the run_sourced_bash seam now keeps
+    # those locks off NFS entirely) leave museDefine.sh unsourced -> `muse`
+    # undefined -> rc=127 "command not found". Retry with backoff either
+    # way -- 8+ closed-loop children were lost across X05/X06/X08 before
+    # retries were added. Shared retry: graph/sourced_bash.py.
     proc = run_sourced_bash(cmd, label="sourced_env")
     if proc.returncode != 0:
         # Persist stderr so the cause survives the CalledProcessError raise.
@@ -670,6 +671,47 @@ def _probe_input_urls(stage: str, fcl_text: str) -> None:
         print(f"[{stage}] input probe OK: {p.name}", flush=True)
 
 
+TOKEN_REFRESH_AGE_S = 3600  # refresh the shared bearer token when >1h old
+
+
+def _token_age_s() -> float:
+    """Age of the shared bearer token file; inf if absent/unreadable."""
+    p = (os.environ.get("BEARER_TOKEN_FILE")
+         or f"/run/user/{os.getuid()}/bt_u{os.getuid()}")
+    try:
+        return time.time() - os.stat(p).st_mtime
+    except OSError:
+        return float("inf")
+
+
+def _maybe_refresh_token(stage: str) -> None:
+    """getToken, unless the token was refreshed within TOKEN_REFRESH_AGE_S.
+
+    The bearer token is one shared 3h file per user per node (local tmpfs,
+    so the stat never touches NFS). Refreshing it at every stage submit
+    (~30x/round) was ~28 redundant setupmu2e-art.sh sourcings and ~3min of
+    serialized submit-lock time per round. Fail-open: unknown age ->
+    refresh. MUST be called inside _submit_lock (condor_vault_storer races).
+    """
+    age = _token_age_s()
+    if age <= TOKEN_REFRESH_AGE_S:
+        print(f"[{stage}] bearer token refreshed {int(age / 60)}m ago, "
+              f"skipping getToken", flush=True)
+        return
+    print(f"[{stage}] renewing bearer token: getToken", flush=True)
+    # getToken sources setupmu2e-art.sh -> shares the transient env-source
+    # failure class (cvmfs read flakes; NFSv4.0 seqid wedge -- see
+    # wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md) -> routed
+    # through the shared retry helper.
+    tok = run_sourced_bash(f"source {SETUPMU2E} >/dev/null 2>&1 && getToken",
+                           label=f"{stage}/getToken")
+    if tok.stdout.strip():
+        print(tok.stdout)
+    if tok.returncode != 0:
+        raise subprocess.CalledProcessError(
+            tok.returncode, "getToken", output=tok.stdout, stderr=tok.stderr)
+
+
 def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
                  staged_input_dir: Path | None = None, dry_run: bool = False) -> int | None:
     """Build cnf via mu2ejobdef, smoke-test with mu2ejobfcl, submit via mu2ejobsub.
@@ -738,16 +780,7 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
     # concurrent load condor_vault_storer races; the lock guarantees only one
     # process at a time touches the bearer token + mu2ejobsub.
     with _submit_lock(stage):
-        print(f"[{stage}] renewing bearer token: getToken", flush=True)
-        # getToken sources setupmu2e-art.sh, so it shares the cvmfs/spack flake
-        # class -> route through the shared retry helper (was bare check=True).
-        tok = run_sourced_bash(f"source {SETUPMU2E} >/dev/null 2>&1 && getToken",
-                               label=f"{stage}/getToken")
-        if tok.stdout.strip():
-            print(tok.stdout)
-        if tok.returncode != 0:
-            raise subprocess.CalledProcessError(
-                tok.returncode, "getToken", output=tok.stdout, stderr=tok.stderr)
+        _maybe_refresh_token(stage)
 
         submit = ["mu2ejobsub", "--jobdef", cnf.name,
                   "--firstjob", "0", "--njobs", str(cfg["njobs"]),

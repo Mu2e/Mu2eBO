@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -289,6 +290,58 @@ class TestStageTuningModuleLevelWiring(unittest.TestCase):
                 env=env, timeout=120)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(r.stdout.strip(), "424242")
+
+
+class TestGetTokenMtimeGate(unittest.TestCase):
+    """_maybe_refresh_token: run getToken only when the shared bearer token
+    file is older than TOKEN_REFRESH_AGE_S (1h). Fail-open on unknown age.
+    Spec: docs/superpowers/specs/2026-07-31-nfs-lock-mitigation-design.md."""
+
+    def _token_file(self, age_s):
+        d = tempfile.mkdtemp(prefix="tokgate_")
+        p = Path(d) / "bt_u12345"
+        p.write_text("header.payload.sig\n")
+        past = time.time() - age_s
+        os.utime(p, (past, past))
+        return str(p)
+
+    def _ok(self):
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def test_fresh_token_skips_gettoken(self):
+        p = self._token_file(120)
+        with mock.patch.dict(os.environ, {"BEARER_TOKEN_FILE": p}), \
+             mock.patch.object(pipeline, "run_sourced_bash") as rt:
+            pipeline._maybe_refresh_token("stageX")
+        rt.assert_not_called()
+
+    def test_old_token_refreshes(self):
+        p = self._token_file(pipeline.TOKEN_REFRESH_AGE_S + 100)
+        with mock.patch.dict(os.environ, {"BEARER_TOKEN_FILE": p}), \
+             mock.patch.object(pipeline, "run_sourced_bash",
+                               return_value=self._ok()) as rt:
+            pipeline._maybe_refresh_token("stageX")
+        self.assertEqual(rt.call_count, 1)
+        self.assertIn("getToken", rt.call_args[0][0])
+
+    def test_missing_token_file_refreshes(self):
+        with mock.patch.dict(os.environ, {"BEARER_TOKEN_FILE": "/nonexistent/bt"}), \
+             mock.patch.object(pipeline, "run_sourced_bash",
+                               return_value=self._ok()) as rt:
+            pipeline._maybe_refresh_token("stageX")
+        self.assertEqual(rt.call_count, 1)
+
+    def test_gettoken_failure_still_raises(self):
+        p = self._token_file(pipeline.TOKEN_REFRESH_AGE_S + 100)
+        bad = SimpleNamespace(returncode=1, stdout="", stderr="denied")
+        with mock.patch.dict(os.environ, {"BEARER_TOKEN_FILE": p}), \
+             mock.patch.object(pipeline, "run_sourced_bash", return_value=bad):
+            with self.assertRaises(subprocess.CalledProcessError):
+                pipeline._maybe_refresh_token("stageX")
+
+    def test_token_age_inf_when_missing(self):
+        with mock.patch.dict(os.environ, {"BEARER_TOKEN_FILE": "/nonexistent/bt"}):
+            self.assertEqual(pipeline._token_age_s(), float("inf"))
 
 
 if __name__ == "__main__":
