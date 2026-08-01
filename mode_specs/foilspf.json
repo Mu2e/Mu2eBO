@@ -3,7 +3,7 @@
   "note": "10D all-foils stopping target: three Lagrange-quadratic profiles (rOut, halfThickness, hole fraction) across 49 foils plus a stack-length knob, vs the foilsflash sob+flash objective. Replaces the deployed 37-foil base entirely -- there is no pinned baseline. Design: docs/superpowers/specs/2026-07-27-foilspf-profile-stopping-target-design.md EXTENT CAPPED 400-800 (was 400-1100) on 2026-07-28: 800 mm is the deployed stack length and the measured zero-overlap boundary -- extent 800 (z_end 6271) gives 0 overlaps, 850 gives 1, 900+ gives 3 (IPAsupport_set2_wire* protruding from DS2Vacuum). protonabsorber.distFromTargetEnd=625 places the absorber at its design z=6901-7901 exactly when the target ends at z~6276, so the surrounding detector only accommodates a deployed-length target. This cap EXCLUDES foilspfSMOKER00_00 (extent 894.2, flash 4.809e-07), the best result this line has produced; reopening the long-extent region requires absorber headroom, not a cap change.",
   "software": {
     "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
   },
   "run": {
     "stages": ["mubeam", "mustops_ce", "elebeam_flash"],
