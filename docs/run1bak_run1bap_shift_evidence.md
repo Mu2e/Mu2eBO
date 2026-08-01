@@ -1578,3 +1578,266 @@ v13_12_10→v13_32_10. Geometry base-config candidate set is EMPTY (§6.1,
 job-config deltas (`KinKalMaterial`, `ADC2MeV`→`ADC2MeVCsI`/`ADC2MeVlyso`,
 `Scoring.scorerNames`) are present-but-inert defaults with no scheduled
 consumer on `PrimaryPath`, or self-referential config-naming artifacts.**
+
+## 7. Candidate ledger + recommendation
+
+Synthesis: a scoped, confirmatory release sweep locating the exact commits
+behind §6's isolated candidate; the full candidate ledger; and the
+recommendation input for the leaderboard decision plus the Task-8 trigger
+verdict.
+
+### 7.1 Scoped release sweep (Step 1)
+
+**What the two Musings pin** (read from the cvmfs trees' own git metadata —
+each Musing ships a full `.git`; `git describe --tags` lands exactly on a
+tag for all four checkouts, no offsets):
+
+| Musing | Offline (backing) | Production |
+|---|---|---|
+| Run1Bak | **v13_12_10** = `9ce62149c213bdc80b369e045c9a6b4ef5cb9f07` (2026-05-12) | **v02_08_00** = `471a813fa445e74ffe7662365848c35d6a68dddd` (2026-05-04) |
+| Run1Bap | **v13_32_10** = `1bd2c4db2bf818645c8e62523635a697c1c08e1a` (2026-07-15) | **v02_13_00** = `062945c18613a68bb0ecff121f542085b4b3dd6b` (2026-07-13) |
+
+The Offline pair confirms §6.3's `MUSE_ENVSET`-derived v13_12_10→v13_32_10;
+the Production pair (v02_08_00→v02_13_00) is the release range for the
+prolog sweep below. Offline history swept in the sparse clone at
+`/exp/mu2e/app/users/oksuzian/Offline_ipa_pr` after `git fetch --tags
+origin` (both tags present); Production swept directly in the Run1Bap
+Musing's cvmfs clone (both tags present there).
+
+**Offline sweep — the implicated module** (`Filters/src/DetectorStepFilter_module.cc`,
+path confirmed via `git ls-tree -r v13_32_10`):
+
+```
+$ git log --oneline v13_12_10..v13_32_10 -- Filters/src/DetectorStepFilter_module.cc
+2905cfa0b Add another printout
+a9839eeb4 Use different particle threshold for calo steps, add total energy selection, and diagnostic printouts
+```
+
+Exactly **two commits**, both authored by michaelmackenzie on **2026-05-06**,
+both delivered by **Offline PR #1819** ("Calo step selection in calo dts
+filtering", merge commit `1d79377fc0192bbf9db27667edea84722f8a3aa8`, merged
+2026-05-06 10:58 −0500):
+
+- `a9839eeb42b2b5be8631bb25d17ef0667dc3f6a4` (51+/6−) is the substantive
+  change and contains **both levers** verbatim as §6.2 described them.
+  Lever 2 — the momentum-floor split — is this exact hunk:
+
+  ```diff
+  -        if(css.energyDepBirks() > minCaloE_ &&
+  -            css.momentumIn() > minPartM_ && css.momentumIn() < maxPartM_ &&
+  +        const float edep_step = css.energyDepBirks();
+  +        if(edep_step > minCaloE_ &&
+  +            css.momentumIn() > minCaloPartM_ && css.momentumIn() < maxCaloPartM_ &&
+  ```
+
+  with the new dedicated keys declared as
+  `fhicl::Atom<double> minCaloPartMom{ Name("MinimumCaloPartMom"), ..., 0.0 }`
+  — **C++ default 0.0**, no longer inheriting `MinimumPartMom` (=50 in both
+  eras' configs). Lever 1 — the new total-energy OR-branch — is the new
+  `fhicl::OptionalAtom<double> minSumCaloTotalE { Name("MinimumSumCaloE"), ... }`
+  plus the accumulated `total_edep` and
+  `if(useMinSumCaloTotalE_) { if(total_edep > minSumCaloTotalE_) { selectcalo = true; ... } }`.
+- `2905cfa0b10aee8f37584672b0bca15a08489ffe` (3+/0−) adds one
+  `diagLevel_ > 1` diagnostic print of `total_edep` — **zero behavior
+  change**.
+
+Completeness checks:
+
+- **Ancestry** (authoritative, since PR #1819's merge *date* precedes
+  v13_12_10's tag date of 2026-05-12 — the tag was cut from a lineage that
+  excludes it): `git merge-base --is-ancestor 1d79377fc v13_12_10` → **NO**;
+  `... v13_32_10` → **YES**. The change is genuinely absent from Run1Bak and
+  present in Run1Bap.
+- **The two commits fully account for the module's release-to-release
+  delta**: `git diff --stat v13_12_10..v13_32_10 -- Filters/src/DetectorStepFilter_module.cc`
+  = 54+/6− = exactly the sum of the two commits (51+/6− and 3+/0−). No
+  third change vector exists in this file.
+- **Nothing else in `Filters/` is in scope**: the only other commits in the
+  range (`b1503e35a` + merge `5c38570d6` + `9e18c745b` + `b13701216`) add
+  and then clean up a brand-new `PhotonFilter_module.cc` — a module that
+  does not appear in the identical 14-module `PrimaryPath` schedule (§6.2)
+  on either side.
+
+**Production sweep — the prolog that engages the levers**
+(`JobConfig/primary/prolog.fcl`):
+
+```
+$ git log --oneline v02_08_00..v02_13_00 -- JobConfig/primary/prolog.fcl
+a387965f Update calo signal primaries with calo dts filter change
+```
+
+Exactly **one commit**, `a387965f6e188da7ad61657b44c2a816604e8317`
+(michaelmackenzie, 2026-05-06), delivered by **Production PR #539** ("Update
+calo signal primaries with calo dts filter change", merge commit
+`994dda612d627d88c8b760492c30f0a6c5766a25`, merged 2026-05-21 12:39 −0500;
+ancestry: not in v02_08_00, in v02_13_00). Its `prolog.fcl` hunk, in full:
+
+```diff
+       MinimumPartMom : 50.0 # MeV/c
+       MaximumPartMom : 1.0e6 # MeV/c
++      MinimumCaloPartMom : 0.0 # MeV
++      MaximumCaloPartMom : 1.0e6 # MeV
+       KeepPDG : [ ] # Loop at steps from all particle types
+       MinimumTrkSteps : 12 # primary must produce at least this many TrkSteps
+-      MinimumSumCaloStepE : 45.0 # or at least this much calo energy
++      MinimumSumCaloStepE : 45.0 # or at least this much calo energy by a single sim particle
++      MinimumSumCaloE : 45.0 # or at least this much calo total energy by accepted sim particles
+```
+
+This is byte-for-byte the delta §6.2 recovered from the rendered
+`mu2e --debug-config` dumps — the sweep confirms §6's isolation at the
+commit level and finds nothing else.
+
+**One refinement the sweep adds to §6.2's "both required together" note:**
+the two levers have *different* engagement conditions. Lever 1
+(`MinimumSumCaloE`) is an `OptionalAtom` — it genuinely requires the
+Production prolog key to exist, so Offline PR #1819 + Production PR #539 are
+jointly necessary for it. Lever 2, however, is active from the **Offline C++
+change alone**: the new dedicated `MinimumCaloPartMom` Atom defaults to
+0.0 in the C++, so the 50 MeV/c floor vanished the moment `a9839eeb4`
+landed, whether or not any prolog sets the key — Production's
+`MinimumCaloPartMom : 0.0` line makes the default explicit but is
+numerically a no-op. (Consequence for any revert test: overriding the FHiCL
+keys suffices to restore Run1Bak semantics for *both* levers — no Offline
+rebuild needed — precisely because both levers are FHiCL-reachable in the
+Run1Bap C++.)
+
+**Intent, from the PR bodies** (`gh pr view`, quoted): Offline #1819 — *"In
+Run 1B work, we found the current filtering can bias the output by
+filtering out events with high deposits but they shower and separate into
+different sim particles. This helps resolve this issue"*; Production #539 —
+*"Primaries with calo signals can now be selected with total calo energy
+deposits, and the calo momentum in threshold on sims is lowered. This
+should reduce loss of viable signals that shower in the calo."* I.e. the
+change is a **deliberate acceptance recovery** — accepting more genuine
+signal events that the old filter wrongly dropped — and the observed
+"+4.9% more CE events survive under Run1Bap" is its *intended* direction,
+not a side effect. (This strengthens plausibility; it does not prove the
+magnitude.)
+
+### 7.2 Candidate ledger (Step 2)
+
+Every candidate raised at any point in this investigation, one row each.
+Strength vocabulary: **direct-paired** (measured A/B at matched x/seeds),
+**elimination** (candidate's causal path shown structurally closed),
+**inspection** (source/artifact read, no new measurement),
+**sweep** (release-history search, §7.1).
+
+| # | candidate | status | evidence | strength |
+|---|---|---|---|---|
+| 1 | IPA position (`distFromTargetEnd` 491.666672 vs 625.0) | **excluded** (for the shift) | arm A vs B at identical champion x: ce_abs_eff 6.7555e-4 vs 6.7642e-4 (+0.13%), sob 4.10 vs 4.11 (1 print quantum); both sit the full +4.9% above history (§1, §3.1 Pair 3) | direct-paired |
+| 2 | Override pair (`tracker.inDS2Vacuum`+`ds2.halfLength=3825`) — sob/ce channel | **excluded** | arm A (removed) vs arm C (restored): ce_abs_eff 6.7555e-4 vs 6.7584e-4 (+0.04%), sob 4.10 vs 4.11; restoring it does NOT return sob to the historical 3.90 (§1, §3.1 Pair 2) | direct-paired |
+| 3 | Override pair — flash channel | **confirmed** (as the champion *flash*-gap driver; unrelated to the sob shift) | C/A seed-paired (both N=99, identical EleBeamCat draw): **+2.20%**; C/mean(A,B): +2.35%±3.10%; residual version flash shift after accounting: −1.53%±2.78% ≈ 0 (§5.4) | direct-paired |
+| 4 | `zEMCSourceInMu2e = 5000.0` (EMC_Source VD move) | **excluded** | VD is built from `ds->vacuumMaterial()` at 20 µm — massless, vacuum-in-vacuum; sob reads tracker `StrawGasStep`/EdepAna, not VD hits (design doc §"already excluded"; §3.1 classifies the line as expected-inert) | inspection |
+| 5 | Analysis binary / harvest environment | **excluded** | `sourced_env(with_muse=True)` hardcodes `muse setup -q p094` + fixed Run1BAna lib for ALL 8 configs, sole call site `core/pipeline.py:1297` (§3.3); no in-window commit touched the pinning (§2.4) | inspection |
+| 6 | Job-loss accounting / normalization denominators | **excluded** | every denominator is landed-file-based by construction; recompute closes to <0.0001% for 8/8 configs; landed-population consistency verified per-config (§2.1–2.3); shift is 25σ/10σ — not noise | direct recompute |
+| 7 | Constants / sensitivity-macro drift | **excluded** | `RUN1A_MUBEAM_INPUT_CORRECTION` never changed; `run_edepana`/`run_sensitivity_macro` verbatim-moved only; macro file untouched since 2026-04-28, months before the earliest harvest (§2.4) | inspection |
+| 8 | Our tarball/geom migration (the 2026-07-26 JSON-mode move) | **excluded** | rendered-geom diffs reduce to exactly the documented override deltas (all excess hunks proven equivalent); both eras' tarballs carry the holeRadii-patched GeometryService (`strings` gate =1 both, md5 cross-check across arm copies) (§3.1–3.2) | elimination |
+| 9 | Base-geometry config deltas (`geom_run1_a.txt` include tree) | **excluded** | resolver cross-diff = 0 differing keys of 6283 (self-test PASS); all 421 transitively-included files **byte-identical** between releases (§6.1) | direct byte comparison |
+| 10 | Momentum test-box migration | **excluded** | identical argmax box set both eras (champion: same two-box set; baseline: same single box); isolated box-migration contribution −0.004 pp ≈ 0 (§4.3) | direct-paired (fixed-box rescan) |
+| 11 | Background change | **excluded within the macro's model** | cosmic ratio 1.0000 exactly (but structurally guaranteed: cosmic is computed from fixed globals — the macro cannot see a real background change; caveat in §4.3); dio <0.0005% of bkg | elimination (model-bound) |
+| 12 | CE spectrum shape change | **excluded** | Δmean < 0.01 MeV, ΔRMS < 1% at the box-relevant [100,106] MeV window (≪ 0.2 MeV/c box grid); full-range KS rejections are a statistical-power artifact at N~5×10⁵; extra events populate the SAME shape (§5.3) | direct-paired |
+| 13 | Geant4 | **excluded** | not just same version — same spack build artifact, hash `k4bezfrnxuvotgxrwtgcfhjqzagc2iyw`, identical physics-data tables (§6.3, `$SCRATCH/g4_hash_{bak,bap}.txt`) | direct artifact identity |
+| 14 | art / ROOT | **excluded** | v3_15_00 / v6_32_06 identical both sides (§6.3) | inspection |
+| 15 | KinKal v03_05_01→v03_06_00, artdaq-core-mu2e v9_03_00→v9_04_00, mu2e-ort (new) | **excluded** | changed, but no consumer scheduled on `PrimaryPath` — truth-level chain has no track fit / DAQ format / ML inference (§6.2–6.3) | elimination (schedule test) |
+| 16 | Other job-config deltas (`KinKalMaterial`, `ADC2MeV`→CsI/lyso split, `Scoring.scorerNames`) | **excluded** | declared-but-unconsumed service defaults, or inside a `enabled: false` block (§6.2) | elimination |
+| 17 | **PrimaryFilter Lever 1** — `MinimumSumCaloE: 45` total-calo-energy OR-branch | **open (direction proven, magnitude unproven)** | scheduled on `PrimaryPath`; pure disjunct, monotonic-increasing on acceptance (§6.2); introduced by Offline `a9839eeb4` (PR #1819) + engaged by Production `a387965f` (PR #539) (§7.1); PR intent = deliberate acceptance recovery | inspection + sweep |
+| 18 | **PrimaryFilter Lever 2** — `MinimumCaloPartMom: 0` removes the 50 MeV/c calo-step momentum floor | **open (direction proven, magnitude unproven)** | same commits; active from the Offline C++ default alone (§7.1); widens the population feeding both Lever 1's sum and the pre-existing per-particle `caloESum` branch (§6.2) | inspection + sweep |
+| 19 | Offline code, other subsystems in v13_12_10→v13_32_10 | **excluded for this chain** (scoped, not blind) | the net FCL-visible effect of ALL Offline+Production changes on this job is bounded by the §6.2 `--debug-config` diff (8 hunks, all classified); within the implicated module's file the two PR #1819 commits account for the entire release delta (54+/6−); remaining `Filters/` changes are an unscheduled new module (§7.1) | elimination + sweep |
+| 20 | Baseline-pair flash anomaly (+6.35% ± 2.82%, 2.25σ, opposite sign to champion) | **open** | n=1-vs-1, no seed pairing possible (400 vs 100 jobs), emission-mechanism provenance confound (geometrically inert per §3.1); champion-derived override effect (+2.2%) predicts the WRONG sign for it (§5.4) | unresolved observation |
+
+Notes on honesty of the two open PrimaryFilter rows: what is *proven* is
+(a) the mechanism sits inside the implicated chain at the exact gate that
+sets `ce_seen` (§6.2), (b) both levers are provably monotonic in the
+observed direction (§6.2), (c) they are the only in-scope release delta
+(§6.1, §6.2, §7.1), and (d) they were introduced deliberately to accept
+more signal events (§7.1). What is *not* proven is that their combined
+pass-rate increase equals +4.93%±0.20% at champion x / +4.08%±0.41% at
+baseline — no measurement in this investigation constrains the magnitude.
+
+### 7.3 Recommendation input + Task-8 trigger verdict (Step 3)
+
+**Input to the leaderboard archive-vs-baseline-column decision** (the
+decision itself is the operator's, not this document's):
+
+- The shift is **real** (+4.93%±0.20% champion / +4.08%±0.41% baseline in
+  ce_abs_eff; +5.21%±0.12% / +4.82%±0.23% in sob), **not ours** (§2, §3),
+  and **normalization-like in structure**: ~100% acceptance-at-fixed-box,
+  zero box migration, background unchanged-by-construction, CE spectrum
+  shape unchanged (§4, §5). As far as anything measured here can see,
+  Run1Bap rescales sob multiplicatively.
+- **Geometry-independence is supported but not proven**: champion vs
+  baseline shifts differ by 1.9σ in ce_abs_eff ((4.93−4.08)/√(0.20²+0.41²))
+  and 1.5σ in sob — consistent with a single multiplicative factor, but a
+  genuine geometry dependence at the few-tenths-of-a-percent level cannot
+  be excluded on two x-points, and the identified mechanism (calo-step
+  acceptance at `PrimaryFilter`) has no a-priori reason to be exactly
+  geometry-independent.
+- Consequences the evidence supports: (a) Run1Bak-era and Run1Bap-era rows
+  are different absolute-sob populations offset by ≈+5%; mixing them in one
+  GP without an era distinction injects a ~0.2-sob step ≈ 33× the declared
+  `obs_noise=0.006` (the failure class already flagged in the 2026-07-28
+  wiki log). (b) **Ratios to a same-era baseline are era-invariant within
+  measurement**: champion/deployed = +25.5% under Run1Bak (3.9033/3.11)
+  vs +26.0% under Run1Bap (4.1067/3.26) from the audited §4 group means —
+  1.3σ apart on the §4.3 σ budget (the 2026-07-28 wiki log's arm-D figures,
+  +25.6%/+25.8%, are this same comparison at 2-decimal sob precision) — so
+  the historical campaign's physics *conclusions* stand either way. (c) On
+  the flash axis no significant version shift exists at champion once the
+  override pair is accounted (residual −1.53%±2.78%), but the baseline
+  flash pair is open (+6.35%±2.82%, opposite sign) — a flash baseline
+  column would inherit that unresolved 2.25σ tension.
+
+**Task-8 trigger verdict: TRIGGERED.** Live candidates: the PrimaryFilter
+lever pair (rows 17–18 — one mechanism needing **direct proof** of
+magnitude) and the baseline-pair flash anomaly (row 20). That satisfies
+both clauses of the rule ("≥2 live candidates or one candidate needing
+direct proof → recommend the gated Task 8 arm(s)").
+
+**Recommended arms, in order:**
+
+1. **FIRST — config-level revert arm (cheaper AND sharper; run this one).**
+   One chain under **Run1Bap** at the identical champion x (clone of the
+   `ipafix` spec), with the two prolog levers reverted to Run1Bak-equivalent
+   semantics in the mustops_ce template:
+   `physics.filters.PrimaryFilter.MinimumSumCaloE: @erase` (restores the
+   key-absent state — `useMinSumCaloTotalE_ = false`, exactly Run1Bak's
+   logic; if `@erase` is awkward in the template path, a huge value such as
+   1e9 is behaviorally identical) and
+   `physics.filters.PrimaryFilter.MinimumCaloPartMom: 50.0` (restores the
+   floor Run1Bak applied via the shared `MinimumPartMom`). This works
+   without any rebuild because both levers are FHiCL-reachable in the
+   Run1Bap C++ (§7.1). Readout is three-valued: ce_abs_eff returns to
+   ≈6.44e-4 → mechanism **and magnitude** confirmed, investigation closes;
+   partial return → measures the levers' share directly; no change →
+   candidate falsified, escalate to arm 2. Sharpness: every other
+   environment axis is held at Run1Bap **by construction** (same tarball,
+   same Musing, same geometry, same seeds), so the comparison isolates
+   exactly the two keys — a cross-release control can never be this clean.
+   Optional companion (only if per-lever attribution is wanted): a second
+   config reverting only `MinimumCaloPartMom: 50.0` while keeping
+   `MinimumSumCaloE`, splitting Lever 2 from Lever 1.
+2. **SECOND — full Run1Bak control arm (only if arm 1 fails to close the
+   gap).** Re-run champion x under the Run1Bak musing/tarball
+   (`Code_helical_holeradii.tar.bz2`) today. This tests era-reproducibility
+   of the historical 3.90 and hunts an unmodeled residual, but it re-tests
+   the entire release delta at once (no isolation), and history already
+   supplies three tight Run1Bak evals at this x (3.90/3.91/3.90) — its
+   marginal information is mostly "nothing else drifted since July".
+3. **DEFER — baseline flash anomaly.** Decomposable only with a baseline
+   arm-C analog (`nominalAB01` + override pair restored) and/or an N=400
+   flash re-eval of `nominalAB01` to shrink σ below the naive ±2.82%. At
+   2.25σ with n=1 and no bearing on the sob-side leaderboard question,
+   this is not worth grid time unless a flash-at-baseline number is needed
+   for a decision; row 20 stays open either way.
+
+**Verdict: sweep complete and narrow — the entire release-to-release delta
+of the implicated module is two commits from Offline PR #1819
+(`a9839eeb4` + printout `2905cfa0b`, michaelmackenzie 2026-05-06) engaged by
+one Production commit from PR #539 (`a387965f`), with PR-stated intent of
+deliberate signal-acceptance recovery; ledger closes 17 of 20 rows as
+excluded (1 confirmed on the flash channel, 2 PrimaryFilter levers + 1
+baseline flash anomaly open); Task 8 is TRIGGERED, and the recommended
+first arm is the config-level PrimaryFilter revert under Run1Bap
+(`MinimumSumCaloE` erased + `MinimumCaloPartMom: 50`), which is both
+cheaper and sharper than a Run1Bak control re-run.**
