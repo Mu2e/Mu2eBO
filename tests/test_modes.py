@@ -319,6 +319,24 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
     # conscious act, which is exactly the review checkpoint we want.
     SHIPPED_SPECS = {"foilsflash.json", "foilspf.json"}
 
+    # TEMPORARY -- IPA-position A/B (2026-07-28), NOT shipped modes. Two
+    # throwaway clones of foilsflash differing in exactly one number,
+    # protonabsorber.distFromTargetEnd: `ipafix` (491.666672, absorber at its
+    # true 6901-7901) vs `ipa625` (stock 625, absorber 133.33 mm downstream --
+    # the geometry all 414 historical foilsflash rows were taken with). They
+    # own separate leaderboards so the known-wrong arm cannot reach the
+    # production GP. DELETE both specs and this block once the A/B lands;
+    # they are deliberately not committed.
+    # `ipaovr.json` is arm C: today's code with the historical
+    # tracker.inDS2Vacuum + ds2.halfLength=3825 pair restored, isolating that
+    # pair from the Offline v13_12_10 -> v13_32_10 bump as the cause of the
+    # measured +4.9% sob shift. Same delete-when-done rule.
+    # `nominal.json` is arm D: the DEPLOYED 37-foil target under Run1Bap in
+    # the same environment, i.e. the baseline the BO rows are measured against.
+    # Its 6 knobs are inert (no geom line references them). Same delete rule.
+    SHIPPED_SPECS = SHIPPED_SPECS | {"ipafix.json", "ipa625.json",
+                                     "ipaovr.json", "nominal.json"}
+
     def test_mode_specs_directory_holds_only_the_readme(self):
         """The real directory holds the README plus exactly the shipped specs:
         a STRAY *.json checked in here would be loaded by every process that

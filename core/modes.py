@@ -93,6 +93,13 @@ class ModeSpec:
     verifies_foil_gdml: bool          # per-foil GDML-vs-geom assertion (hard gate)
     preserves_gdml: bool              # GDML kept as artifact (emission-only check)
     checks_managed_overlap: bool      # surface-check managed-volume scan
+    # Strict overlap policy. True => preflight FAILS on ANY surface-check
+    # overlap, not just volumes the BO knobs build. Added 2026-07-28 after
+    # foilsflashRUN1BAP01 introduced 3 never-before-seen IPAsupport overlaps
+    # and still PASSED: the managed/baseline whitelist keys on volume NAME,
+    # but IPAsupport_* position derives from targetEnd, i.e. from our knobs.
+    # Only modes whose Musing can actually reach zero may set this.
+    require_zero_overlaps: bool       # any overlap => fail_managed
 
     # Leaderboard schema (single source — ADR-0002 extension, 2026-07-19).
     # knob_names/knob_fmts: per-knob column names + per-position formats.
@@ -156,6 +163,7 @@ SPECS: Dict[str, ModeSpec] = {
         preflight_fcl="surfacecheck",
         dumps_gdml=True, verifies_foil_gdml=True, preserves_gdml=False,
         checks_managed_overlap=True,
+        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
         knob_names=("extra_rOut_up", "extra_rOut_dn",
                     "extra_halfThickness_up", "extra_halfThickness_dn",
                     "extra_rIn_up", "extra_rIn_dn"),
@@ -181,6 +189,7 @@ SPECS: Dict[str, ModeSpec] = {
         preflight_fcl="surfacecheck",
         dumps_gdml=True, verifies_foil_gdml=True, preserves_gdml=False,
         checks_managed_overlap=True,
+        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
         knob_names=("extra_rOut_up", "extra_rOut_dn",
                     "extra_halfThickness_up", "extra_halfThickness_dn",
                     "extra_f_up", "extra_f_dn"),
@@ -213,6 +222,7 @@ SPECS: Dict[str, ModeSpec] = {
         preflight_fcl="surfacecheck",
         dumps_gdml=True, verifies_foil_gdml=True, preserves_gdml=False,
         checks_managed_overlap=True,
+        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
         knob_names=("rOut_g0", "hT_g0", "f_g0", "rOut_g1", "hT_g1", "f_g1",
                     "rOut_g2", "hT_g2", "f_g2", "rOut_g3", "hT_g3", "f_g3"),
         knob_fmts=("{:.4f}", "{:.6f}", "{:.4f}") * 4,
@@ -237,6 +247,7 @@ SPECS: Dict[str, ModeSpec] = {
         preflight_fcl="surfacecheck",
         dumps_gdml=True, verifies_foil_gdml=False, preserves_gdml=True,
         checks_managed_overlap=True,
+        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
         knob_names=("r0", "r1", "r2", "t0", "t1", "t2",
                     "l0", "l1", "l2", "N"),
         knob_fmts=("{:.4f}",) * 9 + ("{:d}",),
@@ -268,6 +279,7 @@ SPECS: Dict[str, ModeSpec] = {
         preflight_fcl="surfacecheck",
         dumps_gdml=True, verifies_foil_gdml=False, preserves_gdml=True,
         checks_managed_overlap=True,
+        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
         knob_names=("r0", "r1", "r2", "t0", "t1", "t2"),
         knob_fmts=("{:.4f}",) * 6,
         metric_cols=("mu_per_POT", "edep_per_POT_MeV",

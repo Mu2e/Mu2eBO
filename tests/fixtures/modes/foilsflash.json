@@ -3,8 +3,8 @@
   "note": "6D extra-foil geometry vs early-flash tracker edep (DS-on), S/sqrt(B) preserved. REFERENCE FIXTURE: reproduces the live foilsflash line; the acceptance test compares this against FoilsFlashMode at default env.",
 
   "software": {
-    "musing":       "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
+    "musing":       "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
   },
 
   "run": {
@@ -44,7 +44,8 @@
     "dumps_gdml":             true,
     "verifies_foil_gdml":     true,
     "preserves_gdml":         false,
-    "checks_managed_overlap": true
+    "checks_managed_overlap": true,
+    "require_zero_overlaps": true
   },
 
   "geom": {
@@ -70,7 +71,8 @@
       {"comment": "+ {n_up} up at (rOut={extra_rOut_up:.2f}, hT={extra_halfThickness_up:.4f}, rIn={rIn_up:.2f})"},
       {"comment": "+ {n_dn} dn at (rOut={extra_rOut_dn:.2f}, hT={extra_halfThickness_dn:.4f}, rIn={rIn_dn:.2f})"},
       {"comment": "holeRadii vector decouples extras-rIn from base-rIn (patched lib)."},
-
+      {"key": "zEMCSourceInMu2e", "type": "double", "value": 5000.0},
+      {"key": "protonabsorber.distFromTargetEnd", "type": "double", "value": 491.666672},
       {"key": "hasTSdA",            "type": "bool", "value": false},
       {"key": "tsda.helical.build", "type": "bool", "value": false},
 
@@ -99,9 +101,7 @@
       {"key": "degrader.rotation",      "type": "double", "value": 120.0},
       {"key": "ts.coll5.material1Name", "type": "string", "value": "COL5Poly"},
 
-      {"comment": "TT_MidInner -> DS2Vacuum fix (manually patched, mirrors v111)"},
-      {"key": "tracker.inDS2Vacuum", "type": "bool",   "value": true},
-      {"key": "ds2.halfLength",      "type": "double", "value": 3825},
+      {"comment": "TT_MidInner -> DS2Vacuum workaround REMOVED 2026-07-28 (Run1Bap migration)"},
       {"key": "ds.hasServicePipes",  "type": "bool",   "value": false},
 
       {"comment": "Overlap-suppression (foil-support off + rail shrink)"},

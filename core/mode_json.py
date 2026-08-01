@@ -37,7 +37,8 @@ _REQUIRED_RUN = ("stages", "harvest")
 # empty when absent -- see load_mode_file below).
 _ALLOWED_RUN = _REQUIRED_RUN + ("jobs_per_stage", "presubmit_after", "stage_tuning")
 _REQUIRED_PREFLIGHT = ("fcl", "dumps_gdml", "verifies_foil_gdml",
-                       "preserves_gdml", "checks_managed_overlap")
+                       "preserves_gdml", "checks_managed_overlap",
+                       "require_zero_overlaps")
 _REQUIRED_LEADERBOARD = ("file", "columns", "obs_noise", "metrics")
 _ALLOWED_KNOB = ("name", "min", "max", "fmt")
 
@@ -455,6 +456,7 @@ def load_mode_file(path: Path) -> "object":
         verifies_foil_gdml=preflight["verifies_foil_gdml"],
         preserves_gdml=preflight["preserves_gdml"],
         checks_managed_overlap=preflight["checks_managed_overlap"],
+        require_zero_overlaps=preflight["require_zero_overlaps"],
         knob_names=names,
         knob_fmts=tuple(k["fmt"] for k in knobs),
         metric_cols=columns,

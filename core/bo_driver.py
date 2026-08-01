@@ -1604,6 +1604,20 @@ def verify_stopping_target_gdml(gdml_path, geom_text, tol_mm=1e-3):
 # VirtualDetector_EMC_0_Front with StoppingTargetMother). Whitelisting by
 # volume name keeps those out of our failure signal.
 SURFACE_OVERLAP_RX = re.compile(r"Overlap is detected for volume\s+(\S+)")
+
+
+def _overlap_banner(mode_name):
+    """PASS-line suffix describing which overlap policy actually ran.
+
+    Kept next to the policy flags so the banner cannot drift from the gate --
+    the prodtarget6d banner drift is why checks_managed_overlap exists.
+    """
+    spec = _modes.SPECS[mode_name]
+    if not spec.checks_managed_overlap:
+        return ""
+    if spec.require_zero_overlaps:
+        return " and zero surface-check overlaps"
+    return " and no managed-volume overlap"
 SURFACE_OVERLAP_MANAGED = re.compile(
     r"^(StoppingTargetFoil_"
     r"|ProductionTargetPlate|ProductionTargetLug|ProductionTargetSpacer|ProductionTargetSupport)")
@@ -1808,15 +1822,34 @@ def _cmd_preflight_impl(args):
         print(f"[preflight/{mode.name}] surface-check "
               f"total_hits={len(all_hits)} unique_volumes={len(unique_all)} "
               f"baseline={baseline_count} managed={len(managed_hits)}")
-        if managed_hits:
-            print(f"[preflight/{mode.name}] FAIL  managed-volume overlap detected:")
-            for v in unique_managed:
-                print(f"    {v}")
-            for v in unique_managed[:1]:
+        def _dump_context(vols):
+            for v in vols[:1]:
                 m = re.search(rf"Overlap is detected for volume\s+{re.escape(v)}.*", out)
                 if m:
                     ctx = out[max(0, m.start() - 100): m.end() + 400]
                     print(f"[preflight/{mode.name}] context:\n{ctx}")
+
+        # Strict policy first, so the reported reason is the real one.
+        # The managed/baseline split below classifies by volume NAME, which
+        # silently assumes "not named like a BO volume" => "independent of BO
+        # knobs". That is false: IPAsupport_* sits where MECOStyleProtonAbsorber
+        # Maker.cc:124-129 puts it, i.e. at a z derived from targetEnd -- our
+        # foil stack. foilsflashRUN1BAP01 (2026-07-28) introduced 3 such
+        # overlaps that had never appeared in the preceding 461 evals and still
+        # PASSED as "known stock-geometry ... ignored". Modes whose Musing can
+        # reach zero opt into failing on ANY overlap.
+        if _modes.SPECS[mode.name].require_zero_overlaps and all_hits:
+            print(f"[preflight/{mode.name}] FAIL  zero-overlap policy: "
+                  f"{len(all_hits)} overlap(s) in {len(unique_all)} volume(s):")
+            for v in unique_all:
+                print(f"    {v}{'  [managed]' if SURFACE_OVERLAP_MANAGED.match(v) else ''}")
+            _dump_context(unique_managed or unique_all)
+            return 1
+        if managed_hits:
+            print(f"[preflight/{mode.name}] FAIL  managed-volume overlap detected:")
+            for v in unique_managed:
+                print(f"    {v}")
+            _dump_context(unique_managed)
             return 1
         if baseline_count:
             print(f"[preflight/{mode.name}] (info) {baseline_count} known "
@@ -1833,7 +1866,7 @@ def _cmd_preflight_impl(args):
     if timed_out or rc == 0 or past_init:
         print(f"[preflight/{mode.name}] PASS  init=True; "
               f"no geom-fail signature"
-              f"{' and no managed-volume overlap' if _modes.SPECS[mode.name].checks_managed_overlap else ''}.")
+              f"{_overlap_banner(mode.name)}.")
         return 0
 
     print(f"[preflight/{mode.name}] AMBIGUOUS  rc={rc}, no geom-fail signature. See {log}")

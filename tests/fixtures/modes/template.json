@@ -38,7 +38,8 @@
     "dumps_gdml":             true,
     "verifies_foil_gdml":     true,
     "preserves_gdml":         false,
-    "checks_managed_overlap": true
+    "checks_managed_overlap": true,
+    "require_zero_overlaps": false
   },
 
   "geom": {
