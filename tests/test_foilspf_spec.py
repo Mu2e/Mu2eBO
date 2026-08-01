@@ -121,6 +121,24 @@ class TestFoilspfRegistration(unittest.TestCase):
             self.assertAlmostEqual(ext / 2 + rendered(ext)[1], base, places=3,
                                    msg=f"absorber moved at extent {ext}")
 
+    def test_absolute_pin_and_expression_agree(self):
+        """protonabsorber.zStartInMu2e is rendered (authoritative under the
+        patched GeometryService) AND agrees with the distFromTargetEnd
+        expression (the fail-safe a stale/unpatched lib falls back to).
+        If the two mechanisms ever disagree, a lib swap silently moves the
+        absorber -- that divergence must be a test failure, not a physics
+        surprise. Evidence: docs/ipa_zstart_evidence.md."""
+        s = modes.SPECS["foilspf"]
+        for ext in (400.0, 800.0, 1100.0):
+            x = [120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, ext]
+            txt = s.geom.render(x)
+            z = float(_scalar(txt, "protonabsorber.zStartInMu2e"))
+            d = float(re.search(r"distFromTargetEnd = ([\d.]+)", txt).group(1))
+            self.assertAlmostEqual(z, 6901.02, places=6, msg=f"extent {ext}")
+            # targetEnd = z0 + extent/2 + 5 (tilt margin) + 0.02 (2*vdHL)
+            self.assertAlmostEqual(5871.0 + ext / 2 + 5.02 + d, z, places=3,
+                                   msg=f"mechanisms disagree at extent {ext}")
+
     def test_upstream_end_never_reaches_emc_source(self):
         """The other wall. At the ceiling the stack must stay clear of the VD,
         wherever the spec currently places it."""

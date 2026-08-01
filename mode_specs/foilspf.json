@@ -73,6 +73,8 @@
       {"comment": "EMC_Source relocated 5300 -> 5000. It is a 20um disc of ds.vacuumMaterial (vd.halfLength=0.01) -- ZERO mass, no scattering, no absorption -- and NO foils-family stage reads virtual detectors (only pot_only instantiates ReadVirtualDetector). At 5300 it was the UPSTREAM wall of the zero-overlap corridor, capping the stack at 6271-5300=971mm. zEMCSourceInMu2e is a plain c.getDouble default at VirtualDetectorMaker.cc:189, so this is one config line, no source patch. EMC_Source2 stays at 4800, so ordering is preserved."},
       {"key": "zEMCSourceInMu2e", "type": "double", "value": 5000.0},
       {"key": "protonabsorber.distFromTargetEnd", "type": "double", "expr": "ipa_dist", "fmt": "{:.6f}"},
+      {"comment": "protonabsorber.zStartInMu2e 6901.02: ABSOLUTE pin, authoritative under the patched GeometryService (maker substitutes targetEnd = zStartInMu2e - distFromTargetEnd, so placement is 6901.02 exactly; see docs/superpowers/specs/2026-07-31-ipa-absolute-position-design.md). The distFromTargetEnd expression above STAYS as the fail-safe: an unpatched lib ignores this key and the expression alone still places the absorber at 6901.02 (cylindrical IPA, OutRadius0 == OutRadius1 == 300.5, so the two routes are degenerate). Consistency pinned by tests/test_foilspf_spec.py."},
+      {"key": "protonabsorber.zStartInMu2e", "type": "double", "value": 6901.02},
       {"key": "hasTSdA", "type": "bool", "value": false},
       {"key": "tsda.helical.build", "type": "bool", "value": false},
       {"key": "stoppingTarget.z0InMu2e", "type": "double", "expr": "z0", "fmt": "{:.4f}"},
