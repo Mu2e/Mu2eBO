@@ -82,8 +82,11 @@ class TestFoilspfRegistration(unittest.TestCase):
         self.assertEqual(s.int_dims, ())
 
     def test_extent_ceiling_stays_inside_the_zero_overlap_corridor(self):
-        """The corridor is bounded by two measured walls: the proton absorber
-        downstream (z=6271, REAL material -- immovable) and EMC_Source upstream
+        """The corridor is bounded by two measured walls: the target's own
+        downstream end in the old uncompensated regime (z=6271, the maximum
+        target z_end measured before the absorber was pinned to its own
+        absolute position -- NOT the proton absorber itself, which now sits
+        fixed at z=6901-7901 regardless of extent) and EMC_Source upstream
         (a 20um vacuum disc, relocated 5300 -> 5000). Max stack is therefore
         6271-5000 = 1271 mm. Derived from the spec's own VD placement rather
         than hardcoded, so moving the VD again cannot silently desync this.

@@ -158,8 +158,16 @@ mid-campaign.
   (`zStartInMu2e` and `holeRadii vector active`) before the JSON pointer
   moves — the foilsg incident class is exactly a tarball missing its
   patch.
-- `foilsflash` keeps pointing at the existing
-  `Code_run1bap_holeradii.tar.bz2` (unchanged behavior either way).
+- **Superseded during execution**: the design called for `foilsflash` to
+  keep pointing at the existing `Code_run1bap_holeradii.tar.bz2`, unchanged
+  either way. It was instead consolidated onto
+  `Code_run1bap_holeradii_ipafix.tar.bz2` alongside `foilspf`, because
+  `tests/test_foilspf_spec.py::test_run_configuration_matches_foilsflash`
+  pins the two modes' `grid_tarball`/`musing` equal (sibling software
+  environments, same leaderboard comparison). The consolidation is
+  behaviorally inert for `foilsflash`: its geometry never emits
+  `protonabsorber.zStartInMu2e`, so the option is a no-op there either way
+  (verified by grep across mode_specs, fixtures, and golden geoms).
 - Bounds, stages, `require_zero_overlaps: true` — unchanged.
 
 ### 5. Testing
