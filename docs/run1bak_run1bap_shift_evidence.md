@@ -636,3 +636,243 @@ GeometryService lib, and the harvest environment (`sourced_env(with_muse=True)`,
 `core/pipeline.py:423-452`) is pinned bit-identically across every historical
 and arm harvest in this audit, with no in-window commit touching the pinning
 path (no finding).**
+
+## 4. Box-scan decomposition
+
+Decomposes the sob shift into the three candidate mechanisms: does the
+macro's momentum test-box move between eras, does acceptance at a *fixed*
+box rise, or does background fall. Quoting §2's audited figures per the
+brief: **+4.93% ± 0.20% (champion-x, ce_abs_eff)** / **+4.08% ± 0.41%
+(baseline, ce_abs_eff)** — these are the audited **ce_abs_eff** input-ratio
+figures (§2.3), not sob ratios; §4.3 recomputes the actual sob ratios here
+and checks them against these as the "pure normalization" expectation.
+
+### 4.1 Macro mechanism (Step 1)
+
+`s_over_sqrt_b = hv.run_sensitivity_macro(harvest_dir, nts_path, ce_abs_eff,
+runner=_root_runner)` (`core/pipeline.py:1346`) calls `run_sensitivity_macro`
+(`core/harvest.py:98-121`), which shells out:
+
+```python
+cmd = ["root", "-q", "-b", "-l",
+       f'scripts/rough_run1a_sensitivity.C("{nts_path}", '
+       f'{ce_abs_eff:.16g}, "{harvest_dir}")']
+```
+
+i.e. `ce_abs_eff` is passed positionally as `rough_run1a_sensitivity.C`'s
+second argument, bound to the macro's `sig_eff` parameter
+(`Run1BAna/workflows/scripts/rough_run1a_sensitivity.C:93`,
+`int rough_run1a_sensitivity(TString sig_file_name, double sig_eff, const
+char* run_dir = ".")`. `run_sensitivity_macro` then parses the return value
+from stdout via `parse_s_over_sqrt_b` (`core/harvest.py:52-57`), which
+`search`es `S_OVER_SQRTB_RX = re.compile(r"^Signal box.*S/sqrt\(B\)\s*=\s*
+([\d.eE+-]+)\s*$", re.MULTILINE)` (`core/harvest.py:36-37`) — **the single
+"Signal box" line**, not any of the many "Test box" lines.
+
+**Where `sig_eff`/`ce_abs_eff` enters the macro (verbatim line cites):**
+
+- `h_sig` (signal, `EDepAna/hist_2/trk_front_energy` from `nts_path`) is
+  rebinned then absolutely normalized: `h_sig->Scale(npot * signal_br *
+  sig_eff / h_sig->GetEntries())` (`rough_run1a_sensitivity.C:127`) — with
+  `npot = 1.e18` and `signal_br = 1.e-13/0.609` fixed constants
+  (`:110-111`). This is the **primary, direct** entry point: `ce_abs_eff`
+  linearly rescales the absolute signal-count normalization of every bin.
+- `response` (`EDepAna/hist_2/trk_front_energy_diff`, per-config energy-loss
+  shape) is separately scaled `response->Scale(sig_eff /
+  response->GetEntries() / response->GetBinWidth(1))` (`:128`). This
+  `response` object is used **twice**: once cosmetically for a diagnostic
+  plot (`:137-138`, `response.png`), and again as the convolution kernel for
+  the DIO background: `TH1* dio_resp = convolve(convolve(dio, response),
+  res)` (`:165`) — so `sig_eff` enters the DIO background a *second* time
+  through this kernel, on top of the direct `dio->Scale(0.39*sig_eff*npot)`
+  at `:162`. (The signal itself is smeared with a *different*, `sig_eff`-independent
+  Gaussian resolution kernel, `res = trk_resolution()` at `:129`, used at
+  `h_sig = convolve(h_sig, res)` `:130` — `response` never touches the
+  signal path.)
+- Cosmic background (`:174-179`) is built from a **fixed** assumed rate,
+  `cosmic_rate_second = 2e4/1.1e7` (`:115`), scaled only by `seconds =
+  nevents*1.695e-6` where `nevents = npot/mean_pot` (`:112-114`) — `npot` is
+  the same fixed `1.e18` constant, `mean_pot` a fixed `1.6e7`. **Cosmic has
+  zero functional dependence on `sig_eff`/`ce_abs_eff`.**
+- The double loop (`:205-234`) scans every `(x_1_l, x_2_l)` box pair,
+  computing `sensitivity_l = signal_rate_l / sqrt(bkg_rate_l)` per box
+  (`:221`) and printing a `"  Test box = ..."` diagnostic line for **every**
+  box tried (`:222-223`, 41,905 lines/config in this audit's logs). The loop
+  tracks the running best (`:224-232`) and, after the loop, prints **one**
+  final `"Signal box = ..."` line (`:236-237`) — the argmax over the whole
+  scan — which is exactly the line `S_OVER_SQRTB_RX` parses.
+
+**How raw ~1e-8/1e-9 scan values become the ~3.9 final number:** verified
+directly against `foilsflashSOBX01`'s log — near the DIO-dominated low-energy
+end of the scan (e.g. `Test box = [50.1, 50.1] MeV/c, ... dio = 6.3e+10 ...
+S/sqrt(B) = 1.83e-09`), `sensitivity_l` is astronomically suppressed because
+the DIO spectrum tail is huge there (`bkg ~ 1e10-1e11`). As the box slides up
+toward the CE endpoint (~103-105 MeV/c), the DIO tail has fallen off by
+~13-14 orders of magnitude (theoretical Michel/DIO spectrum, `get_dio_spectrum()`
+`:6-40`) while `cosmic` stays flat (`~190-350`, box-width-dependent only), so
+`bkg_rate` collapses from `~1e11` to `~190-350` and `sensitivity_l` jumps from
+`~1e-9` to `O(1)`. **The final ~3.9 is not a transform of the small values —
+it is the literal maximum of the per-box `sensitivity_l` array over the whole
+scan**, which lands at the box where DIO has become negligible and cosmic
+(background-floor, `ce_abs_eff`-independent) sets the background. This is
+directly confirmed by this audit's own scan grep: every `"Signal box"` line's
+five fields exactly match the max-`S/sqrt(B)` `"Test box"` row for that same
+config (verified programmatically in §4.2 below — `best(rows)` reproduces the
+grep'd `"Signal box"` line for all 8 configs).
+
+### 4.2 `$SCRATCH/boxscan.py` + argmax boxes (Step 2)
+
+Script (matches the brief's script verbatim, plus tsv-dump and an
+exact/tolerance match-kind report, both requested by the brief):
+`$SCRATCH/boxscan.py`. Per-config full scan dumps:
+`$SCRATCH/boxscan_<config>.tsv` (8 files, `lo hi signal dio cosmic bkg sob`,
+41,905 rows each).
+
+**Box grid identity check (the brief's stated fallback path):** all 8
+configs' `(lo,hi)` tuple sequences are **byte-identical** (`md5sum` of the
+first two tsv columns is `00fb2009...` for all 8, same 41,905-row count) —
+the scan grid did **not** change between eras; every match below is
+`match=exact`, no tolerance fallback needed.
+
+```
+$ python3 $SCRATCH/boxscan.py
+ref_box (argmax of foilsflashBASIN01_00) = (103.1, 104.7)
+foilsflashSOBX01:      argmax_box=[103.3,104.7] sob_at_own=3.9  sob_at_ref=3.89 signal_at_ref=72 dio_at_ref=0.0016  cosmic_at_ref=350
+foilsflashBASIN01_00:  argmax_box=[103.1,104.7] sob_at_own=3.91 sob_at_ref=3.91 signal_at_ref=73 dio_at_ref=0.0016  cosmic_at_ref=350
+foilsflashC400_champ:  argmax_box=[103.1,104.7] sob_at_own=3.9  sob_at_ref=3.9  signal_at_ref=73 dio_at_ref=0.0016  cosmic_at_ref=350
+ipafixAB01:            argmax_box=[103.1,104.7] sob_at_own=4.1  sob_at_ref=4.1  signal_at_ref=76 dio_at_ref=0.0017  cosmic_at_ref=350
+ipa625AB01:            argmax_box=[103.1,104.7] sob_at_own=4.11 sob_at_ref=4.11 signal_at_ref=76 dio_at_ref=0.0017  cosmic_at_ref=350
+ipaovrAB01:             argmax_box=[103.3,104.7] sob_at_own=4.11 sob_at_ref=4.1  signal_at_ref=76 dio_at_ref=0.0017  cosmic_at_ref=350
+foilsflashHOLEDhi:     argmax_box=[103.9,104.7] sob_at_own=3.11 sob_at_ref=2.84 signal_at_ref=53 dio_at_ref=0.001   cosmic_at_ref=350
+nominalAB01:           argmax_box=[103.9,104.7] sob_at_own=3.26 sob_at_ref=2.95 signal_at_ref=55 dio_at_ref=0.0011  cosmic_at_ref=350
+```
+
+`ref_box` is the champion-x-historical `foilsflashBASIN01_00`'s own argmax,
+per the brief's script. The baseline pair's own argmax box (`[103.9,104.7]`)
+differs from the champion-x `ref_box` — this is a **cross-geometry**
+difference (baseline runs a different stopping-target geometry than
+champion-x, so a different CE box optimum is expected), not a same-geometry
+within-era migration, so §4.3's baseline-pair analysis uses the baseline
+pair's own (shared) box rather than the champion-x `ref_box`.
+
+**Precision caveat (applies throughout §4.3):** the macro's own `printf`
+formats are `%.2g` for `signal`/`dio`/`cosmic`/`bkg` and `%.3g` for
+`S/sqrt(B)` (`rough_run1a_sensitivity.C:222-223,236-237`) — the log carries
+**no more precision than 2-3 significant figures**, confirmed by re-reading
+the raw tsv rows directly (no hidden extra digits). All σ below account for
+this quantization floor explicitly, in addition to (for n=3 groups) the
+empirical spread across the 3 configs.
+
+### 4.3 Fixed-box decomposition + the three questions (Step 3)
+
+**Champion-x group (3 historical: SOBX01/BASIN01_00/C400_champ vs 3 arms:
+ipafixAB01/ipa625AB01/ipaovrAB01), at the shared `ref_box=[103.1,104.7]`:**
+
+| quantity | historical mean | arm mean | ratio | shift | σ (quadrature: group-spread SEM ⊕ print-quantization) |
+|---|---|---|---|---|---|
+| sob (fixed box) | 3.9000 | 4.1033 | 1.05214 | +5.214% | ±0.178% |
+| signal (fixed box) | 72.667 | 76.000 | 1.04587 | +4.587% | ±0.480% |
+| dio (fixed box) | 0.0016 | 0.0017 | 1.0625 | +6.25% | negligible weight (see below) |
+| cosmic (fixed box) | 350.0 | 350.0 | 1.00000 | +0.000% | ±0.000% (identical to 2 sig figs for all 6 configs) |
+| bkg = dio+cosmic (fixed box) | 350.0 | 350.0 | 1.00000 | +0.000% | ±0.000% |
+| dio/bkg fraction | 4.6e-6 (0.00046%) | 4.9e-6 (0.00049%) | — | — | dio contributes <0.0005% of total bkg — physically irrelevant despite its own +6.25% shift |
+
+`sob` at each config's **own** argmax (i.e. what actually lands in
+`summary.json`/the leaderboard): historical mean = 3.9033, arm mean =
+4.1067, ratio = 1.05209, **shift = +5.209% ± 0.124%** — statistically
+identical to the fixed-box figure above (own-argmax − fixed-box =
+**−0.004 percentage points**, consistent with zero).
+
+**This +5.21% supersedes the carried "+4.9%" figure in §1.** Tracing it the
+same way §2.3 traced the ce_abs_eff carried figure: `mean(BASIN01_00) vs
+mean(ipafixAB01, ipaovrAB01)` (excluding `ipa625AB01`, the same 2-vs-1
+narrower subset found in §2.3) gives `4.105/3.91 − 1 = +4.99%` ≈ the carried
++4.9%. **Same provenance pattern as §2.3's ce_abs_eff finding: the carried
+figure is a narrower 1-vs-2 subset; the audited 3-vs-3 group-mean sob shift
+is +5.21% ± 0.12%, not +4.9%.**
+
+**Baseline pair (`foilsflashHOLEDhi` vs `nominalAB01`), at their shared own
+argmax box `[103.9,104.7]`** (identical box for both — no separate
+"fixed-box" table needed, own-argmax *is* the fixed box here):
+
+| quantity | HOLEDhi | nominalAB01 | ratio | shift | σ (print-quantization) |
+|---|---|---|---|---|---|
+| sob | 3.11 | 3.26 | 1.04823 | +4.823% | ±0.233% |
+| signal | 43 | 45 | 1.04651 | +4.651% | ±1.683% |
+| dio | 2.6e-05 | 2.8e-05 | 1.0769 | +7.69% | negligible weight (see below) |
+| cosmic | 190 | 190 | 1.00000 | +0.000% | ±0.000% |
+| dio/bkg fraction | 1.37e-7 (0.0000137%) | 1.47e-7 (0.0000147%) | — | — | utterly negligible |
+
+**Three questions, both groups:**
+
+**1. Did the optimal box move?**
+- Champion-x: argmax boxes are `{[103.1,104.7]×2, [103.3,104.7]×1}`
+  historical vs `{[103.1,104.7]×2, [103.3,104.7]×1}` arms — **the identical
+  two-point set on both sides** of the 0.2 MeV/c scan grid, no systematic
+  direction. Isolated box-migration contribution to sob: **−0.004 percentage
+  points** (own-argmax ratio minus fixed-box ratio), consistent with zero at
+  the print-quantization floor. **No box migration.**
+- Baseline: `[103.9,104.7]` for **both** `HOLEDhi` and `nominalAB01` —
+  **exactly the same box**. Box-migration contribution: **0% by
+  construction** (own argmax = shared box for both configs). **No box
+  migration.**
+
+**2. At fixed box, signal-side vs background-side fraction of the shift?**
+- Champion-x: signal ratio +4.587% vs cosmic (=bkg, dio negligible) ratio
+  +0.000%. Decomposing `sob = signal/sqrt(bkg)`: since `bkg` is unchanged,
+  100% of any *bkg-driven* sob rise is 0% — background contributes ~0% and
+  signal-side (acceptance) contributes ~100% of the fixed-box shift.
+- Baseline: signal ratio +4.651% vs cosmic ratio +0.000%. Same conclusion:
+  **~100% signal-side (acceptance), ~0% background-side**, for both groups.
+  (Note: the fixed-box `sob` ratio computed directly from the log's
+  3-sig-fig `S/sqrt(B)` field, +5.214%/+4.823%, is numerically somewhat
+  above the ratio implied by recombining the coarser 2-sig-fig
+  `signal`/`bkg` fields, +4.587%/+4.651% — this ~0.6pp/0.2pp gap is
+  **print-rounding noise between the macro's independently-rounded fields**,
+  not a real background effect, since `cosmic` itself prints **bit-identically**
+  at both 2 and 3 significant figures across every one of the 8 configs.)
+
+**3. Is the signal-side ratio consistent with the ce_abs_eff ratio, or is
+there a residual spectrum/shape effect?**
+
+Using the more precise `S/sqrt(B)` field (3 sig figs) as the "sob route",
+and the coarser `signal` field (2 sig figs) as the "signal route", against
+§2.3's audited ce_abs_eff ratios (+4.93%±0.20% champion-x, +4.08%±0.41%
+baseline):
+
+| group | route | measured ratio | expected (ce_abs_eff) | residual | σ | significance |
+|---|---|---|---|---|---|---|
+| champion-x | sob @ fixed box | +5.214% | +4.93% | **+0.270%** | ±0.255% | 1.06σ |
+| champion-x | sob @ own argmax | +5.209% | +4.93% | **+0.266%** | ±0.225% | 1.18σ |
+| champion-x | signal @ fixed box | +4.587% | +4.93% | **−0.327%** | ±0.495% | 0.66σ |
+| baseline | sob @ shared box | +4.823% | +4.08% | **+0.714%** | ±0.456% | 1.57σ |
+| baseline | signal @ shared box | +4.651% | +4.08% | **+0.549%** | ±1.665% | 0.33σ |
+
+**No residual is significant at 2σ in either group or via either route.**
+The sob-route and signal-route residuals for champion-x even carry
+**opposite signs** while both sitting near 1σ — exactly what print-rounding
+noise on independently-quantized log fields produces, not a coherent
+physical effect (a real shape/spectrum shift would push both routes the
+same direction). The baseline pair's sob-route residual (+0.71%, 1.57σ) is
+the largest single figure found, but it is an n=1-vs-n=1 comparison with no
+replicate to check reproducibility, and still falls short of 2σ.
+
+**Conclusion for all three questions, both groups: the sob shift is fully
+consistent with pure `ce_abs_eff`-normalization scaling — no box migration,
+no background change, and no statistically significant residual
+spectrum/shape effect at the log's 2-3-significant-figure precision.**
+
+**Verdict: champion-x +5.21% ± 0.12% (own-argmax; supersedes the carried
++4.9%, same 1-vs-2-subset provenance issue §2.3 found for ce_abs_eff) =
+~100% acceptance-at-fixed-box (+5.21%) + ~0% box-migration (−0.004pp,
+identical argmax box set both eras) + ~0% background (cosmic ratio =
+1.0000 exactly; dio <0.0005% of bkg), with residual-beyond-ce_abs_eff =
++0.27% ± 0.26% (1.1σ, not significant). Baseline pair +4.82% ± 0.23%
+(supersedes carried +4.8%) = ~100% acceptance-at-fixed-box + 0%
+box-migration (identical shared argmax box) + 0% background (cosmic ratio =
+1.0000 exactly), residual-beyond-ce_abs_eff = +0.71% ± 0.46% (1.6σ, not
+significant, n=1 no replicate). Both groups: the +4.9%/+4.8% sob shift is
+essentially entirely explained by the `ce_abs_eff` normalization-input
+ratio audited in §2.3 — the momentum test box does not move and background
+(cosmic-dominated; DIO is <0.0005% of total bkg at the optimal box) does
+not change between eras.**
