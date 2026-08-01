@@ -1780,7 +1780,7 @@ decision itself is the operator's, not this document's):
   wiki log). (b) **Ratios to a same-era baseline are era-invariant within
   measurement**: champion/deployed = +25.5% under Run1Bak (3.9033/3.11)
   vs +26.0% under Run1Bap (4.1067/3.26) from the audited §4 group means —
-  1.3σ apart on the §4.3 σ budget (the 2026-07-28 wiki log's arm-D figures,
+  1.5σ apart on the §4.3 σ budget (combined relative σ = √(0.124² + 0.233²)% ≈ 0.26%; era-ratio difference (1.260/1.255 − 1) ≈ 0.40% → 0.40/0.26 ≈ 1.5σ; the 2026-07-28 wiki log's arm-D figures,
   +25.6%/+25.8%, are this same comparison at 2-decimal sob precision) — so
   the historical campaign's physics *conclusions* stand either way. (c) On
   the flash axis no significant version shift exists at champion once the
@@ -1791,8 +1791,8 @@ decision itself is the operator's, not this document's):
 **Task-8 trigger verdict: TRIGGERED.** Live candidates: the PrimaryFilter
 lever pair (rows 17–18 — one mechanism needing **direct proof** of
 magnitude) and the baseline-pair flash anomaly (row 20). That satisfies
-both clauses of the rule ("≥2 live candidates or one candidate needing
-direct proof → recommend the gated Task 8 arm(s)").
+the rule twice over — both disjuncts hold independently ("≥2 live candidates
+and one candidate needing direct proof → recommend the gated Task 8 arm(s)").
 
 **Recommended arms, in order:**
 
@@ -1835,7 +1835,7 @@ direct proof → recommend the gated Task 8 arm(s)").
 of the implicated module is two commits from Offline PR #1819
 (`a9839eeb4` + printout `2905cfa0b`, michaelmackenzie 2026-05-06) engaged by
 one Production commit from PR #539 (`a387965f`), with PR-stated intent of
-deliberate signal-acceptance recovery; ledger closes 17 of 20 rows as
+deliberate signal-acceptance recovery; ledger closes 16 of 20 rows as
 excluded (1 confirmed on the flash channel, 2 PrimaryFilter levers + 1
 baseline flash anomaly open); Task 8 is TRIGGERED, and the recommended
 first arm is the config-level PrimaryFilter revert under Run1Bap
