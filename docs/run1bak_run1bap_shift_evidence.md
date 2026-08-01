@@ -1208,3 +1208,315 @@ mechanism, proven geometrically inert but still a provenance difference)
 are stated per the brief, plus an additional open observation that the
 champion-derived override effect does not obviously explain the baseline
 pair's sign or magnitude.**
+
+## 6. Environment diff
+
+Targets the implicated quantity from Tasks 4-5 directly: event-level CE
+acceptance (`ce_seen/ce_simulated`, the fraction of simulated CE events
+surviving the `mustops_ce` chain into EdepAna) at an **unchanged energy
+response** (§5: Δmean <0.01 MeV, ΔRMS <1% at the box). Candidates are judged
+against that mechanism test: can this delta move an event *count* without
+moving the *energy scale*? `$GRID = /exp/mu2e/data/users/oksuzian/autoresearch_grid`.
+Release roots: `ROOT_BAK=/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bak/backing`,
+`ROOT_BAP=/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bap/backing` (both
+hold `geom_run1_a.txt` at `Offline/Mu2eG4/geom/geom_run1_a.txt`, confirmed by
+direct `find -L`, Step 1).
+
+### 6.1 Geometry base-tree diff (Steps 1-3)
+
+`$SCRATCH/resolve_geom.py` — verbatim from the brief, a SimpleConfig
+`#include`-chain resolver with last-wins key/value semantics, trying
+`root/inc` then `root/Offline/inc` for each include (handles both release
+layouts).
+
+**Self-test (required before trusting any cross-tree diff):**
+```
+$ python3 resolve_geom.py "$GEOM_BAK" "$ROOT_BAK" "$GEOM_BAK" "$ROOT_BAK"
+# total keys: bak=6283 bap=6283 differing=0
+$ python3 resolve_geom.py "$GEOM_BAP" "$ROOT_BAP" "$GEOM_BAP" "$ROOT_BAP"
+# total keys: bak=6283 bap=6283 differing=0
+```
+**Self-test PASSES on both sides** (identical tree vs itself → `differing=0`,
+6283 keys resolved each time) — the resolver is trusted.
+
+**Cross-tree diff:**
+```
+$ python3 resolve_geom.py "$GEOM_BAK" "$ROOT_BAK" "$GEOM_BAP" "$ROOT_BAP"
+# total keys: bak=6283 bap=6283 differing=0
+```
+**Zero differing keys.** The entire resolved `geom_run1_a.txt` include tree —
+every `double`/`int`/`bool`/`string`/`vector<...>` key that GeometryService
+would see for this base file — is identical between Run1Bak and Run1Bap.
+
+**Verification beyond the resolver (not asserted, checked):** the resolver's
+"seen" file set (421 transitively-`#include`d files, `$SCRATCH/included_files.txt`)
+was diffed pairwise, byte-for-byte, between the two release roots:
+```
+$ <loop: diff -q $ROOT_BAK/$rel $ROOT_BAP/$rel for each of 421 included files>
+total included files: 421, byte-differ: 0, missing: 0
+```
+All 421 files are byte-identical, not merely KV-resolved-identical — this
+rules out both a resolver blind spot (e.g. a value changed in one file and
+silently compensated in another) and any comment/formatting-only difference
+this task might have waved away. The top-level `geom_run1_a.txt` file itself
+also matches by md5 (`582733d150f60940c1d5455d68c7c636` both sides).
+
+Confirmed this is the file actually loaded at run time, not a resolver-only
+artifact: both configs' rendered per-config geom overlays open with
+`#include "Offline/Mu2eG4/geom/geom_run1_a.txt"` verbatim
+(`$GRID/foilsflashBASIN01_00/geom/*_geom.txt`,
+`$GRID/ipafixAB01/geom/*_geom.txt`, first line of each) — i.e. `mu2e`
+resolves this exact `#include` against whichever release's
+`MU2E_SEARCH_PATH` the job actually ran under.
+
+**Sanity check that the resolver isn't blind (the two releases genuinely
+differ elsewhere in `Mu2eG4/geom/`, just not in this chain):** `diff -rq`
+on the two `Mu2eG4/geom/` directories directly turns up 7 differences —
+`crv_counters_extracted_v03/v04.txt` (new in Run1Bap), `geom_common_extracted.txt`
+(differs — its own `#include` bumped `v02`→`v04`), `geom_common_extracted_v03/v04.txt`
+(new in Run1Bap), `geom_run1_b_v40.txt` (differs — adds
+`degrader.supportArm.offsetz/dz`, comments out `tracker.inDS2Vacuum`), and
+`ProductionTarget_Stickman_v1_0.txt` (differs — Inconel718 plate-list
+formatting/comment changes). Traced each: `geom_common_extracted.txt` is
+`#include`d only by `geom_common_trackerVST.txt`/`geom_common_trackerStationVST.txt`
+(VST test-stand geoms, not Run1A); `geom_run1_b_v40.txt` is `#include`d only
+by `geom_run1_b_ds_on_v40.txt` (the DS-on **Run1B** production chain, a
+different physics config from our Run1A `mustops_ce`); `ProductionTarget_Stickman_v1_0.txt`
+is `#include`d only by `geom_run1_a_stickman.txt` (a Stickman-PT variant of
+Run1A, not the plain `geom_run1_a.txt` our configs use). None of the 7
+differing files are reachable from `geom_run1_a.txt`'s own include chain —
+consistent with, not contradicting, the resolver's `differing=0` result.
+
+**Classification: geometry-config candidate set is EMPTY.** Every key the
+mustops_ce stage's `GeometryService` resolves from the base include tree is
+byte-identical between Run1Bak and Run1Bap — there is nothing here that
+could move `ce_abs_eff` in either direction. This goes strictly further than
+Task 3 (§3.1), which only diffed the *rendered* per-config geom file (the
+literal `#include` line plus our own override lines) and therefore could not
+see whether the two releases' copies of `geom_run1_a.txt`'s *resolved
+content* differed — this section closes exactly that gap the Task 3 brief
+flagged, and finds nothing.
+
+### 6.2 Job-config diff (Step 4)
+
+**Materialized-FCL diff (ours, the two grid configs' actual submitted FCLs):**
+```
+$ diff $GRID/foilsflashBASIN01_00/state/mustops_ce_template_materialized.fcl \
+       $GRID/ipafixAB01/state/mustops_ce_template_materialized.fcl
+18c18
+< services.GeometryService.inputFile:  "autoresearch_foilsflashBASIN01_00_geom.txt"
+---
+> services.GeometryService.inputFile:  "autoresearch_ipafixAB01_geom.txt"
+```
+Exactly the expected near-identical result — the only delta is each config's
+own geometry-overlay filename (already fully audited, §3.1). No semantic
+FCL-authoring delta between the two configs' own submitted job files.
+
+**`mu2e --debug-config` (subagent shells, muse setup one-shot per shell,
+`SPACK_USER_CACHE_PATH` set before sourcing CVMFS per the brief):**
+```
+# shell 1 (Run1Bak): muse setup ops && muse setup SimJob Run1Bak
+#   mu2e --debug-config cfg_bak.txt -c .../foilsflashBASIN01_00/.../mustops_ce_template_materialized.fcl
+#   banner: art v3_15_00  root v6_32_06  KinKal v03_05_01 | build al9-prof-e29-p094
+#   exit 0, cfg_bak.txt = 1702 lines
+# shell 2 (Run1Bap): muse setup ops && muse setup SimJob Run1Bap
+#   mu2e --debug-config cfg_bap.txt -c .../ipafixAB01/.../mustops_ce_template_materialized.fcl
+#   banner: art v3_15_00  root v6_32_06  KinKal v03_06_00 | build al9-prof-e29-p101
+#   exit 0, cfg_bap.txt = 1721 lines
+```
+Both succeeded cleanly (exit 0), no errors in either `/tmp/m1.log`/`/tmp/m2.log`.
+
+**`diff $SCRATCH/cfg_bak.txt $SCRATCH/cfg_bap.txt`** (full raw diff, 8 hunks,
+saved to `$SCRATCH/debug_config_diff_raw.txt`):
+```
+68a69
+>          MaximumCaloPartMom: 1e6
+69a71
+>          MinimumCaloPartMom: 0
+73a76
+>          MinimumSumCaloE: 45
+251,252c254,255
+<                "DoseDeposit",
+<                "DelayedDose"
+---
+>                "PromptDoseAmb",
+>                "ResidualDoseAmb"
+450a454,468
+>       KinKalMaterial: { CRVMaterialName: "CRVModule" ElectronBrehmsFraction: 4e-2
+>          GasScatteringFraction: 9.999999e-1 IPAMaterialName: "HDPE"
+>          IonizationEnergyLossMode: 1 STMaterialName: "Target"
+>          SolidScatteringFraction: 9.99999e-1 elements/isotopes/materials: "Offline/TrackerConditions/data/*.data"
+>          strawGasMaterialName: "straw-gas" strawWallMaterialName: "straw-wall" strawWireMaterialName: "straw-wire" }
+452c470
+<       inputFile: "autoresearch_foilsflashBASIN01_00_geom.txt"     (config-name artifact, already audited §3.1)
+---
+>       inputFile: "autoresearch_ipafixAB01_geom.txt"
+477c495,496
+<          ADC2MeV: 6.25e-2
+---
+>          ADC2MeVCsI: 6.25e-2
+>          ADC2MeVlyso: 3.75e-3
+1680c1699
+<          fileName: ".../cfg_bak.txt"     (debug-config's own output-file self-reference — a tool artifact, not a job delta)
+---
+>          fileName: ".../cfg_bap.txt"
+```
+(Full, unabbreviated hunks in `$SCRATCH/debug_config_diff_raw.txt`.)
+
+**Classification, hunk by hunk — every surviving delta traced to its owning
+module/service and to whether that module is actually *scheduled* on
+`physics.PrimaryPath` (confirmed via `physics.PrimaryPath: [...]`,
+`module_label:` list — identical 14-module set both sides:
+`TargetStopResampler, generate, genCounter, GenFilter, g4run,
+g4consistentFilter, StrawGasStepMaker, CaloShowerStepMaker, CrvSteps,
+MakeSS, PrimaryFilter, compressDetStepMCs, FindMCPrimary` plus the
+`genCountLogger`/`PrimaryOutput` end-path):**
+
+- **`PrimaryFilter`'s `MinimumSumCaloE: 45` (and its two companions) — RELEVANT, top candidate, mechanism fully traced to source.**
+  `PrimaryFilter` (`module_type: "DetectorStepFilter"`) **is scheduled** on
+  `PrimaryPath`, directly downstream of `StrawGasStepMaker`/`CaloShowerStepMaker`/`MakeSS`
+  and upstream of `compressDetStepMCs`/`FindMCPrimary`/`PrimaryOutput` — i.e.
+  it is the literal gate that decides which simulated CE events survive into
+  the output `.art` file that concat feeds to EdepAna. This is not a
+  parallel-subsystem default; it sits *inside* the implicated chain.
+  Traced the code: `diff Offline/Filters/src/DetectorStepFilter_module.cc`
+  (Run1Bak vs Run1Bap, `$SCRATCH/DetectorStepFilter_module_diff.txt`) shows
+  Run1Bap's module gained a new **optional** calo-acceptance branch:
+  `fhicl::OptionalAtom<double> minSumCaloTotalE{Name("MinimumSumCaloE"), ...}`
+  → `useMinSumCaloTotalE_ = conf().minSumCaloTotalE(minSumCaloTotalE_)` (only
+  engaged if the key is explicitly present in FHiCL) → in the per-CaloShowerStep
+  loop, a running `total_edep` is accumulated across *all* good particles, and
+  `if (useMinSumCaloTotalE_ && total_edep > minSumCaloTotalE_) selectcalo = true;`
+  — **in addition to**, not replacing, the pre-existing per-particle branch
+  (`caloESum` map, unchanged). `retval = (or_ && (selecttrk||selectcalo||selectcrv))
+  || (!or_ && (selecttrk&&selectcalo&&selectcrv))`, with `ORRequirements`
+  (`or_`) defaulting `true` in the C++ and **never set in any Production or
+  Offline prolog on either release** (`grep -rn ORRequirements` — zero hits
+  in FHiCL on both trees) — so both releases use the identical, unset,
+  default-true OR-combination at run time. Because the new branch can only
+  flip `selectcalo` **false→true** (never true→false: it is an added
+  disjunct, the old per-particle branch is untouched) and `retval` combines
+  `selectcalo` via OR, **`PrimaryFilter`'s pass rate under Run1Bap can only
+  be ≥ Run1Bak's for the identical input population — never lower** — a
+  provably monotonic, same-direction mechanism for "more CE events produce
+  accepted output under Run1Bap," matching the observed sign exactly. Traced
+  the FHiCL source of the new key: `diff Production/JobConfig/primary/prolog.fcl`
+  (`$SCRATCH/prolog_fcl_diff.txt`) shows Run1Bap's prolog explicitly adds
+  `MinimumSumCaloE : 45.0 # or at least this much calo total energy by
+  accepted sim particles` (and clarifies the old key's comment to "by a
+  single sim particle" — confirming the new key is a genuinely distinct,
+  additional criterion, not a rename). This is a **Production-repo** prolog
+  change, paired with the **Offline-repo** `DetectorStepFilter_module.cc`
+  C++ change that gives the new key an effect — both required together, both
+  land in Run1Bap.
+  `MaximumCaloPartMom: 1e6` / `MinimumCaloPartMom: 0` are companions of the
+  same code change (new `fhicl::Atom` fields added so the calo-step loop can
+  bound `css.momentumIn()`) but are numerically no-ops here — both explicit
+  values equal the new C++ defaults (`0.0`/`maxE_`≈1e6) — they exist only
+  because the new momentum-bound code path requires *some* value, not
+  because Run1Bap restricts anything through them. **Not separately
+  relevant beyond enabling the `MinimumSumCaloE` mechanism above.**
+
+- **`KinKalMaterial` (new subtree of `services.GeometryService`) — NOT
+  RELEVANT, present but structurally inert for this FCL.** No producer or
+  filter on `PrimaryPath` (or anywhere in either `cfg_*.txt`) references
+  `KinKal` (`grep -in kinkal` on both dumps: only this one hit, the
+  `GeometryService` default block itself). KinKal is Offline's Kalman-filter
+  **track-fit** package (bumped v03_05_01→v03_06_00, `services` toolchain
+  table, §6.3) — this job is a truth-level generate→G4→digitize→filter
+  chain with no track-reconstruction producer scheduled; `GeometryService`
+  publishes this material-lookup subtree unconditionally (a new default in
+  the newer release) whether or not anything downstream reads it. No
+  mechanism to move `ce_seen`/`ce_abs_eff` for a stage that never invokes a
+  KinKal fit.
+
+- **`ADC2MeV` → `ADC2MeVCsI`/`ADC2MeVlyso` (`services.ProditionsService.calCalib`)
+  — NOT RELEVANT, same reasoning.** This is calorimeter ADC-to-MeV
+  *digitization/reconstruction* calibration — consumed by CaloDigi/CaloReco
+  producers, neither of which is scheduled on `PrimaryPath` (only the
+  truth-level `CaloShowerStepMaker` is present, which produces
+  `CaloShowerStep` objects directly from G4 energy deposits, no ADC
+  modeling). `ProditionsService` publishes all registered conditions
+  entities regardless of whether this job's producer schedule consumes
+  them — same "declared but not exercised" pattern as `KinKalMaterial`. The
+  CsI/lyso split reflects an evolving two-crystal-type calorimeter model in
+  the newer release, with no consumer in this chain to be affected.
+
+- **`Scoring.scorerNames` (`DoseDeposit`,`DelayedDose`→`PromptDoseAmb`,`ResidualDoseAmb`,
+  under `physics.producers.g4run.Scoring`) — NOT RELEVANT, block is
+  disabled.** Same hunk shows `enabled: false` unchanged on both sides
+  (context lines, `$SCRATCH/debug_config_diff_raw.txt`) — the
+  Mu2eG4ScoringManager dose-mesh scorer is off entirely for this job; a
+  renamed scorer list inside a disabled block cannot affect any output.
+
+- **`inputFile` (config-name) and the debug-config `fileName`
+  self-reference — NOT RELEVANT, tool/config-naming artifacts.** The first
+  is each config's own geometry-overlay filename (identical mechanism to
+  the materialized-FCL diff above, already fully audited in §3.1); the
+  second is `--debug-config`'s own output-file path, which necessarily
+  differs because `cfg_bak.txt`/`cfg_bap.txt` are different scratch
+  filenames — neither reflects a release difference.
+
+**No other hunks exist** — the 8 hunks above are the complete raw diff
+(`$SCRATCH/debug_config_diff_raw.txt`).
+
+### 6.3 Toolchain versions (Step 5)
+
+`ups active | grep -iE "^geant4|^art |^root |^g4|^xerces|^cry |^artg4"` in
+both shells returned **only the `art` line** — `root`/`geant4`/`xerces`/`cry`/`artg4`
+are not `ups`-registered products under either build (`MU2E_SPACK = true` in
+`muse status` on both sides: these are resolved via **spack**, not `ups`,
+under this Musing generation). Confirmed this is not a fetch miss by
+dumping the full unfiltered `ups active` list on both sides (7 products
+each: `art, encp, mu2efilename, mu2efiletools, mu2egrid, mu2ejobtools, ups`)
+and cross-checking versions via the `mu2e --debug-config` startup banner,
+`muse status`'s `MUSE_ENVSET` line, and `spack find` inside each shell:
+
+| component | Run1Bak (p094) | Run1Bap (p101) | changed? |
+|---|---|---|---|
+| MUSE_ENVSET | p094 | p101 | — |
+| backing Offline musing | `v13_12_10` | `v13_32_10` | **YES** (many intervening tagged releases) |
+| build stub / date | al9-prof-e29-p094, 2026-05-13 | al9-prof-e29-p101, 2026-07-15 | — |
+| art | v3_15_00 | v3_15_00 | no |
+| ROOT | v6_32_06 | v6_32_06 | no |
+| **Geant4** | 11.3.2 (`v4_11_3_p02`) | 11.3.2 (`v4_11_3_p02`) | **no — bit-identical, same spack build hash** `geant4-11.3.2-k4bezfrnxuvotgxrwtgcfhjqzagc2iyw` on both sides (literally the same installed package, not just the same version string) |
+| Geant4 physics data (G4EMLOW/PhotonEvaporation/RadioactiveDecay/G4NDL/G4PARTICLEXS/G4ABLA/G4SAID/G4INCL/...) | 8.6.1/5.7/5.6/4.7.1/4.1/3.3/2.0/1.2 | identical, same paths under the p101 spack-env view | no |
+| CRY | 1.7 | 1.7 | no |
+| xerces | 0 hits either side (not a discrete spack root spec; bundled under `art`/`root` externals unchanged) | 0 hits | no evidence of change |
+| KinKal | v03_05_01 (spack `kinkal@3.5.1`) | v03_06_00 (spack `kinkal@3.6.0`) | **YES, but not exercised** — no KinKal-fit producer on `PrimaryPath` (§6.2) |
+| artdaq-core-mu2e | v9_03_00 | v9_04_00 | **YES** — DAQ dataproduct/format bookkeeping, no physics-list/G4/tracker-MC content; not on `PrimaryPath` |
+| mu2e-ort (ONNX runtime) | absent (18 root specs) | present, v1.25.1 (19 root specs) | **NEW**, but no ML-inference producer scheduled on `PrimaryPath` — this truth-level chain has no ML-based selection |
+
+**Geant4 is the toolchain's first-class candidate per the brief, and it is
+definitively ruled out**: not merely version-matched but the *same spack
+build artifact* (identical hash) is loaded by both environments, alongside
+identical physics-data table versions — nothing in the G4 transport/physics
+engine itself differs between the two eras. art and ROOT are bookkeeping
+per the brief and are also unchanged. KinKal, artdaq-core-mu2e, and
+mu2e-ort all changed but are excluded by the same "not exercised on
+`PrimaryPath`" test applied in §6.2 — none has a scheduled consumer in the
+mustops_ce chain. The only toolchain-adjacent fact that *is* real and
+substantial is the backing-Offline-musing jump (`v13_12_10`→`v13_32_10`,
+many releases apart) — but §6.1 already resolved the one Offline subsystem
+that jump could plausibly move for this chain (the geometry base tree) and
+found it byte-identical; §6.2 found the one FCL-prolog delta the jump
+actually produced that both (a) sits inside the scheduled `PrimaryPath` and
+(b) has a stated, monotonic, same-direction mechanism on event count at
+unchanged energy response.
+
+**Verdict: candidate deltas = [`physics.filters.PrimaryFilter.MinimumSumCaloE`
+(new `OptionalAtom`-gated total-calo-energy OR-branch in
+`Offline/Filters/src/DetectorStepFilter_module.cc`, engaged by
+`Production/JobConfig/primary/prolog.fcl`'s new `MinimumSumCaloE: 45.0`
+line — scheduled on `PrimaryPath`, provably monotonic same-direction effect
+on event-count acceptance, companions `MaximumCaloPartMom`/`MinimumCaloPartMom`
+numerically inert)], toolchain = Geant4 11.3.2 **unchanged** (identical spack
+build hash + physics-data tables — ruled out), art v3_15_00 unchanged, ROOT
+v6_32_06 unchanged, KinKal v03_05_01→v03_06_00 and artdaq-core-mu2e
+v9_03_00→v9_04_00 and mu2e-ort (new) all changed but **not exercised** on
+`PrimaryPath` (no scheduled consumer), backing Offline musing
+v13_12_10→v13_32_10. Geometry base-config candidate set is EMPTY (§6.1,
+421/421 included files byte-identical, resolver self-test PASS). All other
+job-config deltas (`KinKalMaterial`, `ADC2MeV`→`ADC2MeVCsI`/`ADC2MeVlyso`,
+`Scoring.scorerNames`) are present-but-inert defaults with no scheduled
+consumer on `PrimaryPath`, or self-referential config-naming artifacts.**
