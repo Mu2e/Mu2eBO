@@ -1,9 +1,9 @@
 {
   "name": "foilspf",
-  "note": "10D all-foils stopping target: three Lagrange-quadratic profiles (rOut, halfThickness, hole fraction) across 49 foils plus a stack-length knob, vs the foilsflash sob+flash objective. Replaces the deployed 37-foil base entirely -- there is no pinned baseline. Design: docs/superpowers/specs/2026-07-27-foilspf-profile-stopping-target-design.md",
+  "note": "10D all-foils stopping target: three Lagrange-quadratic profiles (rOut, halfThickness, hole fraction) across 49 foils plus a stack-length knob, vs the foilsflash sob+flash objective. Replaces the deployed 37-foil base entirely -- there is no pinned baseline. Design: docs/superpowers/specs/2026-07-27-foilspf-profile-stopping-target-design.md EXTENT CAPPED 400-800 (was 400-1100) on 2026-07-28: 800 mm is the deployed stack length and the measured zero-overlap boundary -- extent 800 (z_end 6271) gives 0 overlaps, 850 gives 1, 900+ gives 3 (IPAsupport_set2_wire* protruding from DS2Vacuum). protonabsorber.distFromTargetEnd=625 places the absorber at its design z=6901-7901 exactly when the target ends at z~6276, so the surrounding detector only accommodates a deployed-length target. This cap EXCLUDES foilspfSMOKER00_00 (extent 894.2, flash 4.809e-07), the best result this line has produced; reopening the long-extent region requires absorber headroom, not a cap change.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
+    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
   },
   "run": {
     "stages": ["mubeam", "mustops_ce", "elebeam_flash"],
@@ -43,16 +43,20 @@
     "dumps_gdml": true,
     "verifies_foil_gdml": true,
     "preserves_gdml": false,
-    "checks_managed_overlap": true
+    "checks_managed_overlap": true,
+    "require_zero_overlaps": true
   },
   "geom": {
     "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
     "consts": {
       "n_foils": 49,
-      "z0": 5871.0
+      "z0": 5871.0,
+      "ipa_dist_deployed": 625.0,
+      "span_deployed": 800.0
     },
     "derived": {
-      "deltaZ": "extent / 48"
+      "deltaZ": "extent / 48",
+      "ipa_dist": "ipa_dist_deployed - (extent - span_deployed) / 2"
     },
     "profiles": {
       "rOut_p": {"count": "n_foils", "control": ["rOut_0", "rOut_1", "rOut_2"], "clip": [50.0, 120.0]},
@@ -65,6 +69,10 @@
       {"comment": "hT    profile: {hT_0:.4f} -> {hT_1:.4f} -> {hT_2:.4f} mm"},
       {"comment": "hole  profile: f = {f_0:.3f} -> {f_1:.3f} -> {f_2:.3f}  (rIn_i = f_i * rOut_i)"},
       {"comment": "extent {extent:.1f} mm over 48 gaps -> deltaZ {deltaZ:.6f} mm; centre pinned at z0 {z0:.1f}"},
+      {"comment": "protonabsorber.distFromTargetEnd {ipa_dist:.3f} (stock 625). Offline places the IPA at targetEnd+distFromTargetEnd -- i.e. RELATIVE to the stopping target -- but the IPA is fixed hardware at z=6901-7901. Without this compensation a longer target slides the absorber the same distance downstream as a RIGID body (length is unchanged: pabs1halflen saturates at the protonabsorber.halfLength=500 cap), which both mis-simulates real in-beam material and pushes its support wires out of DS2Vacuum. This holds the absorber at its true absolute position for any extent; at extent 800 it returns the stock 625 exactly. Measured with protonabsorber.verbosityLevel=1: 6901.02-7901.02 at extent 400, 800 and 1100, identical to stock."},
+      {"comment": "EMC_Source relocated 5300 -> 5000. It is a 20um disc of ds.vacuumMaterial (vd.halfLength=0.01) -- ZERO mass, no scattering, no absorption -- and NO foils-family stage reads virtual detectors (only pot_only instantiates ReadVirtualDetector). At 5300 it was the UPSTREAM wall of the zero-overlap corridor, capping the stack at 6271-5300=971mm. zEMCSourceInMu2e is a plain c.getDouble default at VirtualDetectorMaker.cc:189, so this is one config line, no source patch. EMC_Source2 stays at 4800, so ordering is preserved."},
+      {"key": "zEMCSourceInMu2e", "type": "double", "value": 5000.0},
+      {"key": "protonabsorber.distFromTargetEnd", "type": "double", "expr": "ipa_dist", "fmt": "{:.6f}"},
       {"key": "hasTSdA", "type": "bool", "value": false},
       {"key": "tsda.helical.build", "type": "bool", "value": false},
       {"key": "stoppingTarget.z0InMu2e", "type": "double", "expr": "z0", "fmt": "{:.4f}"},
@@ -83,9 +91,7 @@
       {"key": "degrader.build", "type": "bool", "value": false},
       {"key": "degrader.rotation", "type": "double", "value": 120.0},
       {"key": "ts.coll5.material1Name", "type": "string", "value": "COL5Poly"},
-      {"comment": "TT_MidInner -> DS2Vacuum fix (manually patched, mirrors v111)"},
-      {"key": "tracker.inDS2Vacuum", "type": "bool", "value": true},
-      {"key": "ds2.halfLength", "type": "double", "value": 3825},
+      {"comment": "TT_MidInner -> DS2Vacuum workaround REMOVED 2026-07-28 (Run1Bap migration) -- see mode_specs/foilsflash.json for the full mechanism. Short version: v13_12_10 parented tracker VDs on `isDumbbell` so they landed in DS2Vacuum while the tracker sat in DS3Vacuum (GeomMgt0002 fatal); the override forced agreement. v13_32_10 keys VD parenting on !tracker.inDS2Vacuum, making stock self-consistent -- and keeping the override is what held the last EMC_0_Front overlap."},
       {"key": "ds.hasServicePipes", "type": "bool", "value": false},
       {"comment": "Overlap-suppression (foil-support off + rail shrink)"},
       {"key": "stoppingTarget.foilTarget_supportStructure", "type": "bool", "value": false},

@@ -10,6 +10,7 @@ Design: docs/superpowers/specs/2026-07-27-foilspf-profile-stopping-target-design
 import itertools
 import math
 import sys
+import re
 import unittest
 from pathlib import Path
 
@@ -69,16 +70,82 @@ class TestFoilspfRegistration(unittest.TestCase):
             "extent"))
         self.assertEqual(s.bounds_lo,
                          (50.0, 50.0, 50.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0, 400.0))
+        # extent max went 1100 -> 800 -> 950 -> 1100 over 2026-07-27/28, and is
+        # back at the design range for a measured reason, not a revert. The 800
+        # was a centre-pinned artifact (z0 fixed at 5871 puts the downstream end
+        # on the absorber at exactly extent 800). Deriving z0 moved the wall to
+        # the UPSTREAM side (EMC_Source, z=5300 -> 971mm); relocating that
+        # massless VD to 5000 moves it again to 6271-5000 = 1271mm. 1100 is the
+        # original design ceiling with 171mm of margin.
         self.assertEqual(s.bounds_hi,
                          (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 1100.0))
         self.assertEqual(s.int_dims, ())
+
+    def test_extent_ceiling_stays_inside_the_zero_overlap_corridor(self):
+        """The corridor is bounded by two measured walls: the proton absorber
+        downstream (z=6271, REAL material -- immovable) and EMC_Source upstream
+        (a 20um vacuum disc, relocated 5300 -> 5000). Max stack is therefore
+        6271-5000 = 1271 mm. Derived from the spec's own VD placement rather
+        than hardcoded, so moving the VD again cannot silently desync this.
+        """
+        s = modes.SPECS["foilspf"]
+        x = [120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 800.0]
+        vd = float(re.search(r"zEMCSourceInMu2e = ([\d.]+)", s.geom.render(x)).group(1))
+        self.assertLessEqual(s.bounds_hi[s.knob_names.index("extent")], 6271.0 - vd)
+
+    def test_target_position_is_fixed_and_the_absorber_is_compensated(self):
+        """The target must NOT move. Offline places the IPA at
+        targetEnd+distFromTargetEnd -- relative to the stopping target -- but the
+        IPA is fixed hardware at z=6901-7901. An earlier fix (2026-07-28) slid the
+        TARGET upstream to stop it squeezing the absorber; that was backwards. It
+        distorted the object under study to work around a distortion in a fixed
+        object. The correct fix holds the target still and compensates
+        distFromTargetEnd so the absorber stays at its true absolute position.
+        """
+        s = modes.SPECS["foilspf"]
+        self.assertNotIn("z0", s.knob_names)            # still 10D
+        def rendered(ext):
+            x = [120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, ext]
+            txt = s.geom.render(x)
+            z0 = float(re.search(r"z0InMu2e = ([\d.]+)", txt).group(1))
+            d = float(re.search(r"distFromTargetEnd = ([\d.]+)", txt).group(1))
+            return z0, d
+        # the target centre never moves, at any extent
+        for ext in (400.0, 800.0, 1100.0):
+            self.assertAlmostEqual(rendered(ext)[0], 5871.0, places=3, msg=f"extent {ext}")
+        # at the deployed span the compensation is a no-op: stock 625 exactly
+        self.assertAlmostEqual(rendered(800.0)[1], 625.0, places=3)
+        # targetEnd + distFromTargetEnd is invariant => absorber pinned in space
+        base = 800.0 / 2 + rendered(800.0)[1]
+        for ext in (400.0, 950.0, 1100.0):
+            self.assertAlmostEqual(ext / 2 + rendered(ext)[1], base, places=3,
+                                   msg=f"absorber moved at extent {ext}")
+
+    def test_upstream_end_never_reaches_emc_source(self):
+        """The other wall. At the ceiling the stack must stay clear of the VD,
+        wherever the spec currently places it."""
+        s = modes.SPECS["foilspf"]
+        ext = s.bounds_hi[s.knob_names.index("extent")]
+        x = [120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, ext]
+        text = s.geom.render(x)
+        z0 = float(re.search(r"z0InMu2e = ([\d.]+)", text).group(1))
+        vd = float(re.search(r"zEMCSourceInMu2e = ([\d.]+)", text).group(1))
+        self.assertGreater(z0 - ext / 2, vd)
 
     def test_run_configuration_matches_foilsflash(self):
         s = modes.SPECS["foilspf"]
         self.assertEqual(s.grid_stages, ("mubeam", "mustops_ce", "elebeam_flash"))
         self.assertEqual(s.presubmit_after, {"mubeam": ("elebeam_flash",)})
         self.assertEqual(s.obs_noise, (0.006, 0.01))
-        self.assertIn("Code_helical_holeradii.tar.bz2", s.grid_tarball)
+        # Assert the RELATIONSHIP, not a filename. Pinning the literal
+        # "Code_helical_holeradii.tar.bz2" broke on the Run1Bap migration
+        # (2026-07-28) for a mode whose build config had not diverged at all --
+        # the test was reporting a rebuild as a regression. What actually
+        # matters is that foilspf and foilsflash run the same Offline: they
+        # share a leaderboard schema and their rows are compared to each other.
+        ff = modes.SPECS["foilsflash"]
+        self.assertEqual(s.grid_tarball, ff.grid_tarball)
+        self.assertEqual(s.musing, ff.musing)
 
     def test_leaderboard_is_not_shared_with_any_other_mode(self):
         """Two modes writing one leaderboard interleaves incompatible schemas."""
