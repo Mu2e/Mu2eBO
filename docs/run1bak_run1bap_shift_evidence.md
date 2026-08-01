@@ -166,11 +166,14 @@ the muminus_stops caveat in §2.1): for every concatless config, the number of
 12==12, `ipa625AB01` 14==14, `ipaovrAB01` 12==12, `nominalAB01` 13==13. For
 the two concat-based configs (`foilsflashSOBX01`, `foilsflashHOLEDhi`), the
 `state/` file mtimes confirm `mubeam_outputs.txt` was written *before* the
-`concat_cluster.txt` submit stamp and never touched afterward (e.g.
-`foilsflashSOBX01`: `mubeam_outputs.txt` 23:45, `concat_cluster.txt` 23:47,
-`concat_outputs.txt` 23:57 — same day, same snapshot), so the single merged
-file's stop count reflects exactly the 13 landed mubeam files also used for
-`mubeam_sim_total`. **No submitted-vs-landed population mismatch exists for
+`concat_cluster.txt` submit stamp and never touched afterward, for **both**
+configs: `foilsflashSOBX01` — `mubeam_outputs.txt` 23:45, `concat_cluster.txt`
+23:47, `concat_outputs.txt` 23:57 (2026-07-07/08); `foilsflashHOLEDhi` —
+`mubeam_outputs.txt` 18:07:39, `concat_cluster.txt` 18:09:11,
+`concat_outputs.txt` 18:17:16 (2026-06-30) — same ordering, same-day
+snapshot in both cases. So the single merged file's stop count reflects
+exactly the landed mubeam files also used for `mubeam_sim_total` in both
+configs. **No submitted-vs-landed population mismatch exists for
 any of the 8 configs** — every numerator/denominator pair in the formula is
 built from the same landed-file population, by the deliberate design cited
 in §2.1.
@@ -214,19 +217,37 @@ Both shifts are many σ from zero (champion-x: 4.93/0.20 ≈ 25σ; baseline:
 4.08/0.41 ≈ 10σ) — the shift is a real, statistically robust effect on the
 landed-consistent normalization, not counting noise.
 
-Note on the earlier "carried" figures in §1 (+4.75% champion-x, +4.76%
-baseline): those came from the pre-Task-2 investigation framing, not from
-this audit's ratio-of-group-means method. The champion-x figure is close
-(+4.75% carried vs. +4.93% audited here) and both round to the "+4.9%"
-`s_over_sqrt_b` shift, consistent with `s_over_sqrt_b ∝ ce_abs_eff` at fixed
-background. The baseline figure diverges more (+4.76% carried vs. +4.08%
-audited here, vs. +4.8% for `s_over_sqrt_b`) — plausible given it is an n=1
-vs n=1 comparison (no averaging to suppress per-config counting noise), but
-worth flagging since the `s_over_sqrt_b`-vs-`ce_abs_eff` shift agreement that
-holds at champion-x does not hold as tightly at baseline. This audit's
-**+4.93% ± 0.20% (champion-x)** and **+4.08% ± 0.41% (baseline)** are the
-authoritative, reproducible values — Tasks 4/7 should quote these, not the
-carried figures.
+**Provenance of the earlier "carried" figures in §1** (+4.75% champion-x,
++4.76% baseline), traced back to
+`docs/superpowers/specs/2026-08-01-run1bak-run1bap-shift-investigation-design.md`
+(the design doc §1's figures were carried from, per the Task-1 brief):
+
+- **Champion-x +4.75% traces cleanly.** The design doc's table
+  (`...-design.md:37-43`) computes it from a *2-vs-1* subset, not the 3-vs-3
+  mean used here: single historical config `foilsflashBASIN01_00`
+  (6.4490e-4) vs. the mean of only two of the three arms, `ipafixAB01`
+  (6.7555e-4) and `ipaovrAB01` (6.7584e-4) — `ipa625AB01` is absent from
+  that table. Reproducing that exact subset from the full-precision
+  `summary.json` values: `mean(ipafixAB01, ipaovrAB01) / BASIN01_00 − 1 =
+  4.7756%`, matching the carried +4.75% to rounding. This is a narrower
+  sample (1 historical, 2 arms) than this audit's 3-vs-3 mean-of-groups
+  (+4.93%); the two are consistent (both real, both positive, same order),
+  the gap is sampling-basis, not a contradiction.
+- **Baseline +4.76% provenance is NOT determined.** The design doc gives a
+  `sob` shift for the baseline pair (+4.8%, "3.11 → 3.26, arm D") but **no
+  `ce_abs_eff` figure for the baseline pair anywhere in that document** — so
+  there is no computation to trace it to. Directly dividing the two
+  full-precision `summary.json` `ce_abs_eff` values for this exact pair
+  (`foilsflashHOLEDhi` 4.0783e-4, `nominalAB01` 4.2447e-4) gives +4.08026...%,
+  unambiguously — there is no alternative pairing or subset (unlike
+  champion-x) that could yield +4.76% from an n=1-vs-n=1 comparison, since
+  both figures necessarily use the same two configs. Treat the carried
+  +4.76% as approximate/unsourced.
+
+This audit's **+4.93% ± 0.20% (champion-x)** and **+4.08% ± 0.41%
+(baseline)**, both recomputed directly from raw artifacts with full
+precision and a stated σ, are the authoritative, reproducible values —
+Tasks 4/7 should quote these, not the carried figures.
 
 ### 2.4 Constants/macro drift check (Step 5)
 
