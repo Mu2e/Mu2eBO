@@ -19,3 +19,5 @@ Default-off no-op: the three expression probes above run the patched library wit
 
 Uncompensated stock behavior, for contrast (wiki log 2026-07-28): a
 1066.67 mm stack displaces the absorber rigidly to 7034.35–8034.35.
+
+Upstream PR: https://github.com/Mu2e/Offline/pull/1913
