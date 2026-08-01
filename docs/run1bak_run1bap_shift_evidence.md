@@ -923,3 +923,288 @@ is computed from fixed globals with no era or config dependence, so it
 would print identically even if real cosmic-ray background conditions
 genuinely differed between Run1Bak and Run1Bap; this analysis cannot rule
 that out, it can only say the macro's background term is unchanged.***
+
+## 5. Spectra + flash
+
+Closes the two remaining Phase-2 items: does the CE spectrum *shape* also
+shift (vs. the pure event-count/normalization effect established in §2-§4),
+and does the flash side of the shift (declared −4.1% champion / +6.3%
+baseline in the design doc) hold up under a proper accounting with σ.
+
+### 5.1 Tree inspection — the brief's `t1`/`e`/`w` premise was wrong (Step 1)
+
+Per the brief, `$SCRATCH/tree_inspect.py` opened
+`foilsflashBASIN01_00/harvest/nts.ce.root` and looked for a top-level `t1`
+tree. **`f.Get("t1")` returned null.** `f.ls()` showed the file's only
+top-level object is a single `TDirectoryFile EDepAna`, containing four
+cut-tier subdirectories `hist_0`..`hist_3` (`hist_0` "all events", `hist_1`
+"edep 1 MeV", `hist_2` "edep 10 MeV", `hist_3` "edep 50 MeV") — no tree
+anywhere in the file (`$SCRATCH/tree_inspect2.py`/`tree_inspect3.py`
+confirm this by directory listing).
+
+Re-reading `Run1BAna/workflows/scripts/rough_run1a_sensitivity.C` explains
+the mismatch: `TTree tree("t1","t1")` at **line 7**, inside
+`get_dio_spectrum()`, is a **local helper tree used only to parse a fixed
+theoretical DIO table file**
+(`/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/data/heeck_finer_binning_2016_szafron.tbl`,
+`tree.ReadFile(table,"e/D:w/D")`, `:8-11`) — it has no connection to
+`nts.ce.root` at all; it is the same `t1`/`e`/`w` names Task 4 saw while
+reading the macro, misattributed. The macro's **actual** CE-signal input
+(what `sig_eff`/`ce_abs_eff` scales, per §4.1) is read directly as a
+histogram: `TH1* h_sig = (TH1*) sig_file->Get("EDepAna/hist_2/trk_front_energy")`
+(`:119`), and `response = ...Get("EDepAna/hist_2/trk_front_energy_diff")`
+(`:120`) — both `TH1F`, not trees. `hist_2` ("edep 10 MeV") is one of the
+four cut-tier directories.
+
+**Adjustment made (brief explicitly allows this):** `$SCRATCH/spectra.py`
+was rewritten to load `EDepAna/hist_2/trk_front_energy` (and, for a
+population cross-check, `EDepAna/hist_0/trk_front_energy`) as `TH1F`
+objects directly, rather than `Draw("e>>h","w")` off a nonexistent tree.
+`hist_2` is binned 1500×[0,150] MeV — the CE endpoint (~104.97 MeV/c) and
+the macro's signal box (103.1-104.7, §4.2) sit comfortably inside this
+range, so no range adjustment was needed once the correct object was
+identified.
+
+### 5.2 Population cross-check: histogram entries vs audited `ce_seen` (Step 2)
+
+`hist_0` ("all events", no edep cut) is expected to reproduce `ce_seen`
+("EdepAna summary: Saw N events" in `harvest/edep.log`, `EDEP_SAW_RX`,
+§2.1) almost exactly, since both count every event EdepAna processed with
+no downstream selection. Confirmed directly:
+
+```
+foilsflashBASIN01_00: hist_0 entries=474023  vs ce_seen=474026  (diff -3)
+ipafixAB01:           hist_0 entries=580254  vs ce_seen=580262  (diff -8)
+foilsflashHOLEDhi:    hist_0 entries=530647  vs ce_seen=530651  (diff -4)
+nominalAB01:          hist_0 entries=595228  vs ce_seen=595233  (diff -5)
+```
+
+Match to <0.002% (a handful of events fall outside the histogram's [0,150]
+MeV binning range and are silently dropped from the `TH1`, while still
+counted in EdepAna's own `Saw N events` line — a fill-vs-counter edge
+effect, not a population mismatch). **Entries-ratio cross-check against the
+established `ce_seen` ratio (self-review requirement):**
+
+```
+Pair 1 (BASIN01_00 vs ipafixAB01): hist_0 ratio = 1.22411 (+22.411%)  vs  ce_seen ratio = 1.22411 (+22.411%)  — MATCH
+Pair 4 (HOLEDhi vs nominalAB01):   hist_0 ratio = 1.12170 (+12.170%)  vs  ce_seen ratio = 1.12170 (+12.170%)  — MATCH
+```
+
+Exact match (5 significant figures) confirms `nts.ce.root`'s `hist_0` is
+reading the identical landed-file population already audited in §2 — this
+is a data-integrity check, not a physics cross-check: these single-pair
+ratios are naturally much larger than the audited group `ce_abs_eff`
+shift (+4.93%/+4.08%, §2.3) because raw `ce_seen` is not yet normalized by
+`ce_simulated_events`/`stopping_factor` (BASIN01_00 ran 900k simulated CE
+events vs ipafixAB01's 1050k — different job counts, not a shift), exactly
+as the `ce_abs_eff` formula (§2.1) already accounts for.
+
+### 5.3 Shape comparison — mean/RMS/KS at the CE peak (Step 2)
+
+`$SCRATCH/spectra.py` output, `hist_2` (`trk_front_energy`, the macro's
+`h_sig` input):
+
+```
+                        entries  mean(MeV)  rms(MeV)
+foilsflashBASIN01_00:   444637   102.7048    4.0696
+ipafixAB01:             545791   102.5911    4.4477     hist_2 entries ratio +22.750%
+foilsflashHOLEDhi:      499248   103.4528    3.2699
+nominalAB01:            561134   103.3952    3.5644     hist_2 entries ratio +12.396%
+
+KS prob (full 0-150 MeV binning):        Pair1 = 2.514e-14   Pair4 = 7.288e-11
+mean shift (full range): Pair1 -0.1138 MeV (-0.111%, 13.3sigma)  Pair4 -0.0576 MeV (-0.056%, 8.7sigma)
+```
+
+At face value the full-range KS/mean-shift figures look like a real shape
+change — but at N~4.4e5-5.6e5 events, a KS test is powerful enough to
+reject the null on infinitesimal bin-level fluctuations, and the full-range
+`hist_2` mean/RMS is dominated by the **sub-peak tail** below the CE box
+(a broad low-energy population between the "edep>10 MeV" cut and the CE
+peak, ~9-10% of `hist_2`'s events for the champion pair, ~5% for baseline)
+— not the box-relevant CE peak itself. Restricting to **[100,106] MeV**
+(bracketing the macro's signal box, 103.1-104.7 / 103.9-104.7, §4.2)
+isolates the physically relevant comparison:
+
+```
+                                        mean(MeV)   rms(MeV)   frac of hist_2
+Pair 1  foilsflashBASIN01_00 [100,106]:  103.6793    0.9735      91.1%
+        ipafixAB01           [100,106]:  103.6800    0.9670      90.6%
+        dmean = +0.0007 MeV  dRMS = -0.67%
+
+Pair 4  foilsflashHOLEDhi    [100,106]:  104.0534    0.7816      94.8%
+        nominalAB01          [100,106]:  104.0625    0.7780      94.6%
+        dmean = +0.0091 MeV  dRMS = -0.47%
+
+KS prob ([100,106] MeV only): Pair1 = 8.721e-13   Pair4 = 1.376e-16
+```
+
+**At the box, the mean shift essentially vanishes** (+0.0007 MeV / +0.0091
+MeV — three orders of magnitude below the box scan's 0.2 MeV/c grid step,
+§4.2, and consistent with §4.3's box-migration finding of −0.004
+percentage points / "identical argmax box set both eras") and RMS changes
+by <1% either direction. The KS test still rejects the null at these
+statistics (N~4-5×10^5 is enough power to detect any nonzero bin
+difference) — this is a **statistical-power artifact, not a physically
+meaningful shape difference**: the same N~5×10^5 regime that makes the
+13σ/8.7σ full-range mean shift "significant" while it is only a −0.11%/
+−0.06% relative change. Visual overlays (`$SCRATCH/spec_*.png`, read
+directly, both pairs) show the historical (red) and arm (blue) curves
+overlapping essentially everywhere, including the sharp ~104.97 MeV/c
+CE-endpoint edge and the radiative-tail shape below it — no visible peak
+shift, broadening, or edge displacement in either pair.
+
+**Verdict for 5.1-5.3: the CE spectrum SHAPE is unchanged between eras at
+the box.** Mean/RMS at the box-relevant [100,106] MeV window differ by
+<0.01 MeV / <1% (both far below the box scan's 0.2 MeV/c resolution); the
+full-range KS/mean-shift figures that look large are a statistical-power
+artifact of N~5×10^5 combined with a sub-peak tail-population effect
+unrelated to the CE peak. This is consistent with — not in tension with —
+§4's finding that the sob shift is a pure `ce_abs_eff`-normalization effect
+with no box migration: **more events survive the mustops_ce→EdepAna chain
+under Run1Bap (the hist_0/ce_seen entries-ratio match, §5.2), and those
+extra events populate the SAME spectral shape**, not a shifted or widened
+one.
+
+### 5.4 Flash-side accounting (Step 3, no ROOT)
+
+`$SCRATCH/flash_accounting.py` builds the table from `summary_table.tsv`
+(§1) plus the design-doc-carried champion figures, and propagates σ from
+the reference `σ_flash = 2.52% @ N=100 elebeam jobs` scaled as `σ(N) =
+2.52% × √(100/N)` (Poisson counting-stat scaling; anchor-checked against
+the brief's second reference point, `N=400 → ~1.3%`: `2.52×√(100/400) =
+1.26%` ≈ "~1.3%", confirming the scaling law). `N` (elebeam job count) is
+`flash_n_files` from `summary_table.tsv`, except `foilsflashSOBX01` (column
+blank in the harvest — recovered as `flash_n_input/110000 = 19,250,000/110,000
+= 175`, where 110,000 events/job is confirmed constant across every other
+config's `flash_n_input/flash_n_files`) and `foilsflashHOLEDhi` (its own
+`summary.json` lacks flash fields entirely, per §1's Note — its flash
+figure is the deck/wiki-quoted historical value from the dedicated
+high-stats matched A/B test, `wiki/log.md` 2026-06-30, **400 elebeam jobs**
+for both `NOHOLEhi`/`HOLEDhi`).
+
+**Per-config flash + σ:**
+
+| config | role | flash_edep_per_pot | N (elebeam jobs) | σ_flash |
+|---|---|---|---|---|
+| `foilsflashSOBX01` | champion historical | 1.080643e-6 | 175 | 1.905% |
+| `foilsflashBASIN01_00` | champion historical | 1.080318e-6 | 100 | 2.520% |
+| `foilsflashC400_champ` | champion historical | 1.063997e-6 | 400 | 1.260% |
+| `ipafixAB01` | champion arm A (distFromTargetEnd=491.67, no override) | 1.035815e-6 | 99 | 2.533% |
+| `ipa625AB01` | champion arm B (distFromTargetEnd=625.0, no override) | 1.032668e-6 | 100 | 2.520% |
+| `ipaovrAB01` | champion arm C (=A + override pair restored) | 1.058556e-6 | 99 | 2.533% |
+| `foilsflashHOLEDhi` | baseline historical (deck/wiki-quoted) | 6.445e-7 | 400 | 1.260% |
+| `nominalAB01` | baseline arm (Run1Bap deployed stack) | 6.854431e-7 | 100 | 2.520% |
+
+**Champion decomposition** (historical mean n=3 = 1.074986e-6, relσ=1.134%;
+arm A/B mean n=2, no override = 1.034242e-6, relσ=1.786%; arm C, override
+restored = 1.058556e-6, relσ=2.533%):
+
+| quantity | ratio | shift | σ | significance |
+|---|---|---|---|---|
+| total: mean(A,B) / historical mean (no-override arms vs historical) | 0.96210 | **−3.79%** | ±2.12% | 1.79σ |
+| (a) **override-pair contribution**: C / mean(A,B) | 1.02351 | **+2.35%** | ±3.10% | 0.76σ |
+| (a′) seed-paired cross-check: C / A (both N=99, seed-matched) | 1.02195 | **+2.20%** | ≤3.58% (upper bound, see below) | — |
+| (b) **residual version shift**: C / historical mean | 0.98472 | **−1.53%** | ±2.78% | 0.55σ |
+
+Multiplicative consistency: `(1 + total)(1 + override) = (1 + residual)` —
+`0.96210 × 1.02351 = 0.98472`, exact to 5 sig figs, confirming the
+decomposition is arithmetically closed.
+
+**Seed-pairing note (brief's explicit ask):** `ipafixAB01` (A) and
+`ipaovrAB01` (C) are the **only same-N pair** among the three champion arms
+(both N=99). Per the wiki `elebeamcat-tape-migration...`/2026-07-26 log
+entry, the elebeam template pins a fixed `baseSeed:1` +
+`MaxEventsToSkip:319542` + `run_number 1810` for every config — so two
+configs with the **same job count** process the **literally identical**
+EleBeamCat input population (same subrun draw per job index), differing
+only in downstream geometry. A vs C is therefore a genuinely paired
+comparison: **+2.20%**, matching (a′) — and this figure is exactly the
+source of the design doc's carried "arm C ... worth +2.2%" figure, traced
+here to the precise seed-matched A-vs-C pair rather than the C-vs-mean(A,B)
+group comparison (+2.35%, (a) above). The naive independent-quadrature σ
+(±3.58%) quoted for (a′) is an **overestimate** for a seed-paired
+comparison — input-sampling (Poisson) noise cancels between A and C by
+construction; the true residual noise on a seed-paired difference (G4/
+EdepAna stochastic scatter only) cannot be quantified from these summary
+artifacts alone (no per-event data was pulled), so no tighter number is
+asserted — flagged as an open precision gap, not resolved here.
+
+**Reading:** (b) the residual version shift (−1.53% ± 2.78%, 0.55σ) is
+**not statistically significant** — consistent with zero. Once the
+override-pair geometry is restored to match the historical configs (arm
+C), no further Run1Bak→Run1Bap effect on flash is resolvable within this
+σ budget. **Essentially the entire −3.79% champion-arm flash gap is
+attributable to the override-pair removal** (+2.20-2.35% of the
+compounded −3.79%), not to a version-driven flash effect — this is a
+genuinely different conclusion from the sob/`ce_abs_eff` side (§2-§4),
+where the version-driven acceptance shift was the dominant, highly
+significant (>10σ) effect. Flash and sob are different observables on
+different chains (elebeam/DS-off vs mustops_ce/DS-on) and there is no a
+priori reason they should share a mechanism; this section's finding is
+that they evidently do not.
+
+**Baseline pair** (`foilsflashHOLEDhi` → `nominalAB01`):
+
+| quantity | ratio | shift | σ | significance |
+|---|---|---|---|---|
+| nominalAB01 / HOLEDhi | 1.06353 | **+6.35%** | ±2.82% | 2.25σ |
+
+This is mildly significant (>2σ) and, critically, **opposite in sign** from
+the champion group's net shift (−3.79% before accounting for the override,
+−1.53% after). Per the brief, the baseline pair carries **two stated
+confounds** that the champion arms do not:
+
+1. **Unequal job counts, no seed-pairing possible.** `foilsflashHOLEDhi`
+   ran at 400 elebeam jobs (σ≈1.26%, from the dedicated high-stats A/B
+   test) vs `nominalAB01` at 100 (σ≈2.52%) — the two job counts do not
+   match, so (unlike champion's A-vs-C) the deterministic
+   `baseSeed=index+1` structure does **not** give this pair a matched
+   EleBeamCat input population; the comparison is a plain independent one,
+   at its full naive-quadrature σ (±2.82%, no tightening available).
+2. **Different emission mechanism.** The two configs write the deployed
+   37-foil stack via different code paths — `foilsflashHOLEDhi` is a
+   `foils`/foilsflash-mode template with the up/down-extras seam pinned to
+   `N_UP=N_DOWN=0`, while `nominalAB01` is a `nominal`-mode template that
+   writes the stack out explicitly via `base_*` consts (Task 3 §3.1 Pair
+   4). §3.1 already proved this difference is **geometrically inert** — an
+   order-independent set-diff shows byte-identical resolved key/values —
+   but it remains a *provenance* confound (different template code paths)
+   even though not a *geometry* confound.
+
+**Additional note (not in the brief, found while cross-referencing §3.1):**
+the baseline pair's raw rendered-geom diff (Task 3 §3.1 Pair 4) reduces, after
+normalization, to **exactly the same override-pair-removed delta** found in
+the champion pair (Pair 1: `tracker.inDS2Vacuum`/`ds2.halfLength=3825`
+removed, `zEMCSourceInMu2e` added going historical→arm). If the champion's
+measured override-pair effect (+2.20-2.35%, restoring override *raises*
+flash) transferred identically to the baseline geometry, the *un-restored*
+baseline arm (`nominalAB01`, override absent, like champion's A/B) would be
+predicted to sit **below** `HOLEDhi` by a comparable margin — the same
+qualitative direction as the champion group's total gap (−3.79%). Instead
+the baseline pair moves **substantially positive** (+6.35%). No
+override-restored arm exists for the baseline geometry (no baseline analog
+of arm C), so this cannot be decomposed the way the champion group was —
+flagged as an open question: **the override-pair effect measured at the
+champion x-point does not obviously transfer to (or is swamped by some
+other, larger effect at) the deployed-baseline geometry.** This is
+consistent with — not contradicted by — the two stated confounds, but goes
+beyond them as an additional, unresolved observation.
+
+**Verdict: CE spectrum unshifted (KS=8.7e-13/1.4e-16 at [100,106] MeV —
+formally rejects at N~5×10^5, but this is a statistical-power artifact, not
+a physical shape change: Δmean <0.01 MeV, ΔRMS <1% at the box, both ≪ the
+0.2 MeV/c box-scan grid; `hist_0` entries-ratio matches the audited
+`ce_seen` ratio exactly for both pairs, confirming pure event-count
+normalization per §2-§4).
+Flash shift = override (+2.20% seed-paired / +2.35% group-mean, both
+sub-1σ alone) + residual version shift (−1.53% ± 2.78%, 0.55σ, consistent
+with zero) — i.e. the champion flash gap (−3.79% ± 2.12%, 1.79σ) is
+essentially fully explained by the override-pair geometry difference, with
+no significant residual Run1Bak→Run1Bap flash effect once it is accounted
+for. Baseline-pair flash shift (+6.35% ± 2.82%, 2.25σ) runs the OPPOSITE
+sign from the champion group and is not decomposable the same way — its
+two confounds (job-count mismatch/no seed-pairing; different emission
+mechanism, proven geometrically inert but still a provenance difference)
+are stated per the brief, plus an additional open observation that the
+champion-derived override effect does not obviously explain the baseline
+pair's sign or magnitude.**
