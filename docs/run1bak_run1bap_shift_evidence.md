@@ -306,3 +306,333 @@ changed `RUN1A_MUBEAM_INPUT_CORRECTION`, a changed sensitivity macro, or a
 changed harvest-time environment-sourcing path.
 
 **Verdict: shift survives audit at +4.93% ± 0.20% (champion-x) / +4.08% ± 0.41% (baseline) — accounting is landed-consistent by construction, closure passes to <0.0001%, and no constants/macro drift exists in the window.**
+
+## 3. Provenance audit
+
+Closes the remaining "our own migration bug?" avenues: rendered-geometry
+diffs must match exactly the known override deltas, the grid tarballs must
+carry the expected patched-library markers, and the harvest environment must
+be pinned identically for both eras. `$GRID` =
+`/exp/mu2e/data/users/oksuzian/autoresearch_grid` (`graph/config.py:33`
+`GRID_DATA_ROOT`, imported as `DATA_ROOT` at `core/pipeline.py:72`, `ROOT =
+DATA_ROOT / cfg` at `:129`).
+
+### 3.1 Pairwise rendered-geom diffs (Step 1)
+
+Diff helper (`$SCRATCH/geomdiff.sh`, comments stripped per the brief):
+
+```bash
+strip() { sed -e 's://.*$::' -e 's/^#.*$//' -e '/^\s*$/d' "$1"; }
+diff <(strip $GRID/$A/geom/*_geom.txt) <(strip $GRID/$B/geom/*_geom.txt)
+```
+
+Each config's `geom/` directory contains exactly one `*_geom.txt` (glob is
+unambiguous for all 6 configs touched here).
+
+**Pair 1: `foilsflashBASIN01_00` vs `ipafixAB01`**
+
+```
+0a1,2
+> double zEMCSourceInMu2e = 5000.0;
+> double protonabsorber.distFromTargetEnd = 491.666672;
+3c5
+< vector<double> stoppingTarget.radii          = { ... };   (padded)
+---
+> vector<double> stoppingTarget.radii = { ... };             (single-space)
+6c8
+< vector<double> stoppingTarget.holeRadii      = { ... };   (padded)
+---
+> vector<double> stoppingTarget.holeRadii = { ... };          (single-space)
+10,11d11
+< bool tracker.inDS2Vacuum = true;
+< double ds2.halfLength = 3825;
+```
+
+Classification:
+- `zEMCSourceInMu2e = 5000.0` added, `tracker.inDS2Vacuum`/`ds2.halfLength`
+  override removed — **REAL, expected** (matches brief's stated class
+  exactly).
+- `protonabsorber.distFromTargetEnd = 491.666672` added in `ipafixAB01` with
+  no corresponding `625` line anywhere in either rendered file (`grep -n
+  distFromTargetEnd` on both files: zero hits in `BASIN01_00`, one hit —
+  `491.666672` — in `ipafixAB01`). The brief's "625 → 491.666672" phrasing
+  refers to the *conceptual* default (625, defined in the `#include`d stock
+  `geom_run1_a.txt`, not in this per-config override file) vs the explicit
+  override — **REAL, expected**, confirmed by the in-file comment at
+  `ipafixAB01`'s line 10: *"A/B ARM A (control, CORRECT).
+  protonabsorber.distFromTargetEnd 491.666672 holds the IPA at its true
+  hardware position 6901-7901 ... Identical to the live foilsflash spec."*
+- `radii`/`holeRadii` padding hunks (multiple vs single space before `=`) —
+  **FINDING, classified EQUIVALENT**: re-running the diff with whitespace
+  collapsed (`sed -E 's/[[:space:]]+/ /g'`) removes both hunks entirely and
+  leaves exactly the two REAL deltas above — the numeric vectors are
+  byte-identical, only column-alignment formatting differs between the two
+  config-template authors (`foils`-mode vs `foilsflash`-mode templates).
+
+Normalized-whitespace confirmation:
+```
+$ diff <(norm BASIN01_00) <(norm ipafixAB01)
+0a1,2
+> double zEMCSourceInMu2e = 5000.0;
+> double protonabsorber.distFromTargetEnd = 491.666672;
+10,11d11
+< bool tracker.inDS2Vacuum = true;
+< double ds2.halfLength = 3825;
+```
+Exactly the brief's expected class, nothing else.
+
+**Pair 2: `ipafixAB01` vs `ipaovrAB01`**
+
+```
+15a16,17
+> bool tracker.inDS2Vacuum = true;
+> double ds2.halfLength = 3825.0;
+```
+**REAL, expected — EXACTLY the override pair restored**, matching the brief
+verbatim. One cosmetic note (FINDING, classified EQUIVALENT): `ipaovrAB01`
+writes `3825.0` vs `BASIN01_00`/`HOLEDhi`'s `3825` — numerically identical
+(GeometryService parses both as the same double), formatting-only.
+
+**Pair 3: `ipafixAB01` vs `ipa625AB01`**
+
+```
+2c2
+< double protonabsorber.distFromTargetEnd = 491.666672;
+---
+> double protonabsorber.distFromTargetEnd = 625.0;
+```
+**REAL, expected — EXACTLY the one `distFromTargetEnd` line**, matching the
+brief verbatim. No other hunks, no formatting artifacts.
+
+**Pair 4: `foilsflashHOLEDhi` vs `nominalAB01`** (comparability caveat, per
+brief, stated verbatim below)
+
+Raw diff (comments stripped only):
+```
+1,3c1
+< bool hasTSdA = false;
+< bool tsda.helical.build = false;
+< vector<double> stoppingTarget.radii          = { ... };
+---
+> vector<double> stoppingTarget.radii = { ... };
+6c4,7
+< vector<double> stoppingTarget.holeRadii      = { ... };
+---
+> vector<double> stoppingTarget.holeRadii = { ... };
+> double zEMCSourceInMu2e = 5000.0;
+> bool hasTSdA = false;
+> bool tsda.helical.build = false;
+10,11d10
+< bool tracker.inDS2Vacuum = true;
+< double ds2.halfLength = 3825;
+```
+
+**Comparability caveat (verbatim from brief context):** the two configs emit
+the deployed 37-foil stack via different mechanisms —
+`foilsflashHOLEDhi` (a `foils`/foilsflash-mode BO point with the "up/down
+extras" env-seam pinned to `N_UP=N_DOWN=0`, per its header comment "+ 0 up
+... + 0 dn") vs `nominalAB01` (a `nominal`-mode config that writes the
+deployed stack out **explicitly** via `base_*` consts, per its header
+comment: *"Deployed 37-foil stack written out EXPLICITLY via the base_*
+consts. Bit-identical to the base include ... Written out so the baseline is
+self-describing and so preflight's as-built GDML check has a vector to
+verify."*). The raw line-diff above therefore looks large (reordering, not
+just value changes) — enumerated and classified hunk-by-hunk below rather
+than forced into a one-line story, per the task instructions.
+
+Classification, confirmed by an order-independent (sorted, whitespace-normalized)
+set-diff:
+```
+$ diff <(norm HOLEDhi | sort) <(norm nominalAB01 | sort)
+5d4
+< bool tracker.inDS2Vacuum = true;
+8d6
+< double ds2.halfLength = 3825;
+11a10
+> double zEMCSourceInMu2e = 5000.0;
+```
+- `hasTSdA`/`tsda.helical.build`/`stoppingTarget.radii`/`stoppingTarget.halfThicknesses`/
+  `stoppingTarget.holeRadius`/`stoppingTarget.holeRadii` — present in both
+  files with **byte-identical values** (37×75.0000 rOut, 37×0.0528
+  halfThickness, 1.0e6 poison-pill scalar, 37×21.5000 holeRadii); only their
+  **line order** differs (HOLEDhi: `hasTSdA`/`tsda.helical.build` before the
+  vectors; nominalAB01: vectors before `hasTSdA`/`tsda.helical.build`, with
+  `zEMCSourceInMu2e` interleaved) plus the same `radii`/`holeRadii` padding
+  seen in Pair 1. Mu2e's GeometryService `SimpleConfig` format is a flat,
+  order-independent key=value table (each key here is assigned exactly once
+  in each file, no redefinition) — **FINDING, classified EQUIVALENT**: this
+  is exactly the "different emission mechanism, same resulting geometry"
+  the brief flagged as expected, now proven byte-for-byte via the
+  order-independent set-diff, not asserted.
+- `zEMCSourceInMu2e = 5000.0` added, `tracker.inDS2Vacuum`/`ds2.halfLength`
+  override removed — **REAL, expected** — the identical delta class as Pair
+  1 (HOLEDhi is historical/foilsflash-family, nominalAB01 is Run1Bap-era,
+  same override-pair-removed + EMC-relocation pattern).
+
+**Net result for Pair 4: after accounting for reordering and padding, the
+semantic content reduces to exactly the same two REAL deltas found in Pair
+1** (override pair removed, `zEMCSourceInMu2e` added) — the deployed-stack
+values themselves are provably identical between the two emission
+mechanisms. No hunk falls outside the established delta class.
+
+### 3.2 Tarball provenance + strings gates (Step 2)
+
+Provenance per config, `grep -ho "[^ ]*tar.bz2" $GRID/<config>/graph_logs/submit_mubeam_*.log | sort -u`:
+
+| config | tarball |
+|---|---|
+| `foilsflashBASIN01_00` | `Code_helical_holeradii.tar.bz2` |
+| `foilsflashHOLEDhi` | `Code_helical_holeradii.tar.bz2` |
+| `ipafixAB01` | `Code_run1bap_holeradii.tar.bz2` |
+| `ipa625AB01` | `Code_run1bap_holeradii.tar.bz2` |
+| `ipaovrAB01` | `Code_run1bap_holeradii.tar.bz2` |
+| `nominalAB01` | `Code_run1bap_holeradii.tar.bz2` |
+
+Matches the brief exactly: historical + HOLEDhi on the helical tarball, all
+four arms on the run1bap tarball.
+
+In-dir preserved copies (`Code.<name>.tar.bz2`) exist only for the four arm
+configs (`$GRID/<config>/Code.Code_run1bap_holeradii.tar.bz2`, sizes
+15,233,454 / 15,234,937 / 15,233,506 / 15,233,817 bytes for
+ipafixAB01/ipaovrAB01/ipa625AB01/nominalAB01 respectively — all close but not
+byte-identical to each other, and to the shared build-area original at
+`/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii.tar.bz2`,
+which has since been overwritten by a later build, `md5` differs from all
+four in-dir copies). Neither historical config (`foilsflashBASIN01_00`,
+`foilsflashHOLEDhi`) has a preserved in-dir copy, so per the brief's stated
+fallback the extraction used the `autoresearch_muse/` original for the
+helical side.
+
+Extraction (member path found first via `tar -tjf | grep GeometryService`,
+since the lib path differs by build qualifier between the two tarballs:
+`Code/build/al9-prof-e29-p094/...` for helical vs
+`Code/build/al9-prof-e29-p101/...` for run1bap — itself confirming these are
+genuinely distinct qualifier builds, p094 (Run1Bak) vs p101 (Run1Bap), not
+just a rename):
+
+```bash
+tar -xjf /exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2 \
+    -C $SCRATCH/tb_helical --wildcards "*libmu2e_GeometryService.so"
+tar -xjf $GRID/ipafixAB01/Code.Code_run1bap_holeradii.tar.bz2 \
+    -C $SCRATCH/tb_run1bap --wildcards "*libmu2e_GeometryService.so"
+```
+
+Strings gate (note: the brief's `**` glob needs `shopt -s globstar`, or it
+silently expands to a literal unmatched string and `strings`/`grep -c`
+silently report `0` — verified this failure mode, then re-ran with
+`globstar` enabled):
+
+```bash
+$ shopt -s globstar
+$ strings $SCRATCH/tb_helical/**/libmu2e_GeometryService.so | grep -c "holeRadii vector active"
+1
+$ strings $SCRATCH/tb_run1bap/**/libmu2e_GeometryService.so | grep -c "holeRadii vector active"
+1
+```
+Match context in both: `StoppingTargetMaker: holeRadii vector active (n=`.
+
+**Marker present (=1) in BOTH distinct tarballs** — both eras ran the
+holeRadii-patched `StoppingTargetMaker`, per the brief's PASS criterion.
+
+Cross-check: extracted the same lib from `nominalAB01`'s in-dir tarball copy
+(the other run1bap-era arm used in this audit, at
+`$GRID/nominalAB01/Code.Code_run1bap_holeradii.tar.bz2`) and confirmed both
+the marker (`grep -c` = 1) and an **exact md5 match**
+(`ae39b58dd7e0c33d7be571943e70cdc1`) against the `ipafixAB01` copy's
+`libmu2e_GeometryService.so` — the small tarball-size differences noted
+above are metadata/other-file noise, not a different library build across
+the four arm configs.
+
+### 3.3 Harvest env pinning + naming note (Step 3)
+
+`core/pipeline.py:423-452` (`sourced_env(..., with_muse=True)`), quoted:
+
+```python
+def sourced_env(extra="", *, with_muse=False) -> dict:
+    ...
+    if with_muse:
+        # Use our own autoresearch_muse work area (same one that produces the
+        # base Code.tar.bz2). `-q p094` is required: without it muse picks
+        # p095 from main-HEAD's Offline/.muse and errors on the backing.
+        ...
+        mmlib = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/build/al9-prof-e29-p094/Run1BAna/lib"
+        prelude = (
+            "cd /exp/mu2e/app/users/oksuzian/autoresearch_muse && "
+            f"source {SETUPMU2E} >/dev/null 2>&1 && "
+            "muse setup -q p094  >/dev/null 2>&1 && "
+            f"export CET_PLUGIN_PATH={mmlib}:$CET_PLUGIN_PATH && "
+            f"export LD_LIBRARY_PATH={mmlib}:$LD_LIBRARY_PATH && "
+        )
+```
+
+`with_muse=True` unconditionally `cd`s into `autoresearch_muse` and runs
+`muse setup -q p094` — a **hardcoded qualifier**, independent of whichever
+musing/tarball (`Code_helical_holeradii.tar.bz2` vs
+`Code_run1bap_holeradii.tar.bz2`, i.e. p094 vs p101) actually simulated that
+config. `CET_PLUGIN_PATH`/`LD_LIBRARY_PATH` are pinned to the same
+`.../autoresearch_muse/build/al9-prof-e29-p094/Run1BAna/lib` for every
+config, so every harvest — historical and arm alike — runs mmackenz's
+EdepAna module built against the **same fixed p094/Run1Bak-era Offline
+build**, regardless of which release produced the raw art files being
+harvested.
+
+This is the *sole* call site: `cmd_harvest` calls `sourced_env(with_muse=True)`
+exactly once (`core/pipeline.py:1297`), unconditionally for every mode (no
+mode branch on this call), and threads the resulting `env` into both the
+EdepAna runner (`_mu2e_runner`, `core/pipeline.py:1318-1325`, used by
+`hv.run_edepana`) and the muminus-stops counter (`_count_events_art(f, env,
+harvest_dir)`, `:1329`) — i.e. **all** of the harvest-stage tooling for
+**all 8 configs in this audit** ran under this one pinned environment.
+
+Git-window check (from §2.4 / Task 2 Step 5, restated here as the Step 3
+confirmation): `git log --oneline --since=2026-06-25 -- core/pipeline.py`
+shows two touches to `sourced_env` in the audited window — `ad46b8e`
+(2026-07-18, docstring-only) and `c0d3f1d` (2026-07-31, reworks the
+*submit-path* `getToken` bearer-token caching, not the `with_muse=True`
+harvest branch, and postdates every harvest in this audit by ≥2 days). No
+commit in the window changed the pinning lines quoted above. **Confirmed: no
+drift.**
+
+**Naming note.** `harvest/count_sim.*.log` filenames (produced by
+`_count_events_art`, `core/pipeline.py:1167-1186`, `log = harvest_dir /
+f"count_{art_path.stem}.log"`, `:1177`) inherit their name from the
+`TargetStops` input `.art` file's own SAM dataset name — the `mubeam` stage's
+`output_glob` is `"sim.*.TargetStops.*.art"` (`core/pipeline.py:160`), and
+the `<dsconf>` field embedded in that filename comes from `DSCONF =
+f"Run1Bak_{cfg}"` (`core/pipeline.py:135`, set unconditionally in
+`_bind_config()`), overridable only via a per-stage `dsconf_musing` key
+(`_stage_dsconf`, `:139-141`) — which the `mubeam` STAGES entry does **not**
+set (`core/pipeline.py:148-160`, no `dsconf_musing` key present). So every
+config's `mubeam`-stage output files, and therefore every `count_sim.*.log`
+harvest artifact, carry the literal string `Run1Bak_<config>` **regardless
+of which musing actually ran mubeam** — this reproduces the same naming
+quirk already noted in §2.2's Aside (dataset filenames), now traced to its
+exact source (`DSCONF` template + `TargetStops` output_glob). It is a fixed
+dataset-naming string, cosmetic, and carries no release-identity information
+— consistent with, not contradicting, §2.2.
+
+### 3.4 Summary
+
+| Step | Result |
+|---|---|
+| Rendered-geom diffs (4 pairs) | All hunks classified; every REAL delta matches the brief's stated class exactly; all non-matching hunks (padding, line order, `3825` vs `3825.0`) verified EQUIVALENT via whitespace/order-normalized re-diff, not asserted |
+| Tarball provenance | Historical + HOLEDhi → `Code_helical_holeradii.tar.bz2` (p094 build); all 4 arms → `Code_run1bap_holeradii.tar.bz2` (p101 build) — matches brief exactly |
+| `holeRadii vector active` strings gate | Present (=1) in **both** distinct tarballs; cross-checked identical (md5) across two arm configs' in-dir copies |
+| Harvest env pinning | `sourced_env(with_muse=True)` hardcodes `muse setup -q p094` + a fixed `Run1BAna` lib path, called once in `cmd_harvest` (`:1297`), threaded into every metric-producing subprocess, for every one of the 8 configs; no in-window commit touched the pinning lines before any of the 8 harvests |
+| `count_sim.*.log` naming | Traced to `DSCONF = f"Run1Bak_{cfg}"` (`:135`) × `mubeam` `output_glob` (`:160`); cosmetic, no `dsconf_musing` override for `mubeam` |
+
+No hunk, tarball, or environment-pinning check surfaced anything outside an
+expected delta class across all four geometry pairs, both distinct
+tarballs, and the harvest environment. The rendered geometries differ by
+exactly the documented override deltas (plus provably-equivalent
+formatting/ordering noise), both eras' grid tarballs carry the
+holeRadii-patched `StoppingTargetMaker` library, and the harvest environment
+is bit-for-bit pinned across the historical→arm window.
+
+**Verdict: our migration ruled out — rendered-geom diffs match the expected
+override-delta class exactly (all excess hunks verified equivalent, not
+asserted), both distinct tarballs gate PASS on the holeRadii-patched
+GeometryService lib, and the harvest environment (`sourced_env(with_muse=True)`,
+`core/pipeline.py:423-452`) is pinned bit-identically across every historical
+and arm harvest in this audit, with no in-window commit touching the pinning
+path (no finding).**
