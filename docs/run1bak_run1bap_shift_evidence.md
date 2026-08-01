@@ -1372,50 +1372,83 @@ g4consistentFilter, StrawGasStepMaker, CaloShowerStepMaker, CrvSteps,
 MakeSS, PrimaryFilter, compressDetStepMCs, FindMCPrimary` plus the
 `genCountLogger`/`PrimaryOutput` end-path):**
 
-- **`PrimaryFilter`'s `MinimumSumCaloE: 45` (and its two companions) — RELEVANT, top candidate, mechanism fully traced to source.**
+- **`PrimaryFilter` — RELEVANT, top candidate: TWO independent
+  acceptance-relaxing levers found in Run1Bap, both traced to source, both
+  only ever widen (never narrow) the `selectcalo` decision.**
   `PrimaryFilter` (`module_type: "DetectorStepFilter"`) **is scheduled** on
   `PrimaryPath`, directly downstream of `StrawGasStepMaker`/`CaloShowerStepMaker`/`MakeSS`
   and upstream of `compressDetStepMCs`/`FindMCPrimary`/`PrimaryOutput` — i.e.
   it is the literal gate that decides which simulated CE events survive into
   the output `.art` file that concat feeds to EdepAna. This is not a
-  parallel-subsystem default; it sits *inside* the implicated chain.
-  Traced the code: `diff Offline/Filters/src/DetectorStepFilter_module.cc`
-  (Run1Bak vs Run1Bap, `$SCRATCH/DetectorStepFilter_module_diff.txt`) shows
-  Run1Bap's module gained a new **optional** calo-acceptance branch:
+  parallel-subsystem default; it sits *inside* the implicated chain. Traced
+  the code: `diff Offline/Filters/src/DetectorStepFilter_module.cc`
+  (Run1Bak vs Run1Bap, `$SCRATCH/DetectorStepFilter_module_diff.txt`).
+
+  **Lever 1 — new OR-branch, `MinimumSumCaloE: 45`.** Run1Bap's module
+  gained a new **optional** calo-acceptance branch:
   `fhicl::OptionalAtom<double> minSumCaloTotalE{Name("MinimumSumCaloE"), ...}`
   → `useMinSumCaloTotalE_ = conf().minSumCaloTotalE(minSumCaloTotalE_)` (only
   engaged if the key is explicitly present in FHiCL) → in the per-CaloShowerStep
   loop, a running `total_edep` is accumulated across *all* good particles, and
   `if (useMinSumCaloTotalE_ && total_edep > minSumCaloTotalE_) selectcalo = true;`
   — **in addition to**, not replacing, the pre-existing per-particle branch
-  (`caloESum` map, unchanged). `retval = (or_ && (selecttrk||selectcalo||selectcrv))
-  || (!or_ && (selecttrk&&selectcalo&&selectcrv))`, with `ORRequirements`
-  (`or_`) defaulting `true` in the C++ and **never set in any Production or
-  Offline prolog on either release** (`grep -rn ORRequirements` — zero hits
-  in FHiCL on both trees) — so both releases use the identical, unset,
-  default-true OR-combination at run time. Because the new branch can only
-  flip `selectcalo` **false→true** (never true→false: it is an added
-  disjunct, the old per-particle branch is untouched) and `retval` combines
-  `selectcalo` via OR, **`PrimaryFilter`'s pass rate under Run1Bap can only
-  be ≥ Run1Bak's for the identical input population — never lower** — a
-  provably monotonic, same-direction mechanism for "more CE events produce
-  accepted output under Run1Bap," matching the observed sign exactly. Traced
-  the FHiCL source of the new key: `diff Production/JobConfig/primary/prolog.fcl`
+  (`caloESum` map, code-unchanged). Traced the FHiCL source:
+  `diff Production/JobConfig/primary/prolog.fcl`
   (`$SCRATCH/prolog_fcl_diff.txt`) shows Run1Bap's prolog explicitly adds
   `MinimumSumCaloE : 45.0 # or at least this much calo total energy by
   accepted sim particles` (and clarifies the old key's comment to "by a
   single sim particle" — confirming the new key is a genuinely distinct,
-  additional criterion, not a rename). This is a **Production-repo** prolog
-  change, paired with the **Offline-repo** `DetectorStepFilter_module.cc`
-  C++ change that gives the new key an effect — both required together, both
-  land in Run1Bap.
-  `MaximumCaloPartMom: 1e6` / `MinimumCaloPartMom: 0` are companions of the
-  same code change (new `fhicl::Atom` fields added so the calo-step loop can
-  bound `css.momentumIn()`) but are numerically no-ops here — both explicit
-  values equal the new C++ defaults (`0.0`/`maxE_`≈1e6) — they exist only
-  because the new momentum-bound code path requires *some* value, not
-  because Run1Bap restricts anything through them. **Not separately
-  relevant beyond enabling the `MinimumSumCaloE` mechanism above.**
+  additional criterion, not a rename). Production-repo prolog change paired
+  with the Offline-repo C++ change that gives the new key an effect — both
+  required together, both land in Run1Bap.
+
+  **Lever 2 — `MinimumCaloPartMom: 0` removes the calo-step momentum floor.**
+  *(Correction to an earlier pass of this section, which misclassified this
+  as a numerically-inert companion by comparing it against the new field's
+  own C++ default instead of against Run1Bak's actual pre-change behavior —
+  fixed here.)* Run1Bak's (pre-diff) calo-step loop bounded
+  `css.momentumIn()` with the **shared** `minPartM_`/`maxPartM_` members —
+  `css.momentumIn() > minPartM_ && css.momentumIn() < maxPartM_`
+  (`DetectorStepFilter_module.cc:167` pre-diff) — sourced from the *same*
+  `MinimumPartMom`/`MaximumPartMom` keys the tracker-step branch uses
+  (`minPartM_(conf().minPartMom())`, `:101`). The materialized configs show
+  `MinimumPartMom: 50` **unchanged** in both `cfg_bak.txt`/`cfg_bap.txt` —
+  i.e. under Run1Bak, a calo step's parent particle needed momentum >50
+  MeV/c to be counted toward *any* calo-based acceptance criterion at all.
+  Run1Bap's module splits this into dedicated `minCaloPartM_`/`maxCaloPartM_`
+  members (`css.momentumIn() > minCaloPartM_ && css.momentumIn() < maxCaloPartM_`)
+  bound to new, independently-configurable `MinimumCaloPartMom`/`MaximumCaloPartMom`
+  keys, and Run1Bap's prolog sets `MinimumCaloPartMom: 0.0` explicitly —
+  **the 50 MeV/c momentum floor on calo-step particles is removed for
+  Run1Bap.** (`MaximumCaloPartMom: 1e6` stays numerically equal to the old
+  shared `maxPartM_`≈1e6 either way — the *maximum* bound genuinely is
+  inert; only the *minimum* bound is a real relaxation.) This is a second,
+  independent lever, and it compounds with Lever 1 two ways: **(a)** it
+  widens the calo-step population feeding Lever 1's `total_edep` sum;
+  **(b)** it *also* widens the population feeding the pre-existing,
+  code-unchanged per-particle `caloESum` branch
+  (`if(icalo->second >= minSumCaloE_ && icalo->second <= maxSumCaloE_) selectcalo = true;`,
+  `DetectorStepFilter_module.cc:209`, bound to `MinimumSumCaloStepE: 45`,
+  numerically unchanged both releases) — so `selectcalo`'s pass rate can
+  rise under Run1Bap **even without Lever 1's new key**, purely because
+  lower-momentum calo steps (≤50 MeV/c, previously excluded outright from
+  the sum) now accumulate toward each particle's 45 MeV calo-energy total.
+
+  **Combined direction.** Both levers only ever *widen* the `selectcalo`
+  decision (Lever 1 adds a disjunct; Lever 2 only loosens a bound, from 50
+  to 0 MeV/c, never tightens one) — neither can flip an event from passing
+  to failing. `retval = (or_ && (selecttrk||selectcalo||selectcrv)) ||
+  (!or_ && (selecttrk&&selectcalo&&selectcrv))`, with `ORRequirements`
+  (`or_`) defaulting `true` in the C++ and **never set in any Production or
+  Offline prolog on either release** (`grep -rn ORRequirements` — zero hits
+  in FHiCL on both trees) — so both releases use the identical, unset,
+  default-true OR-combination at run time, under which a `selectcalo` that
+  can only become *more* true can only make `retval` more permissive too.
+  **`PrimaryFilter`'s combined pass rate under Run1Bap can only be ≥
+  Run1Bak's for the identical input population — never lower** — a provably
+  monotonic, same-direction mechanism for "more CE events produce accepted
+  output under Run1Bap," matching the observed sign exactly, now via two
+  independent, compounding relaxations rather than one.
 
 - **`KinKalMaterial` (new subtree of `services.GeometryService`) — NOT
   RELEVANT, present but structurally inert for this FCL.** No producer or
@@ -1470,7 +1503,26 @@ under this Musing generation). Confirmed this is not a fetch miss by
 dumping the full unfiltered `ups active` list on both sides (7 products
 each: `art, encp, mu2efilename, mu2efiletools, mu2egrid, mu2ejobtools, ups`)
 and cross-checking versions via the `mu2e --debug-config` startup banner,
-`muse status`'s `MUSE_ENVSET` line, and `spack find` inside each shell:
+`muse status`'s `MUSE_ENVSET` line, and `spack find` inside each shell.
+
+**Geant4 hash evidence (re-run and captured to file per review — the
+original pass asserted the hash-match from uncaptured shell output; this is
+the fix):** two additional fresh sourced shells (one per release,
+`SPACK_USER_CACHE_PATH` set before sourcing CVMFS, `muse setup` never
+piped, one-shot per shell as required), each running
+`geant4-config --version`, `spack find -l geant4`, `spack find -lv geant4`
+(full hash + build variants), and `env | grep -E "^G4LIB=|^G4INCLUDE="`,
+captured to `$SCRATCH/g4_hash_bak.txt` (Run1Bak) and `$SCRATCH/g4_hash_bap.txt`
+(Run1Bap). `diff $SCRATCH/g4_hash_bak.txt $SCRATCH/g4_hash_bap.txt` touches
+only the environment name/root-spec-count lines and the three genuinely
+different packages (`artdaq-core-mu2e`, `kinkal`, new `mu2e-ort`) — every
+Geant4-related line is byte-identical across the two files: same
+`geant4-config --version` (`11.3.2`), same short hash (`k4bezfr`), same
+full spec (`geant4@11.3.2+data~hdf5~ipo~motif~opengl~qt~tbb+threads~timemory~vecgeom~vtk~x11
+build_system=cmake build_type=RelWithDebInfo cxxstd=17 generator=ninja`),
+same `G4LIB`/`G4INCLUDE` paths (both
+`.../geant4-11.3.2-k4bezfrnxuvotgxrwtgcfhjqzagc2iyw/...`). The re-run
+**confirms** the original claim rather than contradicting it.
 
 | component | Run1Bak (p094) | Run1Bap (p101) | changed? |
 |---|---|---|---|
@@ -1479,7 +1531,7 @@ and cross-checking versions via the `mu2e --debug-config` startup banner,
 | build stub / date | al9-prof-e29-p094, 2026-05-13 | al9-prof-e29-p101, 2026-07-15 | — |
 | art | v3_15_00 | v3_15_00 | no |
 | ROOT | v6_32_06 | v6_32_06 | no |
-| **Geant4** | 11.3.2 (`v4_11_3_p02`) | 11.3.2 (`v4_11_3_p02`) | **no — bit-identical, same spack build hash** `geant4-11.3.2-k4bezfrnxuvotgxrwtgcfhjqzagc2iyw` on both sides (literally the same installed package, not just the same version string) |
+| **Geant4** | 11.3.2 (`v4_11_3_p02`) | 11.3.2 (`v4_11_3_p02`) | **no — bit-identical, same spack build hash** `geant4-11.3.2-k4bezfrnxuvotgxrwtgcfhjqzagc2iyw` on both sides (literally the same installed package, not just the same version string; evidence in `$SCRATCH/g4_hash_bak.txt`/`g4_hash_bap.txt`) |
 | Geant4 physics data (G4EMLOW/PhotonEvaporation/RadioactiveDecay/G4NDL/G4PARTICLEXS/G4ABLA/G4SAID/G4INCL/...) | 8.6.1/5.7/5.6/4.7.1/4.1/3.3/2.0/1.2 | identical, same paths under the p101 spack-env view | no |
 | CRY | 1.7 | 1.7 | no |
 | xerces | 0 hits either side (not a discrete spack root spec; bundled under `art`/`root` externals unchanged) | 0 hits | no evidence of change |
@@ -1504,14 +1556,20 @@ actually produced that both (a) sits inside the scheduled `PrimaryPath` and
 (b) has a stated, monotonic, same-direction mechanism on event count at
 unchanged energy response.
 
-**Verdict: candidate deltas = [`physics.filters.PrimaryFilter.MinimumSumCaloE`
-(new `OptionalAtom`-gated total-calo-energy OR-branch in
-`Offline/Filters/src/DetectorStepFilter_module.cc`, engaged by
-`Production/JobConfig/primary/prolog.fcl`'s new `MinimumSumCaloE: 45.0`
-line — scheduled on `PrimaryPath`, provably monotonic same-direction effect
-on event-count acceptance, companions `MaximumCaloPartMom`/`MinimumCaloPartMom`
-numerically inert)], toolchain = Geant4 11.3.2 **unchanged** (identical spack
-build hash + physics-data tables — ruled out), art v3_15_00 unchanged, ROOT
+**Verdict: candidate deltas = [`physics.filters.PrimaryFilter` — TWO
+independent, compounding acceptance-relaxing levers in Run1Bap, both
+scheduled on `PrimaryPath`, both provably monotonic same-direction on
+event-count acceptance: **(1)** `MinimumSumCaloE` (new `OptionalAtom`-gated
+total-calo-energy OR-branch in `Offline/Filters/src/DetectorStepFilter_module.cc`,
+engaged by `Production/JobConfig/primary/prolog.fcl`'s new
+`MinimumSumCaloE: 45.0` line); **(2)** `MinimumCaloPartMom: 0` (removes the
+50 MeV/c momentum floor Run1Bak inherited on calo steps via the shared
+`MinimumPartMom`, widening the population feeding both the new branch and
+the pre-existing, code-unchanged per-particle `caloESum`/`MinimumSumCaloStepE`
+branch — `MaximumCaloPartMom` alone remains numerically inert, 1e6 both
+ways)], toolchain = Geant4 11.3.2 **unchanged** (identical spack build hash
+`k4bezfrnxuvotgxrwtgcfhjqzagc2iyw` + physics-data tables, captured to
+`$SCRATCH/g4_hash_bak.txt`/`g4_hash_bap.txt` — ruled out), art v3_15_00 unchanged, ROOT
 v6_32_06 unchanged, KinKal v03_05_01→v03_06_00 and artdaq-core-mu2e
 v9_03_00→v9_04_00 and mu2e-ort (new) all changed but **not exercised** on
 `PrimaryPath` (no scheduled consumer), backing Offline musing
