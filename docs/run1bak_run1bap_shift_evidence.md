@@ -1,7 +1,11 @@
 # Run1Bak vs Run1Bap Shift Investigation
 
 ## Question
-Identical geometry configurations evaluated under two software releases (Run1Bak vs Run1Bap) exhibit a **+4.9% shift in `s_over_sqrt_b`** (sob). This investigation mechanizes the elimination of possible root causes.
+Identical geometry configurations evaluated under two software releases (Run1Bak vs Run1Bap) exhibit measured shifts in `s_over_sqrt_b` (sob):
+- **+4.9% at the champion x geometry** (6 configs: foilsflashSOBX01/BASIN01_00/C400_champ and ipafixAB01/ipa625AB01/ipaovrAB01)
+- **+4.8% at the deployed-baseline geometry** (2 configs: foilsflashHOLEDhi vs nominalAB01)
+
+This investigation mechanizes the elimination of possible root causes for these shifts.
 
 ## 1. Inventory
 
@@ -28,14 +32,19 @@ All 8 configurations are fully artifacted:
 - `state/mustops_ce_template_materialized.fcl`: present for all configs
 - `state/mubeam_template_materialized.fcl`: present for all configs
 
-Note: `foilsflashHOLEDhi` lacks `flash_edep_*` metrics in summary.json, consistent with its early campaign stage (count_sim_logs=1 preserved). All other configs have complete flash metrics.
+Note: `foilsflashHOLEDhi`'s summary.json lacks `flash_edep_*` fields; all other configs have complete flash metrics.
 
 ### Carried Observation from Design
-Comparison of run1bak vs run1bap baseline metrics across the 8-config set:
-- **Stops**: −0.1% (essentially flat)
-- **ce_abs_eff**: +4.75% (material accumulation or interaction bias)
-- **s_over_sqrt_b**: +4.9% (the focal shift)
+Measured shifts in run1bak vs run1bap across the two geometry pairs (from `harvest/summary.json`):
 
-This pattern suggests the sob improvement is **not** driven by stop yield but by ce efficiency gains, which are proportional to the solver's photon transport or interaction modeling.
+**At champion x geometry (6 configs):**
+- **Stops**: −0.1% (essentially flat)
+- **ce_abs_eff**: +4.75%
+- **s_over_sqrt_b**: +4.9%
+
+**At deployed-baseline geometry (2 configs):**
+- **Stops**: −0.1%
+- **ce_abs_eff**: +4.76%
+- **s_over_sqrt_b**: +4.8%
 
 **Verdict: Inventory complete; all 8 configs fully artifacted. Ready for mechanized elimination.**
