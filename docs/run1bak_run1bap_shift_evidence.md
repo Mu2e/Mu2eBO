@@ -765,6 +765,25 @@ empirical spread across the 3 configs.
 
 ### 4.3 Fixed-box decomposition + the three questions (Step 3)
 
+**σ formula (methodology, matching §2.3's precedent of stating the
+formula):** for n=3 groups (champion-x), relative σ per group = sample
+standard error of the mean of the 3 values = `stdev(3 vals, ddof=1) / √3 /
+mean`; a ratio's relative σ = `sqrt(relσ_arm² + relσ_hist²)`, absolute σ =
+`ratio × relσ_ratio`. Worked example, sob @ fixed box: historical
+`[3.89,3.91,3.90]` → mean 3.9000, sd 0.01000, SEM 0.00577, relσ=0.148%;
+arm `[4.10,4.11,4.10]` → mean 4.1033, sd 0.00577, SEM 0.00333, relσ=0.081%;
+`relσ_ratio = sqrt(0.148%² + 0.081%²) = 0.169%`, `σ = 1.05214 × 0.169% =
+0.178%` — reproduces the table entry exactly. For n=1 comparisons
+(baseline pair) or wherever a group's 3 members print identically (no
+usable sample spread, e.g. champion-x `cosmic`), relative σ per value
+instead uses the macro's own print-quantization floor, `0.5 ×
+10^(⌊log₁₀|v|⌋ − sigfigs + 1) / |v|` (half the last significant digit of
+the `%.2g`/`%.3g` format at `rough_run1a_sensitivity.C:222-223,236-237`),
+combined the same way. Worked example, baseline sob: `3.11` (3 sig figs) →
+quantum 0.005, relσ=0.161%; `3.26` → quantum 0.005, relσ=0.153%;
+`relσ_ratio = sqrt(0.161%²+0.153%²) = 0.222%`, `σ = 1.04823 × 0.222% =
+0.233%` — reproduces the table entry exactly.
+
 **Champion-x group (3 historical: SOBX01/BASIN01_00/C400_champ vs 3 arms:
 ipafixAB01/ipa625AB01/ipaovrAB01), at the shared `ref_box=[103.1,104.7]`:**
 
@@ -803,6 +822,18 @@ argmax box `[103.9,104.7]`** (identical box for both — no separate
 | cosmic | 190 | 190 | 1.00000 | +0.000% | ±0.000% |
 | dio/bkg fraction | 1.37e-7 (0.0000137%) | 1.47e-7 (0.0000147%) | — | — | utterly negligible |
 
+**Why the `dio` ratio (+6.25%/+7.69%) runs above the `ce_abs_eff` ratio
+(+4.93%/+4.08%):** per §4.1, `dio_resp` is scaled by `sig_eff` **twice** —
+once directly (`dio->Scale(0.39*sig_eff*npot)`, `:162`) and again through
+its convolution kernel `response`, itself pre-scaled by `sig_eff`
+(`response->Scale(sig_eff/...)` `:128`, used at `convolve(dio, response)`
+`:165`) — so `dio`'s `sig_eff` dependence is closer to quadratic than
+linear, which is consistent with a ratio (~1.05²≈1.10-ish territory,
+roughly matching the observed +6-8%) exceeding the linear `ce_abs_eff`
+ratio. This is immaterial to every conclusion below: `dio` is <0.0005% of
+total background in both groups (table rows above), so its super-linear
+scaling has no measurable effect on `sob`.
+
 **Three questions, both groups:**
 
 **1. Did the optimal box move?**
@@ -824,6 +855,16 @@ argmax box `[103.9,104.7]`** (identical box for both — no separate
   signal-side (acceptance) contributes ~100% of the fixed-box shift.
 - Baseline: signal ratio +4.651% vs cosmic ratio +0.000%. Same conclusion:
   **~100% signal-side (acceptance), ~0% background-side**, for both groups.
+  **Caveat on the cosmic-ratio=1.0000 reading:** per §4.1, `cosmic` is a
+  pure function of box width and hardcoded globals
+  (`cosmic_rate_second=2e4/1.1e7`, `npot=1e18`, `mean_pot=1.6e7`,
+  `rough_run1a_sensitivity.C:174-179`) — none of which vary by config or
+  era. The ratio is therefore **structurally guaranteed** to print as
+  1.0000 at a fixed box regardless of whether real cosmic-ray background
+  conditions actually differed between Run1Bak and Run1Bap; this macro has
+  no mechanism to see such a difference even if one existed. "0%
+  background-side" here means *unchanged within what this macro's model
+  can express*, not an independently-measured physical invariant.
   (Note: the fixed-box `sob` ratio computed directly from the log's
   3-sig-fig `S/sqrt(B)` field, +5.214%/+4.823%, is numerically somewhat
   above the ratio implied by recombining the coarser 2-sig-fig
@@ -875,4 +916,10 @@ significant, n=1 no replicate). Both groups: the +4.9%/+4.8% sob shift is
 essentially entirely explained by the `ce_abs_eff` normalization-input
 ratio audited in §2.3 — the momentum test box does not move and background
 (cosmic-dominated; DIO is <0.0005% of total bkg at the optimal box) does
-not change between eras.**
+not change between eras. *Caveat: "0% background" above is unchanged by
+construction within this macro's model, not an independently-confirmed
+physical invariant — `cosmic` (§4.1, `rough_run1a_sensitivity.C:174-179`)
+is computed from fixed globals with no era or config dependence, so it
+would print identically even if real cosmic-ray background conditions
+genuinely differed between Run1Bak and Run1Bap; this analysis cannot rule
+that out, it can only say the macro's background term is unchanged.***
