@@ -1745,19 +1745,21 @@ Strength vocabulary: **direct-paired** (measured A/B at matched x/seeds),
 | 14 | art / ROOT | **excluded** | v3_15_00 / v6_32_06 identical both sides (§6.3) | inspection |
 | 15 | KinKal v03_05_01→v03_06_00, artdaq-core-mu2e v9_03_00→v9_04_00, mu2e-ort (new) | **excluded** | changed, but no consumer scheduled on `PrimaryPath` — truth-level chain has no track fit / DAQ format / ML inference (§6.2–6.3) | elimination (schedule test) |
 | 16 | Other job-config deltas (`KinKalMaterial`, `ADC2MeV`→CsI/lyso split, `Scoring.scorerNames`) | **excluded** | declared-but-unconsumed service defaults, or inside a `enabled: false` block (§6.2) | elimination |
-| 17 | **PrimaryFilter Lever 1** — `MinimumSumCaloE: 45` total-calo-energy OR-branch | **open (direction proven, magnitude unproven)** | scheduled on `PrimaryPath`; pure disjunct, monotonic-increasing on acceptance (§6.2); introduced by Offline `a9839eeb4` (PR #1819) + engaged by Production `a387965f` (PR #539) (§7.1); PR intent = deliberate acceptance recovery | inspection + sweep |
-| 18 | **PrimaryFilter Lever 2** — `MinimumCaloPartMom: 0` removes the 50 MeV/c calo-step momentum floor | **open (direction proven, magnitude unproven)** | same commits; active from the Offline C++ default alone (§7.1); widens the population feeding both Lever 1's sum and the pre-existing per-particle `caloESum` branch (§6.2) | inspection + sweep |
+| 17 | **PrimaryFilter Lever 1** — `MinimumSumCaloE: 45` total-calo-energy OR-branch | **confirmed (local re-filter, §8)** | scheduled on `PrimaryPath`; pure disjunct, monotonic-increasing on acceptance (§6.2); introduced by Offline `a9839eeb4` (PR #1819) + engaged by Production `a387965f` (PR #539) (§7.1); PR intent = deliberate acceptance recovery; combined-lever magnitude measured directly at 95.20%±0.05% survivor fraction vs 95.1-95.5% predicted (§8) | inspection + sweep + **direct-paired (local re-filter)** |
+| 18 | **PrimaryFilter Lever 2** — `MinimumCaloPartMom: 0` removes the 50 MeV/c calo-step momentum floor | **confirmed (local re-filter, §8)** | same commits; active from the Offline C++ default alone (§7.1); widens the population feeding both Lever 1's sum and the pre-existing per-particle `caloESum` branch (§6.2); combined-lever magnitude measured directly at 95.20%±0.05% survivor fraction vs 95.1-95.5% predicted (§8) | inspection + sweep + **direct-paired (local re-filter)** |
 | 19 | Offline code, other subsystems in v13_12_10→v13_32_10 | **bounded (FCL-visible); non-FCL C++ changes in scheduled modules conditionally excluded pending the arm-1 revert readout** | the net FCL-visible effect of ALL Offline+Production changes on this job is bounded by the §6.2 `--debug-config` diff (8 hunks, all classified); within the implicated module's file the two PR #1819 commits account for the entire release delta (54+/6−); remaining `Filters/` changes are an unscheduled new module (§7.1) | elimination + sweep |
 | 20 | Baseline-pair flash anomaly (+6.35% ± 2.82%, 2.25σ, opposite sign to champion) | **open** | n=1-vs-1, no seed pairing possible (400 vs 100 jobs), emission-mechanism provenance confound (geometrically inert per §3.1); champion-derived override effect (+2.2%) predicts the WRONG sign for it (§5.4) | unresolved observation |
 
-Notes on honesty of the two open PrimaryFilter rows and the bounded row 19: what is *proven* is
+Notes on honesty of the two (now-confirmed) PrimaryFilter rows and the bounded row 19: what was *proven* at the time this ledger was first written is
 (a) the mechanism sits inside the implicated chain at the exact gate that
 sets `ce_seen` (§6.2), (b) both levers are provably monotonic in the
 observed direction (§6.2), (c) they are the only in-scope release delta
 (§6.1, §6.2, §7.1), and (d) they were introduced deliberately to accept
-more signal events (§7.1). What is *not* proven is that their combined
+more signal events (§7.1). What was *not yet proven* at that point was that their combined
 pass-rate increase equals +4.93%±0.20% at champion x / +4.08%±0.41% at
-baseline — no measurement in this investigation constrains the magnitude. Row 19's bounded status reflects that the net FCL-visible effect is bounded (8 hunks, all classified by §6.2), but non-FCL C++ changes in scheduled modules remain conditionally excluded pending confirmation from the arm-1 revert readout.
+baseline — no measurement in this investigation constrained the magnitude. Row 19's bounded status reflects that the net FCL-visible effect is bounded (8 hunks, all classified by §6.2), but non-FCL C++ changes in scheduled modules remain conditionally excluded pending confirmation from the arm-1 revert readout.
+
+**Update (§8, local re-filter magnitude test):** the magnitude gap flagged above is now closed for rows 17-18. Re-running the exact production `PrimaryFilter` block (control) vs. the same block with only the two lever values reverted (`MinimumSumCaloE: 1.0e9`, `MinimumCaloPartMom: 50.0`), on 165,838 already-archived, already-filtered `ipafixAB01` CE events, measured a corrected survivor fraction of 95.20%±0.05% — inside the 95.1-95.5% window predicted from the audited +4.93%±0.20% `ce_abs_eff` shift (0.52σ from the window's center), implying a production-equivalent shift of +5.04%, i.e. the two levers combined explain ~102% of the measured +4.93% shift within measurement noise. This is now a **direct-paired, same-population** measurement, not inspection/sweep alone — see §8 for the full method and numbers. Row 19's non-FCL-C++ caveat is untouched by this test (it isolates only the two FHiCL-reachable levers, not any other scheduled-module C++ change).
 
 ### 7.3 Recommendation input + Task-8 trigger verdict (Step 3)
 
@@ -1840,8 +1842,195 @@ of the implicated module is two commits from Offline PR #1819
 (`a9839eeb4` + printout `2905cfa0b`, michaelmackenzie 2026-05-06) engaged by
 one Production commit from PR #539 (`a387965f`), with PR-stated intent of
 deliberate signal-acceptance recovery; ledger closes 15 of 20 rows as
-excluded (1 bounded FCL-visible, 1 confirmed on the flash channel, 2 PrimaryFilter levers + 1
+excluded (1 bounded FCL-visible, 3 confirmed — 1 on the flash channel + 2
+PrimaryFilter levers via the §8 local re-filter magnitude test — + 1
 baseline flash anomaly open); Task 8 is TRIGGERED, and the recommended
 first arm is the config-level PrimaryFilter revert under Run1Bap
 (`MinimumSumCaloE` erased + `MinimumCaloPartMom: 50`), which is both
-cheaper and sharper than a Run1Bak control re-run.**
+cheaper and sharper than a Run1Bak control re-run. (Update, §8: the local,
+no-grid version of exactly this revert has since been run and closes the
+magnitude question for rows 17-18 — see §8 for whether the full-chain grid
+arm below is still worth running.)**
+
+## 8. Local re-filter magnitude test
+
+Phase-4a, no-grid proof of the §7.1/§7.3 arm-1 recommendation: does reverting
+the two `PrimaryFilter` levers (§6.2/§7.1) to Run1Bak-equivalent semantics,
+applied locally to already-archived Run1Bap CE events, reproduce the
+predicted ≈95.3% survivor fraction (`= 1/1.0492`, from the paired ratio
+`ipafixAB01` ce_seen/ce_simulated 0.552630 vs `foilsflashBASIN01_00`
+0.526696; the audited group ratio +4.93%±0.20% (§2.3) predicts a
+95.1-95.5% window)? All artifacts: `$SCRATCH/refilter/`.
+
+### 8.1 Method
+
+One local `mu2e` job, two `DetectorStepFilter` instances on two
+`trigger_paths` in the same job, reading the **same** input events once:
+
+- `newFilter` — the exact Run1Bap production `PrimaryFilter` block, copied
+  verbatim from `$SCRATCH/cfg_bap.txt` (the `mu2e --debug-config` dump of
+  `ipafixAB01`'s actual submitted job, §6.2) lines 63-85. This is the
+  **CONTROL**: every archived event already passed this exact filter on the
+  grid, against *uncompressed* steps; its local pass fraction `f_ctrl`
+  measures the bias (if any) introduced by re-evaluating the filter against
+  *compressed* products.
+- `oldFilter` — the identical block with exactly the two values from §6.2/§7.1
+  reverted: `MinimumCaloPartMom: 50.0` (restores the shared 50 MeV/c floor
+  Run1Bak applied to calo steps before PR #1819 split it from the trk-shared
+  `MinimumPartMom`) and `MinimumSumCaloE: 1.0e9` (disables the new
+  total-calo-energy OR-branch — a huge value is behaviorally identical to the
+  key being absent, per §7.3's arm-1 recipe, since `total_edep` can never
+  exceed a few hundred MeV per event).
+
+Full FCL: `$SCRATCH/refilter/refilter_test.fcl`. No producers, no output
+module — `physics.filters.{newFilter,oldFilter}` on
+`physics.{newPath,oldPath}`, `physics.trigger_paths: ["newPath","oldPath"]`,
+`services.scheduler.wantSummary: true` to get art's full per-path
+`TrigReport` breakdown, plus `services.GlobalConstantsService` (the only
+service `DetectorStepFilter` actually calls —
+`GlobalConstantsHandle<PhysicsParams>()->getNominalDRPeriod()` for the
+(unused, since no `TimeCutConfig` is set) time-cut check; confirmed by
+reading `Offline_run1bap/Offline/Filters/src/DetectorStepFilter_module.cc`
+directly — no `GeometryService` or other service dependency exists in this
+module).
+
+**One deliberate input-tag change** vs. the production block, per the task
+brief: `StrawGasSteps`/`CaloShowerSteps` point at `["compressDetStepMCs"]`
+instead of `["StrawGasStepMaker"]`/`["CaloShowerStepMaker"]` — the archived
+`dts.*.CeEndpoint.*.art` files hold only the post-`compressDetStepMCs`
+products (the grid job's own `PrimaryFilter` ran *before* compression, on
+the original `StrawGasStepMaker`/`CaloShowerStepMaker` labels; only the
+compressed copies survive into the archived output, per
+`outputCommands: ["keep *_compressDetStepMCs_*_*", ...]` in
+`$SCRATCH/cfg_bap.txt`'s `PrimaryOutput` block).
+
+### 8.2 Product discovery (Step: is the local route blocked?)
+
+Listed the `Events` `TTree`'s branches directly via `ROOT` (`TFile::Open` +
+`GetListOfBranches()`) on one archived file — no framework job needed for
+this step:
+
+```
+$ root -b -l -q  # TFile::Open(...); t=(TTree*)f->Get("Events"); loop branches
+mu2e::GenParticles_compressDetStepMCs__Primary.
+mu2e::CaloShowerSteps_compressDetStepMCs__Primary.
+mu2e::SimParticleart::Ptrmu2e::MCTrajectorystd::map_compressDetStepMCs__Primary.
+mu2e::SurfaceSteps_compressDetStepMCs__Primary.
+mu2e::SimParticlemv_compressDetStepMCs__Primary.
+mu2e::StatusG4_g4run__Primary.
+mu2e::StepPointMCs_compressDetStepMCs_virtualdetector_Primary.
+mu2e::CrvSteps_compressDetStepMCs__Primary.
+mu2e::PrimaryParticle_FindMCPrimary__Primary.
+mu2e::StrawGasSteps_compressDetStepMCs__Primary.
+art::EventIDs_TargetStopResampler__Primary.
+art::TriggerResults_TriggerResults__Primary.
+```
+
+(Full listing: `$SCRATCH/refilter/full_branch_list.txt`.) **Not blocked**:
+both `CaloShowerSteps_compressDetStepMCs` and `StrawGasSteps_compressDetStepMCs`
+are present (empty instance name, process `Primary`), confirming the
+compression step preserves both collections the filter reads, resolving the
+brief's stated risk in the negative — the local route is viable.
+
+### 8.3 Environment, files, events
+
+```
+export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER
+source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
+muse setup ops > /tmp/m.log 2>&1
+muse setup SimJob Run1Bap >> /tmp/m.log 2>&1   # grep'd for errors, none found
+```
+
+4 files from `ipafixAB01/harvest/ce_files.txt` (`$SCRATCH/refilter/filelist.txt`,
+readability confirmed via `ls -l` before running):
+`dts.oksuzian.CeEndpoint.Run1Bak_ipafixAB01.001801_0000000{0,1,2,3}.art`
+(~890 MB each, ~41.5k events/file). Ran unlimited (`-n -1`) over all four via
+`mu2e -c refilter_test.fcl -S filelist.txt -n -1` — **165,838 events**, well
+above the ~150-200k target. Wall time 213 s / CPU 170 s (`$SCRATCH/refilter/full_run.log`).
+A 500-event smoke test on file 0 alone (`$SCRATCH/refilter/test_full2.log`)
+ran first to validate the FCL (`newFilter` 500/500, `oldFilter` 474/500 =
+94.8% — consistent within that sample's Poisson σ, ≈0.99pp, with the
+full-sample result below).
+
+### 8.4 TrigReport (`services.scheduler.wantSummary: true`)
+
+```
+TrigReport ---------- Event summary -------------
+TrigReport Events total = 165838 passed = 165838 failed = 0
+
+TrigReport ---------- Trigger-path summary ------------
+TrigReport    Path ID        Run     Passed     Failed      Error Name
+TrigReport          0     165838     165838          0          0 newPath
+TrigReport          1     165838     157883       7955          0 oldPath
+```
+
+(Full capture: `$SCRATCH/refilter/TrigReport_extract.txt`, raw job log
+`$SCRATCH/refilter/full_run.log`.)
+
+### 8.5 f_ctrl, f_old, corrected survivor fraction
+
+```
+f_ctrl = 165838 / 165838 = 1.000000  (100.0000%)   -- zero compression-bias failures observed;
+                                                       rule-of-three 95% CL upper bound on the
+                                                       true failure rate ~= 3/165838 = 0.0018%
+f_old  = 157883 / 165838 = 0.952032 (95.2032%)   sigma_old (binomial, sqrt(p(1-p)/n)) = +/-0.0525 pp
+
+headline estimator, f_old / f_ctrl = 95.2032% +/- 0.0525% (absolute; f_ctrl's
+own sigma is negligible, so it does not add to the quadrature sum)
+```
+
+**Why re-filtering the archive (rather than the raw unfiltered population)
+gives an exact, not approximate, answer here:** §6.2/§7.1 already proved
+both levers only ever *widen* `selectcalo` — for any raw event,
+`oldFilter`-pass implies `newFilter`-pass (old is a strict subset of new at
+the event level, not just in aggregate rate). Since our archive *is* exactly
+the raw population's `newFilter`-passing subset, every raw event that would
+pass `oldFilter` is guaranteed to already be inside the archive — so
+`oldFilter`'s count on the archive equals `oldFilter`'s count on the full
+raw population, exactly, not approximately. This also means the measurement
+is **self-paired on the same simulated events** (same G4 run, same seeds,
+both filter configs evaluated on identical events) — it isolates the
+filter's own contribution free of the campaign-to-campaign Poisson
+population variance that inflates the cross-release `ce_abs_eff` comparison
+in §2.3.
+
+**Comparison against the predicted window:**
+
+```
+predicted survivor central (from +4.93%+/-0.20% ce_abs_eff shift, §2.3) = 1/1.0493 = 95.302%
+predicted window                                                        = [95.120%, 95.484%]
+measured survivor fraction                                              = 95.2032% +/- 0.0525%
+deviation from predicted center                                          = 0.099 pp
+combined sigma (predicted-window sigma (+/-0.189pp) (+) measured sigma)  = 0.189 pp
+significance                                                             = 0.52 sigma  -- inside the window
+
+implied production-equivalent shift, 1/f_old - 1                        = +5.0385%
+audited ce_abs_eff shift (Sec 2.3)                                       = +4.93% +/- 0.20%
+agreement                                                                = 0.54 sigma
+fraction of the +4.93% shift explained by the two levers combined       = 102.2%
+```
+
+### 8.6 Verdict
+
+**Verdict: magnitude CONFIRMED — the two `PrimaryFilter` levers
+(`MinimumSumCaloE`, `MinimumCaloPartMom`), reverted together and re-applied
+locally to 165,838 already-archived Run1Bap CE events, yield a corrected
+survivor fraction of 95.20% ± 0.05%, landing inside (0.52σ from center of)
+the 95.1-95.5% window predicted from the audited +4.93%±0.20% champion-x
+`ce_abs_eff` shift (§2.3), and imply a production-equivalent shift of
++5.04% — 102% of the measured shift, i.e. the two levers combined explain
+the full +4.93% within measurement noise. The compression-bias control
+(`newFilter` on compressed products) passed 100.0000% (0/165,838 failures),
+so no correction beyond the direct ratio was needed.** This closes the
+magnitude question §7.2 flagged as open for ledger rows 17-18 (updated
+above) and is, in substance, a lighter/faster/no-grid execution of the
+exact revert §7.3 recommended as arm 1 — the full-chain grid re-run remains
+available as an independent confirmatory step (it would additionally cross
+the compression boundary and the `ce_abs_eff`/`s_over_sqrt_b` normalization
+chain rather than stopping at the filter's own pass/fail decision), but is
+no longer required to answer the magnitude question this investigation was
+gated on. **Caveat:** this test used only `ipafixAB01` (one config, one
+population); it was not repeated at the baseline geometry pair or against
+an independent champion-x arm, so a residual geometry-dependence at the
+few-tenths-of-a-percent level (§7.3's stated open question) is not
+addressed by this test and remains exactly as open as §7.3 left it.
