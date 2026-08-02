@@ -70,31 +70,45 @@ class TestFoilspfRegistration(unittest.TestCase):
             "extent"))
         self.assertEqual(s.bounds_lo,
                          (50.0, 50.0, 50.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0, 400.0))
-        # extent max went 1100 -> 800 -> 950 -> 1100 over 2026-07-27/28, and is
-        # back at the design range for a measured reason, not a revert. The 800
-        # was a centre-pinned artifact (z0 fixed at 5871 puts the downstream end
-        # on the absorber at exactly extent 800). Deriving z0 moved the wall to
-        # the UPSTREAM side (EMC_Source, z=5300 -> 971mm); relocating that
-        # massless VD to 5000 moves it again to 6271-5000 = 1271mm. 1100 is the
-        # original design ceiling with 171mm of margin.
+        # extent max went 1100 -> 800 -> 950 -> 1100 over 2026-07-27/28, then
+        # 1100 -> 1700 on 2026-08-02 after foilspf02 PINNED the 1100 bound (its
+        # two best new Pareto points both sat exactly on it). 1700 is measured:
+        # worst-corner preflight PASSes at 0 overlaps through 1700 and FAILs at
+        # 1800 on EMC_Source. See test_extent_ceiling_stays_inside_the
+        # _zero_overlap_corridor for the wall arithmetic.
         self.assertEqual(s.bounds_hi,
-                         (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 1100.0))
+                         (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 1700.0))
         self.assertEqual(s.int_dims, ())
 
     def test_extent_ceiling_stays_inside_the_zero_overlap_corridor(self):
-        """The corridor is bounded by two measured walls: the target's own
-        downstream end in the old uncompensated regime (z=6271, the maximum
-        target z_end measured before the absorber was pinned to its own
-        absolute position -- NOT the proton absorber itself, which now sits
-        fixed at z=6901-7901 regardless of extent) and EMC_Source upstream
-        (a 20um vacuum disc, relocated 5300 -> 5000). Max stack is therefore
-        6271-5000 = 1271 mm. Derived from the spec's own VD placement rather
-        than hardcoded, so moving the VD again cannot silently desync this.
+        """The stack is CENTRE-pinned at z0 and grows SYMMETRICALLY, so the
+        ceiling is set by whichever edge reaches a wall first -- not by a
+        corridor width.
+
+        This previously asserted `extent <= 6271 - vd` (= 1271), mixing the
+        current upstream wall with 6271: the maximum target z_end from the
+        OLD uncompensated regime, before the absorber was pinned to its own
+        absolute position. That model is over-conservative and measurably
+        wrong -- worst-corner preflight PASSes at 0 overlaps at extent 1700
+        (upstream edge 5021) and only FAILs at 1800 (edge 4971) on
+        EMC_Source, consistent with the symmetric model's 1742, not 1271.
+
+        Walls: EMC_Source upstream (a 20um vacuum disc, relocated 5300 ->
+        5000) and the proton absorber downstream (pinned at z=6901-7901
+        regardless of extent). Both are derived from the spec's own rendered
+        placement, so moving either cannot silently desync this.
         """
         s = modes.SPECS["foilspf"]
         x = [120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 800.0]
-        vd = float(re.search(r"zEMCSourceInMu2e = ([\d.]+)", s.geom.render(x)).group(1))
-        self.assertLessEqual(s.bounds_hi[s.knob_names.index("extent")], 6271.0 - vd)
+        txt = s.geom.render(x)
+        z0 = float(re.search(r"z0InMu2e = ([\d.]+)", txt).group(1))
+        vd = float(re.search(r"zEMCSourceInMu2e = ([\d.]+)", txt).group(1))
+        ipa = float(re.search(r"zStartInMu2e = ([\d.]+)", txt).group(1))
+        ceiling = s.bounds_hi[s.knob_names.index("extent")]
+        # upstream: z0 - extent/2 must stay clear of the (massless) VD
+        self.assertLessEqual(ceiling, 2.0 * (z0 - vd))
+        # downstream: z0 + extent/2 must stay clear of the pinned absorber
+        self.assertLessEqual(ceiling, 2.0 * (ipa - z0))
 
     def test_target_position_is_fixed_and_the_absorber_is_compensated(self):
         """The target must NOT move. Offline places the IPA at

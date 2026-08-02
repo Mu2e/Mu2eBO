@@ -26,7 +26,7 @@
     {"name": "f_0", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
     {"name": "f_1", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
     {"name": "f_2", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
-    {"name": "extent", "min": 400.0, "max": 1100.0, "fmt": "{:.4f}"}
+    {"name": "extent", "min": 400.0, "max": 1700.0, "fmt": "{:.4f}"}
   ],
   "int_dims": [],
   "leaderboard": {
@@ -68,6 +68,7 @@
       {"comment": "hT    profile: {hT_0:.4f} -> {hT_1:.4f} -> {hT_2:.4f} mm"},
       {"comment": "hole  profile: f = {f_0:.3f} -> {f_1:.3f} -> {f_2:.3f}  (rIn_i = f_i * rOut_i)"},
       {"comment": "extent {extent:.1f} mm over 48 gaps -> deltaZ {deltaZ:.6f} mm; centre pinned at z0 {z0:.1f}"},
+      {"comment": "EXTENT CEILING 1100 -> 1700, measured 2026-08-02 after foilspf02 PINNED 1100 (its two best new Pareto points both sat exactly on the bound). The stack is CENTRE-pinned at z0=5871 and grows symmetrically, so the walls are upstream 2*(5871-5000)=1742 (EMC_Source, relocated) and downstream 2*(6901.02-5871)=2060 (IPA, absolutely pinned) -- upstream binds. Live preflight at the WORST corner (rOut 120/120/120, hT .15/.15/.15, solid f=0 -> maximal material, so a PASS certifies the whole box at that extent): 1100 PASS 0 overlaps, 1400 PASS 0, 1700 PASS 0, 1800 FAIL (VirtualDetector_EMC_Source vs StoppingTargetMother by 3.401 cm -- upstream edge 4971 is 29mm past the VD, and the reported 34mm depth matches). 1700 keeps 42mm of margin below the 1742 wall, the same margin convention the old 1100/1142 pair used."},
       {"comment": "protonabsorber.distFromTargetEnd {ipa_dist:.3f} (stock 625). Offline places the IPA at targetEnd+distFromTargetEnd -- i.e. RELATIVE to the stopping target -- but the IPA is fixed hardware at z=6901-7901. Without this compensation a longer target slides the absorber the same distance downstream as a RIGID body (length is unchanged: pabs1halflen saturates at the protonabsorber.halfLength=500 cap), which both mis-simulates real in-beam material and pushes its support wires out of DS2Vacuum. This holds the absorber at its true absolute position for any extent; at extent 800 it returns the stock 625 exactly. Measured with protonabsorber.verbosityLevel=1: 6901.02-7901.02 at extent 400, 800 and 1100, identical to stock."},
       {"comment": "EMC_Source relocated 5300 -> 5000. It is a 20um disc of ds.vacuumMaterial (vd.halfLength=0.01) -- ZERO mass, no scattering, no absorption -- and NO foils-family stage reads virtual detectors (only pot_only instantiates ReadVirtualDetector). At 5300 it was the UPSTREAM wall of the zero-overlap corridor, capping the stack at 6271-5300=971mm. zEMCSourceInMu2e is a plain c.getDouble default at VirtualDetectorMaker.cc:189, so this is one config line, no source patch. EMC_Source2 stays at 4800, so ordering is preserved."},
       {"key": "zEMCSourceInMu2e", "type": "double", "value": 5000.0},

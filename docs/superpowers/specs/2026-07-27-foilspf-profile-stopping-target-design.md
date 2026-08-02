@@ -94,6 +94,18 @@ range. The OPA-coupled support-wire calculation at `StoppingTargetMaker.cc:140`
 does not apply: it is gated on `foilTarget_supportStructure_endAtOPA`, and this
 geometry sets `stoppingTarget.foilTarget_supportStructure = false`.
 
+> **SUPERSEDED 2026-08-02 — this section documents the pre-relocation state.**
+> `EMC_Source` was afterwards relocated `5300 → 5000` (one config line;
+> `zEMCSourceInMu2e` is a plain `c.getDouble` default — the VD is a 20 µm
+> vacuum disc that nothing in the foils family reads), which moves the
+> upstream wall from `extent ≈ 1142` to **`extent ≈ 1742`**. After foilspf02
+> pinned the 1100 bound, worst-corner preflight measured the real ceiling:
+> **1100 / 1400 / 1700 all PASS at zero overlaps; 1800 FAILs** on
+> `EMC_Source` vs `StoppingTargetMother` by 3.401 cm. The bound is now
+> **1700** (42 mm of margin below 1742, the same convention as the old
+> 1100/1142 pair). The table below is retained as the historical record of
+> why 1100 was right *at the time*.
+
 **The 1100 ceiling is measured, not round (revised 2026-07-27 from an initial
 1200).** `VirtualDetector_EMC_Source` sits at a fixed `z = 5300`; the stack's
 upstream edge is `5871 − extent/2`, so it reaches that detector at
@@ -146,17 +158,61 @@ the check genuinely ran. Our geometry's three suppression layers
 `ds.lengthRail2/3=0.1`) are therefore **workarounds for a stale Offline whose
 stock geometry does not even run**, not general hygiene.
 
-**Why we have not migrated:** Run1Bap does **not** support the per-foil
-`holeRadii` vector this line depends on — verified directly, the poison pill
-fired under Run1Bap with `pRMin = 1e+06, pRMax = 75` (a live confirmation that
-the pill works as designed in a genuinely unpatched environment). Migration
-therefore requires rebuilding the patch against Run1Bap
-(see `wiki/external/muse-backing-pattern.md`), revalidating, and accepting a
-**leaderboard discontinuity** — the 414 existing `foilsflash` rows were
-measured under Run1Bak, and an Offline release change moves the physics
-baseline. That is a scoped piece of work affecting the whole foils family, not
-a `foilspf` decision, and it is deliberately out of scope here. It should be
-near the top of the project's queue.
+**SECOND CORRECTION (measured 2026-07-28): the stock-vs-stock probe above does
+NOT transfer to our geometry.** Swapping Musing alone changes nothing; the
+override must be dropped too, and that is only survivable under Run1Bap. Full
+2×2, same `foilspf` corner_hi geometry (49 foils @ rOut=120, extent 800), same
+surface-check settings, patched `GeometryService` in all four cells:
+
+| Musing | `inDS2Vacuum`/`ds2.halfLength` | overlaps | exit |
+|---|---|---|---|
+| Run1Bak (live base) | present | 1 — `EMC_0_Front` | rc=0 |
+| Run1Bap | present | 1 — `EMC_0_Front` | rc=0 |
+| Run1Bak | removed | 6 — incl. `TT_MidInner` | **rc=134, core dumped** |
+| Run1Bap | removed | **0** | rc=0 |
+
+The two "present" rows are bit-identical: same log line, same overlapping pair,
+same penetration (11.7059 cm), same 937 cases. The mechanism is the ternary at
+`constructVirtualDetectors.cc:502,792,840,889,940`, which v13_32_10 changed from
+`isDumbbell` to `!tracker.inDS2Vacuum`. With `inDS2Vacuum=true` both evaluate
+false, so **our own override pins us to the pre-fix branch** — the upstream fix
+only bites when the flag is unset.
+
+Row 3 independently reproduces [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md):
+removing the override under Run1Bak resurrects exactly the `TT_MidInner` failure
+that motivated it. So the override is mandatory under Run1Bak and counter-
+productive under Run1Bap — **Run1Bap has absorbed our hand-maintained
+TT_MidInner patch upstream.** Retiring a local workaround is a maintenance win
+independent of the overlap count.
+
+Caveat before acting on row 4: `tracker.inDS2Vacuum` is not an overlap knob. At
+`Mu2eWorld.cc:346-347` it selects the tracker's mother volume
+(`DS2Vacuum` vs `DS3Vacuum`); with `ds2.halfLength=3825` it also extends DS2
+toward the MBS. Both mothers are vacuum, so no material moves in the tracker
+region — but the objective *is* tracker `StrawGasStep` edep, so dropping the
+override is a physics-affecting change owing an A/B on flash edep, not a
+geometry-cleanliness decision.
+
+**Migration status (updated 2026-07-28): the rebuild is DONE; adoption is not.**
+Stock Run1Bap does not support the per-foil `holeRadii` vector this line depends
+on — verified directly, the poison pill fired under stock Run1Bap with
+`pRMin = 1e+06, pRMax = 75` (a live confirmation that the pill works as designed
+in a genuinely unpatched environment). The patch has since been rebuilt against
+Run1Bap at `/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial` — an
+mgit-style partial checkout (`GeometryService` only, 2 libs, 26 s, 178 MB;
+`rebuild.sh` in that tree is the exact recipe). `StoppingTargetMaker.{cc,hh}`
+are byte-identical between v13_12_10 and v13_32_10, so the patch applied with
+zero adaptation, and the canary confirms the local library wins over the
+backing at runtime.
+
+What remains is **adoption**, which is a physics decision, not a build one:
+switching `mode_specs/*.json` `software.musing`/`grid_tarball` means accepting a
+**leaderboard discontinuity** — the 414 existing `foilsflash` rows were measured
+under Run1Bak, and an Offline release change moves the physics baseline. That is
+a scoped piece of work affecting the whole foils family, not a `foilspf`
+decision, and it remains out of scope here. Note the overlap argument is NOT a
+reason to hurry it: per the 2×2 above, migrating while keeping the override is
+geometrically a no-op.
 
 Disabling `VirtualDetector_EMC_Source` was considered and rejected: it treats
 the symptom rather than the stack growing into detector space, it diverges
