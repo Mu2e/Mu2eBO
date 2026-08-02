@@ -71,13 +71,16 @@ class TestFoilspfRegistration(unittest.TestCase):
         self.assertEqual(s.bounds_lo,
                          (50.0, 50.0, 50.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0, 400.0))
         # extent max went 1100 -> 800 -> 950 -> 1100 over 2026-07-27/28, then
-        # 1100 -> 1700 on 2026-08-02 after foilspf02 PINNED the 1100 bound (its
-        # two best new Pareto points both sat exactly on it). 1700 is measured:
-        # worst-corner preflight PASSes at 0 overlaps through 1700 and FAILs at
-        # 1800 on EMC_Source. See test_extent_ceiling_stays_inside_the
-        # _zero_overlap_corridor for the wall arithmetic.
+        # 1100 -> 1700 -> 2000 on 2026-08-02 after foilspf02 PINNED the 1100
+        # bound (its two best new Pareto points both sat exactly on it). Every
+        # step is worst-corner preflight measured: PASS at 0 overlaps through
+        # 1700, FAIL at 1800; then with the massless EMC_Source walked
+        # 5000 -> 4850, PASS at 1900 and 2000, FAIL at 2100. 2000 is the end of
+        # the line -- past ~2042 the wall is DOWNSTREAM and material (ST_Out vs
+        # protonabs1), not a relocatable VD. See
+        # test_extent_ceiling_stays_inside_the_zero_overlap_corridor.
         self.assertEqual(s.bounds_hi,
-                         (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 1700.0))
+                         (120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 2000.0))
         self.assertEqual(s.int_dims, ())
 
     def test_extent_ceiling_stays_inside_the_zero_overlap_corridor(self):
