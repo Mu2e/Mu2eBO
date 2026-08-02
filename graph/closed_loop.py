@@ -78,7 +78,6 @@ from langgraph.graph import END, StateGraph  # noqa: E402
 from typing_extensions import TypedDict  # noqa: E402
 
 from config import (  # noqa: E402
-    BOTORCH_PREDICT,
     BOTORCH_VENV_PY,
     CLOSED_LOOP_BARRIER_MAX_MIN,
     CLOSED_LOOP_BARRIER_POLL_SEC,
@@ -788,23 +787,14 @@ def _build_outer_graph():
 # CLI
 # ============================================================================
 
-_DRY_RUN_KNOB_LABELS = {
-    # foils v2 is 6D per-side decoupled; must match FoilsMode.build_space order.
-    "foils":   ("rOut_up", "rOut_dn", "hT_up", "hT_dn", "rIn_up", "rIn_dn"),
-    # foilsf (v3) swaps the rIn dims for hole-fractions f = rIn/rOut.
-    "foilsf":  ("rOut_up", "rOut_dn", "hT_up", "hT_dn", "f_up", "f_dn"),
-    "foilsflash": ("rOut_up", "rOut_dn", "hT_up", "hT_dn", "f_up", "f_dn"),
-    # foilsg: 4 z-groups × (rOut, hT, f) — 12 knobs, FoilsGroupMode.build_space order.
-    "foilsg":  tuple(f"{k}_g{g}" for g in range(4) for k in ("rOut", "hT", "f")),
-    # prodtarget6d: 6D rOut+thickness profile (N=35 fixed, lug derived).
-    "prodtarget6d": ("r0", "r1", "r2", "t0", "t1", "t2"),
-}
-
-
 def _dry_run(args: argparse.Namespace) -> int:
     picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, picker=args.picker)
     print(f"[dry-run] round 0: {len(picks)} picks (mode={args.mode}, picker={args.picker})")
-    labels = _DRY_RUN_KNOB_LABELS.get(args.mode, tuple(f"x{i}" for i in range(len(picks[0]) if picks else 0)))
+    # Labels come from the registry (ModeSpec.knob_names, ADR-0002), not a
+    # hand-maintained table: the local copy this replaced covered 5 of the 11
+    # modes, so every JSON mode (foilspf, the A/B arms) printed bare x0..xN,
+    # and its labels had drifted from the leaderboard column names.
+    labels = _modes.SPECS[args.mode].knob_names
     for j, p in enumerate(picks):
         name = f"{args.name_prefix}R00_{j:02d}"
         kv = " ".join(f"{labels[i]}={p[i]:.4g}" for i in range(len(p)))

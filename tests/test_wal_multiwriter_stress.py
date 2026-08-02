@@ -28,7 +28,6 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 import random
-import shutil
 import sys
 import time
 import traceback

@@ -36,7 +36,7 @@ _REQUIRED_RUN = ("stages", "harvest")
 # jobs_per_stage/presubmit_after/stage_tuning are optional (default to
 # empty when absent -- see load_mode_file below).
 _ALLOWED_RUN = _REQUIRED_RUN + ("jobs_per_stage", "presubmit_after", "stage_tuning")
-_REQUIRED_PREFLIGHT = ("fcl", "dumps_gdml", "verifies_foil_gdml",
+_REQUIRED_PREFLIGHT = ("dumps_gdml", "verifies_foil_gdml",
                        "preserves_gdml", "checks_managed_overlap",
                        "require_zero_overlaps")
 _REQUIRED_LEADERBOARD = ("file", "columns", "obs_noise", "metrics")
@@ -451,7 +451,6 @@ def load_mode_file(path: Path) -> "object":
         bounds_lo=tuple(float(k["min"]) for k in knobs),
         bounds_hi=tuple(float(k["max"]) for k in knobs),
         int_dims=tuple(int_dims_raw),
-        preflight_fcl=preflight["fcl"],
         dumps_gdml=preflight["dumps_gdml"],
         verifies_foil_gdml=preflight["verifies_foil_gdml"],
         preserves_gdml=preflight["preserves_gdml"],

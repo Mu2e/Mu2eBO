@@ -61,7 +61,6 @@ class TestRegistryCompleteness(unittest.TestCase):
             self.assertTrue(spec.grid_tarball.endswith(".tar.bz2"), name)
             self.assertGreater(len(spec.grid_stages), 0, name)
             self.assertIn(spec.harvest_verb, ("harvest", "harvest-pot-only"), name)
-            self.assertIn(spec.preflight_fcl, ("surfacecheck", "preflight"), name)
 
     def test_obs_noise_declared_per_family(self):
         # The foils family has replicate-measured sigma and MUST pin it
@@ -165,14 +164,6 @@ class TestSpotFacts(unittest.TestCase):
         # The old :2403 banner tuple omitted prodtarget6d; the flag is the
         # single source now and must include it.
         self.assertTrue(modes.SPECS["prodtarget6d"].checks_managed_overlap)
-
-    def test_all_modes_use_surfacecheck_preflight(self):
-        # michael was the only "preflight" (non-surfacecheck) mode; with it
-        # retired (2026-07-12), every surviving mode uses the surface-check
-        # preflight path.
-        self.assertTrue(all(s.preflight_fcl == "surfacecheck"
-                            for s in modes.SPECS.values()))
-
 
 class TestSchemaFields(unittest.TestCase):
     def test_lockstep_enforced_at_construction(self):

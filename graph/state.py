@@ -14,7 +14,6 @@ from typing_extensions import TypedDict
 
 
 PreflightStatus = Literal["pending", "pass", "fail_managed", "fail_init", "ambiguous"]
-StageName = Literal["mubeam", "run1b_mubeam", "concat", "mustops_ce", "elebeam_flash", "pot_only"]
 
 
 class StageStatus(TypedDict, total=False):

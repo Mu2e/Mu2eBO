@@ -12,7 +12,6 @@ had never appeared in the preceding 461 evaluations, and preflight reported
 "3 known stock-geometry overlaps ... ignored" and PASSED. These tests pin the
 strict policy that turns that into a failure.
 """
-import re
 import sys
 import unittest
 from pathlib import Path

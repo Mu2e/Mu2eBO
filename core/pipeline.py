@@ -249,25 +249,28 @@ STAGES = {
     },
 }
 
-# foilsflash: size events_per_job for ~30-min payloads (measured per-event:
-# mubeam 9.1 ms, mustops_ce 24.1 ms, elebeam_flash 16.6 ms) instead of the
-# ~45-s default — payload then dominates the ~44-s muse/setup overhead (~80% grid
-# efficiency vs ~15-30%). Paired with njobs=100 (graph/config.py STAGE_TARGETS
-# override) → ~15-20× total stats: σ(sob)~0.09% (overkill, harmless) + σ(flash)
-# ~3.8× tighter (~59k flash events; flash is the binding noise channel). mubeam/
-# mustops_ce events_per_job are SHARED, so override ONLY for foilsflash here.
-# Stamped-at-submit (see [[events-per-job-mid-flight-edit]]); safe for a FRESH
-# campaign (kill+relaunch), NOT for mid-flight edits.
-# The hardcoded `AUTORESEARCH_MODE == "foilsflash"` block that used to live
-# here was RETIRED 2026-07-26 with the Python FoilsFlashMode: its values moved
-# verbatim into mode_specs/foilsflash.json `run.stage_tuning` and are applied
-# by the generic _apply_stage_tuning() call below. Keeping both would have left
-# two mechanisms writing the same three stages, with the generic one silently
-# winning (it ran last) — so an edit to the JSON would appear to work while an
-# edit here did nothing. Values preserved exactly: mubeam 200k ev / 2000 MB /
-# quorum 0.8, mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 /
-# (default quorum). The rationale for each still lives in the JSON's comments
-# and wiki/concepts/bo-noise-budget.md.
+# There is NO mode-specific tuning block here. Per-stage tuning for the flash
+# lines (foilsflash/foilspf) is declared in mode_specs/<mode>.json
+# `run.stage_tuning` and applied by the generic _apply_stage_tuning() call
+# below. The hardcoded `AUTORESEARCH_MODE == "foilsflash"` block that used to
+# sit at this spot was RETIRED 2026-07-26 with the Python FoilsFlashMode; its
+# values moved verbatim into the JSON (mubeam 200k ev / 2000 MB / quorum 0.8,
+# mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 / default quorum).
+# Two mechanisms writing the same three stages would have let the generic one
+# silently win (it runs last), so an edit here would have done nothing while
+# looking like it worked.
+#
+# WHY those values, since the JSON records only the numbers: they size
+# events_per_job for ~30-min payloads (measured per-event: mubeam 9.1 ms,
+# mustops_ce 24.1 ms, elebeam_flash 16.6 ms) instead of the ~45-s default, so
+# the payload dominates the ~44-s muse/setup overhead (~80% grid efficiency vs
+# ~15-30%). Paired with njobs=100 (graph/config.py STAGE_TARGETS override) →
+# ~15-20× total stats: σ(sob)~0.09% (overkill, harmless) + σ(flash) ~3.8×
+# tighter (~59k flash events; flash is the binding noise channel). mubeam and
+# mustops_ce events_per_job are SHARED defaults, which is exactly why these are
+# per-mode overrides and not edits to STAGES above. Stamped-at-submit (see
+# wiki/incidents/events-per-job-mid-flight-edit.md); safe for a FRESH campaign
+# (kill+relaunch), NOT for mid-flight edits. See wiki/concepts/bo-noise-budget.md.
 
 
 def _apply_stage_tuning(stages: dict, tuning: dict) -> None:
@@ -286,14 +289,10 @@ def _apply_stage_tuning(stages: dict, tuning: dict) -> None:
         stages[stage].update(overrides)
 
 
-# Generic per-mode stage tuning (core/mode_json.py `run.stage_tuning`): the
-# JSON schema's declarative equivalent of the hardcoded foilsflash block
-# above. Applied AFTER that block ON PURPOSE so the two mechanisms coexist
-# without one clobbering the other -- the Python foilsflash mode's hardcoded
-# tuning is untouched (migrating it to stage_tuning is explicitly out of
-# scope; see the block above), and JSON modes get theirs here. The six
-# Python modes all declare stage_tuning={} (core/modes.py), so this is a
-# no-op for every mode except a JSON mode that sets it.
+# Per-mode stage tuning (core/mode_json.py `run.stage_tuning`) — the SOLE
+# mechanism since 2026-07-26. The five Python modes all declare
+# stage_tuning={} (core/modes.py), so this is a no-op for every mode except a
+# JSON mode that sets it.
 _apply_stage_tuning(
     STAGES,
     _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")].stage_tuning)

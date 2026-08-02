@@ -215,8 +215,7 @@ class TestEvalSummarySchema(unittest.TestCase):
     LEGACY_KEYS = {
         "config", "ce_seen", "muminus_stops", "mubeam_sim_total",
         "ce_simulated_events", "stopping_factor", "ce_abs_eff",
-        "s_over_sqrt_b", "trk_edep_per_pot", "trk_edep_total_MeV",
-        "trk_edep_events", "trk_edep_tag", "flash_edep_per_event",
+        "s_over_sqrt_b", "flash_edep_per_event",
         "flash_edep_per_pot", "flash_edep_per_pot_winsor",
         "flash_perfile_stats", "flash_edep_total_MeV", "flash_edep_events",
         "flash_n_input", "flash_edep_tag", "calo_per_pot", "calo_total",

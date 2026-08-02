@@ -101,7 +101,6 @@
     }
   },
   "preflight": {
-    "fcl": "surfacecheck",
     "dumps_gdml": true,
     "verifies_foil_gdml": true,
     "preserves_gdml": false,

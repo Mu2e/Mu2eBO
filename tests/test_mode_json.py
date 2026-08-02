@@ -46,7 +46,7 @@ class TestLoadFixture(unittest.TestCase):
         for field in ("musing", "grid_tarball", "grid_stages", "harvest_verb",
                       "stage_target_overrides", "presubmit_after", "bounds_lo",
                       "bounds_hi", "knob_names", "knob_fmts", "metric_cols",
-                      "obs_noise", "preflight_fcl", "dumps_gdml",
+                      "obs_noise", "dumps_gdml",
                       "verifies_foil_gdml", "preserves_gdml",
                       "checks_managed_overlap"):
             self.assertEqual(getattr(spec, field), getattr(live, field), field)
