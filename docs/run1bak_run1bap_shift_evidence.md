@@ -1792,7 +1792,7 @@ decision itself is the operator's, not this document's):
 lever pair (rows 17–18 — one mechanism needing **direct proof** of
 magnitude) and the baseline-pair flash anomaly (row 20). That satisfies
 the rule twice over — both disjuncts hold independently ("≥2 live candidates
-and one candidate needing direct proof → recommend the gated Task 8 arm(s)").
+or one candidate needing direct proof → recommend the gated Task 8 arm(s)").
 
 **Recommended arms, in order:**
 
