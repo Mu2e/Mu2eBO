@@ -1745,8 +1745,8 @@ Strength vocabulary: **direct-paired** (measured A/B at matched x/seeds),
 | 14 | art / ROOT | **excluded** | v3_15_00 / v6_32_06 identical both sides (§6.3) | inspection |
 | 15 | KinKal v03_05_01→v03_06_00, artdaq-core-mu2e v9_03_00→v9_04_00, mu2e-ort (new) | **excluded** | changed, but no consumer scheduled on `PrimaryPath` — truth-level chain has no track fit / DAQ format / ML inference (§6.2–6.3) | elimination (schedule test) |
 | 16 | Other job-config deltas (`KinKalMaterial`, `ADC2MeV`→CsI/lyso split, `Scoring.scorerNames`) | **excluded** | declared-but-unconsumed service defaults, or inside a `enabled: false` block (§6.2) | elimination |
-| 17 | **PrimaryFilter Lever 1** — `MinimumSumCaloE: 45` total-calo-energy OR-branch | **confirmed (local re-filter, §8)** | scheduled on `PrimaryPath`; pure disjunct, monotonic-increasing on acceptance (§6.2); introduced by Offline `a9839eeb4` (PR #1819) + engaged by Production `a387965f` (PR #539) (§7.1); PR intent = deliberate acceptance recovery; combined-lever magnitude measured directly at 95.20%±0.05% survivor fraction vs 95.1-95.5% predicted (§8) | inspection + sweep + **direct-paired (local re-filter)** |
-| 18 | **PrimaryFilter Lever 2** — `MinimumCaloPartMom: 0` removes the 50 MeV/c calo-step momentum floor | **confirmed (local re-filter, §8)** | same commits; active from the Offline C++ default alone (§7.1); widens the population feeding both Lever 1's sum and the pre-existing per-particle `caloESum` branch (§6.2); combined-lever magnitude measured directly at 95.20%±0.05% survivor fraction vs 95.1-95.5% predicted (§8) | inspection + sweep + **direct-paired (local re-filter)** |
+| 17 | **PrimaryFilter Lever 1** — `MinimumSumCaloE: 45` total-calo-energy OR-branch | **confirmed (combined with row 18, unsplit — §8)** | scheduled on `PrimaryPath`; pure disjunct, monotonic-increasing on acceptance (§6.2); introduced by Offline `a9839eeb4` (PR #1819) + engaged by Production `a387965f` (PR #539) (§7.1); PR intent = deliberate acceptance recovery; combined-lever magnitude measured directly at 95.20%±0.05% survivor fraction vs 95.1-95.5% predicted (§8; the two levers were reverted together, not split — see §8.1) | inspection + sweep + **direct-paired (local re-filter, jointly with row 18)** |
+| 18 | **PrimaryFilter Lever 2** — `MinimumCaloPartMom: 0` removes the 50 MeV/c calo-step momentum floor | **confirmed (combined with row 17, unsplit — §8)** | same commits; active from the Offline C++ default alone (§7.1); widens the population feeding both Lever 1's sum and the pre-existing per-particle `caloESum` branch (§6.2); combined-lever magnitude measured directly at 95.20%±0.05% survivor fraction vs 95.1-95.5% predicted (§8; the two levers were reverted together, not split — see §8.1) | inspection + sweep + **direct-paired (local re-filter, jointly with row 17)** |
 | 19 | Offline code, other subsystems in v13_12_10→v13_32_10 | **bounded (FCL-visible); non-FCL C++ changes in scheduled modules conditionally excluded pending the arm-1 revert readout** | the net FCL-visible effect of ALL Offline+Production changes on this job is bounded by the §6.2 `--debug-config` diff (8 hunks, all classified); within the implicated module's file the two PR #1819 commits account for the entire release delta (54+/6−); remaining `Filters/` changes are an unscheduled new module (§7.1) | elimination + sweep |
 | 20 | Baseline-pair flash anomaly (+6.35% ± 2.82%, 2.25σ, opposite sign to champion) | **open** | n=1-vs-1, no seed pairing possible (400 vs 100 jobs), emission-mechanism provenance confound (geometrically inert per §3.1); champion-derived override effect (+2.2%) predicts the WRONG sign for it (§5.4) | unresolved observation |
 
@@ -1796,13 +1796,16 @@ decision itself is the operator's, not this document's):
 
 **Task-8 trigger verdict: TRIGGERED.** Live candidates: the PrimaryFilter
 lever pair (rows 17–18 — one mechanism needing **direct proof** of
-magnitude) and the baseline-pair flash anomaly (row 20). That satisfies
+magnitude — **since run and closed: see §8 (magnitude CONFIRMED); this
+paragraph is preserved as the pre-measurement state**) and the
+baseline-pair flash anomaly (row 20). That satisfies
 the rule twice over — both disjuncts hold independently ("≥2 live candidates
 or one candidate needing direct proof → recommend the gated Task 8 arm(s)").
 
 **Recommended arms, in order:**
 
-1. **FIRST — config-level revert arm (cheaper AND sharper; run this one).**
+1. **FIRST — config-level revert arm (cheaper AND sharper; run this one) —
+   (EXECUTED as the §8 local re-filter — no grid needed).**
    One chain under **Run1Bap** at the identical champion x (clone of the
    `ipafix` spec), with the two prolog levers reverted to Run1Bak-equivalent
    semantics in the mustops_ce template:
@@ -1843,8 +1846,8 @@ of the implicated module is two commits from Offline PR #1819
 one Production commit from PR #539 (`a387965f`), with PR-stated intent of
 deliberate signal-acceptance recovery; ledger closes 15 of 20 rows as
 excluded (1 bounded FCL-visible, 3 confirmed — 1 on the flash channel + 2
-PrimaryFilter levers via the §8 local re-filter magnitude test — + 1
-baseline flash anomaly open); Task 8 is TRIGGERED, and the recommended
+PrimaryFilter levers via the §8 local re-filter magnitude test (jointly,
+unsplit) — + 1 baseline flash anomaly open); Task 8 is TRIGGERED, and the recommended
 first arm is the config-level PrimaryFilter revert under Run1Bap
 (`MinimumSumCaloE` erased + `MinimumCaloPartMom: 50`), which is both
 cheaper and sharper than a Run1Bak control re-run. (Update, §8: the local,
@@ -1999,16 +2002,34 @@ in §2.3.
 ```
 predicted survivor central (from +4.93%+/-0.20% ce_abs_eff shift, §2.3) = 1/1.0493 = 95.302%
 predicted window                                                        = [95.120%, 95.484%]
-measured survivor fraction                                              = 95.2032% +/- 0.0525%
+window-alone sigma (half the predicted window width)                    = +/-0.182 pp
+measured survivor fraction                                              = 95.2032% +/- 0.0525% pp
+combined sigma (window-alone 0.182pp (+) measured 0.0525pp, quadrature)  = 0.189 pp
 deviation from predicted center                                          = 0.099 pp
-combined sigma (predicted-window sigma (+/-0.189pp) (+) measured sigma)  = 0.189 pp
 significance                                                             = 0.52 sigma  -- inside the window
 
 implied production-equivalent shift, 1/f_old - 1                        = +5.0385%
 audited ce_abs_eff shift (Sec 2.3)                                       = +4.93% +/- 0.20%
-agreement                                                                = 0.54 sigma
+deviation                                                                = 0.109 pp
+significance, quadrature (audited 0.20% (+) measured-side ~0.058pp
+  propagated to shift-space via d(shift)/df=-1/f^2, sigma_quad=0.208%)  = 0.52 sigma  -- primary figure
+significance, audited-sigma-only (conservative form, ignores the small
+  measured-side term)                                                   = 0.54 sigma
 fraction of the +4.93% shift explained by the two levers combined       = 102.2%
 ```
+
+**Rebuttal to a vacuous/misconfigured-filter reading:** a trivially-passing or
+broken filter (e.g. a mistyped input tag silently yielding an empty
+collection, or a config that never actually engages `selectcalo`) would
+pass ~100% on *both* paths, since an empty/never-consumed collection can
+never contribute a rejection. That is not what happened here: `oldFilter`
+rejected 7,955 of 165,838 events (4.8%) on the **identical** input tags
+`newFilter` used to pass 100.0000% of the same events — the two paths only
+differ in the two reverted values (§8.1), so a non-trivial, differential
+rejection at exactly the lever-controlled branch is direct evidence both
+filters are reading real, non-empty `StrawGasStep`/`CaloShowerStep`
+collections and actually engaging the `selectcalo` logic, not silently
+no-op'ing.
 
 ### 8.6 Verdict
 
