@@ -1551,10 +1551,11 @@ mu2e-ort all changed but are excluded by the same "not exercised on
 `PrimaryPath`" test applied in §6.2 — none has a scheduled consumer in the
 mustops_ce chain. The only toolchain-adjacent fact that *is* real and
 substantial is the backing-Offline-musing jump (`v13_12_10`→`v13_32_10`,
-many releases apart) — but §6.1 already resolved the one FCL-visible Offline
-delta the debug-config diff surfaces on PrimaryPath (non-FCL C++ changes in
-other scheduled modules are bounded, not excluded, by this method) and found it
-byte-identical; §6.2 found the one FCL-prolog delta the jump
+many releases apart) — but §6.1 already resolved the geometry base tree — the
+one Offline subsystem the jump could have moved through config — and found it
+byte-identical; §6.2's `--debug-config` diff (which bounds only FCL-visible
+deltas — non-FCL C++ changes in other scheduled modules are bounded, not
+excluded, by this method) found the one FCL-prolog delta the jump
 actually produced that both (a) sits inside the scheduled `PrimaryPath` and
 (b) has a stated, monotonic, same-direction mechanism on event count at
 unchanged energy response.
@@ -1838,8 +1839,8 @@ or one candidate needing direct proof → recommend the gated Task 8 arm(s)").
 of the implicated module is two commits from Offline PR #1819
 (`a9839eeb4` + printout `2905cfa0b`, michaelmackenzie 2026-05-06) engaged by
 one Production commit from PR #539 (`a387965f`), with PR-stated intent of
-deliberate signal-acceptance recovery; ledger closes 16 of 20 rows as
-excluded (1 confirmed on the flash channel, 2 PrimaryFilter levers + 1
+deliberate signal-acceptance recovery; ledger closes 15 of 20 rows as
+excluded (1 bounded FCL-visible, 1 confirmed on the flash channel, 2 PrimaryFilter levers + 1
 baseline flash anomaly open); Task 8 is TRIGGERED, and the recommended
 first arm is the config-level PrimaryFilter revert under Run1Bap
 (`MinimumSumCaloE` erased + `MinimumCaloPartMom: 50`), which is both
