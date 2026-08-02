@@ -47,6 +47,8 @@ Measured shifts in run1bak vs run1bap across the two geometry pairs (from `harve
 - **ce_abs_eff**: +4.76%
 - **s_over_sqrt_b**: +4.8%
 
+(These carried figures are superseded by the audited §2.3/§4.3 values — see those sections for provenance.)
+
 **Verdict: Inventory complete; all 8 configs fully artifacted. Ready for mechanized elimination.**
 
 ## 2. Normalization audit
@@ -1549,9 +1551,10 @@ mu2e-ort all changed but are excluded by the same "not exercised on
 `PrimaryPath`" test applied in §6.2 — none has a scheduled consumer in the
 mustops_ce chain. The only toolchain-adjacent fact that *is* real and
 substantial is the backing-Offline-musing jump (`v13_12_10`→`v13_32_10`,
-many releases apart) — but §6.1 already resolved the one Offline subsystem
-that jump could plausibly move for this chain (the geometry base tree) and
-found it byte-identical; §6.2 found the one FCL-prolog delta the jump
+many releases apart) — but §6.1 already resolved the one FCL-visible Offline
+delta the debug-config diff surfaces on PrimaryPath (non-FCL C++ changes in
+other scheduled modules are bounded, not excluded, by this method) and found it
+byte-identical; §6.2 found the one FCL-prolog delta the jump
 actually produced that both (a) sits inside the scheduled `PrimaryPath` and
 (b) has a stated, monotonic, same-direction mechanism on event count at
 unchanged energy response.
@@ -1743,17 +1746,17 @@ Strength vocabulary: **direct-paired** (measured A/B at matched x/seeds),
 | 16 | Other job-config deltas (`KinKalMaterial`, `ADC2MeV`→CsI/lyso split, `Scoring.scorerNames`) | **excluded** | declared-but-unconsumed service defaults, or inside a `enabled: false` block (§6.2) | elimination |
 | 17 | **PrimaryFilter Lever 1** — `MinimumSumCaloE: 45` total-calo-energy OR-branch | **open (direction proven, magnitude unproven)** | scheduled on `PrimaryPath`; pure disjunct, monotonic-increasing on acceptance (§6.2); introduced by Offline `a9839eeb4` (PR #1819) + engaged by Production `a387965f` (PR #539) (§7.1); PR intent = deliberate acceptance recovery | inspection + sweep |
 | 18 | **PrimaryFilter Lever 2** — `MinimumCaloPartMom: 0` removes the 50 MeV/c calo-step momentum floor | **open (direction proven, magnitude unproven)** | same commits; active from the Offline C++ default alone (§7.1); widens the population feeding both Lever 1's sum and the pre-existing per-particle `caloESum` branch (§6.2) | inspection + sweep |
-| 19 | Offline code, other subsystems in v13_12_10→v13_32_10 | **excluded for this chain** (scoped, not blind) | the net FCL-visible effect of ALL Offline+Production changes on this job is bounded by the §6.2 `--debug-config` diff (8 hunks, all classified); within the implicated module's file the two PR #1819 commits account for the entire release delta (54+/6−); remaining `Filters/` changes are an unscheduled new module (§7.1) | elimination + sweep |
+| 19 | Offline code, other subsystems in v13_12_10→v13_32_10 | **bounded (FCL-visible); non-FCL C++ changes in scheduled modules conditionally excluded pending the arm-1 revert readout** | the net FCL-visible effect of ALL Offline+Production changes on this job is bounded by the §6.2 `--debug-config` diff (8 hunks, all classified); within the implicated module's file the two PR #1819 commits account for the entire release delta (54+/6−); remaining `Filters/` changes are an unscheduled new module (§7.1) | elimination + sweep |
 | 20 | Baseline-pair flash anomaly (+6.35% ± 2.82%, 2.25σ, opposite sign to champion) | **open** | n=1-vs-1, no seed pairing possible (400 vs 100 jobs), emission-mechanism provenance confound (geometrically inert per §3.1); champion-derived override effect (+2.2%) predicts the WRONG sign for it (§5.4) | unresolved observation |
 
-Notes on honesty of the two open PrimaryFilter rows: what is *proven* is
+Notes on honesty of the two open PrimaryFilter rows and the bounded row 19: what is *proven* is
 (a) the mechanism sits inside the implicated chain at the exact gate that
 sets `ce_seen` (§6.2), (b) both levers are provably monotonic in the
 observed direction (§6.2), (c) they are the only in-scope release delta
 (§6.1, §6.2, §7.1), and (d) they were introduced deliberately to accept
 more signal events (§7.1). What is *not* proven is that their combined
 pass-rate increase equals +4.93%±0.20% at champion x / +4.08%±0.41% at
-baseline — no measurement in this investigation constrains the magnitude.
+baseline — no measurement in this investigation constrains the magnitude. Row 19's bounded status reflects that the net FCL-visible effect is bounded (8 hunks, all classified by §6.2), but non-FCL C++ changes in scheduled modules remain conditionally excluded pending confirmation from the arm-1 revert readout.
 
 ### 7.3 Recommendation input + Task-8 trigger verdict (Step 3)
 
