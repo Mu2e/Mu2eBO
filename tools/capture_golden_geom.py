@@ -24,7 +24,11 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from bo_driver import MODES  # noqa: E402
-from test_json_mode_parity import SAMPLE_X, GOLDEN  # noqa: E402
+# has_python_renderer lives with the goldens it protects (and is pinned by
+# tests there); importing it here keeps a single tool -> test dependency
+# rather than a cycle.
+from test_json_mode_parity import (  # noqa: E402
+    SAMPLE_X, GOLDEN, parse_assignments, has_python_renderer)
 
 
 def main() -> int:
@@ -34,22 +38,29 @@ def main() -> int:
     args = ap.parse_args()
 
     GOLDEN.mkdir(parents=True, exist_ok=True)
-    drift = skipped = written = 0
+    drift = cosmetic = skipped = written = 0
 
     for mode, xs in sorted(SAMPLE_X.items()):
-        python_mode = MODES.get(mode)
-        if python_mode is None or not hasattr(python_mode, "_geom_text"):
-            # Retired or JSON-defined: the golden is the sole surviving oracle.
+        if not has_python_renderer(mode):
             print(f"SKIP {mode}: no Python renderer — golden is the oracle "
                   f"and must not be regenerated")
             skipped += 1
             continue
+        python_mode = MODES[mode]
         for i, x in enumerate(xs):
             text = python_mode._geom_text(x)
             p = GOLDEN / f"{mode}_{i}.txt"
             if args.check:
                 old = p.read_text() if p.exists() else None
-                if old != text:
+                if old == text:
+                    continue
+                # Compare the way test_json_mode_parity does: real drift is a
+                # changed FHiCL assignment, not a reflowed comment. Raw-text
+                # diffing here reported DRIFT on goldens the suite passes.
+                if old is not None and parse_assignments(old) == parse_assignments(text):
+                    print(f"cosmetic {p.name} (comments/whitespace only)")
+                    cosmetic += 1
+                else:
                     print(f"DRIFT {p.name}")
                     drift += 1
             else:
@@ -57,7 +68,7 @@ def main() -> int:
                 written += 1
 
     if args.check:
-        print(f"{drift} drifted, {skipped} mode(s) skipped")
+        print(f"{drift} drifted, {cosmetic} cosmetic, {skipped} mode(s) skipped")
         return 1 if drift else 0
     print(f"wrote {written} golden(s), {skipped} mode(s) skipped")
     return 0
