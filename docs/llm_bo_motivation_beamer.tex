@@ -1,0 +1,229 @@
+\documentclass[aspectratio=169,10pt]{beamer}
+\usetheme{Madrid}
+\usecolortheme{whale}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{array}
+% ragged-right fixed-width column: justified text in narrow p{} columns produces
+% badly stretched inter-word spacing at these widths.
+% must be a column TYPE: a \newcommand is not expanded by the preamble parser.
+\newcolumntype{W}[1]{>{\raggedright\arraybackslash}p{#1}}
+\setbeamertemplate{navigation symbols}{}
+\setbeamerfont{footnote}{size=\tiny}
+\setbeamercolor{title}{fg=white}
+
+\title[Why LLM + BO]{Why the Optimizer Is Not Enough}
+\subtitle{Motivation for an LLM-supervised, human-gated Bayesian optimization framework}
+\author{Y.\ Oksuzian}
+\institute[Mu2e autoresearch]{Mu2e --- Phase-I Genesis proposal}
+\date{2026-08-03}
+
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+% ---------------------------------------------------------------- 1. thesis
+\begin{frame}{The thesis}
+\begin{block}{}
+Bayesian optimization solves the \textbf{inner} problem --- find the best point in a
+given box, under a given objective, from a given simulation. Every campaign failure
+we have \emph{measured} lived in the \textbf{outer} problem.
+\end{block}
+\vspace{0.6em}
+BO takes four things as \textbf{given}, and can validate none of them:
+\vspace{0.3em}
+\begin{enumerate}
+  \item the \textbf{parameterization} --- which coordinates describe the design;
+  \item the \textbf{bounds} --- the box those coordinates live in;
+  \item the \textbf{objective and its noise} --- what is being measured, how well;
+  \item the \textbf{fidelity of the simulation} producing every observation.
+\end{enumerate}
+\vspace{0.6em}
+Across four production campaigns on the Mu2e stopping target, \textbf{each of these was
+wrong at least once}. None was detectable from inside the optimizer:
+\vspace{0.2em}
+\begin{center}
+\emph{from within BO, a mis-specified problem looks exactly like a converged one.}
+\end{center}
+\vspace{0.4em}
+\footnotesize
+Every number in this deck is measured, and traceable to a leaderboard row, a harvest
+\texttt{summary.json}, or a root-caused incident record.
+\end{frame}
+
+% ------------------------------------------------- 2. case study: search space
+\begin{frame}{Case study: the search space was wrong --- twice}
+\small
+\textbf{(a) Wrong coordinates.} The 6D line optimized \emph{extra foils on a pinned
+37-foil base}. Re-parameterizing the \emph{whole} target as $K{=}3$ quadratic profiles
+(radius, thickness, hole) $+$ extent --- a 10D redesign no optimizer proposes ---
+found a strictly better design:
+\vspace{0.3em}
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+line & evaluations & S/$\sqrt{B}$ & flash [MeV/POT] \\
+\midrule
+6D extras-on-base   & \textbf{414} & 4.10 & 1.04$\times10^{-6}$ \\
+10D profiles        & \textbf{80}  & \textbf{4.41} & \textbf{9.2$\times10^{-7}$} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.2em}
+{\scriptsize Both re-measured on the same Run1Bap stack via dedicated A/B arms --- the
+comparison is apples-to-apples, not a scale artifact.}
+\vspace{0.8em}
+
+\textbf{(b) Wrong bounds.} The 10D box capped \texttt{extent} at 1100~mm. BO converged
+\emph{onto the bound} --- its two best front points sat exactly on it. A pure run
+reports \textbf{4.09} and stops: the correct answer to the wrong question.
+\vspace{0.3em}
+
+Detecting it required acting \emph{outside the parameter space}: read
+\texttt{VirtualDetectorMaker.cc}, classify each blocking volume as massless
+bookkeeping vs.\ real material, run worst-corner preflight probes
+(1400, 1700, 1800, 1900, 2000, 2100), then relocate a 20~µm \emph{vacuum} disc by one
+config line.
+\vspace{0.3em}
+
+$\Rightarrow$ \textbf{4.41 at $-12\%$ flash}, strictly dominating. Gain splits
+$+0.32$ from the bound, $+0.34$ from the search it unlocked.
+\end{frame}
+
+% ------------------------------------------------- 3. four failure classes
+\begin{frame}{The same pattern, four times --- with measured cost}
+\scriptsize
+\begin{tabular}{@{}W{2.45cm}W{5.0cm}W{4.5cm}@{}}
+\toprule
+\textbf{BO assumes} & \textbf{How it failed here} & \textbf{Cost} \\
+\midrule
+the box is right &
+\texttt{extent} capped at 1100~mm; BO piled onto the bound &
+champion 4.09 vs.\ \textbf{4.41} reachable, at higher flash \\[0.35em]
+
+the objective is right &
+early flash metric was a \emph{per-event mean} --- blind to rate &
+\textbf{two campaigns of NULL results}; later overturned: foils are a 2.5$\times$
+lever ($R^2{=}0.89$) \\[0.35em]
+
+the simulation is faithful &
+grid tarball lacked the \texttt{holeRadii} patch, so jobs silently built
+\emph{uniform-hole} stacks; preflight passed because the local env $\neq$ the grid
+tarball &
+\textbf{all 62 rows of a line tainted} and discarded \\[0.35em]
+
+the noise model is right &
+GP left noise a free hyperparameter and fit $\sigma({\rm S}/\sqrt{B}){=}0.0507$ vs.\
+a replicate-measured \textbf{0.0051} (12$\times$) &
+best-ever evaluation ranked \textbf{16th of 324}; the picker optimized a surface with
+its own optimum erased \\
+\bottomrule
+\end{tabular}
+\vspace{0.8em}
+
+\normalsize
+In all four cases \textbf{the optimizer was working perfectly.} The defect was
+upstream of it and invisible to it --- a faster optimizer on a mis-specified problem
+is only a faster route to a confident wrong answer.
+\vspace{0.4em}
+
+\footnotesize
+Each row is a root-caused, written-up incident, not an impression. Detection in every
+case needed something outside the loop: reading Offline source, cross-checking the
+grid environment against the local one, or knowing the experiment's replicate
+structure.
+\end{frame}
+
+% ------------------------------------------------- 4. optimization != estimation
+\begin{frame}{Optimization $\neq$ estimation --- and the answer $\neq$ the decision}
+\small
+\textbf{BO is a deliberately bad estimator.} It does not spend evaluations where it is
+confident there is no improvement --- correct for optimizing, disqualifying for
+measuring.
+\vspace{0.5em}
+
+\textbf{Live example.} Does S/$\sqrt{B}$ keep rising with target length, or flatten?
+This decides whether we specify a \textbf{1.4~m} or a \textbf{2.0~m} stopping target.
+\vspace{0.3em}
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+route & evaluations & grid jobs & confounded? \\
+\midrule
+keep running BO & $\sim$194 more & $\sim$25{,}000 & \textbf{yes} --- shape co-varies \\
+designed scan (fixed shape) & \textbf{10} & \textbf{1{,}300} & no \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.2em}
+{\scriptsize $\sim$194 is what the curvature term needs to reach even $t{=}2$; BO
+concentrates rather than spreads, so it is an optimistic bound. 130 grid jobs per
+evaluation.}
+\vspace{0.6em}
+
+\textbf{And the reported optimum is not the engineering decision.} The peak sits at
+1770 vs.\ 2000~mm --- a 0.017 difference in S/$\sqrt{B}$, below measurement noise and
+irrelevant to hardware. \emph{Where the curve flattens} is what matters, and BO never
+asks. Likewise the most \emph{deployable} point is not the champion: a different row
+gives $+25\%$ S/$\sqrt{B}$ at the deployed target's own flash.
+\vspace{0.4em}
+
+$\Rightarrow$ Recognizing when to \textbf{stop optimizing and start measuring} is an
+outer-loop judgement --- and worth $\sim$19$\times$ the compute here.
+\end{frame}
+
+% ------------------------------------------------- 5. architecture + risks
+\begin{frame}{What we propose --- and how we design against its failure modes}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
+\small\textbf{The loop}
+\vspace{0.2em}
+\begin{center}
+\footnotesize
+\fbox{\parbox{0.92\textwidth}{\centering
+\textbf{LLM proposes} \\ {\scriptsize box, coordinates, objective, diagnosis, next
+experiment} \\[0.3em] $\downarrow$ \\[0.3em]
+\textbf{BO $+$ simulation dispose} \\ {\scriptsize the only quantitative surrogate;
+every claim measured} \\[0.3em] $\downarrow$ \\[0.3em]
+\textbf{Human gates} \\ {\scriptsize every irreversible or expensive action}}}
+\end{center}
+\vspace{0.4em}
+{\footnotesize
+\textbf{Mu2e-aware} means grounded in the actual stack: Offline source, \texttt{geom}
+files, Musings, FCL, and a persistent project wiki. That grounding is what identified
+\texttt{EMC\_Source} as \emph{massless} --- and therefore movable --- rather than a
+physical wall.}
+\end{column}
+\begin{column}{0.47\textwidth}
+\small\textbf{Honest failure modes, and the mitigation}
+\vspace{0.2em}
+\scriptsize
+\begin{tabular}{@{}W{2.2cm}W{2.9cm}@{}}
+\toprule
+risk & mitigation \\
+\midrule
+fluent over-gene\-ralization (a wrong ``constant volume'' claim reached a slide) &
+every number traced to a measured source; \textbf{human review gate} caught it
+\\[0.3em]
+plausible-but-wrong mechanism (a proposed gyration-phase story) &
+mechanisms are \textbf{hypotheses to test}, and this one was refuted by the data \\[0.3em]
+no calibrated uncertainty &
+the \textbf{GP remains the sole} quantitative surrogate; the LLM never replaces the
+posterior \\[0.3em]
+contaminating the GP &
+hand-chosen points admitted for \textbf{estimation only}, never to steer the search \\
+\bottomrule
+\end{tabular}
+\end{column}
+\end{columns}
+\vspace{0.5em}
+\footnotesize
+The claim is \textbf{not} that an LLM searches better than qNEHVI --- it does not. It
+is that the optimizer's assumptions need an agent that can read the source, question
+the box, spot a confound, and know which question is being asked.
+\end{frame}
+
+\end{document}
