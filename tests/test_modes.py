@@ -308,7 +308,7 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
     # here is loaded by EVERY process that imports modes, so the point of the
     # test below is that nothing arrives unnoticed -- adding a line here is a
     # conscious act, which is exactly the review checkpoint we want.
-    SHIPPED_SPECS = {"foilsflash.json", "foilspf.json"}
+    SHIPPED_SPECS = {"foilsflash.json", "foilspf.json", "foilspf2k.json"}
 
     # TEMPORARY -- IPA-position A/B (2026-07-28), NOT shipped modes. Two
     # throwaway clones of foilsflash differing in exactly one number,
