@@ -1,0 +1,104 @@
+{
+  "name": "foilspf",
+  "note": "10D all-foils stopping target: three Lagrange-quadratic profiles (rOut, halfThickness, hole fraction) across 49 foils plus a stack-length knob, vs the foilsflash sob+flash objective. Replaces the deployed 37-foil base entirely -- there is no pinned baseline. Design: docs/superpowers/specs/2026-07-27-foilspf-profile-stopping-target-design.md EXTENT is 400-1100, the original design range. It was briefly capped to 400-800 on 2026-07-28 because Offline placed the proton absorber RELATIVE to the target's downstream end, so a longer stack dragged the absorber (and its support wires) out of DS2Vacuum. That headroom problem, not the cap, was the real constraint: the absorber is now held at its own absolute position (protonabsorber.zStartInMu2e=6901.02, with the distFromTargetEnd expression kept as an exact fail-safe for a stale/unpatched lib -- docs/superpowers/specs/2026-07-31-ipa-absolute-position-design.md), which is what reopened the full 400-1100 range.",
+  "software": {
+    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
+  },
+  "run": {
+    "stages": ["mubeam", "mustops_ce", "elebeam_flash"],
+    "harvest": "harvest",
+    "jobs_per_stage": {"mubeam": 15, "mustops_ce": 15, "elebeam_flash": 100},
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
+    "stage_tuning": {
+      "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8},
+      "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8},
+      "elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}
+    }
+  },
+  "knobs": [
+    {"name": "rOut_0", "min": 50.0, "max": 120.0, "fmt": "{:.4f}"},
+    {"name": "rOut_1", "min": 50.0, "max": 120.0, "fmt": "{:.4f}"},
+    {"name": "rOut_2", "min": 50.0, "max": 120.0, "fmt": "{:.4f}"},
+    {"name": "hT_0", "min": 0.01, "max": 0.15, "fmt": "{:.6f}"},
+    {"name": "hT_1", "min": 0.01, "max": 0.15, "fmt": "{:.6f}"},
+    {"name": "hT_2", "min": 0.01, "max": 0.15, "fmt": "{:.6f}"},
+    {"name": "f_0", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
+    {"name": "f_1", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
+    {"name": "f_2", "min": 0.0, "max": 0.95, "fmt": "{:.4f}"},
+    {"name": "extent", "min": 400.0, "max": 2000.0, "fmt": "{:.4f}"}
+  ],
+  "int_dims": [],
+  "leaderboard": {
+    "file": "leaderboards/leaderboard_bo_foilspf.tsv",
+    "columns": ["sob", "flash_edep", "alpha", "obj"],
+    "obs_noise": [0.006, 0.01],
+    "metrics": {
+      "sob": ["s_over_sqrt_b"],
+      "flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"]
+    }
+  },
+  "preflight": {
+    "dumps_gdml": true,
+    "verifies_foil_gdml": true,
+    "preserves_gdml": false,
+    "checks_managed_overlap": true,
+    "require_zero_overlaps": true
+  },
+  "geom": {
+    "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+    "consts": {
+      "n_foils": 49,
+      "z0": 5871.0,
+      "ipa_dist_deployed": 625.0,
+      "span_deployed": 800.0
+    },
+    "derived": {
+      "deltaZ": "extent / 48",
+      "ipa_dist": "ipa_dist_deployed - (extent - span_deployed) / 2"
+    },
+    "profiles": {
+      "rOut_p": {"count": "n_foils", "control": ["rOut_0", "rOut_1", "rOut_2"], "clip": [50.0, 120.0]},
+      "hT_p": {"count": "n_foils", "control": ["hT_0", "hT_1", "hT_2"], "clip": [0.01, 0.15]},
+      "f_p": {"count": "n_foils", "control": ["f_0", "f_1", "f_2"], "clip": [0.0, 0.95]}
+    },
+    "lines": [
+      {"comment": "=== foilspf (10D profile mode) === {n_foils} free foils, no pinned base"},
+      {"comment": "rOut  profile: {rOut_0:.2f} -> {rOut_1:.2f} -> {rOut_2:.2f} mm (Lagrange quadratic, u = i/48)"},
+      {"comment": "hT    profile: {hT_0:.4f} -> {hT_1:.4f} -> {hT_2:.4f} mm"},
+      {"comment": "hole  profile: f = {f_0:.3f} -> {f_1:.3f} -> {f_2:.3f}  (rIn_i = f_i * rOut_i)"},
+      {"comment": "extent {extent:.1f} mm over 48 gaps -> deltaZ {deltaZ:.6f} mm; centre pinned at z0 {z0:.1f}"},
+      {"comment": "EXTENT CEILING 1100 -> 1700 -> 2000, measured 2026-08-02 after foilspf02 PINNED 1100 (its two best new Pareto points both sat exactly on the bound). The stack is CENTRE-pinned at z0=5871 and grows SYMMETRICALLY, so the ceiling is whichever edge hits a wall first. All bounds are LIVE-PREFLIGHT measured at the WORST corner (rOut 120/120/120, hT .15/.15/.15, solid f=0 -> maximal material, so a PASS certifies the whole box at that extent): 1100 PASS 0 overlaps, 1400 PASS 0, 1700 PASS 0, 1800 FAIL, then with EMC_Source moved 5000 -> 4850: 1900 PASS 0, 2000 PASS 0, 2100 FAIL. THE STOPPING RULE: extend only by moving MASSLESS bookkeeping volumes, never real material. EMC_Source is a 20um vacuum disc nothing in this chain reads, so it is movable; it was walked 5300 -> 5000 -> 4850, staying above EMC_Source2 (4800) so VD ordering is preserved. That is now as far as it goes, because the DOWNSTREAM wall is real: at 2100 the second overlap is VirtualDetector_ST_Out vs protonabs1 (250um) -- ST_Out is placed FROM the target's own downstream end, so it rides the stack outward and reaches the absorber at extent ~2060, and unlike EMC_Source it cannot be relocated out of the way. Walls: upstream 2*(5871-4850)=2042, downstream ~2060 (material). 2000 keeps the same 42mm margin the 1100/1142 and 1700/1742 pairs used."},
+      {"comment": "protonabsorber.distFromTargetEnd {ipa_dist:.3f} (stock 625). Offline places the IPA at targetEnd+distFromTargetEnd -- i.e. RELATIVE to the stopping target -- but the IPA is fixed hardware at z=6901-7901. Without this compensation a longer target slides the absorber the same distance downstream as a RIGID body (length is unchanged: pabs1halflen saturates at the protonabsorber.halfLength=500 cap), which both mis-simulates real in-beam material and pushes its support wires out of DS2Vacuum. This holds the absorber at its true absolute position for any extent; at extent 800 it returns the stock 625 exactly. Measured with protonabsorber.verbosityLevel=1: 6901.02-7901.02 at extent 400, 800 and 1100, identical to stock."},
+      {"comment": "EMC_Source relocated 5300 -> 5000 (2026-07-31) -> 4850 (2026-08-02). It is a 20um disc of ds.vacuumMaterial (vd.halfLength=0.01) -- ZERO mass, no scattering, no absorption -- and NO foils-family stage reads virtual detectors (only pot_only instantiates ReadVirtualDetector), so moving it is physics-neutral. Moving it BEATS disabling it: the VD and its ordering vs EMC_Source2 (4800, which is why 4850 is the floor for this key) are preserved for any future consumer. It is the UPSTREAM wall of the zero-overlap corridor -- at 5300 it capped the stack at 971mm, at 5000 at 1742, at 4850 at 2042. zEMCSourceInMu2e is a plain c.getDouble default at VirtualDetectorMaker.cc:189, so each move is one config line, no source patch. Do NOT walk it below 4800 to buy more range: the binding wall past ~2042 is DOWNSTREAM and made of real material (ST_Out vs protonabs1), so further upstream moves buy nothing."},
+      {"key": "zEMCSourceInMu2e", "type": "double", "value": 4850.0},
+      {"key": "protonabsorber.distFromTargetEnd", "type": "double", "expr": "ipa_dist", "fmt": "{:.6f}"},
+      {"comment": "protonabsorber.zStartInMu2e 6901.02: ABSOLUTE pin, authoritative under the patched GeometryService (maker substitutes targetEnd = zStartInMu2e - distFromTargetEnd, so placement is 6901.02 exactly; see docs/superpowers/specs/2026-07-31-ipa-absolute-position-design.md). The distFromTargetEnd expression above STAYS as the fail-safe: an unpatched lib ignores this key and the expression alone still places the absorber at 6901.02 (cylindrical IPA, OutRadius0 == OutRadius1 == 300.5, so the two routes are degenerate). Consistency pinned by tests/test_foilspf_spec.py."},
+      {"key": "protonabsorber.zStartInMu2e", "type": "double", "value": 6901.02},
+      {"key": "hasTSdA", "type": "bool", "value": false},
+      {"key": "tsda.helical.build", "type": "bool", "value": false},
+      {"key": "stoppingTarget.z0InMu2e", "type": "double", "expr": "z0", "fmt": "{:.4f}"},
+      {"key": "stoppingTarget.deltaZ", "type": "double", "expr": "deltaZ", "fmt": "{:.6f}"},
+      {"key": "stoppingTarget.radii", "type": "vector<double>", "fmt": "{:.4f}",
+       "per_index": {"count": "n_foils", "expr": "rOut_p[i]"}},
+      {"key": "stoppingTarget.halfThicknesses", "type": "vector<double>", "fmt": "{:.6f}",
+       "per_index": {"count": "n_foils", "expr": "hT_p[i]"}},
+      {"comment": "POISON PILL: an unpatched StoppingTargetMaker ignores holeRadii and reads"},
+      {"comment": "this scalar. 1e6 forces a loud G4Tubs crash instead of a silently uniform"},
+      {"comment": "stack -- emitting a 'sensible' scalar is how 62 foilsg rows were lost."},
+      {"key": "stoppingTarget.holeRadius", "type": "double", "raw": "1.0e6"},
+      {"key": "stoppingTarget.holeRadii", "type": "vector<double>", "fmt": "{:.4f}",
+       "per_index": {"count": "n_foils", "expr": "f_p[i] * rOut_p[i]"}},
+      {"comment": "Degrader parked at 120 deg (mmackenz hardware detent)"},
+      {"key": "degrader.build", "type": "bool", "value": false},
+      {"key": "degrader.rotation", "type": "double", "value": 120.0},
+      {"key": "ts.coll5.material1Name", "type": "string", "value": "COL5Poly"},
+      {"comment": "TT_MidInner -> DS2Vacuum workaround REMOVED 2026-07-28 (Run1Bap migration) -- see mode_specs/foilsflash.json for the full mechanism. Short version: v13_12_10 parented tracker VDs on `isDumbbell` so they landed in DS2Vacuum while the tracker sat in DS3Vacuum (GeomMgt0002 fatal); the override forced agreement. v13_32_10 keys VD parenting on !tracker.inDS2Vacuum, making stock self-consistent -- and keeping the override is what held the last EMC_0_Front overlap."},
+      {"key": "ds.hasServicePipes", "type": "bool", "value": false},
+      {"comment": "Overlap-suppression (foil-support off + rail shrink)"},
+      {"key": "stoppingTarget.foilTarget_supportStructure", "type": "bool", "value": false},
+      {"key": "ds.lengthRail2", "type": "double", "value": 0.1},
+      {"key": "ds.lengthRail3", "type": "double", "value": 0.1}
+    ]
+  }
+}

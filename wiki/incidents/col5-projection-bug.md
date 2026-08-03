@@ -1,8 +1,12 @@
-# COL5 categorical misclassified COL5Poly as "air"
+---
+type: incident
+title: COL5 categorical misclassified COL5Poly as "air"
+description: '`COL5Poly` material was being misclassified as "air" in prior loader'
+status: resolved
+timestamp: '2026-05-15'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-05-15
+# COL5 categorical misclassified COL5Poly as "air"
 
 ## Summary
 The first version of `load_priors()` mapped only `G4_POLYETHYLENE` to the
@@ -21,5 +25,5 @@ of the COL5 dimension entirely.
   prior-dominant choice.
 
 ## Cross-links
-- Concept: [[col5-shield]]
-- Driver: [[autoresearch-bo-michael]]
+- Concept: [col5-shield](/concepts/col5-shield.md)
+- Driver: [bo-driver](/drivers/bo-driver.md)

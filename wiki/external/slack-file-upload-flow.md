@@ -1,8 +1,13 @@
-# slack-file-upload-flow — uploading binary files to Slack from this project
+---
+type: external
+title: slack-file-upload-flow — uploading binary files to Slack from this project
+description: three-step `getUploadURLExternal → POST bytes → completeUploadExternal`
+  recipe for posting binary files to Slack from this project
+status: active
+timestamp: '2026-05-31'
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-05-31
+# slack-file-upload-flow — uploading binary files to Slack from this project
 
 ## Summary
 The claudeai-proxy Slack MCP server has text/search/canvas/reaction tools
@@ -18,7 +23,7 @@ Documenting the working recipe so future sessions don't re-derive.
 - **Bot token lives at** `~/.slack_bot_token` (mode 600). Created via a
   one-off Slack app installed in the `mu2e` workspace; bot user
   `U0B6XLZH9DG`. Scopes required: `files:write`, `chat:write`,
-  `im:write` (last one needed for [[slack-bot-dm-channel-not-found]]).
+  `im:write` (last one needed for [slack-bot-dm-channel-not-found](/incidents/slack-bot-dm-channel-not-found.md)).
 
 - **Three-step upload (Slack Web API, post-March-2025):**
   ```bash
@@ -46,7 +51,7 @@ Documenting the working recipe so future sessions don't re-derive.
 
 - **Step 3 failure mode**: `{"ok":false,"error":"channel_not_found"}` if
   the bot doesn't share a conversation with the target channel — see
-  [[slack-bot-dm-channel-not-found]] for the conversations.open
+  [slack-bot-dm-channel-not-found](/incidents/slack-bot-dm-channel-not-found.md) for the conversations.open
   workaround. The file IS already in Slack storage after step 2; only
   the *share* fails — re-running step 3 alone is safe.
 
@@ -65,7 +70,7 @@ Documenting the working recipe so future sessions don't re-derive.
   2026-05-31 building the foilsX07 status post.
 
 ## Cross-links
-- Related: [[slack-bot-dm-channel-not-found]]
+- Related: [slack-bot-dm-channel-not-found](/incidents/slack-bot-dm-channel-not-found.md), [github-pages-publish-dir](/external/github-pages-publish-dir.md)
 - External: [Slack Web API files.getUploadURLExternal](https://api.slack.com/methods/files.getUploadURLExternal),
   [files.completeUploadExternal](https://api.slack.com/methods/files.completeUploadExternal)
 - Token file: `~/.slack_bot_token`

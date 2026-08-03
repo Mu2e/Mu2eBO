@@ -1,20 +1,28 @@
 ---
-name: bo-helical
-description: 5D BO over helical-plug inner namespace (dx, dy, halflength, z0, angle) with TSdA core + foils pinned at v111
 type: project
+title: bo-helical — 5D helical-plug BO
+description: 5D BO over helical-plug inner namespace (dx, dy, halflength, z0, angle)
+  with TSdA core + foils pinned at v111
+status: superseded
+status_note: retired from active runs 2026-05-29 after 4D Pareto saturation (HV
+  +1.6% over last 76 evals, hit rate 62%→38%). Champion **helical045 obj=2.533 (2026-05-18)**
+  stands but top-5 are likely G4 sibling-overlap artifacts (see [[tsda-disc-helical-sibling-overlap]]).
+  **`HelicalMode` class DELETED from code 2026-07-12** (was the canonical test-fixture
+  mode; fixtures migrated to `foils`). `leaderboard_bo_helical*.tsv` remain on disk;
+  the OFF-repo `gp_predict_helical.py`/`botorch_predict_helical.py`/`overlay_knob_locations.py`
+  in mmackenz_table_plots still call `bo.HelicalMode()` and now break at that call.
+  Active BO line is [[bo-foils]] / [[bo-foilsflash]].
+timestamp: '2026-07-12'
+updated_note: HelicalMode code retired; fixtures moved to foils
 ---
 
 # bo-helical — 5D helical-plug BO
 
-**Type:** project
-**Status:** dormant — retired from active runs 2026-05-29 after 4D Pareto saturation (HV +1.6% over last 76 evals, hit rate 62%→38%). Champion **helical045 obj=2.533 (2026-05-18)** stands but top-5 are likely G4 sibling-overlap artifacts (see [[tsda-disc-helical-sibling-overlap]]). HelicalMode class, `gp_predict_helical.py`, and `leaderboard_bo_helical*.tsv` preserved as frozen artifacts; the active BO line is now [[bo-foils]] (5D extras-only foil-stack).
-**Updated:** 2026-05-31 (botorch_predict_helical.py NOT recoverable from `.snap/` — deleted before 2026-05-18 daily-snapshot window; only the qNEHVI shim recipe in this page survives)
-
 ## Summary
-Second BO mode in `autoresearch_bo_michael.py` (select with `--mode helical`).
+Second BO mode in `bo_driver.py` (select with `--mode helical`).
 Optimizes the **inner** `tsda.helical.*` namespace (dx, dy, halflength, z0, angle)
-with the [[tsda]] core + foil stack + degrader + COL5 all pinned at v111 values.
-Different physics from [[bo-michael]] (foil-stack mode): the helical plug
+with the [tsda](/concepts/tsda.md) core + foil stack + degrader + COL5 all pinned at v111 values.
+Different physics from [bo-michael](/projects/bo-michael.md) (foil-stack mode): the helical plug
 provides calo rejection by absorbing low-energy beam particles before they
 reach the calorimeter, complementing the foil-stack approach.
 
@@ -27,7 +35,7 @@ reach the calorimeter, complementing the foil-stack approach.
     were rail-running at ≥525° (2 exactly at 540); best obj (QR00_02=2.64) is interior at 361°,
     so corners are exploration-driven, not optimum-driven, but the GP should be allowed to
     explore further before declaring 540 the ceiling.
-  - Source of truth: `autoresearch_bo_michael.py:HelicalMode.build_space` +
+  - Source of truth: `bo_driver.py:HelicalMode.build_space` +
     `gp_predict_helical.py:BOUNDS`. Keep these two in sync.
 - **Pinned constants (v111-exact):**
   - TSdA core: `hasTSdA=true, r4=600, rin=80, halfLength4=12.5, z0=4195,
@@ -36,9 +44,9 @@ reach the calorimeter, complementing the foil-stack approach.
     useTwistedBox=true` (default; pinned per-config in emitted geom.txt so
     grep recovers the solid-impl branch). Set `HelicalMode.HELICAL_USE_TWISTED_BOX
     = False` to A/B against the legacy tessellated impl — see
-    [[tessellated-solid-facet-orientation]]. **One-off A/B override** (no
+    [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md). **One-off A/B override** (no
     source flip): `USE_TWISTED_BOX=0 graph.run …` reads
-    `autoresearch_bo_michael.py:374` env-var, takes effect at module-import
+    `bo_driver.py:374` env-var, takes effect at module-import
     time, propagates to subprocesses via inherited env (`os.getenv("USE_TWISTED_BOX",
     "1") != "0"`). Source: `constructTSdA.cc`
     `makeHelicalPlug` dispatcher landed 2026-05-26 (source-only;
@@ -52,7 +60,7 @@ reach the calorimeter, complementing the foil-stack approach.
   a single-plate stopping target (`halfThicknesses={5.0}, radii={600,600},
   z0InMu2e=4195`) which is incoherent with the v111 38-foil stack we emit
   (`radii={125 × 38}`) and causes `VirtualDetector_ST_In outside DS2Vacuum`
-  in G4. See [[geom-run1a-vs-run1b]].
+  in G4. See [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md).
 - **Best-known prior (v111):** `dx=2, dy=85, halflen=150, z0=4345, angle=360`
   → sob=2.12, calo=1.62e-6, **obj=1.958**.
 - **Leaderboard knob-correlation snapshot (2026-05-25, n=152, 24 feasible)**:
@@ -116,9 +124,9 @@ reach the calorimeter, complementing the foil-stack approach.
     coincidence, not twist rate). **Next-leverage axes lie outside the
     current 4D space:** (a) COL5 material as a joint knob (single-knob
     {air,poly} in bo-michael, never joint-fit with helical — see
-    [[col5-shield]]); (b) TSdA4 disc thickness promoted to 5th dimension
+    [col5-shield](/concepts/col5-shield.md)); (b) TSdA4 disc thickness promoted to 5th dimension
     (current top-5 exploit the 18 mm disc/plug overlap as a free 4%
-    absorber per [[tsda-disc-helical-sibling-overlap]]); (c) hybrid
+    absorber per [tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md)); (c) hybrid
     offset-plug × helical class (mmackenz v48/v55-v68 scraped but never
     BO'd). Multi-agent synthesis 2026-05-26 (Explore agents on champions,
     non-helical classes, first-principles physics) explicitly recommends
@@ -186,14 +194,14 @@ reach the calorimeter, complementing the foil-stack approach.
 - **Preflight dir:** `bo_helical_preflight/`
 
 ## Cross-links
-- Driver: [[autoresearch-bo-michael]] (`--mode helical`)
-- Autonomous-exploration driver: [[closed-loop-runner]] (multi-round Pareto
+- Driver: [bo-driver](/drivers/bo-driver.md) (`--mode helical`)
+- Autonomous-exploration driver: [closed-loop-runner](/drivers/closed-loop-runner.md) (multi-round Pareto
   picks; replaces the operator-paced "compute 5 picks → launch 5 chains →
   refit → repeat" loop used through helicalP01-P05)
-- Sibling modes: [[bo-michael]], [[bo-foils]]
-- Related concepts: [[tsda]], [[scalarized-objective]], [[fixed-geometry-constraint]]
-- Priors: [[mmackenz-priors]]
-- Source: `autoresearch_bo_michael.py`
+- Sibling modes: [bo-michael](/projects/bo-michael.md), [bo-foils](/projects/bo-foils.md)
+- Related concepts: [tsda](/concepts/tsda.md), [scalarized-objective](/concepts/scalarized-objective.md), [fixed-geometry-constraint](/concepts/fixed-geometry-constraint.md)
+- Priors: [mmackenz-priors](/datasets/mmackenz-priors.md)
+- Source: `bo_driver.py`
 - Reference geom: `/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/workflows/config_v111/run1b_beam/geom.txt`
 
 ## Phase 1 result (2026-05-16) — flat objective surface
@@ -204,7 +212,7 @@ reach the calorimeter, complementing the foil-stack approach.
 - Leaderboard has 7 rows; the helical knobs produce zero measurable signal
   in our pipeline. Concat outputs DO differ per config — the failure is
   somewhere between concat and run1b_mubeam/mustops_ce.
-- See [[calo-constant-across-helical]] for full evidence + **definitive
+- See [calo-constant-across-helical](/incidents/calo-constant-across-helical.md) for full evidence + **definitive
   root cause**: helical-plug C++ does not exist in Offline `v13_12_10`
   (Run1Bak Musing). Only mmackenz's local patched Offline at
   `/exp/mu2e/app/users/mmackenz/run1b/Offline/Mu2eG4/src/constructTSdA.cc:322`
@@ -237,8 +245,8 @@ reach the calorimeter, complementing the foil-stack approach.
   extracts this base, drops in the per-config geom + a `setup_post.sh` that
   extends `MU2E_SEARCH_PATH`, and repacks. An earlier same-day variant shipped
   the raw `libmu2e_Mu2eG4.so` + LD_PRELOAD (worked but non-canonical); retired
-  in favour of `muse tarball`. See [[muse-backing-pattern]] for the build
-  recipe and [[calo-constant-across-helical]] for the full incident trail.
+  in favour of `muse tarball`. See [muse-backing-pattern](/external/muse-backing-pattern.md) for the build
+  recipe and [calo-constant-across-helical](/incidents/calo-constant-across-helical.md) for the full incident trail.
 
 ## q=5 batch result (helical013-017, 2026-05-17/18)
 Second q=5 CL-mean batch (post helical008-012). Final leaderboard rows:
@@ -279,12 +287,12 @@ Third q=5 CL-mean batch — GP refining the dx=0.5, dy~85-95, z0~4300-4400 ridge
 - **Every mustops_ce submit in the batch hit token contention** (helical018,
   019, 020 all FAIL submit-mustops_ce within 5 min of each other). Previously
   only mubeam/run1b_mubeam/concat were known to collide; mustops_ce is just as
-  vulnerable. See [[concurrent-token-contention]].
+  vulnerable. See [concurrent-token-contention](/incidents/concurrent-token-contention.md).
 - **NEW failure mode (helical019):** list-outputs succeeded but cached one
   stale `NNNNN.<hash>` path; harvest 4hr later choked on FileNotFoundError in
   calo extraction subprocess (ROOT couldn't open one file → entire calo step
   bailed → `calo_per_pot: null` → evaluate refused). Fix: re-run `list-outputs
-  run1b_mubeam` to refresh state, then re-harvest. See [[stage-out-rename-race]]
+  run1b_mubeam` to refresh state, then re-harvest. See [stage-out-rename-race](/incidents/stage-out-rename-race.md)
   "latent variant" section.
 - Six recovery scripts written this batch live in `/tmp/helical_resume_*.sh`;
   `helical_resume_mustops.sh` is new (mustops_ce submit→poll→list→harvest→eval).
@@ -315,8 +323,8 @@ events_per_job (10k → 5k); helical023 set a new global best.
   with zero token-race retries — first time at q=5. Then chains drifted into
   sync at the concat boundary (helical026/027 both submit-concat at 09:50
   and 09:54, both hit rename-race variant 2 on stale `state/mubeam_outputs.txt`).
-  Both recovered via relist+resume. See [[stage-out-rename-race]] variant 2
-  and [[concurrent-token-contention]] drift-after-launch note.
+  Both recovered via relist+resume. See [stage-out-rename-race](/incidents/stage-out-rename-race.md) variant 2
+  and [concurrent-token-contention](/incidents/concurrent-token-contention.md) drift-after-launch note.
 - **Wall clock:** 09:25 → 11:00 = **95 min** from first FULL_START to last
   CHAIN_DONE. helical018-022 batch was ~140 min. Halving mustops_ce
   events_per_job + cleaner stage-out (only two relist+resume detours, no
@@ -365,7 +373,7 @@ varying only angle), 031 probes the lower-bound dy=40 with high sob/calo,
   `state/mustops_ce_outputs.txt` before harvest) and
   `/tmp/helical_recover_evaluate.sh` (relist run1b + reharvest + reevaluate
   after stage-out rename race latent variant 1 silently nulls calo_per_pot
-  in summary.json). See [[stage-out-rename-race]].
+  in summary.json). See [stage-out-rename-race](/incidents/stage-out-rename-race.md).
 - **Original chain-script CHAIN_FAIL events are misleading noise** when a
   RESUME_* or RECOVER_* event for the same config preceded them — the
   recovery script will emit its own CHAIN_DONE once it succeeds. Read the
@@ -477,7 +485,7 @@ Top-5 are dx-clones at `(dy=109, halflen=289.68, z0=4479, angle=333)`. With
 upstream face at `z0 - halflen = 4189.32`, **all five overlap the disc by
 ~18 mm in z**. Gap-cluster reps helical049/050 (z0 placed downstream of
 disc) underperform by ~4%, consistent with the overlap acting as free Al.
-See [[tsda-disc-helical-sibling-overlap]].
+See [tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md).
 
 ## Option A coupling redesign (approved 2026-05-18)
 **Search-space change:** drop `tsda.helical.z0`. New 4D space:
@@ -493,7 +501,7 @@ See [[tsda-disc-helical-sibling-overlap]].
 
 **Source-side guard in `constructTSdA.cc:~350`:** throw if
 `z0_helical - halflength < tsda.z0 + halfLength4` (defensive; render
-should never produce this). See [[tsda-disc-helical-sibling-overlap]].
+should never produce this). See [tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md).
 
 **Anchor re-evaluations to bridge leaderboards:**
 - helical044 re-eval under Option A render (z0 will become
@@ -527,7 +535,7 @@ geom_common_current.txt emits **117 overlap lines** out of the box (114
 FoilSupportStructure_NN:NN + StoppingTargetMother, 2 rails + DS3Vacuum, 1
 VirtualDetector_EMC_0_Front + StoppingTargetMother). The whitelist exists
 purely to suppress these — without it the smoke geom looks like 117
-failures. See [[mu2e-overlap-check]].
+failures. See [mu2e-overlap-check](/external/mu2e-overlap-check.md).
 
 **Helical plug volume name confirmed:** GDML dump of a smoke geom shows the
 placement volume as `AbsorberPV:0` (G4Box) — the whitelist anchors on this.
@@ -567,7 +575,7 @@ won't catch silent overlaps.
 ## dx widening probe (helical043-047, 2026-05-18 evening)
 Optimizer has pinned dx at the lower bound 0.5 in 14 of last 19 evals plus
 **every** GP-Pareto frontier pick. Bounds widened in
-`autoresearch_bo_michael.py:374` from `Real(0.5, 5.0)` to `Real(0.1, 5.0)`.
+`bo_driver.py:374` from `Real(0.5, 5.0)` to `Real(0.1, 5.0)`.
 Seeded 5 manual probes all pinned at helical034's other knobs (dy=109,
 halflen=289.68, z0=4479, angle=333) with α=100000 and varying dx:
 
@@ -585,7 +593,7 @@ halflen=289.68, z0=4479, angle=333) with α=100000 and varying dx:
 - **Result**: dx widening paid off — helical047 set new global best at
   obj=2.488 (dx=0.40), then helical044 (dx=0.15) topped it at obj=2.504.
   Followup batch (049/050) at dx≈0.1-0.17 also entered top-4.
-- **dx bounds widened again to 0.01** in `autoresearch_bo_michael.py:374`
+- **dx bounds widened again to 0.01** in `bo_driver.py:374`
   and `gp_predict_helical.py` BOUNDS (since helical050 sits at the previous
   lower bound 0.105 ≈ 0.1).
 - **GP fix**: `gp_predict_helical.py:make_gp` `length_scale_bounds` floor
@@ -625,7 +633,7 @@ support frame in practice.
 - Lives in `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/`.
 
 ## closed-loop-runner round 0 (helicalQR00_00..04, 2026-05-21)
-First multi-round batch driven by [[closed-loop-runner]] instead of the
+First multi-round batch driven by [closed-loop-runner](/drivers/closed-loop-runner.md) instead of the
 operator-paced loop. q=5 picks from `compute_explore_picks` against the
 post-helicalP01-P03 GP fit (after the events-per-job re-harvest).
 
@@ -643,8 +651,8 @@ post-helicalP01-P03 GP fit (after the events-per-job re-harvest).
   has moved the optimization onto a different region of the Pareto
   frontier than the earlier sob<3 v1-era runs.
 - All 5 chains were recovered from a krb5-mid-run expiry at concat
-  stage; see [[kerberos-mid-run-expiry]] — motivating the new
-  `renew_token` node in [[closed-loop-runner]].
+  stage; see [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md) — motivating the new
+  `renew_token` node in [closed-loop-runner](/drivers/closed-loop-runner.md).
 - **GP refit after these 5**: 37 observed (22 legacy + 15 v2), Pareto
   frontier grew 470 → 1027 points. sob max in the predicted-cloud
   collapsed from prior batches to ~2.83 — the 5 new rows substantially
@@ -692,7 +700,7 @@ v2 stars covered. Caveat: halflen/angle length-scales pinned to lower
 bound 0.1 — GP is near-interpolating, so out-of-sample σ ≈ 0.12 is
 overconfident; the 1e-1 noise cap (vs the 1e-2 cap empirical fix B tested)
 is the middle ground. `compute_explore_picks()` (called by
-[[closed-loop-runner]]) inherits the fix automatically.
+[closed-loop-runner](/drivers/closed-loop-runner.md)) inherits the fix automatically.
 
 Probe artifacts: `/tmp/gp_probe_v2.py`, `/tmp/gp_diag_nolegacy.py`,
 diagnostic plots at
@@ -841,7 +849,7 @@ data additions:
   botorch_predict_helical.py --emit-picks-json …)` and parse the JSON
   back. Avoids merging torch into `.venv-graph` (~600 MB, sklearn/numpy
   ABI risk on the /data-mounted venv per
-  [[venv-relocated-to-data-volume]]). Three load-bearing guardrails
+  [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md)). Three load-bearing guardrails
   the current `botorch_predict_helical.py` doesn't have: (a)
   per-round ref-point = `nadir(feasible front) × 1.1` not hardcoded
   `REF_SOB=-0.5, REF_NEG_LOGCALO=-8.0` (loose ref → q clusters on
@@ -982,7 +990,7 @@ data additions:
   — relevant for closed-loop `min_spacing` clustering behavior.
 
 ## N_crit margin too loose at 5000 — empirical (SR00_00, 2026-05-21)
-The N_crit ≤ `HELICAL_NSTEPS=5000` guard ([[tessellated-solid-facet-orientation]])
+The N_crit ≤ `HELICAL_NSTEPS=5000` guard ([tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md))
 was set on the prior assumption that the patched facet-orientation
 fix would keep geometry valid up to that buildable ceiling. **SR00_00
 empirically refutes that.** Geometry `dx=0.011, dy=125, halflen=251,
@@ -995,7 +1003,7 @@ GeomSolids1001 + stuck-track flood the guard was supposed to prevent:
 | run1b_mubeam  | 195 | 200 | 45 k   | 15 k   |
 | mustops_ce    |  90 | 100 | 6.66 M | 2.22 M |
 
-scan_logs gating ([[closed-loop-bo-design]] revision #5, landed in graph
+scan_logs gating ([closed-loop-bo-design](/concepts/closed-loop-bo-design.md) revision #5, landed in graph
 node) **worked as designed**: `state/broken.txt` written, leaderboard
 append suppressed. `summary.json` reported sob=3.88, calo=1.42e-5 — both
 inflated by the stuck-track count saturation; NOT in the v2 leaderboard.
@@ -1015,7 +1023,7 @@ landed defensively but should not be needed once N_crit picks are sane.
 
 **Action items applied 2026-05-21:**
 - `HelicalMode.HELICAL_NSTEPS` lowered 5000 → 2000 in
-  `autoresearch_bo_michael.py`. This is the predicate the propose-loop's
+  `bo_driver.py`. This is the predicate the propose-loop's
   `is_buildable` consults; tightens the bare-propose path identically to
   the picks path.
 - `closed_loop` should be invoked with `--nsteps-budget 2000` (matches
@@ -1028,13 +1036,13 @@ landed defensively but should not be needed once N_crit picks are sane.
   tighten further (1000?) and consider a runtime stuck-track ratio gate
   in scan_logs that fires earlier (during poll, not after harvest)
   so the closed loop doesn't burn 4 h of CPU on geometry that was
-  doomed at submit time. See [[closed-loop-bo-design]]
+  doomed at submit time. See [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
 "Throughput gate" note.
 
 **Update 2026-05-27:** the FCL nsteps and the BO N_crit budget are now
 **intentionally decoupled**, reversing the prior "must move together"
 rule above:
-- `autoresearch_bo_michael.py` `HELICAL_NSTEPS = 10000` — FCL geometry
+- `bo_driver.py` `HELICAL_NSTEPS = 10000` — FCL geometry
   mesh resolution (`tsda.helical.nsteps`). Higher = finer-faceted built
   helical solid, more memory/CPU per G4 init, but no BO-search effect.
 - `gp_predict_helical.py` `DEFAULT_NSTEPS_BUDGET = 2000` — sklearn N_crit
@@ -1084,8 +1092,8 @@ Plot: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/pare
   to recheck whether the new dim opened HV worth chasing.
 
 ## Post-cleanup champion shift (2026-05-27)
-After the [[scan-broken-codes-too-narrow]] full-census purge moved 38 v2
-rows + 3 legacy rows to `.broken.tsv` sidecars (see [[leaderboards]]),
+After the [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) full-census purge moved 38 v2
+rows + 3 legacy rows to `.broken.tsv` sidecars (see [leaderboards](/datasets/leaderboards.md)),
 GP refit on the cleaned leaderboard:
 - Training set: 196 → **175 v2 rows** (10 priors + 165 helical, 0 legacy
   after legacy file dropped from gp_predict_helical loader gate)
@@ -1108,7 +1116,7 @@ GP refit on the cleaned leaderboard:
 **Champion regime shifted significantly.** Prior top-3 obj champions
 (helicalL02 obj=3.084, graph023 obj=2.972, helical041a obj=2.833) are
 all now in `leaderboard_bo_helical_v2.broken.tsv` — their metrics were
-artifacts of broken tessellated geometry (see [[tessellated-solid-facet-orientation]]
+artifacts of broken tessellated geometry (see [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md)
 A/B grid test for helical041a). The new top-obj champion
 (helicalQR00_02 at 2.642) is **a 14% drop from the prior tainted
 champion** but is geometrically validated (no LikelyGeomOverlap in
@@ -1125,7 +1133,7 @@ rows had been suggesting.
 call that mangles argument splitting → `evaluate` exits rc=2 with
 CHAIN_FAIL. **summary.json has already been written by harvest by the time
 evaluate runs**, so manual recovery is one-line:
-`./autoresearch_bo_michael.py --mode helical evaluate <cfg> <DATA>/<cfg>/harvest/summary.json`
+`./bo_driver.py --mode helical evaluate <cfg> <DATA>/<cfg>/harvest/summary.json`
 Hit by helical043, helical045, helical046 in succession (all three dx-probe
 configs that completed). Fix the chain-script line continuation when
 touching it next.
@@ -1136,7 +1144,7 @@ touching it next.
 `KNOWN_NSTEPS` only lists `helical050a_n5000=5000` — every other config
 falls back to **`DEFAULT_NSTEPS=100`** (historical pre-2026-05-21
 default), even though the *current production* `HelicalMode.HELICAL_NSTEPS=2000`
-(`autoresearch_bo_michael.py:367`). On the 2026-05-23 refit, this
+(`bo_driver.py:367`). On the 2026-05-23 refit, this
 dropped **36/71 v2 rows** (51%) — including `graph027` (N_crit≈690 from
 the helicalQR00_02 baseline) and most high-angle SR/QR/F01 configs.
 The 35 retained are not biased per se (the dropped rows would have

@@ -1,23 +1,38 @@
 #!/usr/bin/env python3
 """Shared retry-with-backoff runner for mu2e env-source shell commands.
 
-Centralizes the transient cvmfs/spack env-flake retry that was copy-pasted in
-``pipeline.py:sourced_env`` and ``autoresearch_bo_michael.py:cmd_preflight``,
-and was absent entirely from the two ``getToken`` sites. A cvmfs read miss
-(``==> Error: [Errno 5]``) mid-``setupmu2e-art.sh`` leaves ``muse``/``mu2e``
-undefined -> the command exits nonzero (often rc=127) producing little/no
-output; a re-run seconds later succeeds.
+Centralizes the transient env-source failure retry that was copy-pasted in
+``pipeline.py:sourced_env`` and ``bo_driver.py:cmd_preflight``,
+and was absent entirely from the two ``getToken`` sites. Known causes of
+the transient class: cvmfs read misses, and the NFSv4.0 seqid wedge on
+``~/.spack`` lock files (wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md).
+Either way ``==> Error: [Errno 5]`` mid-``setupmu2e-art.sh`` leaves
+``muse``/``mu2e`` undefined -> the command exits nonzero (often rc=127)
+producing little/no output; a re-run seconds later succeeds.
+
+Additionally, every command runs with ``SPACK_USER_CACHE_PATH`` on
+node-local /tmp (prepended export), so spack's index-cache fcntl locks
+never touch NFS -- the wedge above cannot bite any caller of this helper.
 
 See wiki/incidents/sourced-env-stderr-swallowed.md (env-source coverage map).
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
 from typing import Callable, Optional
 
 DEFAULT_BACKOFFS = (5, 15, 30)  # 4 attempts total, ~50s worst case
+
+# Keep spack's index cache + its fcntl locks on node-local /tmp, never NFS
+# HOME: concurrent lock traffic on /nashome (NFSv4.0) intermittently wedges
+# a lock file with permanent EIO (BAD_SEQID desync). Same path as the
+# per-site exports in pipeline.py:sourced_env / bo_driver.py:cmd_preflight,
+# which this seam supersedes (they stay, redundantly, to avoid churning
+# stable code). See wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md.
+_SPACK_CACHE = f"/tmp/spack_cache_{os.environ.get('USER', 'x')}"
 
 
 def run_sourced_bash(
@@ -45,6 +60,9 @@ def run_sourced_bash(
     """
     if should_retry is None:
         should_retry = lambda p: p.returncode != 0  # noqa: E731
+    # Must be inside the command string: a parent-shell export does NOT
+    # propagate to the sourced environment (foilsZ05, 2026-06-05).
+    cmd = f"export SPACK_USER_CACHE_PATH={_SPACK_CACHE} && {cmd}"
     argv = ["bash", "-lc" if login else "-c", cmd]
     for attempt in range(len(backoffs) + 1):
         try:

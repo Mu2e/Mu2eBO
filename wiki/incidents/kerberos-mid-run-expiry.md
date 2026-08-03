@@ -1,8 +1,15 @@
-# kerberos-mid-run-expiry — closed_loop chains die at first stage submitted after token expiry
+---
+type: incident
+title: kerberos-mid-run-expiry — closed_loop chains die at first stage submitted
+  after token expiry
+description: closed_loop has no token watchdog; krb5 expiry mid-round → Errno 127
+  ENOKEY at subprocess.run → graph terminates before harvest, no leaderboard row
+status: resolved
+status_note: (workaround documented; no auto-renew yet)
+timestamp: '2026-05-21'
+---
 
-**Type:** incident
-**Status:** resolved (workaround documented; no auto-renew yet)
-**Updated:** 2026-05-21
+# kerberos-mid-run-expiry — closed_loop chains die at first stage submitted after token expiry
 
 ## Summary
 First real `closed_loop.py` run (`closed_helicalQ_r0`, 2026-05-21) lost all 5
@@ -53,8 +60,8 @@ required `kinit` + `mu2einit` + `getToken` then driving `pipeline.py
   ```
 
 ## Cross-links
-- Related: [[closed-loop-runner]], [[concurrent-token-contention]],
-  [[grid-job-completion-check]]
+- Related: [closed-loop-runner](/drivers/closed-loop-runner.md), [concurrent-token-contention](/incidents/concurrent-token-contention.md),
+  [grid-job-completion-check](/incidents/grid-job-completion-check.md), [closed-loop-parent-signal-kill-midlaunch](/incidents/closed-loop-parent-signal-kill-midlaunch.md), [sqlite-wal-corrupt-after-kill](/incidents/sqlite-wal-corrupt-after-kill.md)
 - Source files: `pipeline.py` (`submit_stage` calls `getToken`),
   `graph/closed_loop.py` (no token renewal)
 

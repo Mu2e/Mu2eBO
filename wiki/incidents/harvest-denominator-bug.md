@@ -1,8 +1,13 @@
-# Harvest denominator hardcoded from STAGES.njobs
+---
+type: incident
+title: Harvest denominator hardcoded from STAGES.njobs
+description: '`s_over_sqrt_b`/`calo_per_pot` biased high by lost-job fraction (hardcoded
+  denom)'
+status: resolved
+timestamp: '2026-05-16'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-05-16
+# Harvest denominator hardcoded from STAGES.njobs
 
 ## Summary
 `cmd_harvest` and `_extract_calo_per_pot` previously computed denominators
@@ -48,9 +53,9 @@ how much input you actually fed it.
   *masking* helical001's true gain over the v111 baseline.
 
 ## Cross-links
-- Driver: [[pipeline]]
-- Related: [[grid-job-completion-check]] (the `.art:.log` ratio diagnostic that
-  tells you how many jobs were actually used)
+- Driver: [pipeline](/drivers/pipeline.md)
+- Related: [grid-job-completion-check](/incidents/grid-job-completion-check.md) (the `.art:.log` ratio diagnostic that
+  tells you how many jobs were actually used), [calo-constant-across-helical](/incidents/calo-constant-across-helical.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md)
 - Source: `pipeline.py:cmd_harvest`, `pipeline.py:_extract_calo_per_pot`
 
 ## Open questions / TODO

@@ -1,8 +1,13 @@
-# Closed-loop thread-ID checkpoint collision
+---
+type: incident
+title: Closed-loop thread-ID checkpoint collision
+description: SqliteSaver thread_id reuse silently swapped foilsX05R01_07's config_name
+  to graph001 (2026-05-30); leaderboard row never landed under intended name
+status: resolved
+timestamp: '2026-07-17'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-05-30
+# Closed-loop thread-ID checkpoint collision
 
 ## Summary
 SqliteSaver in `graph/closed_loop.py` keys checkpoints by `thread_id`. A child
@@ -27,7 +32,7 @@ is the one persisted to the leaderboard, not foilsX05R01_07.
   - SqliteSaver DB not wiped between unrelated parent runs sharing the
     same `--thread-id` root.
 - **Detection**: grep child logs for `"config_name":` mismatch vs filename:
-  `for f in graph_data/closed_loop_logs/<prefix>R*.log; do
+  `for f in /exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<prefix>R*.log; do
     grep -E '"config_name": "(?!'$(basename $f .log)')"' "$f"; done`.
 - **Cost**: silent yield loss (counted as "ran" by parent, drops out of
   leaderboard cohort). Worse: if the colliding old config had a valid
@@ -71,10 +76,10 @@ is the one persisted to the leaderboard, not foilsX05R01_07.
   swap-guard symptom.
 
 ## Cross-links
-- Related: [[barrier-false-positive-round1]], [[closed-loop-bo-design]],
-  [[closed-loop-runner]]
+- Related: [barrier-false-positive-round1](/incidents/barrier-false-positive-round1.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md),
+  [closed-loop-runner](/drivers/closed-loop-runner.md), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md), [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md)
 - Source files: `graph/closed_loop.py`, `graph/state.py`
-- Detection log: `graph_data/closed_loop_logs/foilsX05R01_07.log`
+- Detection log: `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/foilsX05R01_07.log`
 
 ## Resolution (PR for #7, committed locally 2026-05-30; not yet merged)
 Per-launch unique thread_id, decoupled from `config_name`. Three load-bearing

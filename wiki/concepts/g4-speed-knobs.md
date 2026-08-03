@@ -1,8 +1,331 @@
+---
+type: concept
+title: Geant4 speed knobs (local bench, 2026-05-22)
+description: '`minRangeCut=0.05` is the safe speedup arm (−6% CPU); `Minimal` physics
+  list zeros stop counts even though workflow looks "EM-only"'
+status: active
+timestamp: '2026-07-17'
+updated_note: 'local `elebeam_flash` geometry-pruning bench: guess overturned'
+---
+
 # Geant4 speed knobs (local bench, 2026-05-22)
 
-**Type:** concept
-**Status:** active
-**Updated:** 2026-05-24 (FTFP_BERT default extended-validation: FT02 + FT03 + FT04 all landed 24/24 leaderboard rows with zero scan_logs gating; GP Pareto frontier densified 13 → 33 → 626 across the three q=8 batches)
+## External G4 speedup technology survey (2026-07-08, web research, no local bench)
+
+Ranked-list research task (G4HepEm, Woodcock tracking, specialized tracking
+managers, version-to-version CPU evolution, LTO/PGO, field-nav) against
+current (2025-2026) primary sources. Full ranked list with sources delivered
+to the user directly; key facts worth banking here because they change risk
+assessment of levers already in this page:
+
+- **G4TransportationWithMsc** (merges transportation+MSC stepping, default
+  with `G4EmStandard_opt1`, i.e. `FTFP_BERT_EMV` in Mu2e terms) does NOT
+  work with parallel worlds (Mu2eG4 parallel-world usage unverified — check
+  before adopting) and, more importantly, **`G4EmStandard_opt1` pairs by
+  default with `G4UniversalFluctuation`** instead of opt0's
+  `G4UrbanFluctuation`. Per Hahnfeld/Ivanchenko CHEP2023
+  (arXiv/indico.jlab.org 1214-2023_chep_em.pdf, Fig. 1),
+  `G4UniversalFluctuation` has **measurably biased mean + wrong-shape
+  energy-loss distribution for a 5.6 µm Si layer at 100 MeV e−** vs
+  `G4UrbanFluctuation`, which matches Meroli 2011 data well. **This directly
+  threatens the wiki's existing "FTFP_BERT_EMV: viable" verdict** (5-arm
+  stepper bench + physics-list bench above, judged only on
+  TargetStops/PolyStops counts) for the `run1b_mubeam`/`elebeam_flash`
+  EM-edep observable — our foils are ~0.1 mm Al, same order of magnitude as
+  the failing test case. Plain `FTFP_BERT` (opt0, currently deployed)
+  already uses the accurate `G4UrbanFluctuation` and is NOT implicated.
+  **Do not promote `FTFP_BERT_EMV`/opt1-based lists to any EM-edep-scoring
+  stage without a thin-foil energy-loss-shape check first.**
+- **Woodcock (delta) tracking is NOT in mainline Geant4** — same CHEP2023
+  source: "the implementation is not part of the main Geant4 repository...
+  planned to be part of the new library G4HepEm." Only reachable via
+  G4HepEm's `G4HepEmTrackingManager` (up to 2× on a toy sampling
+  calorimeter per Hahnfeld's Oct-2025 CM talk; ATLAS EMEC arm measured
+  +17.5%, CHEP2025 `epjconf_chep2025_01351`). G4HepEm only covers e±/γ
+  (job type (b) / `run1b_mubeam`+`elebeam_flash`) — zero relevance/risk to
+  muon transport (job type (a)). Integration is a real R&D lift: new
+  external dependency + registering `G4VTrackingManager` on particle
+  definitions in Mu2eG4 source (G4 11.0+ interface) + muse rebuild, not an
+  FCL knob.
+- **LTO build of Geant4+Offline: +5% throughput, bitwise-identical physics**
+  ("pure technical change") per ATLAS's CMAKE_INTERPROCEDURAL_OPTIMIZATION
+  report (CDS ATL-SOFT-PROC-2023-002). Zero G4-version dependency, zero
+  fidelity risk if it links cleanly — cheapest unexplored lever found in
+  this survey, worth a muse-backed trial build.
+- **Version-bump 11.0→11.4 is not, by itself, worth fighting for.**
+  Per-release CPU notes are individually "few percent" or unquantified
+  (11.1: `G4GammaGeneralProcess` default + EM-data env-var caching; 11.2:
+  `G4SafetyCalculator`, QSS integrator (pure-B-field only), `G4UrbanMscModel`
+  safety-reorder; 11.3: Opt3 `DistanceToBoundary` optimization, parallel
+  voxel init; 11.4 released 2025-12-05, too new to be any current pin: QSS3,
+  default-on parallel voxelization). The double-digit numbers in the
+  literature (ATLAS 1.8× MC20→MC23) are a **3-year bundle of ~8 separate
+  techniques** (LTO, VecGeom, Woodcock, region cuts, Russian roulette,
+  single-library build, `G4GammaGeneralProcess`, B-field switch-off), not
+  the version bump alone. `G4GammaGeneralProcess` (few-% default gamma
+  speedup) is the one default-on-upgrade item worth checking — verify
+  Mu2e's currently-pinned G4 minor version already has it (≥11.1).
+- **Global-vs-local field manager scoping is a zero-cost, unbenched lever
+  specific to our long-solenoid workload.** Per the official Geant4
+  performance-tips page (twiki.cern.ch/.../Geant4PerformanceTips): "When a
+  field object exists for a volume, all charged particles inside will take
+  more CPU time to move — even if the field value is zero." Nobody has
+  checked whether `Mu2eWorld` attaches one global B-field manager across
+  the whole world (including field-free regions far downstream of the DS)
+  vs. scoping it to TS/DS only. Independent of G4 version; pure code-audit
+  + possible source patch.
+
+## Geometry-pruning via `bool has*` flags — MEASURED 2026-07-08, guess OVERTURNED
+
+**TL;DR: the "plausible 10-30%" guess below was wrong and the "CRV/STM/
+externals/MBS droppable freely" safety claim was wrong.** A local
+`elebeam_flash` bench (`/tmp/g4_geomprune_bench/`, `n=10000`,
+FTFP_BERT, DS-on, foilsflash08R00_00 geom+FCL, single run per arm — no
+replicates, see caveats) found: **3 of the 4 candidate flags
+(hasCosmicRayShield, hasExternalShielding, hasMBS) crash immediately**
+with a `GeomHandle` GEOM exception, root-caused to **hard-coded
+unconditional dependencies in `Mu2eG4/src/{Mu2eWorld,
+constructVirtualDetectors}.cc`** that are simply not gated by the same
+`has*` flag GeometryService uses to build the detector element — not an
+FCL problem, needs a source patch (out of scope for this bench). Only
+`hasSTM` runs clean, and it buys ~0% (see table). `hasDiskCalorimeter`
+crashes too (a *different* module, not geometry construction) but is
+fixable with an FCL-only workaround; the fixed arm buys −4.7% wall, far
+short of the guessed 10-30%.
+
+**Per-flag verdict:**
+
+| Flag | Result | Root cause | Fixable how |
+|---|---|---|---|
+| `hasCosmicRayShield=false` | **BROKEN** (alone or combined w/ STM+MBS) | `Mu2eG4/src/constructVirtualDetectors.cc` (~line 1768): `GeomHandle<CosmicRayShield> CRS;` sits *before* the `if(vdg->exist(vdId))` gate in the `CRV_R..CRV_U` virtual-detector loop — instantiated unconditionally every job. Reached via `Mu2eWorld.cc`'s unconditional call to `constructVirtualDetectors()` (not itself gated on `hasCosmicRayShield`/`vd.crv.build`). Independent of `hasSTM` (tested both ways — same crash). | 1-line source patch: move the `GeomHandle` inside the loop, or wrap the loop in `if (_config.getBool("hasCosmicRayShield", false))`. Needs muse-backed patched Offline rebuild (see [muse-backing-pattern](/external/muse-backing-pattern.md)). |
+| `hasExternalShielding=false` | **BROKEN** (alone or combined) | `Mu2eG4/src/Mu2eWorld.cc:237` calls `constructSaddles(hallInfo, _config)` **unconditionally** (only the *ExternalShielding volumes themselves*, lines 231-233, are gated by `hasExternalShielding`), but `GeometryService.cc:308-312` only builds the `Saddle` detector element **inside** `if(hasExternalShielding)`. Confirmed both in an isolated single-flag smoke test and combined with CRV+STM+MBS. | `if (_config.getBool("hasExternalShielding", false)) constructSaddles(...)` in Mu2eWorld.cc. |
+| `hasMBS=false` | **BROKEN** (alone or combined) | `Mu2eWorld::constructStepLimiters()` (~line 655) unconditionally does `_helper->locateVolInfo("MBSMother").logical` for the step-limiter volume list, even though the actual MBS G4 construction (line 246-248) *is* correctly gated by `hasMBS`. Third independent unconditional-dependency bug, unrelated to the CRV/Ext ones. | Guard the `MBSMother` lookup in `constructStepLimiters()` with the same `hasMBS` check. |
+| `hasSTM=false` (alone) | **SAFE but ~POINTLESS** | Runs clean (correctly gated everywhere touched — `Mu2eWorld.cc:254`, `GeometryService.cc:283`, `VirtualDetectorMaker.cc:523`'s hasSTM block skips cleanly when nothing downstream needs it). | n/a |
+| `hasDiskCalorimeter=false` | **BROKEN as-is, fixable via FCL** | `CommonMC`'s `CaloShowerStepMaker` producer unconditionally needs `GeomHandle<Calorimeter>` (StepPointMC→CaloShowerStep conversion), regardless of `hasDiskCalorimeter` — same failure *class* as CRV/MBS (a downstream consumer assumes the geometry it converts always exists) but this one is a **producer not scheduled from a fixed C++ call site**, so it CAN be dropped from the FCL trigger path. | Drop `CaloShowerStepMaker` from `physics.{flashPath,earlyFlashPath}`, blank `compressDetStepMCs.caloShowerStepTag`, and set `{Early}DetStepFilter.MinimumSumCaloStepE` to an unreachable threshold (NOT 0 — 0 makes the OR-logic trivially pass every event once calo energy is undefined) + `CaloShowerSteps: []`. Recipe: `/tmp/g4_geomprune_bench/nocalo_module_fix.fcl`. |
+
+**Measured (n=10000 events, single run per arm, FTFP_BERT, DS-on):**
+
+| Arm | wall/ev [ms] | Δwall | CPU/ev [ms] | ΔCPU | init [s] | VmPeak [MB] | ΔVmPeak | events passing EarlyDetStepFilter | tracker-hit events | total tracker edep [MeV] | SimParticles (compressed) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| baseline | 19.59 | — | 19.42 | — | 14 | 1553.3 | — | 20/10000 | 5 | 0.0558 | 139 |
+| −calo (fixed) | 18.67 | **−4.7%** | 18.54 | −4.5% | 12 | 1543.1 | −0.65% | 7/10000 | 7 | 0.0518 | 46 |
+| −STM only | 19.11 | **−2.5%** | 18.93 | −2.5% | 14 | 1547.9 | −0.34% | 21/10000 | 3 | 0.0122 | 152 |
+
+**Verdicts:**
+- **−calo (fixed): POINTLESS-to-marginal on CPU** (−4.7% wall, single-run — no
+  replicate to separate from run-to-run jitter; the wiki's mubeam-stage
+  physics-list bench saw the ShieldingM-self noise floor alone hit ~8% on
+  `calo_per_pot` at n=200 jobs, so a single local run at n=10000 events could
+  easily be within noise). **Edep bias UNDETERMINED, not SAFE, not
+  BIASED** — dropping calo removes the calo-energy leg of the
+  `DetectorStepFilter` OR-selection (`MinimumSumCaloStepE`), which
+  *changes which events pass* (20→7 out of 10000): baseline's 20 include
+  events selected purely on calo energy that −calo can never select. This
+  is a **selection-function confound**, not a clean paired comparison of
+  the same event population. On top of that, **available statistics are
+  far below what the task anticipated**: only 3-7 tracker-hit events per
+  arm at n=10000 (the task's ~0.5% hit-rate assumption implied ~50, actual
+  is ~0.03-0.07%) — Poisson σ on single-digit counts is 40-60%, so no
+  edep verdict is defensible at this n. Would need ≥10× more events (or
+  many more paired EleBeamCat file-pairs) for a real backsplash call.
+- **−STM: SAFE, essentially POINTLESS** (−2.5% wall, likely noise-level;
+  SimParticle count per passing event is flat vs baseline, 7.24 vs 6.95 —
+  no evidence STM is a meaningful secondary-tracking CPU sink for this
+  workload). The 0.0122 vs 0.0558 MeV "78% edep drop" is **not a real
+  signal** — it's 3 vs 5 hit-events, well inside Poisson noise.
+- **CRV/Ext/MBS: cannot be evaluated at all** — the mechanism hypothesis
+  ("CRV is where EM leakage dies expensively") from the original guess is
+  **neither confirmed nor refuted**; the flag that was supposed to test it
+  crashes before producing one event. Given calo (the one testable
+  "dense-material secondary" flag) only bought −4.7%, the wiki's
+  "plausible 10-30%" framing for the *whole* has*-flag family should be
+  treated as **overturned** until CRV can actually be measured (needs the
+  source patch above).
+- **Overall recommendation:** this lever is **not worth pursuing further
+  as an FCL-only pruning technique** — 3 of 5 flags need a C++ patch just
+  to run, and the one flag that IS FCL-fixable (calo) buys single-digit %
+  CPU with an unresolvable statistics problem on the edep side at
+  reasonable event counts. If CRV's real effect matters, it needs the
+  `constructVirtualDetectors.cc` one-line patch + muse rebuild + a MUCH
+  larger n (or a different observable with better statistics) — not a
+  quick FCL-overlay bench.
+
+**Bench artifacts (scratch, not committed):** `/tmp/g4_geomprune_bench/`
+— `base.fcl`/`base_geom.txt` (copied from `foilsflash08R00_00`),
+`geom_arm*.txt` (per-arm overlays), `fcl_arm*.fcl`, `nocalo_module_fix.fcl`
+(the calo FCL workaround), `run_arm.sh` (timing harness), `extract_edep.py`
+/ `count_simp.py` (gallery extractors, cribbed from `pipeline.py`'s
+`_TRK_EDEP_EXTRACT_SCRIPT`), `run_*.log`/`run_*.log.meta` (raw art +
+`/usr/bin/time -v` output per arm). EleBeamCat input resolved via
+`samweb locate-file` (2 files, `dcache:persistent`, not tape — no
+prestage needed): `sim.mu2e.EleBeamCat.Run1Baa.001430_{00000000,
+00003251}.art`.
+
+---
+
+*(Original pre-bench guess, superseded above — kept for the record.)*
+geom_common_current.txt exposes per-subsystem switches settable in our
+per-config overlay (one line each): hasCosmicRayShield, hasExternalShielding,
+hasDiskCalorimeter, hasSTM, hasMBS, hasProtonAbsorber, hasTSdA, hasHall,
+hasBFieldManager (+ a base-file comment wishing CRV were toggled — anticipated
+use). Physics of the saving: **G4 stepping cost is LOCAL** — dropping
+far-away detail buys init (~35 s/job ≈ 2%) + memory (slot notch), NOT
+stepping CPU; the real stepping win is dense material secondaries reach:
+**CRV** (counters+absorber wrapping the whole DS = where EM leakage and
+capture neutrons die expensively) and **calo disks** (forward-electron
+showers). Plausible 10-30% on flash jobs — NOT the beamline-deck 2-5×
+(primaries still traverse the detailed DS). Safety: flash jobs can drop
+CRV/STM/externals/MBS freely; **calo drop needs an A/B** (backsplash into
+the tracker is real flash edep — same caveat as the kill-plane); muon jobs
+can likely drop CRV/STM/externals/calo (backscatter-into-ST gate); NEVER
+drop field manager/target/proton absorber/TSdA/beamline/virtual detectors
+(base file warns components assume vd presence). Gate = A/B within
+leaderboard noise (σ_flash 2%, σ_sob 0.4%), one overlay line per arm —
+fold into the Tier-1 elebeam_flash profiling bench (profile BEFORE pruning).
+
+## G4FastSimulationPhysics assessment (2026-07-08): socket without a worthwhile plug
+
+It's a hook (fast-sim manager process + user-supplied G4VFastSimulationModel
+per envelope region), not a speedup. Every candidate model for our workloads
+is dominated: (1) foil region — physics IS transport/MCS, nothing to
+parametrize; the "model" = our external parametric toy, better outside G4
+(see [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md)); (2) invariant beamline — an in-G4
+teleport model duplicates what MuBeamCat resampling already does at file
+level; the better lever is the resampling-surface audit; (3) the ONE
+in-scope use: post-tracker calo showers in flash jobs are wasted CPU for the
+StrawGasStep observable — but Mu2e's FCL cut algebra (`plane`/`inVolume`
+predicates) gives a kill-plane for ZERO code; check its worth in the
+Tier-1 elebeam_flash profiling bench; (4) GFlash-on-CsI is textbook only
+for a calo-OBSERVABLE line and smears the observable (no Mu2e tune exists)
+— unchanged from the May note. NB: Celeritas is the one maintained "plug"
+for this socket family (its G4 offload attaches via fast-sim/tracking-manager
+hooks) but inherits none of its limits from the socket — see the GPU verdict
++ ceiling arithmetic below; it earns a place only if three things align:
+NERSC GPU batch secured AND the standalone pilot clears the e±-curling
+question AND a future line is flash-heavy enough (~85% EM) for ≤1.7× to bite.
+
+## Production-practice survey (2026-07-08, web): what experiments actually shipped
+
+Itemized, physics-validated production gains (sources in log/agent report:
+ATLAS CHEP2024/2019, CMS Pedro CHEP2018 + CHEP2023, LHCb ReDecay EPJ C79:268,
+Belle II CHEP2021, COMET TDR, SHiP arXiv:2512.10520):
+- **ATLAS Run-3 ×1.8-2.0 total** = stack of: n/γ Russian roulette ~10%,
+  gamma-process range cuts 6-10% (G4 does NOT apply range cuts to
+  conv/phot/compt by default!), Woodcock-in-EMEC 17.5%, VecGeom 2-7%,
+  B-field switch-off in calo 3%, GammaGeneralProcess 3%, big-lib static
+  5-7%, LTO ~5%, G4 version bumps.
+- **CMS ×3.4-4.7 total**; single biggest transferable item: **tracking cut
+  killing charged <2 MeV in vacuum (0.69× minbias CPU — stops looping e±)**;
+  also per-region cuts (0.01mm-1cm span), RR 25-29%, time cut 500ns.
+- **LHCb ReDecay ×10-20** (reuse rest-of-event, re-decay signal) — the
+  largest single technique anywhere; correlated-sample caveat.
+- **Belle II −44%** = option1 EM (−21-27%) + G4 version (−21-30%). **TENSION
+  with our thin-foil finding**: option1's G4UniversalFluctuation is
+  measurably wrong for thin-layer energy loss (see External survey above) —
+  Belle-II-style opt1 swap is CONTRAINDICATED for elebeam_flash/run1b
+  (edep observables), possibly OK for mubeam/mustops (count observables).
+- **COMET (closest analog)**: no G4-knob paper; their entire strategy is
+  staged simulation + resampling (= our MuBeamCat/EleBeamCat architecture).
+  SHiP pushed the same idea to histogram-sampled muon transport (>1e4× for
+  design loops needing only transported distributions).
+- **Transferable shortlist for us**: (1) gamma-process + per-region range
+  cuts [config-only A/B]; (2) neutron RR — needs weight-aware EdepAna +
+  σ(calo) re-measure; (3) CMS-style looping-e± tracking cut in field
+  regions AWAY from ST/tracker (DS graded field is a looping-e factory;
+  must be gated off near the flash observable); (4) GammaGeneralProcess
+  (verify pin ≥11.1 = free); (5) **resampling-surface audit**: check where
+  the MuBeamCat surface sits relative to the varying target — moving the
+  per-campaign frozen surface closer to the ST amortizes more per-eval
+  transport (COMET/SHiP pattern; potentially the largest architectural
+  lever). NOT transferable: Woodcock (needs dense segmented calo),
+  frozen showers, whole-list swaps (Minimal already root-caused).
+
+## GPU transport verdict (2026-07-08, web survey): NO-GO for 12 months
+
+- **Celeritas** (v0.6.x; FNAL-adjacent SciDAC): muon EM only "initial
+  support"; field transport exists BUT their own CHEP2024 profiling
+  (arXiv:2503.17608) documents severe GPU load-imbalance from low-momentum
+  "curling" tracks in B-fields — the exact pathology of Mu2e muons
+  spiraling in the ~1 T solenoid. Performance case for our muon workload is
+  currently NEGATIVE, not just unproven. Real end-to-end speedups on
+  CMS/ATLAS-like EM: 1.5-2×/A100 (the 6-32× headline is kernel-only).
+- **AdePT**: e±/γ ONLY (no muons, categorically out for workload (a));
+  device field-maps still future work; ~2× whole-job degrading to 1.6× at
+  high thread counts; custom per-track user data (needed by Mu2eG4 scoring)
+  not supported.
+- **No FNAL batch-GPU path** fits our hundreds-of-single-core-jobs shape:
+  Wilson Cluster ≈ 8×A100+12×V100+18×P100 behind a project request; EAF is
+  interactive-analysis-shaped (no mu2ejobsub-like batch).
+- **Re-check triggers (12-18 mo)**: Celeritas muon-in-field validation vs
+  G4 reference; either project's first non-preliminary production campaign.
+- **AMENDED 2026-07-08 (user: FNAL/NERSC batch-GPU access is obtainable)** —
+  access removes only 1 of 3 no-go legs (muon physics + integration cost
+  stand). Re-ranked uses of batch access: (1) HEPCloud→NERSC as raw BATCH
+  CAPACITY (CPU-equivalent) raises the 1,250-slot ceiling with zero code
+  risk — our jobs are ideal migrants (CVMFS+tarball, 30-60 min, 2.5 GB;
+  Shifter/Podman runs CVMFS); worth more than the GPUs themselves;
+  (2) contained Celeritas PILOT on the flash workload: standalone celer-g4
+  (GDML export via our existing tooling + DS field map + edep scoring, NO
+  art integration) to MEASURE whether 1-100 MeV e± curling in ~1 T hits the
+  muon-class load-imbalance — 1-2 wk, Wilson Cluster 8×A100 suffices,
+  FNAL-adjacent project = feedback path; (3) SHiP-pattern GPU surrogate +
+  ML training: park until per-event multi-fidelity or ~150D lines. Access
+  instruments: HEPCloud = experiment-level engagement; Wilson = ServiceNow
+  project request; NERSC = ERCAP.
+- **Celeritas flash-pilot DESIGN (2026-07-08, ~1-2 wk)**: standalone
+  `celer-g4` (bypasses Offline/art + the G4 pin entirely; same-app
+  offload-on/off = clean A/B). Components: (1) DS-region GDML subset via our
+  existing `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gdml_subset_*` extractor (foils+tracker+DS vacuum, simple
+  solids — dodges VecGeom exotic-solid gaps), (2) DS field-map sampler →
+  Celeritas v0.6 3D map format, (3) EleBeamCat e⁻ → HepMC3 via the existing
+  gallery/PyROOT path, (4) scoring = per-volume/shell edep tally as
+  flash_edep_total proxy (roughest edge; calorimeter-style tallies only),
+  (5) CPU-only reference arm runs on any node — shake down the whole
+  harness BEFORE GPU access (Wilson A100 request). Measures: curling
+  throughput question, edep-vs-G4 agreement, VecGeom compatibility of a
+  Mu2e subset. Does NOT measure: art integration cost, NERSC per-dollar.
+  Caveat: reference arm ≠ FTFP_BERT stack — transport benchmark only,
+  never compare absolute edep to leaderboard numbers.
+- **Celeritas ceiling arithmetic (2026-07-08)**: measured 1.5-2× applies to
+  e±/γ transport only → eval-throughput ceiling ~1.7× for flash-shaped
+  lines (85% EM grid-hours), ~1.2× for calo-shaped, 1.0× muon-only; before
+  three haircuts (unmeasured e±-curling in the ~1T DS field; art-scoring
+  integration is the still-"preliminary" part; GPU-node allocation cost may
+  lose per-dollar to plain CPU nodes — no published per-dollar win).
+  Dominated on effort-adjusted terms by q=40+overlap (2.2-2.5×), HEPCloud
+  CPU (2-3×), and range/tracking cuts (15-25%) — pilot value = information
+  + positioning, not near-term throughput.
+
+## STATE CORRECTION + RE-RANKING (2026-07-08)
+
+> **STATE CORRECTION + RE-RANKING (2026-07-08).** The "reverted to ShieldingM /
+> decision pending" narrative below is STALE: `grep physicsListName
+> pipeline_templates/*/template.fcl` shows **FTFP_BERT deployed in all 5
+> G4-bearing templates** (mubeam, run1b_mubeam, mustops_ce, mustops_pileup,
+> elebeam_flash) — the −8-20% grid CPU and −45% VmPeak are banked. Stepper
+> dp745 remains optimal per the 5-arm bench. **Reframe: at the pinned
+> ~1,250-slot ceiling ([bo-noise-budget](/concepts/bo-noise-budget.md)), G4 CPU cuts are CAPACITY
+> (evals/day), not just latency — but value is line-shape dependent.**
+> Open levers, re-ranked 2026-07-08:
+> 1. **`elebeam_flash` never profiled** (post-dates this campaign; ~85% of
+>    foilsflash grid-hours). Its EM cascade IS the observable → only
+>    region-cuts (loose global/tight straw-gas), trajectory-storage cuts,
+>    and can't-reach-tracker CommonCut kills are safe candidates. Half-day
+>    local bench with the /tmp/g4_mubeam_bench methodology.
+> 2. **MinDEDX (−64%) is now infrastructure-cheap**: the blocker
+>    (`simParticleList.cc:15` hard `stoppingCode==32`) is a one-line
+>    accept-{31,32} patch, and Muse-backed patched-Offline + tarball
+>    rebuilds are routine since May (holeradii/prodtarget precedents).
+>    Scope mubeam+mustops_ce ONLY (never run1b_mubeam/elebeam_flash — EM
+>    observables). Muon-shaped lines: ≈−45% grid-hours ≈ +80% evals/day;
+>    foilsflash-shaped: only ~10%.
+> 3. Port `beam/epilog_1b.fcl`'s `Mu2eG4CommonCut` block (production-blessed,
+>    orthogonal, unbenched here; minRangeCut=1.0 part known ~0% on FTFP_BERT).
+> 4. Memory→slots: measured VmPeak 1.1-1.5 GB under FTFP_BERT vs 2500 MB
+>    requested — 1800-2000 MB request is the next slot-matching notch.
+> 5. Still deferred: importance biasing (2-5×, weight-audit blocker),
+>    Celeritas/AdePT (no GPUs/integration), VecGeom (rebuild for 5-15%),
+>    G4-MT (hardcoded 1 thread + 1-slot jobs).
 
 ## Promoted to default in all G4-bearing templates (2026-05-23)
 
@@ -55,7 +378,7 @@ end-of-chain (after 4 stages, of which only one differed).
 **Selection bias warning on the CPU mean:** The n=182/196 row counts only
 jobs whose `.art` made it to /pnfs (post-stage-out success); these jobs
 exclude the slow-tail workers that died during PostEndJob (xrootd
-FileOpenError per [[concat-xrootd-fileopen-postendjob]]). The slow-tail
+FileOpenError per [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md)). The slow-tail
 jobs ARE in worker logs (they reach TimeReport before stage-out). Filtering
 on /pnfs success preferentially drops slow-tail jobs — and that filter
 removed 18 jobs from Shield but only 4 from FTFP, biasing the Shield mean
@@ -177,7 +500,7 @@ Raw rows in `leaderboard_bo_helical_v2.tsv`:
 
 **Footgun re-confirmed:** the `--config-name helicalQR00_02_ftfp` CLI flag
 silently fell through to auto-increment `graph027` due to the pending-row
-collision in propose_one — see [[graph-runner]] for the workaround
+collision in propose_one — see [graph-runner](/drivers/graph-runner.md) for the workaround
 (clear pending TSV row before reusing a name from the CLI).
 
 ---
@@ -256,7 +579,7 @@ out to be unsafe (`Minimal` physics list breaks the workflow; `bfieldMaxStep`
   with exit 90 "Can't find file".
 
 ## Cross-links
-- Related: [[scalarized-objective]], [[bo-helical]], [[mmackenz-workflow]]
+- Related: [scalarized-objective](/concepts/scalarized-objective.md), [bo-helical](/projects/bo-helical.md), [mmackenz-workflow](/external/mmackenz-workflow.md), [production-target-stickman](/concepts/production-target-stickman.md)
 - Source files: `/tmp/g4_mubeam_bench/run_bench.sh`,
   `/tmp/g4_mubeam_bench/bench_*.fcl`
 - External: [Geant4 production cuts](https://geant4-userdoc.web.cern.ch/UsersGuides/ForApplicationDeveloper/html/TrackingAndPhysics/cuts.html)
@@ -372,7 +695,7 @@ unfiltered g4run, 100 events; diagnostic in
   generator throws. MinDEDX is **NOT** usable as a drop-in for the full
   production chain. To use MinDEDX in production needs one of: (a)
   patch `simParticleList.cc:15` to accept {31, 32} (Muse-backed Offline
-  rebuild — see [[muse-backing-pattern]] for the helical-plug
+  rebuild — see [muse-backing-pattern](/external/muse-backing-pattern.md) for the helical-plug
   precedent), or (b) re-tag code 31 → 32 in
   `Mu2eG4CustomizationPhysicsConstructor` before the SimParticle is
   written out. Either is a bigger change than the bench warranted.
@@ -523,6 +846,31 @@ code change, no Offline rebuild. NOT YET BENCHED.
   `{type: kineticEnergy, cut: 10, pdg: [11,22]}` would kill low-E EM
   secondaries. Risk: easy to break calo_per_pot.
 
+**Particle-kill recipe (2026-06-10, audited not benched).** The
+infrastructure for "kill all neutrons/gammas/etc." is a pure-FCL
+one-liner — no source patch, no muse rebuild:
+
+- FCL slot path: `physics.producers.g4run.Mu2eG4StackingOnlyCut`
+  (stacking action = fires at track CREATION; best CPU savings since
+  killed tracks never get propagated at all). Default in
+  `mu2eg4runDefaultSingleStage` (prolog.fcl:184-192) is the
+  pre-defined `mu2eg4CutNeutrinos` table at prolog.fcl:173-176, which
+  is itself just `{type: pdgId pars: [12,-12,14,-14,16,-16]}`.
+- Drop-in: `union` of the existing neutrino cut + a new `pdgId` cut
+  listing the PDGs to kill. Neutrons=2112, gammas=22, electrons=11,
+  positrons=-11.
+- Cut handler: `ParticleIdCut::stackingActionCut` at Mu2eG4Cuts.cc:536
+  → sorted-vector binary search on PDG, O(log N) per track.
+
+**Mode-by-mode safety:** For `pot_only` (prodtarget Path D edep
+harvest) killing neutrons is essentially free physically (most exit
+the plates anyway) and saves ~20-40% CPU; killing gammas/e± saves
+more but **shifts the edep zero-point** since EM cascades dominate
+plate heating — would require a fresh pt001 baseline before mixing
+with ptX01-X05 leaderboard rows. For `mubeam`/`run1b_mubeam`/
+`mustops_ce` (sob/calo objectives) killing e± **destroys the calo
+signal entirely** — never apply there.
+
 **Other physics knobs:**
 - `physics.strawGasMaxStep` — default −1 (disabled), `prolog.fcl:61`.
   Local step limiter in straw gas only (tracker stage, not mubeam).
@@ -554,7 +902,7 @@ code change, no Offline rebuild. NOT YET BENCHED.
   production deployment. Revisit in ~12 months.
 - **VecGeom** — vectorized geometry. 5–15% on tube-heavy geometry like
   ours but **requires Offline rebuild** to link/swap solid impls.
-  Tessellated-plug fragility (see [[tessellated-solid-facet-orientation]])
+  Tessellated-plug fragility (see [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md))
   raises overlap/boundary risk. Not worth it for marginal gain.
 - **G4-MT** — Mu2e has `Mu2eG4MT_module.cc` but hardcodes
   `SetNumberOfThreads(1)` (line 82). No FCL exposure of nThreads. Even

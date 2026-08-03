@@ -1,8 +1,16 @@
-# Mid-flight `events_per_job` edit silently mis-scales harvest metrics
+---
+type: incident
+title: Mid-flight `events_per_job` edit silently mis-scales harvest metrics
+description: editing `STAGES[*]["events_per_job"]` between submit and harvest mis-scales
+  metrics; stamp-at-submit fix in pipeline.py; cluster.txt mtime is NOT a safe submit-time
+  proxy
+status: resolved
+status_note: (stamping fix landed 2026-05-21 in `pipeline.py`)
+timestamp: '2026-05-29'
+updated_note: SHA check extended from harvest-only to also fire at poll + list-outputs
+---
 
-**Type:** incident
-**Status:** resolved (stamping fix landed 2026-05-21 in `pipeline.py`)
-**Updated:** 2026-05-29 (SHA check extended from harvest-only to also fire at poll + list-outputs)
+# Mid-flight `events_per_job` edit silently mis-scales harvest metrics
 
 ## Summary
 `pipeline.py` reads its `STAGES` dict at **both** submit time (to bake
@@ -68,9 +76,22 @@ new dict value (2500), so both leaderboard rows came back at **2× the true
   re-ran `pipeline.py harvest` + `evaluate` for each, regenerated GP
   predictions + overlay plot.
 
+## Config-SHA guard fires on ANY STAGES edit, even harmless ones (2026-07-02)
+The `_stamp_stage_config_sha` guard hashes the **whole stage dict**, so editing *any*
+field mid-flight trips the "STAGES['<stage>'] changed since submit (stamp=… current=…)"
+warning for **all in-flight children's** downstream poll/list-outputs/harvest — including a
+**metric-harmless `memory_mb` change** (observed when foilsflash `memory_mb` 3500→2500 was
+applied while foilsflash06 was running: all 20 children's harvest logs printed 2 SHA warnings).
+**It is ADVISORY, not fatal** — 19/20 ff06 children harvested fine *with* the warnings; the 1
+loss (`R00_07`) was an unrelated `mustops_ce` grid failure (1/15 outputs). But the guard
+**can't distinguish a safe `memory_mb` edit from a metric-breaking `events_per_job` edit** — it
+cries wolf, and the noise can mask a real drift. Lesson: prefer to make even harmless `STAGES`
+edits **between** campaigns; if you must edit mid-flight (memory is safe — affects slot-matching
+only, not metrics/quorum), expect the warnings and verify harvests still land.
+
 ## Cross-links
-- Related: [[pipeline]], [[harvest-denominator-bug]] (sister bug — wrong
-  denom from STAGES.njobs), [[autoresearch-bo-michael]]
+- Related: [pipeline](/drivers/pipeline.md), [harvest-denominator-bug](/incidents/harvest-denominator-bug.md) (sister bug — wrong
+  denom from STAGES.njobs), [bo-driver](/drivers/bo-driver.md)
 - Source: `pipeline.py:325-333` (stamp write), `pipeline.py:582-593`
   (`_events_per_job` helper), `pipeline.py:674-675` (harvest sites)
 - Backup: `leaderboard_bo_helical_v2.tsv.bak_*`
@@ -79,7 +100,7 @@ new dict value (2500), so both leaderboard rows came back at **2× the true
 - Same stamping pattern should be applied to other params that are
   baked into the jobdef and re-read at harvest. Candidates: `njobs`
   (already mitigated by deriving denom from outputs.txt — see
-  [[harvest-denominator-bug]]); `run_number` (so far stable). Audit
+  [harvest-denominator-bug](/incidents/harvest-denominator-bug.md)); `run_number` (so far stable). Audit
   before the next mid-flight tuning round.
 - Consider hashing the entire effective `STAGES[stage]` dict at submit
   and stamping the hash, so future divergences (memory, lifetime, etc.)

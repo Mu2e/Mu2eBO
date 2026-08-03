@@ -1,8 +1,17 @@
-# TSdAHelicalTube tessellated solid — negative cubic volume (self-intersection)
+---
+type: incident
+title: TSdAHelicalTube tessellated solid — negative cubic volume (self-intersection)
+description: '`TSdAHelicalTube` built with inverted facet winding → GeomSolids1001
+  + 28M GeomNav1002/iteration; preflight misses; scan_logs node now reports it'
+status: resolved
+status_note: '(source fix landed 2026-05-20: stacked G4TwistedBox analytic primitive;
+  grid tarball repackage still pending)'
+timestamp: '2026-05-27'
+updated_note: 'TWB02/03/04 A/B envelope: twist systematically -5–7% sob, -1–12%
+  calo across BO space'
+---
 
-**Type:** incident
-**Status:** resolved (source fix landed 2026-05-20: stacked G4TwistedBox analytic primitive; grid tarball repackage still pending)
-**Updated:** 2026-05-27 (TWB02/03/04 A/B envelope: twist systematically -5–7% sob, -1–12% calo across BO space)
+# TSdAHelicalTube tessellated solid — negative cubic volume (self-intersection)
 
 ## Summary
 `G4TessellatedSolid::SetSolidClosed()` issues `G4Exception : GeomSolids1001`
@@ -114,7 +123,7 @@ validates sibling overlaps, not internal self-intersection.
     impact too, not just scan_logs warnings.
 
 ## Workflow detection (landed 2026-05-20)
-End-of-workflow `scan_logs` node in [[graph-runner]] (between `harvest` and
+End-of-workflow `scan_logs` node in [graph-runner](/drivers/graph-runner.md) (between `harvest` and
 `evaluate`) walks every worker `.log` under each stage's outstage dir and
 counts:
 - G4Exception, Stuck Track, Likely geometry overlap, GeomSolids1001,
@@ -174,24 +183,24 @@ misbehaves on twisted-prism solids for a future material/version.
 - Per-segment seg_twist = 459.591/6 = 76.6° ✓ inside the 85° margin
 
 **Major preflight caveat discovered while debugging.** `cmd_preflight` in
-`autoresearch_bo_michael.py:684` only sources the CVMFS MUSING (line 724)
+`bo_driver.py:684` only sources the CVMFS MUSING (line 724)
 — it never loads the patched `libmu2e_Mu2eG4.so`, so the helical plug is
 constructed using the **stock** Offline code, not the patched code. Until
 preflight is taught to source the local muse setup (or `Code/setup.sh` from
 the shipped tarball), preflight cannot detect helical-plug bugs. See
-[[preflight]] for the limitation.
+[preflight](/drivers/preflight.md) for the limitation.
 
 **Build gotcha discovered.** `muse build Offline` reports "up to date"
 without re-linking the changed lib (it stops at the package target).
 Targeting the .so explicitly works: `muse build build/al9-prof-e29-p094/Offline/lib/libmu2e_Mu2eG4.so`.
-See [[muse-backing-pattern]].
+See [muse-backing-pattern](/external/muse-backing-pattern.md).
 
 **Outstanding:** repackage `Code_helical_base.tar.bz2` (task #53) so grid
 workers pick up the patched lib. Until then, grid jobs still run the broken
 tessellated path.
 
 **Default flipped (2026-05-21):** `HelicalMode.HELICAL_NSTEPS` 100 → 5000
-(autoresearch_bo_michael.py:328). The production `Code_helical_base.tar.bz2`
+(bo_driver.py:328). The production `Code_helical_base.tar.bz2`
 is the OLD tessellated lib (swapped in for the helical050a_n5000 test on
 2026-05-21, not yet swapped back). At the old default of 100 the OLD lib
 floods GeomSolids1001 + 28M GeomNav1002/worker; nsteps=5000 is above
@@ -210,8 +219,8 @@ and is not safely captured by any single nsteps value within the
 buildable budget. Empirical: at 2000 the closed loop wastes less CPU
 on doomed picks; this is *defensive*, not a proof that 2000 is safe.
 Co-equal with `--nsteps-budget 2000` in `closed_loop` (drift between
-the two reopens the propose-loop hole). See [[bo-helical]] "N_crit
-margin too loose" and [[closed-loop-bo-design]].
+the two reopens the propose-loop hole). See [bo-helical](/projects/bo-helical.md) "N_crit
+margin too loose" and [closed-loop-bo-design](/concepts/closed-loop-bo-design.md).
 
 ## A/B grid test at sub-N_crit knobs (2026-05-26)
 End-to-end grid A/B at helical041a knobs (`dx=0.57, dy=110, halflen=246,
@@ -229,7 +238,7 @@ buildable regime. Both branches show only ~2 generic Errors/log (background
 noise, not geometry).
 
 ## A/B dispatch knob (env-var override)
-`HelicalMode.HELICAL_USE_TWISTED_BOX` at `autoresearch_bo_michael.py:377`
+`HelicalMode.HELICAL_USE_TWISTED_BOX` at `bo_driver.py:377`
 reads `os.getenv("USE_TWISTED_BOX", "1") != "0"`. To run an A/B without
 editing the class constant, set the env var **in the parent shell of the
 graph.run invocation** — it's read once at module import:
@@ -284,7 +293,7 @@ Bulk muon stopping (mubeam) is statistically indistinguishable across the
 in every pair, with same sign. This propagates into both sob (+4.7 to
 +7.7%) and calo (+0.9 to +7.1%) at the final harvest step. Source files:
 `/exp/mu2e/data/users/oksuzian/autoresearch_grid/<cfg>/harvest/summary.json`
-(schema in [[pipeline]]).
+(schema in [pipeline](/drivers/pipeline.md)).
 
 **Most likely mechanism (3-agent investigation, agent transcripts in
 session log)**: `G4TessellatedSolid::Inside()` declares a point on-surface
@@ -344,7 +353,7 @@ are biased — twisted-box rows look ~5–7% worse on sob and ~5–10% lower on
 calo than they would have under tessellated. Pareto ordering between the
 two eras should be interpreted with this in mind. (Mitigation: when the
 final champion is chosen, re-evaluate it under both branches to remove
-the cross-implementation bias.) See [[bo-helical]] Open questions.
+the cross-implementation bias.) See [bo-helical](/projects/bo-helical.md) Open questions.
 
 ## Twisted-box clean at extreme angle (FT08, 2026-05-26)
 3 closed-loop FT08 children built with `useTwistedBox = true` (deployed
@@ -361,7 +370,7 @@ R00_00 is the strongest evidence: tessellated N_crit ~17,400 is far above
 any practical `nsteps` budget (current ceiling 2000); twisted-box builds
 the analytic ruled prism with zero facet-orientation errors. The 1–2
 overlap/stuck counts per child are the single-event background floor
-(see [[scan-broken-codes-too-narrow]] subthreshold pattern), not a
+(see [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) subthreshold pattern), not a
 geometry pathology — well below OVERLAP_THRESHOLD=100, and `_is_broken`
 passes all three. Prior verified-clean A/B was at angle=538° (helicalTWB01);
 this extends the empirical envelope to angle ≥ 700° at extreme aspect
@@ -374,7 +383,7 @@ reproduces the original helical041a leaderboard metrics (sob=3.13,
 calo=2.97e-6). Both reproductions sit at calo ~6.5e-6 — **2.2× higher than
 the leaderboard row**. Combined with the retro-scan finding that the
 original helical041a logged 24M LikelyGeomOverlap + 478 GeomSolids1001 hits
-across every stage (see [[scan-broken-codes-too-narrow]] retro-scan table),
+across every stage (see [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) retro-scan table),
 this is direct evidence that the helical041a "top-3 champion" was a
 stuck-track-absorption artifact under broken tessellated geometry. The
 same conclusion likely applies to helicalL02 and graph023 (the other two
@@ -393,8 +402,8 @@ retro-scan-broken champions in the same regime).
   before being trusted as ground-truth.
 
 ## Cross-links
-- Related: [[graph-runner]], [[tsda]], [[tsda-disc-helical-sibling-overlap]],
-  [[mu2e-overlap-check]], [[preflight]]
+- Related: [graph-runner](/drivers/graph-runner.md), [tsda](/concepts/tsda.md), [tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md),
+  [mu2e-overlap-check](/external/mu2e-overlap-check.md), [preflight](/drivers/preflight.md), [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md)
 - Source: `/exp/mu2e/app/users/oksuzian/autoresearch_muse/Offline/Mu2eG4/src/constructTSdA.cc:58-128`
 - Detection: `graph/pipeline_io.py:scan_worker_logs`, `graph/nodes.py:node_scan_logs`
 - Sample report: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/helical050a/scan_logs/report.tsv`

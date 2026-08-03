@@ -1,8 +1,13 @@
-# template.fcl staleness after rsync+sed fork
+---
+type: incident
+title: template.fcl staleness after rsync+sed fork
+description: '`rsync+sed` fork misses `template.fcl`; G4 init fails on stale geom
+  basename'
+status: resolved
+timestamp: '2026-05-15'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-05-15
+# template.fcl staleness after rsync+sed fork
 
 ## Summary
 The per-config fork pattern (`rsync smoke_<oldcfg>/ smoke_<newcfg>/` + `sed s/<oldcfg>/<newcfg>/g pipeline.py`)
@@ -13,7 +18,7 @@ the *correct* `Code/autoresearch_<newcfg>_geom.txt` but G4 tries to load
 output, only a `.log`. 400 helical001 grid jobs were lost this way before
 detection.
 
-**Resolved 2026-05-15** by refactoring [[pipeline]] to be parametric: one
+**Resolved 2026-05-15** by refactoring [pipeline](/drivers/pipeline.md) to be parametric: one
 canonical pipeline.py + one shared template tree with a `__GEOM_FILE__`
 sentinel. No more rsync+sed; the failure mode no longer reachable.
 
@@ -35,15 +40,15 @@ sentinel. No more rsync+sed; the failure mode no longer reachable.
 - **Pre-flight does not catch it:** `preflight` runs against the proposal geom
   directly, not against the `template.fcl`. Preflight passing tells you the geom
   is valid; it tells you nothing about whether the grid job will load it.
-- **Fix landed:** see [[pipeline]]. The shared `pipeline_templates/<stage>/template.fcl`
+- **Fix landed:** see [pipeline](/drivers/pipeline.md). The shared `pipeline_templates/<stage>/template.fcl`
   files use `__GEOM_FILE__` as the substitution sentinel; `submit_stage`
   materializes them per-config before mu2ejobdef sees them. No `template.fcl`
   on disk contains a per-config basename anymore.
 
 ## Cross-links
-- Driver: [[pipeline]]
-- Related: [[grid-job-completion-check]] (the `.log`-without-`.art` signature
-  is exactly what an init failure looks like)
+- Driver: [pipeline](/drivers/pipeline.md)
+- Related: [grid-job-completion-check](/incidents/grid-job-completion-check.md) (the `.log`-without-`.art` signature
+  is exactly what an init failure looks like), [fcl-unicode-parse-error](/incidents/fcl-unicode-parse-error.md)
 - Source: `/exp/mu2e/data/users/oksuzian/autoresearch_grid/smoke_helical001/`
   (the failing tree, as of 2026-05-15)
 

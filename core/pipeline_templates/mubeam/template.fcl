@@ -1,0 +1,57 @@
+#include "Production/JobConfig/pileup/MuBeamResampler.fcl"
+#include "Production/JobConfig/pileup/epilog_1b.fcl"
+
+# FTFP_BERT physics list: -20% CPU on mubeam vs ShieldingM (n=200/200), with
+# sob/calo deltas inside the ShieldingM-self noise floor on helicalQR00_02
+# (graph027 A/B 2026-05-23). See wiki concepts/g4-speed-knobs.md.
+physics.producers.g4run.physics.physicsListName: "FTFP_BERT"
+
+physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations: -1
+physics.filters.beamResampler.mu2e.MaxEventsToSkip: 319542
+
+outputs.EarlyFlashOutput.fileName:  "dts.owner.EarlyMuBeamFlash.version.sequencer.art"
+outputs.FlashOutput.fileName:       "dts.owner.MuBeamFlash.version.sequencer.art"
+outputs.IPAStopOutput.fileName:     "sim.owner.IPAStops.version.sequencer.art"
+outputs.TargetStopOutput.fileName:  "sim.owner.TargetStops.version.sequencer.art"
+services.TFileService.fileName:     "nts.owner.mubeam.version.sequencer.root"
+services.SeedService.baseSeed: 1
+
+physics.filters.TargetStopPrescaleFilter.nPrescale: 1
+
+outputs.TargetStopOutput.outputCommands: [
+  "drop *_*_*_*",
+  @sequence::Pileup.SimKeptProducts,
+  "drop *_IPAStopFilter_*_*",
+  "drop *_FlashFilter_*_*"
+]
+outputs.FlashOutput.outputCommands: [
+  "drop *_*_*_*",
+  @sequence::Pileup.SimKeptProducts,
+  "drop *_IPAStopFilter_*_*",
+  "drop *_TargetStopFilter_*_*"
+]
+
+# Per-BO-point geom overlay shipped inside code.tar (Code/setup.sh prepends Code/ to MU2E_SEARCH_PATH)
+services.GeometryService.inputFile:  "__GEOM_FILE__"
+services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_v01.txt"
+
+# mu- purity filter folded in from concat's MuonStopSelector.fcl (2026-07-10):
+# CeEndpoint throws BADINPUT on events with no stopped mu-, and
+# TargetMuonFinder selects both charges ([13,-13]), so TargetStops must be
+# mu- pure for TargetStopResampler to read these files directly (concat
+# stage removed from the foilsflash chain). Same ParticleCodeFilter config
+# as MuonStopSelector.fcl's muminusSelector. Backward-compatible for modes
+# that keep concat: their muminusSelector then passes ~100% and
+# MuplusStopsCat comes out empty (nothing consumes it).
+# Validated via fhicl-dump 2026-07-09 (path assembly + prolog refs + SelectEvents).
+physics.filters.muminusSelector: {
+  module_type: ParticleCodeFilter
+  SimParticles : TargetStopFilter
+  ParticleCodes : [ [13, "uninitialized", "muMinusCaptureAtRest" ] ]
+  PrintLevel : 0
+}
+# targetStopPath restated from Production/JobConfig/pileup/MuBeamResampler.fcl:35
+# with muminusSelector inserted after TargetStopFilter (whose compressed
+# SimParticle product it reads) and before compressPVTargetStops (so rejected
+# events skip compression).
+physics.targetStopPath : [ @sequence::Pileup.beamResamplerSequence, @sequence::Common.g4Sequence, TargetStopPrescaleFilter, TargetMuonFinder, TargetStopFilter, muminusSelector, compressPVTargetStops ]

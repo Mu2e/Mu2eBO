@@ -1,14 +1,14 @@
 ---
-name: tsda-disc-helical-sibling-overlap
-description: TSdA4 disc and helical plug are sibling daughters of DS2Vacuum; silent G4 navigation-order overlap when z-ranges intersect
 type: incident
+title: TSdA disc ↔ helical plug sibling overlap
+description: TSdA4 disc and helical plug are sibling daughters of DS2Vacuum; silent
+  G4 navigation-order overlap when z-ranges intersect
+status: active
+status_note: (open; mitigation in progress — Option A coupling + preflight surface-check)
+timestamp: '2026-05-18'
 ---
 
 # TSdA disc ↔ helical plug sibling overlap
-
-**Type:** incident
-**Status:** open (mitigation in progress — Option A coupling + preflight surface-check)
-**Updated:** 2026-05-18
 
 ## Summary
 `constructTSdA.cc` places the TSdA4 absorber disc and the helical plug as
@@ -85,16 +85,16 @@ if (plug_zmin < disc_zmax - 1e-6) {
 ```
 
 **Preflight surface-check:** wire `g4.doSurfaceCheck=true` into a per-config
-wrapper FCL (see [[mu2e-overlap-check]]) and run `mu2e -n 1` in
+wrapper FCL (see [mu2e-overlap-check](/external/mu2e-overlap-check.md)) and run `mu2e -n 1` in
 `preflight_helical`. Reject the proposal on any "Overlap" line.
 
 **Re-anchor leaderboard:** re-evaluate helical044 and helical049 under the
 new Option-A render to bridge old/new leaderboards before resuming BO.
 
 ## Cross-links
-- Related: [[bo-helical]], [[tsda]], [[mu2e-overlap-check]], [[preflight]]
+- Related: [bo-helical](/projects/bo-helical.md), [tsda](/concepts/tsda.md), [mu2e-overlap-check](/external/mu2e-overlap-check.md), [preflight](/drivers/preflight.md), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md), [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md)
 - Source: `/exp/mu2e/app/users/oksuzian/autoresearch_muse/Offline/Mu2eG4/src/constructTSdA.cc:240,322,350`
-- BO driver: `autoresearch_bo_michael.py` (HelicalMode render_geom, BOUNDS, search space)
+- BO driver: `bo_driver.py` (HelicalMode render_geom, BOUNDS, search space)
 
 ## Open questions / TODO
 - Quantify the overlap's contribution: rerun helical044's geom with z0

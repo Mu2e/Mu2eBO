@@ -14,14 +14,15 @@ from typing_extensions import TypedDict
 
 
 PreflightStatus = Literal["pending", "pass", "fail_managed", "fail_init", "ambiguous"]
-StageName = Literal["mubeam", "run1b_mubeam", "concat", "mustops_ce"]
 
 
 class StageStatus(TypedDict, total=False):
     cluster_id: Optional[str]
     n_done: int
     n_failed: int
-    status: Literal["pending", "submitted", "running", "done", "failed"]
+    # Values actually emitted: read_stage_status → "pending"/"in_flight"/
+    # "done"; node failure paths → "failed".
+    status: Literal["pending", "in_flight", "done", "failed"]
     last_poll_ts: Optional[float]
 
 
@@ -29,7 +30,11 @@ class BOIterationState(TypedDict, total=False):
     """Per-iteration state. Persisted by SqliteSaver between node transitions."""
 
     config_name: str
-    mode: Literal["helical", "michael", "foils", "foilsf"]
+    # Mode name. NOT a Literal: JSON-defined modes (mode_specs/*.json) are
+    # discovered at import, so the set is not knowable statically. The real
+    # completeness check is tests/test_modes.py::test_keys_match_driver_modes,
+    # which asserts set(modes.SPECS) == set(bo_driver.MODES).
+    mode: str
     alpha: float
 
     x_point: List[float]
@@ -46,10 +51,6 @@ class BOIterationState(TypedDict, total=False):
     errors: List[str]
 
     mock: bool
-
-    auto_continue: bool
-    iter: int
-    max_iter: int
 
     # End-of-workflow log scan. `scan_report` is {stage: {pattern_code:
     # total_count}}; `scan_report_path` points at the per-iteration TSV under

@@ -1,18 +1,15 @@
-"""Thin wrappers around autoresearch_bo_michael.py + pipeline.py.
+"""Thin wrappers around bo_driver.py + pipeline.py.
 
-Phase 1 — only the BO seam (propose / preflight / evaluate) is wired.
-BO ops go in-process via `import autoresearch_bo_michael as bo` (HelicalMode
-is already a clean adapter — no need to fork a subprocess for those).
-Preflight and evaluate use subprocess to keep their I/O side-effects
-firewalled from the long-lived LangGraph server process.
-
-Phase 2 will add submit_stage / poll_stage / harvest wrappers that shell out
-to pipeline.py.
+BO ops go in-process via `import bo_driver as bo` (the BOMode
+adapters are clean — no need to fork a subprocess for those). Preflight,
+evaluate, and the grid-stage wrappers (run_stage / run_harvest, which shell
+out to pipeline.py's idempotent verbs) use subprocess to keep their I/O
+side-effects firewalled from the long-lived runner process.
 """
 from __future__ import annotations
 
 import json
-import re
+import os
 import shutil
 import subprocess
 import sys
@@ -20,15 +17,20 @@ import tempfile
 import time
 from pathlib import Path
 
-# Ensure the project root is importable so we can pull HelicalMode in-process.
-sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch")
+# Ensure core/ (BO/pipeline modules, 2026-07-17 reorg) is importable so we can
+# pull the BO modes in-process.
+sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch/core")
 
-import autoresearch_bo_michael as bo  # noqa: E402
+import bo_driver as bo  # noqa: E402
+import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
+import modes as _modes  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (  # noqa: E402
     BO_DRIVER,
+    BOTORCH_VENV_PY,
     DEFAULT_ALPHA,
+    DEFAULT_MODE,
     GRID_DATA_ROOT,
     GRID_STAGES,
     PIPELINE_DRIVER,
@@ -41,12 +43,18 @@ from config import (  # noqa: E402
 
 
 def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
-                x_override: list[float] | None = None):
+                x_override: list[float] | None = None, seed_idx: int = 0):
     """Propose a single config, materialize its geom, append to pending TSV.
 
     If x_override is given, skip the BO ask and use that x directly (used to
     force-evaluate GP-Pareto picks). The pending row is still written so
     concurrent BO proposals see this point as in-flight.
+
+    The BO ask is bo.botorch_ask (botorch-venv subprocess; the picker loads
+    priors+history itself and fantasizes over the pending x-points instead
+    of the retired skopt constant-liar suppression). seed_idx varies the
+    picker seed — node_propose passes its retry counter so a preflight-driven
+    re-propose draws a fresh point instead of the same one.
 
     Returns: (x_point: list[float], geom_path: str). Raises ValueError if the
     config name collides with an existing leaderboard or pending entry.
@@ -61,69 +69,56 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     if x_override is not None:
         x = list(x_override)
     else:
-        priors = mode.load_priors()
-        history = mode.load_history()
-        opt, space = mode.build_optimizer()
-        real_ys = []
-        for p in priors + history:
-            y = -p.obj(alpha)
-            try:
-                opt.tell(p.x, y)
-                real_ys.append(y)
-            except ValueError:
-                continue
-        if pending and real_ys:
-            fake_y = sum(real_ys) / len(real_ys)
-            for _, px in pending:
-                try:
-                    opt.tell(px, fake_y)
-                except ValueError:
-                    continue
-        # is_buildable retry loop — mirror cmd_propose's N_crit guard at
-        # autoresearch_bo_michael.py:803-827. Without this, q parallel
-        # graph children each ask once and any unbuildable pick gets
-        # submitted blind (preflight catches it, but a grid-burning lap is
-        # wasted). x_override bypasses the guard since the caller has
-        # already chosen the point intentionally.
-        MAX_RETRY = 20
-        penalty_y = max(real_ys) + 1.0 if real_ys else 1e6
-        for _ in range(MAX_RETRY):
-            x = opt.ask()
-            if mode.is_buildable(x):
-                break
-            try:
-                opt.tell(list(x), penalty_y)
-            except ValueError:
-                pass
-        else:
-            print(f"WARN: {MAX_RETRY} retries hit; submitting unbuildable "
-                  f"pick {list(x)} (preflight will reject)", file=sys.stderr)
+        xs = bo.botorch_ask(mode_name, q=1, seed_idx=seed_idx,
+                            pending=[px for _, px in pending],
+                            venv_py=BOTORCH_VENV_PY)
+        x = xs[0]
+        if not mode.is_buildable(x):
+            # x_override bypasses this check since the caller chose the point
+            # intentionally; here the pick came from the GP — surface it and
+            # let preflight reject it downstream.
+            print(f"WARN: submitting unbuildable pick {list(x)} "
+                  f"(preflight will reject)", file=sys.stderr)
     geom_path = mode.render_proposal(config_name, x)
     # Stage geom into pipeline.py's per-config work tree (mirror cmd_propose in
-    # autoresearch_bo_michael.py:567-570; pipeline.py's submit checks for this
+    # bo_driver.py:567-570; pipeline.py's submit checks for this
     # exact path and refuses otherwise).
     work_geom_dir = GRID_DATA_ROOT / config_name / "geom"
     work_geom_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(geom_path, work_geom_dir / f"autoresearch_{config_name}_geom.txt")
     mode.append_pending(config_name, x, alpha)
-    return list(x), str(geom_path)
+    # Coerce numpy scalars to native Python types. np.int64 is NOT
+    # msgpack-serializable, and LangGraph's SqliteSaver
+    # checkpointer (graph/run.py default) calls ormsgpack on the state dict —
+    # so an unguarded np.int64 in x_point bubbles up as
+    # `TypeError: Type is not msgpack serializable: numpy.int64` at end-of-run.
+    # Affects prodtarget mode (N=numberOfPlates is the only Integer dim across
+    # all modes); see wiki/incidents/langgraph-checkpoint-numpy-int64.md.
+    return bo.to_py_scalars(x), str(geom_path)
 
 
 # --- preflight (subprocess) ---
 
 
 def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_TIMEOUT_S) -> tuple[str, str]:
-    """Run `autoresearch_bo_michael.py preflight <cfg>`.
+    """Run `bo_driver.py preflight <cfg>` and read the typed verdict JSON.
 
-    Returns (status, log_tail). status ∈ {"pass", "fail_managed", "fail_init",
-    "ambiguous", "timeout"}. log_tail is the last ~80 lines of stdout for
-    surfacing in the GUI.
+    Returns (status, log_tail). status ∈ {"pass", "fail_managed",
+    "fail_init", "ambiguous", "timeout"}. A missing/unparseable JSON
+    (process crash, transport failure) decodes as "ambiguous" with a loud
+    reason — fail-safe: ambiguous routes to retry/human review and never
+    silently passes.
     """
+    state_dir = GRID_DATA_ROOT / config_name / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    verdict_path = state_dir / "preflight_verdict.json"
+    verdict_path.unlink(missing_ok=True)  # never read a stale verdict
     cmd = [
         sys.executable,
         str(BO_DRIVER),
         "--mode", mode_name,
         "preflight", config_name,
+        "--emit-json", str(verdict_path),
     ]
     try:
         proc = subprocess.run(
@@ -133,56 +128,38 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
         return "timeout", "(preflight timed out)"
 
     tail = "\n".join(proc.stdout.splitlines()[-80:])
-    rc = proc.returncode
-
-    # autoresearch_bo_michael cmd_preflight returns: 0 pass, 1 managed-volume
-    # overlap, 2 init failure, 3 ambiguous surface-check error.
-    status = {0: "pass", 1: "fail_managed", 2: "fail_init", 3: "ambiguous"}.get(rc, "ambiguous")
+    try:
+        status = json.loads(verdict_path.read_text())["verdict"]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+        status = "ambiguous"
+        tail = (f"(preflight verdict JSON missing/unparseable at "
+                f"{verdict_path}: {e!r}; rc={proc.returncode} — decoding as "
+                f"ambiguous)\n" + tail)
     return status, tail
 
 
 # --- mock grid (Phase 1) ---
 
-_HELICAL_KNOB_RANGES = {
-    "dx":         (0.01, 5.0),
-    "dy":         (40.0, 400.0),
-    "halflength": (25.0, 500.0),
-    "angle":      (60.0, 720.0),
-}
 
-# Matches FoilsMode.build_space in autoresearch_bo_michael.py.
-_FOILS_KNOB_RANGES = {
-    "n_up":                (0.0, 6.0),
-    "n_down":              (0.0, 6.0),
-    "extra_rOut":          (50.0, 250.0),
-    "extra_halfThickness": (0.05, 1.0),
-    "extra_rIn":           (0.0, 50.0),
-}
-
-
-def mock_metrics(x_point: list[float]) -> dict:
+def mock_metrics(x_point: list[float], mode: str = DEFAULT_MODE) -> dict:
     """Synthesize a (s_over_sqrt_b, calo_per_pot) pair from x via a smooth surface.
 
-    Mode-agnostic: 4D = helical (dx, dy, halflen, angle), 5D = foils
-    (n_up, n_down, extra_rOut, extra_halfThickness, extra_rIn). Peak sob at
-    mid-range of each knob; calo grows with the last two normalized knobs
-    (helical: halflength·angle = "more plug"; foils: halfThickness·rIn-ish =
-    "more downstream material" — same intent).
+    Dimension-generic: normalizes each knob against the mode's registry
+    bounds (modes.SPECS[mode].bounds_lo/hi), so every numeric mode works
+    (6D foilsf … 12D foilsg). sob peaks at mid-range of each knob; calo grows
+    with the last two normalized knobs ("more material").
     """
-    if len(x_point) == 4:
-        keys = ("dx", "dy", "halflength", "angle")
-        ranges = _HELICAL_KNOB_RANGES
-    elif len(x_point) == 5:
-        keys = ("n_up", "n_down", "extra_rOut", "extra_halfThickness", "extra_rIn")
-        ranges = _FOILS_KNOB_RANGES
-    else:
-        raise ValueError(f"mock_metrics: expected 4D helical or 5D foils x, got {len(x_point)}")
-    u = [(v - ranges[k][0]) / (ranges[k][1] - ranges[k][0]) for k, v in zip(keys, x_point)]
-    # sob: gaussian bump centered at 0.5 in each dim.
     import math
+    spec = _modes.SPECS[mode]
+    lo, hi = spec.bounds_lo, spec.bounds_hi
+    if len(lo) != len(x_point):
+        raise ValueError(f"mock_metrics: x_point has {len(x_point)} dims, "
+                         f"mode {mode!r} registry bounds have {len(lo)}")
+    u = [(v - lo[i]) / (hi[i] - lo[i]) for i, v in enumerate(x_point)]
+    # sob: gaussian bump centered at 0.5 in each dim.
     r2 = sum((ui - 0.5) ** 2 for ui in u)
     sob = 0.9 * math.exp(-2.5 * r2) + 0.05
-    # calo: grows with the last two normalized knobs (mode-agnostic "more material" dir).
+    # calo: grows with the last two normalized knobs ("more material" dir).
     calo = 1e-7 + 6e-7 * u[-2] * u[-1]
     return {
         "config": "mock",
@@ -240,9 +217,29 @@ def run_stage(config_name: str, stage: str) -> dict:
     return read_stage_status(config_name, stage)
 
 
-def run_harvest(config_name: str) -> dict:
-    """Run pipeline.py harvest; return parsed summary.json."""
-    _run_pipeline_verb(config_name, "harvest", None)
+def presubmit_stage(config_name: str, stage: str) -> None:
+    """Early submit of a data-independent stage (see config.PRESUBMIT_AFTER).
+
+    Submit-only: the stage's own node later finds the cluster file (submit
+    no-ops), polls the already-running jobs, and lists outputs — so the
+    stage's grid time overlaps the intervening chain. Callers treat this as
+    best-effort; on failure the stage node just submits sequentially.
+    """
+    _run_pipeline_verb(config_name, "submit", stage)
+
+
+def run_harvest(config_name: str, mode: str | None = None) -> dict:
+    """Run pipeline.py harvest verb for the mode; return parsed summary.json.
+
+    Mode dispatch (2026-06-07): prodtarget chains a single `pot_only` stage
+    whose summary schema differs (`mu_per_POT`) from the 4-stage S/√B+calo
+    schema. Verb selection comes from the ModeSpec registry; defaults to the
+    legacy 4-stage `harvest` for backward compat when no mode is passed.
+    """
+    if mode is None:
+        mode = os.environ.get("AUTORESEARCH_MODE", DEFAULT_MODE)
+    verb = _modes.SPECS[mode].harvest_verb  # loud KeyError on unknown mode (ADR-0002)
+    _run_pipeline_verb(config_name, verb, None)
     summary_path = GRID_DATA_ROOT / config_name / "harvest" / "summary.json"
     if not summary_path.exists():
         raise RuntimeError(f"harvest finished but {summary_path} is missing")
@@ -258,10 +255,8 @@ def read_stage_status(config_name: str, stage: str) -> dict:
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
     cluster_file = state_dir / f"{stage}_cluster.txt"
-    outputs_file = state_dir / f"{stage}_outputs.txt"
     cid = cluster_file.read_text().strip() if cluster_file.exists() else None
-    outputs = ([ln for ln in outputs_file.read_text().splitlines() if ln.strip()]
-               if outputs_file.exists() else [])
+    outputs = hv.read_outputs(state_dir, stage) or []
     target = STAGE_TARGETS.get(stage, 0)
     n_done = len(outputs)
     status = "done" if (cid and outputs) else ("in_flight" if cid else "pending")
@@ -272,17 +267,6 @@ def read_stage_status(config_name: str, stage: str) -> dict:
         "n_failed": max(0, target - n_done),
         "last_poll_ts": time.time(),
     }
-
-
-def run_grid_real(mode_name: str, config_name: str) -> dict:
-    """Deprecated shim. Prefer per-stage nodes (graph.build) for live runs.
-
-    Kept for ad-hoc scripted use that wants to drive the full chain in one
-    process. Loops `run_stage` over GRID_STAGES then harvest.
-    """
-    for stage in GRID_STAGES:
-        run_stage(config_name, stage)
-    return run_harvest(config_name)
 
 
 # --- end-of-workflow log scanner (report-only) ---
@@ -299,6 +283,11 @@ _SCAN_PATTERNS = (
     ("Warning",                r"\bWarning\b"),
     ("FATAL",                  r"FATAL"),
     ("SEGV",                   r"SEGV|segmentation fault|Segmentation fault"),
+    # Report-only (NOT in SCAN_BROKEN_CODES): a few hits = transient xrootd
+    # flakes (concat-xrootd-fileopen-postendjob); hits across ALL jobs = a
+    # moved input dataset (elebeamcat-tape-migration-elebeam-wipeout). Gating
+    # on it would false-positive the transient case — surface, don't block.
+    ("FileOpenError",          r"FileOpenError"),
 )
 
 
@@ -310,17 +299,13 @@ def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
     didn't reach list-outputs yet).
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
-    outputs_file = state_dir / f"{stage}_outputs.txt"
-    if not outputs_file.exists():
+    outputs = hv.read_outputs(state_dir, stage)
+    if not outputs:
         return []
     logs: list[Path] = []
-    for line in outputs_file.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        worker_dir = Path(line).parent
+    for art_path in outputs:
         try:
-            logs.extend(sorted(worker_dir.glob("*.log")))
+            logs.extend(sorted(art_path.parent.glob("*.log")))
         except OSError:
             continue
     return logs
@@ -421,14 +406,20 @@ def scan_worker_logs(config_name: str) -> tuple[dict[str, dict[str, int]], Path,
 
 def run_evaluate(mode_name: str, config_name: str, metrics: dict,
                  alpha: float = DEFAULT_ALPHA) -> tuple[float | None, str]:
-    """Write metrics to a tmp summary.json and call the driver's evaluate verb.
+    """Write metrics to a tmp summary.json, call the driver's evaluate verb,
+    and read the objective from the typed result JSON.
 
-    Returns (objective, stdout_tail). objective is None if the driver could
-    not compute it (missing fields, etc.).
+    Contract: rc != 0 → the driver refused (missing metrics, bad geom…) and
+    appended nothing → return (None, tail) — callers already treat that as
+    a zero_row. rc == 0 with missing/unparseable JSON is a HARD error: a
+    run that cannot prove it recorded a row already is one.
     """
     tmp = Path(tempfile.mkdtemp(prefix=f"graph_eval_{config_name}_"))
     summary_path = tmp / "summary.json"
     summary_path.write_text(json.dumps(metrics, indent=2))
+    result_path = GRID_DATA_ROOT / config_name / "state" / "evaluate_result.json"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.unlink(missing_ok=True)  # never read a stale result
 
     cmd = [
         sys.executable,
@@ -436,17 +427,20 @@ def run_evaluate(mode_name: str, config_name: str, metrics: dict,
         "--mode", mode_name,
         "--alpha", f"{alpha}",
         "evaluate", config_name, str(summary_path),
+        "--emit-json", str(result_path),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     tail = "\n".join((proc.stdout + proc.stderr).splitlines()[-40:])
 
-    obj = None
-    # Driver prints `obj={:+.3f}` so the sign is always present; allow both
-    # `obj=+0.519` and `obj: 0.5` to be forgiving across formats.
-    m = re.search(r"obj\s*[:=]\s*([+-]?\d+\.\d+)", proc.stdout)
-    if m:
-        obj = float(m.group(1))
-    return obj, tail
+    if proc.returncode != 0:
+        return None, tail
+    try:
+        return float(json.loads(result_path.read_text())["obj"]), tail
+    except (FileNotFoundError, json.JSONDecodeError, KeyError,
+            TypeError, ValueError) as e:
+        raise RuntimeError(
+            f"evaluate rc=0 but result JSON missing/unparseable at "
+            f"{result_path}: {e!r}; stdout tail:\n{tail}")
 
 
 # --- helper: synthesize next config name from leaderboard width ---

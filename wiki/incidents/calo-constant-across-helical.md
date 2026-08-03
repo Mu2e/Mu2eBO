@@ -1,8 +1,19 @@
-# All harvest metrics are constant across helical configs
+---
+type: incident
+title: All harvest metrics are constant across helical configs
+description: all harvest metrics bit-identical across 6 helical configs; **resolved
+  2026-05-17** via self-built patched libmu2e_Mu2eG4.so + LD_PRELOAD
+status: resolved
+status_note: '(2026-05-17) — canonical `muse tarball` shipped: mgit Mu2eG4 sparse
+  checkout of v13_12_10 + helical-plug.patch, built against Run1Bak backing in `/exp/mu2e/app/users/oksuzian/autoresearch_muse/`.
+  The muse-built `Code.tar.bz2`''s `setup.sh` calls `muse setup $CODE_DIR -q e29
+  prof p094`, putting the local lib ahead of CVMFS by link/path order (no LD_PRELOAD
+  needed). Validated on grid via helical002 clusters 27881180 mubeam + 27881183
+  run1b_mubeam.'
+timestamp: '2026-05-17'
+---
 
-**Type:** incident
-**Status:** **resolved (2026-05-17)** — canonical `muse tarball` shipped: mgit Mu2eG4 sparse checkout of v13_12_10 + helical-plug.patch, built against Run1Bak backing in `/exp/mu2e/app/users/oksuzian/autoresearch_muse/`. The muse-built `Code.tar.bz2`'s `setup.sh` calls `muse setup $CODE_DIR -q e29 prof p094`, putting the local lib ahead of CVMFS by link/path order (no LD_PRELOAD needed). Validated on grid via helical002 clusters 27881180 mubeam + 27881183 run1b_mubeam.
-**Updated:** 2026-05-17
+# All harvest metrics are constant across helical configs
 
 ## Summary
 **The entire harvested metric vector is bit-identical across six independent
@@ -112,7 +123,7 @@ Offline source so the helical plug is actually built:
    `LD_PRELOAD` it from `setup.sh`. Same delivery mechanism as option 5, but
    the library is rebuilt against the exact Musing tree the workers use, so
    ABI compatibility is guaranteed by construction rather than untested. See
-   [[muse-backing-pattern]] for the workflow.
+   [muse-backing-pattern](/external/muse-backing-pattern.md) for the workflow.
 
 **Option 6 was chosen and landed 2026-05-17.** Build artifact:
 `/exp/mu2e/app/users/oksuzian/Offline_helical/build/al9-prof-e29-p094/Offline/lib/libmu2e_Mu2eG4.so`
@@ -166,7 +177,7 @@ but invisible to this analyzer module.
   dy ∈ [82.4, 84.6], halflen ∈ [52.7, 269.8], angle ∈ [94, 498]°.
 - helical001 differs only because it ran with a doubled mustops_ce input pool
   (ce_simulated_events=1.94e6 vs 1.0e6); `ce_abs_eff` agrees with the others
-  to 0.4%, well within A/B noise from [[grid-job-completion-check]].
+  to 0.4%, well within A/B noise from [grid-job-completion-check](/incidents/grid-job-completion-check.md).
 - **Concat outputs DO differ per config:** MD5-distinct, sizes
   263659862–263669674 bytes — the geometry override IS reaching mubeam.
 - Direct ROOT readback of file 0: `TargetMuonFinder/stopmat` has 16 bins, all
@@ -223,10 +234,10 @@ but invisible to this analyzer module.
   `ce_seen=310485`, `ce_abs_eff=0.000478`, `calo_per_pot=6.12e-06`). The
   patched lib is firing on workers. Leaderboard now has the broken-era
   helical002 row plus the canonical-path row for direct comparison.
-- [ ] Update [[bo-helical]] from `halted` → `active` and resume q=5 BO
+- [ ] Update [bo-helical](/projects/bo-helical.md) from `halted` → `active` and resume q=5 BO
   iterations (this entry's blocker is now lifted).
 
 ## Cross-links
-- Related: [[bo-helical]] (calo penalty is dead in this project), [[scalarized-objective]] (α derivation doesn't apply for helical), [[harvest-denominator-bug]] (different bug, same harvest module)
+- Related: [bo-helical](/projects/bo-helical.md) (calo penalty is dead in this project), [scalarized-objective](/concepts/scalarized-objective.md) (α derivation doesn't apply for helical), [harvest-denominator-bug](/incidents/harvest-denominator-bug.md) (different bug, same harvest module), [grid-job-completion-check](/incidents/grid-job-completion-check.md), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md), [stickman-sd-unwired](/incidents/stickman-sd-unwired.md)
 - Source files: `pipeline.py:437` (_CALO_EXTRACT_SCRIPT), `pipeline.py:462` (_extract_calo_per_pot), `pipeline_templates/run1b_mubeam/template.fcl:9,17` (deterministic resampler seeds)
 - Raw evidence: `helical001/harvest/summary.json`, `helical002/harvest/summary.json`

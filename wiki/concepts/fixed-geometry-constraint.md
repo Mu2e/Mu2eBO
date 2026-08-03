@@ -1,14 +1,13 @@
 ---
-name: fixed-geometry-constraint
-description: All BO proposals must use the same hardware position for Run1A and Run1B — no moving parts between data-taking periods
 type: concept
+title: Fixed-geometry constraint
+description: All BO proposals must use the same hardware position for Run1A and
+  Run1B — no moving parts between data-taking periods
+status: active
+timestamp: '2026-05-15'
 ---
 
 # Fixed-geometry constraint
-
-**Type:** concept
-**Status:** active
-**Updated:** 2026-05-15
 
 ## Summary
 A load-bearing design constraint on every BO mode in this project: the
@@ -37,15 +36,16 @@ substantially below v39's reported obj=3.459.
   - degrader=off, foil-stack: v98 → obj 2.095
   - degrader=off, helical: v111 → obj 1.958
   - (For comparison, v39 with moving degrader: obj 3.459 — excluded.)
-- **How our BO modes enforce it:** [[bo-michael]] emits
+- **How our BO modes ([bo-modes](/concepts/bo-modes.md)) enforce it:** [bo-michael](/projects/bo-michael.md) emits
   `degrader.build=false` and never overrides any other stage-specific
   value, so the same proposal geom is valid in both Run1A and Run1B
-  stages. [[bo-helical]] does the same plus pins helical knobs that
+  stages. [bo-helical](/projects/bo-helical.md) does the same plus pins helical knobs that
   apply identically to both stages.
 
 ## Cross-links
-- Constrains: [[bo-michael]], [[bo-helical]]
-- Excluded best: discussed in [[mmackenz-priors]]
+- Related: [production-target-stickman](/concepts/production-target-stickman.md)
+- Constrains: [bo-michael](/projects/bo-michael.md), [bo-helical](/projects/bo-helical.md)
+- Excluded best: discussed in [mmackenz-priors](/datasets/mmackenz-priors.md)
 - Source: project design choice (no formal spec — recorded here)
 
 ## Open questions / TODO

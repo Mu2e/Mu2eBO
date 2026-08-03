@@ -1,15 +1,20 @@
-# botorch_predict.py seed used `**` (pow) where spec said `^` (xor)
+---
+type: incident
+title: botorch_predict.py seed used `**` (pow) where spec said `^` (xor)
+description: '`botorch_predict.py:161` used `42 ** round_idx` (pow) instead of documented
+  `42 ^ round_idx` (xor); rounds 0+1 silently shared seed=42 → identical Sobol draw'
+status: resolved
+timestamp: '2026-07-19'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-06-01
+# botorch_predict.py seed used `**` (pow) where spec said `^` (xor)
 
 ## Summary
 `botorch_predict.py:161` set the qNEHVI MC sampler seed as
 `42 ** max(1, int(round_idx))` (exponentiation) instead of the documented
 `42 ^ round_idx` (XOR). Symptom is silent: round 0 and round 1 both get
 seed=42 → same Sobol draw → the exact "fixed-seed diversity bias" the file's
-own docstring (lines 22-24) and [[bo-helical]] (line 848) warn against. From
+own docstring (lines 22-24) and [bo-helical](/projects/bo-helical.md) (line 848) warn against. From
 round 2 onward seeds are `42**k mod (2³¹-1)` — wildly different from the
 intended `42^k` (e.g. `42^2=40` vs `42**2=1764`).
 
@@ -28,8 +33,12 @@ intended `42^k` (e.g. `42^2=40` vs `42**2=1764`).
   duplicated MC draws.
 
 ## Cross-links
-- Related: [[bo-helical]] (line 848 documents the intended `42 ^ round_idx`),
-  [[batch-bo]]
+- Related: [bo-helical](/projects/bo-helical.md) (line 848 documents the intended `42 ^ round_idx`),
+  [batch-bo](/concepts/batch-bo.md),
+  [hybrid-picker-scipy-abnormal-retry-nondeterminism](/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md)
+  (a different, still-open non-reproducibility source in the same picker
+  path — this incident's XOR-seed fix does not touch the scipy
+  ABNORMAL-retry RNG draw)
 - Source files: `botorch_predict.py:161`, `graph/closed_loop.py:267-298`
 
 ## Open questions / TODO

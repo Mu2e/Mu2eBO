@@ -1,0 +1,242 @@
+{
+  "name": "nominal",
+  "note": "Deployed 37-foil stopping target under Run1Bap, in the foilsflash environment. Baseline for 'does the optimised target beat deployed'. The 6 knobs are INERT here -- no geometry line references them. Throwaway measurement mode -- DELETE after the A/B lands.",
+  "software": {
+    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
+  },
+  "run": {
+    "stages": [
+      "mubeam",
+      "mustops_ce",
+      "elebeam_flash"
+    ],
+    "harvest": "harvest",
+    "jobs_per_stage": {
+      "mubeam": 15,
+      "mustops_ce": 15,
+      "elebeam_flash": 100
+    },
+    "presubmit_after": {
+      "mubeam": [
+        "elebeam_flash"
+      ]
+    },
+    "stage_tuning": {
+      "mubeam": {
+        "events_per_job": 200000,
+        "memory_mb": 2000,
+        "quorum": 0.8
+      },
+      "mustops_ce": {
+        "events_per_job": 75000,
+        "memory_mb": 2000,
+        "quorum": 0.8
+      },
+      "elebeam_flash": {
+        "events_per_job": 110000,
+        "memory_mb": 2000
+      }
+    }
+  },
+  "knobs": [
+    {
+      "name": "extra_rOut_up",
+      "min": 50.0,
+      "max": 250.0,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "extra_rOut_dn",
+      "min": 50.0,
+      "max": 250.0,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "extra_halfThickness_up",
+      "min": 0.002,
+      "max": 1.0,
+      "fmt": "{:.6f}"
+    },
+    {
+      "name": "extra_halfThickness_dn",
+      "min": 0.002,
+      "max": 1.0,
+      "fmt": "{:.6f}"
+    },
+    {
+      "name": "extra_f_up",
+      "min": 0.0,
+      "max": 0.95,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "extra_f_dn",
+      "min": 0.0,
+      "max": 0.95,
+      "fmt": "{:.4f}"
+    }
+  ],
+  "int_dims": [],
+  "leaderboard": {
+    "file": "leaderboards/leaderboard_ab_nominal.tsv",
+    "columns": [
+      "sob",
+      "flash_edep",
+      "alpha",
+      "obj"
+    ],
+    "obs_noise": [
+      0.006,
+      0.01
+    ],
+    "metrics": {
+      "sob": [
+        "s_over_sqrt_b"
+      ],
+      "flash_edep": [
+        "flash_edep_per_pot",
+        "flash_edep_per_event"
+      ]
+    }
+  },
+  "preflight": {
+    "dumps_gdml": true,
+    "verifies_foil_gdml": true,
+    "preserves_gdml": false,
+    "checks_managed_overlap": true,
+    "require_zero_overlaps": false
+  },
+  "geom": {
+    "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+    "consts": {
+      "n_up": 6,
+      "n_dn": 6,
+      "base_n": 37,
+      "base_rOut": 75.0,
+      "base_hT": 0.0528,
+      "base_hole": 21.5
+    },
+    "derived": {
+      "rIn_up": "extra_f_up * extra_rOut_up",
+      "rIn_dn": "extra_f_dn * extra_rOut_dn"
+    },
+    "lines": [
+      {
+        "comment": "=== NOMINAL / DEPLOYED stopping target (Run1Bap baseline) ==="
+      },
+      {
+        "comment": "The deployed stack is emitted explicitly below (see next comment) rather than inherited, but the values are the base include's. No IPA compensation: at the deployed 800 mm span the compensation returns the stock 625, so omitting the line IS the right value. Everything else matches the foilsflash environment, so the ONLY difference from a BO eval is the target geometry."
+      },
+      {
+        "comment": "Deployed 37-foil stack written out EXPLICITLY via the base_* consts. Bit-identical to the base include (stoppingTargetHoles_v02 -> _DOE_review_2017: 37 x rOut 75.00, halfThickness 0.0528, holeRadius 21.5); the base deltaZ 22.222222 gives the 800 mm span. Written out so the baseline is self-describing and so preflight's as-built GDML check has a vector to verify -- against an implicit stack it correctly refuses to pass."
+      },
+      {
+        "key": "stoppingTarget.radii",
+        "type": "vector<double>",
+        "fmt": "{:.4f}",
+        "segments": [
+          {
+            "count": "base_n",
+            "expr": "base_rOut"
+          }
+        ]
+      },
+      {
+        "key": "stoppingTarget.halfThicknesses",
+        "type": "vector<double>",
+        "fmt": "{:.6f}",
+        "segments": [
+          {
+            "count": "base_n",
+            "expr": "base_hT"
+          }
+        ]
+      },
+      {
+        "comment": "POISON PILL, same as every other arm: an unpatched StoppingTargetMaker ignores holeRadii and reads this scalar. 1e6 forces a loud G4Tubs crash instead of a silently uniform stack -- emitting a 'sensible' scalar is how 62 foilsg rows were lost."
+      },
+      {
+        "key": "stoppingTarget.holeRadius",
+        "type": "double",
+        "raw": "1.0e6"
+      },
+      {
+        "key": "stoppingTarget.holeRadii",
+        "type": "vector<double>",
+        "fmt": "{:.4f}",
+        "segments": [
+          {
+            "count": "base_n",
+            "expr": "base_hole"
+          }
+        ]
+      },
+      {
+        "comment": "{base_n} base foils (DOE-2017, rOut={base_rOut}, hT={base_hT}, holeRadius={base_hole})"
+      },
+      {
+        "comment": "EMC_Source relocated 5300 -> 5000. It is a 20um disc of ds.vacuumMaterial (vd.halfLength=0.01) -- ZERO mass, no scattering, no absorption -- and NO foils-family stage reads virtual detectors (only pot_only instantiates ReadVirtualDetector). At 5300 it was the UPSTREAM wall of the zero-overlap corridor, capping the stack at 6271-5300=971mm. zEMCSourceInMu2e is a plain c.getDouble default at VirtualDetectorMaker.cc:189, so this is one config line, no source patch. EMC_Source2 stays at 4800, so ordering is preserved."
+      },
+      {
+        "key": "zEMCSourceInMu2e",
+        "type": "double",
+        "value": 5000.0
+      },
+      {
+        "key": "hasTSdA",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "key": "tsda.helical.build",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "comment": "Degrader parked at 120 deg (mmackenz hardware detent)"
+      },
+      {
+        "key": "degrader.build",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "key": "degrader.rotation",
+        "type": "double",
+        "value": 120.0
+      },
+      {
+        "key": "ts.coll5.material1Name",
+        "type": "string",
+        "value": "COL5Poly"
+      },
+      {
+        "comment": "TT_MidInner -> DS2Vacuum workaround REMOVED 2026-07-28 (Run1Bap migration). Under v13_12_10 constructVirtualDetectors:502 parented the tracker VDs on `isDumbbell` (always false here), nailing them into DS2Vacuum while Mu2eWorld:346 put the tracker itself in DS3Vacuum -- VDs protruded 1.8-3.5 m outside their mother, GeomMgt0002 fatal. Forcing tracker.inDS2Vacuum=true + ds2.halfLength=3825 made the two agree. v13_32_10 keys VD parenting on !tracker.inDS2Vacuum, so stock is self-consistent and the workaround is not just redundant but harmful: it re-parented EMC_0_Front into DS2Vacuum as a sibling of StoppingTargetMother, which WAS the last remaining overlap. Measured 2x2 on foilspf corner_hi: Run1Bak+override 1 overlap, Run1Bap+override 1, Run1Bak-override 6 + rc=134 core dump, Run1Bap-override 0."
+      },
+      {
+        "key": "ds.hasServicePipes",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "comment": "Overlap-suppression (foil-support off + rail shrink)"
+      },
+      {
+        "key": "stoppingTarget.foilTarget_supportStructure",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "key": "ds.lengthRail2",
+        "type": "double",
+        "value": 0.1
+      },
+      {
+        "key": "ds.lengthRail3",
+        "type": "double",
+        "value": 0.1
+      }
+    ]
+  }
+}

@@ -1,8 +1,15 @@
-# muse-backing-pattern — build a patched Offline subset against a Musing
+---
+type: external
+title: muse-backing-pattern — build a patched Offline subset against a Musing
+description: build patched Offline subset against a Musing; how the helical-plug
+  lib is produced
+status: active
+timestamp: '2026-06-07'
+updated_note: added muse 4.17.0 source citations for CVMFS-link preservation + empty-repos
+  behavior + grid-side setup.sh contract
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-05-26
+# muse-backing-pattern — build a patched Offline subset against a Musing
 
 ## Summary
 
@@ -123,10 +130,10 @@ muse build -j 8 >/tmp/build.log 2>&1
 
 ## Cross-links
 
-- Used by: [[pipeline]] (`write_code_tarball` ships `Code/lib/libmu2e_Mu2eG4.so`
+- Used by: [pipeline](/drivers/pipeline.md) (`write_code_tarball` ships `Code/lib/libmu2e_Mu2eG4.so`
   + `LD_PRELOAD` in `setup.sh`)
-- Motivating bug: [[calo-constant-across-helical]]
-- Project: [[bo-helical]]
+- Motivating bug: [calo-constant-across-helical](/incidents/calo-constant-across-helical.md)
+- Project: [bo-helical](/projects/bo-helical.md)
 - Source patch: `/exp/mu2e/app/users/oksuzian/Offline_helical/helical-plug.patch`
 - Build dir: `/exp/mu2e/app/users/oksuzian/Offline_helical/build/al9-prof-e29-p094/Offline/lib/`
 - Mu2e wiki: https://mu2ewiki.fnal.gov/wiki/GitHubWorkflow#Developer_Workflow
@@ -155,6 +162,63 @@ with the same envset, so ABI matches by construction.
 To rebuild Run1BAna locally we would need: (a) check out an older Run1BAna
 tag whose ABI matches `v13_12_10`, (b) also check out `EventNtuple`, (c)
 muse build. Not worth doing unless the borrow path stops working.
+
+## Backing-only tarball (no source overlay, no build)
+
+For a stock Musing with **zero local patches**, the recipe collapses to
+just `muse backing` + `muse setup` + `muse tarball` — no rsync, no mgit,
+no compile step. The resulting tarball is a few hundred bytes (vs ~60 MB
+for a full-Offline overlay) because it contains only `Code/setup.sh` +
+`Code/backing` symlink to CVMFS. Workers resolve everything through the
+backing.
+
+Concrete example (2026-06-07, produced `Code_MDC2025aq_prodtarget.tar.bz2`
+for [bo-prodtarget](/projects/bo-prodtarget.md)):
+
+```bash
+mkdir -p $WORK/autoresearch_muse_prodtarget && cd $_
+source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
+muse backing SimJob MDC2025aq    # symlink: backing -> CVMFS path
+muse setup                       # picks p101 from backing's .muse
+muse tarball                     # tarball: 377 bytes
+```
+
+Produced tarball contents:
+```
+Code/setup.sh        # muse setup $CODE_DIR -q p101 e29 prof
+Code/backing         # symlink -> /cvmfs/.../Musings/SimJob/MDC2025aq
+```
+
+**Gotcha (cosmetic, non-fatal)**: `muse tarball` prints
+`tar: build/al9-prof-e29-p101/.musebuild: Cannot stat: No such file or
+directory` because there's no build dir, then exits rc=0 with a valid
+tarball. The warning can be ignored.
+
+**When this works vs full-overlay**: backing-only is correct when the
+worker runs unmodified CVMFS libraries (e.g. the Stickman PT bo-prodtarget
+case — pure-config geometry changes via `MU2E_SEARCH_PATH`). Use the
+full-overlay recipe above when any `.so` needs a local patch.
+
+**Why the symlink is preserved (verified against muse 4.17.0, 2026-06-07)**:
+`museTarball.sh:272-286` walks the backing chain and, when
+`readlink -f backing` matches `^/cvmfs/*` (regex `cvmfsReg` at line 139),
+stages **only the symlink** (`ln -s $BDD $TMP/backing`) into the tmp dir,
+tars with `-h`, and `break`s. Local-disk backings fall through and get
+packed in full. Implication: a CVMFS-backed tarball is **CVMFS-dependent
+at runtime** — fine for OSG sites Mu2e uses, but not portable to
+non-CVMFS workers.
+
+**Why empty `MUSE_REPOS` is fine**: `museSetup.sh:781` only warns
+("setup an empty directory") when **both** `MUSE_REPOS` AND
+`MUSE_BACKING` are empty. A pure-backing workDir populates
+`MUSE_BACKING` (lines 326-337), and `MUSE_REPOS` is then filled from
+`$MUSE_BACKING_REV` (line 553). No stub repo required.
+
+**Grid-side invocation**: the auto-generated `Code/setup.sh` literally
+does `muse setup $CODE_DIR -q <qual>` where `<qual>` is pinned to the
+local `-q` at tarball time (prof/debug + envset). Prefer
+`source Code/setup.sh` over bare `muse setup Code` for reproducibility —
+the wrapper replays the exact qualifier.
 
 ## Open questions / TODO
 

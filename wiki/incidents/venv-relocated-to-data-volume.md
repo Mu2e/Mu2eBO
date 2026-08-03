@@ -1,15 +1,20 @@
 ---
-name: venv-relocated-to-data-volume
-description: .venv-graph and .venv-botorch live on /exp/mu2e/data (symlinked from project root); Ceph cross-volume mv ran ~430 KB/s on many-small-files
 type: incident
+title: venv relocated to /exp/mu2e/data volume
+description: the project venv lives on /exp/mu2e/data (symlinked from project
+  root; single .venv since 2026-07-18); Ceph cross-volume mv ran ~430 KB/s on
+  many-small-files
 status: resolved
+timestamp: '2026-07-18'
 ---
 
 # venv relocated to /exp/mu2e/data volume
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-05-31
+> **Corollary (2026-07-08): never use git-worktree isolation for agents/tasks
+> in this repo.** `.venv` (formerly `.venv-graph`/`.venv-botorch`) is an
+> UNTRACKED symlink at the repo root, so a fresh worktree checkout has no
+> venv — tests and every `python -m graph.*` entrypoint fail there. Agents
+> must work in the main tree (gate on "no campaign running" instead).
 
 ## Summary
 
@@ -24,6 +29,27 @@ linearly extrapolate from small-venv timing.
 
 ## Key facts
 
+- **CONSOLIDATED 2026-07-18: one `.venv` replaces all three venvs.** Same
+  /data + root-symlink pattern (`autoresearch_venvs/.venv`, py3.11,
+  langgraph + botorch 0.18 + matplotlib + sklearn); `.venv-graph` /
+  `.venv-botorch` / `.venv-botorch-new` deleted after the 7 validation
+  gates in docs/superpowers/specs/2026-07-18-venv-consolidation-design.md.
+  Reclaimed ~7.5 GB incl. the accidental 5.8 GB CUDA wheels below. The
+  "no single venv with all four" bullet at the bottom is now historical:
+  the merged venv carries all four stacks. Rebuild recipe = root
+  `requirements.txt` (the per-venv requirements files are retired; their
+  pin sets live in git history).
+- **`.venv-botorch` is 6.7 GB mostly by accident (audit 2026-07-16):**
+  torch 1.7G + `nvidia/` CUDA wheels 4.1G = 5.8G of GPU support for a
+  picker that is explicitly CPU-only (`botorch_predict.py:34-35` pins
+  `DEVICE=cpu`). The CPU-wheel build (`.venv-botorch-new`, botorch 0.18)
+  is ~973 MB. Retiring the 0.10 venv after the A/B verdict reclaims
+  ~6.7G on the 2TB /data quota that already EDQUOT'd once
+  ([data-quota-exhausted-grid-accumulation](/incidents/data-quota-exhausted-grid-accumulation.md)).
+- **`.venv-botorch-new` is uv-built without pip** — `pip list` silently
+  returns nothing; audit installed packages via `ls .../site-packages/*.dist-info`.
+  It is also missing from `.gitignore` (lines 5-6 cover only the other
+  two symlinks), so it shows as `??` in git status.
 - **Current layout (2026-05-22):**
   - `/exp/mu2e/app/users/oksuzian/autoresearch/.venv-graph` → symlink
     → `/exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv-graph`
@@ -58,8 +84,21 @@ linearly extrapolate from small-venv timing.
   the Ceph→Ceph pessimism over to NFS→Ceph.
 - **No source file references `.venv-botorch`** — it's
   manually-activated only. `.venv-graph` is referenced from the
-  [[graph-runner]] skill and is the standard entrypoint for
+  [graph-runner](/drivers/graph-runner.md) skill and is the standard entrypoint for
   `python -m graph.run`.
+
+- **Skill/script gotcha 2026-06-07: `.venv-botorch/bin/python` is NOT
+  reachable from off-repo CWDs.** The `mmackenz_table_plots/` /data dir
+  (where `gp_predict_foils_v2v3_cloud.py` + `saturation_report.py` live)
+  has no venv at `./.venv-botorch`. Commands that `cd` into that dir
+  must use the **absolute** path `/exp/mu2e/app/users/oksuzian/
+  autoresearch/.venv-botorch/bin/python`. The bare-relative form fails
+  silently with `/bin/bash: line 1: .venv-botorch/bin/python: No such
+  file or directory` and the producer-side PNG is never refreshed —
+  later `cp src dst` still succeeds because the *previous* stale PNG
+  is at the source path, so md5 vs HEAD ≡ no diff to commit. Fix
+  applied to `.claude/skills/refresh-foils-talk/SKILL.md` (replace_all
+  to absolute path).
 - **Leaked CVMFS `PYTHONPATH` shadows venv packages** (2026-05-31): if a
   Musing env was sourced into the launching shell (e.g. `MDC2025ap` —
   `muse setup` / `setupmu2e-art.sh`), `PYTHONPATH` gets stuffed with cvmfs
@@ -84,6 +123,15 @@ linearly extrapolate from small-venv timing.
     are unaffected. This only bites venv invocations from a shell that
     sourced a Musing first (the `/closed-loop-status` saturation step,
     ad-hoc test runs, etc.).
+- **`.venv-graph` is uv-managed → no `pip` binary in `bin/`** (2026-06-07).
+  `pyvenv.cfg` shows `uv = 0.11.8`. Calling
+  `.venv-graph/bin/pip install …` errors with "No such file or directory".
+  Install pattern: `VIRTUAL_ENV=/exp/…/autoresearch/.venv-graph uv pip
+  install …` (uv reads `$VIRTUAL_ENV` to target the right venv without
+  activation). Also: add new deps to `requirements-graph.txt` so a
+  rebuild via `uv pip install -r requirements-graph.txt` stays
+  reproducible. Same applies to `.venv-botorch` if it was built with uv
+  (not verified).
 - **skopt is NOT installed in `.venv-botorch`** (2026-05-31): any
   cross-picker comparison script (e.g.
   `mmackenz_table_plots/diversity_overlay_foils.py`) that wants both a
@@ -95,11 +143,31 @@ linearly extrapolate from small-venv timing.
 
 ## Cross-links
 
-- Related: [[jobsub-disk-quota-stderr-swallowed]] (the /nashome 94%
+- Related: [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) (the /nashome 94%
   side of the same 2026-05-22 quota episode; /app was also at 94%
-  which is why these venvs got moved).
+  which is why these venvs got moved), [closed-loop-sqlite-checkpoint-transient-corruption](/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md), [data-quota-exhausted-grid-accumulation](/incidents/data-quota-exhausted-grid-accumulation.md), [prodtarget-env-divergence](/incidents/prodtarget-env-divergence.md).
 - Source files: none — relocation is filesystem-level only.
-- External: [[mu2e-offline]] for /cvmfs paths (unaffected).
+- External: [mu2e-offline](/external/mu2e-offline.md) for /cvmfs paths (unaffected).
+
+- **`~/.npm` relocated (2026-06-11)** to free /nashome quota for RCDS
+  publish: `/nashome/o/oksuzian/.npm` (was 2.8 G) → symlink →
+  `/exp/mu2e/data/users/oksuzian/.npm`. The cache was deleted outright
+  (`rm -rf ~/.npm`) since npm rebuilds it on next install; then the
+  symlink to /data was created. **Footgun observed during the swap:**
+  npm auto-recreated `~/.npm/` between the `rm` and the `ln`, so
+  `ln -s … ~/.npm` placed the symlink **inside** the new dir as
+  `~/.npm/.npm` (a no-op for npm). Fix is to `rm -rf ~/.npm` again
+  immediately before the `ln`, or use `ln -sfn` to overwrite. Same
+  pattern would bite any "I'll relocate the cache" move where a tool
+  re-creates the dir on its next launch — keep the gap between
+  delete and symlink minimal.
+- **Local home cleanup is essentially powerless against /nashome
+  filesystem-wide quota** (cross-link [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md)).
+  Our entire home is ~5 G against a 5.8 T shared mount; relocating .npm
+  drops it from 5.1 G to 2.3 G but `df /nashome` stays at 96%.
+  The 2.8 G recovered is functionally MB-level relative to the
+  filesystem — enough to unstick RCDS publish (needs ~MB headroom)
+  but not enough to "fix" the global state.
 
 ## Open questions / TODO
 

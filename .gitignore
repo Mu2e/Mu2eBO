@@ -2,9 +2,7 @@
 # Runtime state (LangGraph, Python, build, etc.)
 # =============================================================================
 graph_data/
-.venv-graph
-.venv-botorch
-.langgraph_api/
+.venv*
 .claude/
 build/
 __pycache__/
@@ -13,13 +11,11 @@ __pycache__/
 
 # =============================================================================
 # Per-iteration BO workspaces (rendered proposals, preflight scratch)
+# Consolidated 2026-07-17 into bo_work/{proposals,preflight}/<mode>/.
 # =============================================================================
-bo_helical_preflight/
-bo_helical_proposals/
-bo_michael_preflight/
-bo_michael_proposals/
-bo_foils_preflight/
-bo_foils_proposals/
+bo_work/
+bo_*_preflight/
+bo_*_proposals/
 
 # =============================================================================
 # Driver runtime logs and scratch
@@ -29,6 +25,22 @@ gdml_dumps/
 *.log
 *.root
 *.art
+
+# =============================================================================
+# LaTeX build intermediates (docs/slides/ beamer deck; moved there 2026-07-17)
+docs/slides/*.aux
+docs/slides/*.nav
+docs/slides/*.out
+docs/slides/*.snm
+docs/slides/*.toc
+docs/slides/*.vrb
+# =============================================================================
+slides/*.aux
+slides/*.nav
+slides/*.out
+slides/*.snm
+slides/*.toc
+slides/*.vrb
 
 # =============================================================================
 # Editor / OS cruft
@@ -43,10 +55,12 @@ gdml_dumps/
 *.bak
 *.bak_*
 *.bak.*
+*.bak-*
 *.broken.tsv
 
 # =============================================================================
-# Runtime locks (cross-process file locks)
+# Runtime locks (cross-process file locks; anchors live in locks/)
+locks/
 # =============================================================================
 *.lock
 
@@ -56,10 +70,18 @@ gdml_dumps/
 backing
 runs
 Run1BAna/
-aitools/
 
 # =============================================================================
 # Pending-BO in-flight queue (mutates on every iteration; not a durable record)
 # =============================================================================
 pending_bo_*.tsv
 /data/
+
+# =============================================================================
+# LaTeX build artifacts (beamer decks in docs/; .tex and .pdf are tracked)
+# =============================================================================
+docs/*.aux
+docs/*.nav
+docs/*.out
+docs/*.snm
+docs/*.toc

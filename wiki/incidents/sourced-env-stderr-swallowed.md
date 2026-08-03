@@ -1,19 +1,26 @@
-# sourced_env stderr swallowed — transient setup blips look like silent stage death
+---
+type: incident
+title: sourced_env stderr swallowed — transient setup blips look like silent stage
+  death
+description: pipeline.py:278 sourced_env() swallows bash stderr; 3/10 foilsX06R00
+  children died on transient `setup mu2egrid` rc=127 + missing CET_PLUGIN_PATH mfPlugin
+  "cerr" with no captured cause
+status: active
+timestamp: '2026-07-17'
+---
 
-**Type:** incident
-**Status:** active
-**Updated:** 2026-06-01
+# sourced_env stderr swallowed — transient setup blips look like silent stage death
 
 ## SECOND CODE PATH FOUND + FIXED (2026-06-01): cmd_preflight
 - The retry fix was applied to `pipeline.py:sourced_env` (submit/harvest)
   but **`cmd_preflight` has its own independent env-source** at
-  `autoresearch_bo_michael.py:1039-1046` that had the SAME bug: `source
+  `bo_driver.py:1039-1046` that had the SAME bug: `source
   {SETUPMU2E} >/dev/null 2>&1 && source {MUSING} >/dev/null 2>&1 && … &&
   mu2e -c surfacecheck.fcl -n 1`, no retry, stderr swallowed.
 - **New failure shape — false-ambiguous:** when the cvmfs/spack flake hits
   here, `mu2e` never runs, the subprocess exits nonzero with EMPTY output,
   and `cmd_preflight`'s rc-map (`{0:pass,1:fail_managed,2:fail_init,
-  3:ambiguous}` at `autoresearch_bo_michael.py:1140` / `:1115`) reads the
+  3:ambiguous}` at `bo_driver.py:1140` / `:1115`) reads the
   causeless nonzero exit as **rc=3 ambiguous** — a real-but-rare G4 outcome.
   The preflight log is just the 16-byte template (`\n--- STDERR ---\n`).
 - **Impact:** 2 of 3 foilsY02 round-0 children (`foilsY02R00_00/01`) burned
@@ -21,9 +28,9 @@
   (20:16–20:19, 2026-06-01) and terminated; a manual re-run at 20:26
   passed rc=0 (741 KB log). Round 0 degraded 3→1 eval.
 - **This is almost certainly the unidentified root cause of
-  [[foilsx04-all-preflight-ambiguous]]** ("whatever made X04 picks
+  [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)** ("whatever made X04 picks
   uniformly fail preflight with rc=3" — 20/20 children, never explained).
-- **Fix (`autoresearch_bo_michael.py:1047`):** retry loop with backoff
+- **Fix (`bo_driver.py:1047`):** retry loop with backoff
   `(5,15,30)s`, but retries ONLY when `mu2e` never started — a genuine run
   always emits a Geant4/art banner (`"Geant4"|"%MSG"|"Art has"|"Begin
   processing"|"G4Exception"` in `out`), so real results (pass / geom-fail /
@@ -31,7 +38,7 @@
   flake is. Source redirect changed `>/dev/null 2>&1` → `>/dev/null` so the
   flake's stderr reaches the captured log. Verified: py_compile clean,
   preflight re-run on both dead geoms passes rc=0. Each preflight is a fresh
-  `python autoresearch_bo_michael.py preflight` subprocess
+  `python bo_driver.py preflight` subprocess
   (`graph/pipeline_io.py:129`), so a live closed-loop campaign picks up the
   fix on its next round without restart.
 
@@ -84,7 +91,7 @@ should_retry, label, log)`:
 | Site | Guards | Retry (via helper) | `should_retry` gate |
 |---|---|---|---|
 | `pipeline.py:sourced_env` | grid submit + harvest | ✅ 4× 5/15/30s | `rc!=0` (default) |
-| `autoresearch_bo_michael.py:cmd_preflight` | local preflight | ✅ | `rc!=0 AND no Geant4/art banner` |
+| `bo_driver.py:cmd_preflight` | local preflight | ✅ | `rc!=0 AND no Geant4/art banner` |
 | `pipeline.py` getToken (submit) | token renew (submit) | ✅ (was ❌) | `rc!=0` |
 | `graph/closed_loop.py:node_renew_token` getToken | token renew (round) | ✅ (was ❌) | `rc!=0`, then FATAL exit if still failing |
 - The helper handles the loop + subprocess + timeout (timeouts are
@@ -104,7 +111,7 @@ should_retry, label, log)`:
   `node_renew_token` lives in the **long-lived parent process**, which
   imported the old code at launch — so its new getToken-retry only applies to
   **future** parent launches, not an in-flight one. See
-  [[kerberos-mid-run-expiry]].
+  [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md).
 
 ## Resolution (2026-05-30)
 - `pipeline.py:271-310` swapped `setup mu2egrid` → `muse setup ops`;
@@ -129,7 +136,7 @@ and on non-zero rc raises CalledProcessError with NO stderr captured. Any
 transient cvmfs/setup blip surfaces as a bare `submit <stage> failed
 (rc=1)` from pipeline.py — the actual failure reason (rc=127 for
 `setup mu2egrid`, missing mfPlugin "cerr", etc.) is permanently lost.
-Same anti-pattern as [[jobsub-disk-quota-stderr-swallowed]] but a
+Same anti-pattern as [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) but a
 DIFFERENT code path (line 278, not 420).
 
 ## Key facts
@@ -182,15 +189,15 @@ DIFFERENT code path (line 278, not 420).
   manual re-run.
 
 ## Cross-links
-- Related: [[jobsub-disk-quota-stderr-swallowed]] (sibling: pipeline.py
+- Related: [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) (sibling: pipeline.py
   swallows mu2ejobsub stderr at line 420 — same anti-pattern, different
-  line)
-- Related: [[closed-loop-thread-id-checkpoint-collision]] (PR2/#6/#8
+  line), [edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md), [mmackenz-edepana-lib-qualifier-bump](/incidents/mmackenz-edepana-lib-qualifier-bump.md)
+- Related: [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md) (PR2/#6/#8
   surfaced these — closed-loop fix told us WHERE to look)
 - Source files: `pipeline.py:278` (sourced_env), `pipeline.py:559`
   (cmd_submit env =), pipeline.py:cmd_harvest (same call)
 - Detection logs:
-  `graph_data/closed_loop_logs/foilsX06R00_{07,08,09}.log`
+  `/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/foilsX06R00_{07,08,09}.log`
   + `graph_data/.../foilsX06R00_09/harvest/edep.log`
 
 ## Open questions / TODO

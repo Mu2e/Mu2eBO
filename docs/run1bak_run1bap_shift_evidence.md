@@ -1,0 +1,2057 @@
+# Run1Bak vs Run1Bap Shift Investigation
+
+## Question
+Identical geometry configurations evaluated under two software releases (Run1Bak vs Run1Bap) exhibit measured shifts in `s_over_sqrt_b` (sob):
+- **+4.9% at the champion x geometry** (6 configs: foilsflashSOBX01/BASIN01_00/C400_champ and ipafixAB01/ipa625AB01/ipaovrAB01)
+- **+4.8% at the deployed-baseline geometry** (2 configs: foilsflashHOLEDhi vs nominalAB01)
+
+This investigation mechanizes the elimination of possible root causes for these shifts.
+
+## 1. Inventory
+
+### Configuration Summary
+
+| config | s_over_sqrt_b | ce_abs_eff | ce_seen | ce_simulated_events | muminus_stops | mubeam_sim_total | stopping_factor | flash_edep_per_pot | flash_edep_events | flash_n_input | flash_n_files |
+|--------|---------------|-----------|---------|-------------------|--------------|-----------------|-----------------|-------------------|-----------------|---------------|---------------|
+| foilsflashSOBX01 | 3.9 | 0.0006434968099166264 | 512862 | 975000 | 248849 | 2600000 | 0.09571115384615385 | 1.080642573322103e-06 | 78985 | 19250000 |  |
+| foilsflashBASIN01_00 | 3.91 | 0.0006448971175792507 | 474026 | 900000 | 229908 | 2400000 | 0.095795 | 1.0803183062259505e-06 | 45302 | 11000000 | 100 |
+| foilsflashC400_champ | 3.9 | 0.000644176254979119 | 552746 | 1050000 | 268064 | 2800000 | 0.09573714285714285 | 1.0639969270327796e-06 | 179588 | 44000000 | 400 |
+| ipafixAB01 | 4.1 | 0.0006755457577694941 | 580262 | 1050000 | 229532 | 2400000 | 0.09563833333333334 | 1.0358153515168671e-06 | 44625 | 10890000 | 99 |
+| ipa625AB01 | 4.11 | 0.0006764205780049471 | 539022 | 975000 | 268031 | 2800000 | 0.09572535714285714 | 1.0326683685261107e-06 | 45056 | 11000000 | 100 |
+| ipaovrAB01 | 4.11 | 0.0006758439092087209 | 497236 | 900000 | 229694 | 2400000 | 0.09570583333333334 | 1.0585555617218336e-06 | 44733 | 10890000 | 99 |
+| foilsflashHOLEDhi | 3.11 | 0.00040782891755500897 | 530651 | 975000 | 152426 | 2600000 | 0.058625384615384614 | (no flash data) | 101403 | (no flash data) |  |
+| nominalAB01 | 3.26 | 0.0004244694268978349 | 595233 | 1050000 | 152312 | 2600000 | 0.05858153846153846 | 6.854431002611723e-07 | 28206 | 11000000 | 100 |
+
+### Artifact Availability
+All 8 configurations are fully artifacted:
+- `harvest/summary.json`: present for all configs (primary metric source)
+- `harvest/edep.log`: present for all configs
+- `harvest/rough_run1a_sensitivity.log`: present for all configs
+- `harvest/nts.ce.root`: present for all configs
+- `harvest/ce_files.txt`: present for all configs
+- `state/mustops_ce_template_materialized.fcl`: present for all configs
+- `state/mubeam_template_materialized.fcl`: present for all configs
+
+Note: `foilsflashHOLEDhi`'s summary.json lacks `flash_edep_*` fields; all other configs have complete flash metrics.
+
+### Carried Observation from Design
+Measured shifts in run1bak vs run1bap across the two geometry pairs (from `harvest/summary.json`):
+
+**At champion x geometry (6 configs):**
+- **Stops**: −0.1% (essentially flat)
+- **ce_abs_eff**: +4.75%
+- **s_over_sqrt_b**: +4.9%
+
+**At deployed-baseline geometry (2 configs):**
+- **Stops**: −0.1%
+- **ce_abs_eff**: +4.76%
+- **s_over_sqrt_b**: +4.8%
+
+(These carried figures are superseded by the audited §2.3/§4.3 values — see those sections for provenance.)
+
+**Verdict: Inventory complete; all 8 configs fully artifacted. Ready for mechanized elimination.**
+
+## 2. Normalization audit
+
+### 2.1 Formulas from code (verbatim, line-cited)
+
+All quantities are computed in `cmd_harvest` (`core/pipeline.py:1279-1420`), which
+calls into the pure-logic module `core/harvest.py`.
+
+```
+stopping_factor = muminus_stops / mubeam_sim_total                          # core/pipeline.py:1331
+ce_scale        = RUN1A_MUBEAM_INPUT_CORRECTION * stopping_factor
+                    / ce_simulated_events                                    # core/pipeline.py:1332
+ce_abs_eff      = ce_seen * ce_scale                                         # core/pipeline.py:1333
+```
+
+- `RUN1A_MUBEAM_INPUT_CORRECTION = 0.01278168` — `core/harvest.py:30`.
+- `mubeam_sim_total = len(mubeam_files) * _events_per_job("mubeam")` —
+  `core/pipeline.py:1313-1314`, where `mubeam_files = hv.read_outputs(STATE,
+  "mubeam")` (`:1313`).
+- `ce_simulated_events = len(ce_files) * _events_per_job("mustops_ce")` —
+  `core/pipeline.py:1315`, where `ce_files = hv.read_outputs(STATE,
+  "mustops_ce")` (`:1301`).
+- `ce_seen, nts_path = hv.run_edepana(harvest_dir, ce_files, runner=...)` —
+  `core/pipeline.py:1324-1325`; `run_edepana` (`core/harvest.py:69-95`) writes
+  `harvest/ce_files.txt` from that **same** `ce_files` list, runs EdepAna, and
+  parses `ce_seen` via `parse_edepana_saw` (`core/harvest.py:44-49`) against
+  `EDEP_SAW_RX = re.compile(r"EdepAna summary:\s*Saw\s+([\d.eE+-]+)\s+events")`
+  (`core/harvest.py:35`, `int(float(...))` — the scientific-notation guard
+  from wiki incident `edepana-saw-events-scientific-notation-parse`).
+- `muminus_files, muminus_source = hv.resolve_muminus_inputs(STATE)` —
+  `core/pipeline.py:1307`, defined at `core/harvest.py:166-200`.
+  `muminus_stops = sum(_count_events_art(f, env, harvest_dir) for f in
+  muminus_files)` — `core/pipeline.py:1329`; `_count_events_art`
+  (`core/pipeline.py:1167-1186`) parses `TrigReport Events total =\s*(\d+)`
+  (`:1183`) from a `mu2e -n -1` dump of each file.
+- `s_over_sqrt_b = hv.run_sensitivity_macro(harvest_dir, nts_path, ce_abs_eff,
+  runner=_root_runner)` — `core/pipeline.py:1346`. The macro driver
+  (`core/harvest.py:98-120`) runs
+  `Run1BAna/workflows/scripts/rough_run1a_sensitivity.C` (path built at
+  `core/harvest.py:66`, `SENSITIVITY_MACRO`) via `root -q -b -l
+  scripts/rough_run1a_sensitivity.C("<nts_path>", <ce_abs_eff>,
+  "<harvest_dir>")`, and parses the returned sob from the stdout line matching
+  `S_OVER_SQRTB_RX = re.compile(r"^Signal box.*S/sqrt\(B\)\s*=\s*([\d.eE+-]+)\s*$",
+  re.MULTILINE)` (`core/harvest.py:36-37`).
+
+**Key semantics question — landed vs. submitted.** All three of
+`mubeam_sim_total`, `ce_simulated_events`, and `ce_seen` are **LANDED-file**
+based, not submitted-job based, by explicit design:
+
+- `mubeam_files`/`ce_files` come from `hv.read_outputs(STATE, stage)`
+  (`core/harvest.py:143-152`), which reads `state/<stage>_outputs.txt` — the
+  list of files a prior `list-outputs` glob actually found on `/pnfs`, i.e.
+  landed output, never `STAGES[stage]["njobs"]`. `core/pipeline.py:1309-1312`
+  states the rationale explicitly: *"Derive denominators from the actual
+  files we'll harvest, not STAGES.njobs — if any grid jobs were lost (OOM,
+  held), STAGES.njobs over-counts and biases ce_abs_eff / s_over_sqrt_b high
+  by the loss fraction. See A/B test on helical001 (2026-05-16)."*
+- `ce_seen` is EdepAna's count over that **same** `ce_files` list — i.e. the
+  numerator and denominator of the `ce_seen/ce_simulated_events` term are
+  drawn from the identical landed population by construction, so job loss at
+  the `mustops_ce` stage cancels rather than biasing the ratio.
+- `muminus_stops`'s population depends on `resolve_muminus_inputs`
+  (`core/harvest.py:166-200`), decision order: stage-chain stamp
+  (`state/stage_chain.txt`) first, else `concat_outputs.txt` presence for
+  pre-stamp legacy configs (`:178-182`). Two cases arose across the 8 configs
+  (§2.2): **concat-based** (`source="concat"`, one merged
+  `MuminusStopsCat` file) and **concatless** (`source="mubeam"`, the raw
+  `TargetStops` files, one per landed mubeam job). In the concatless case the
+  population is *literally* `state/mubeam_outputs.txt` filtered for
+  `TargetStops` (`core/harvest.py:194-200`) — the same landed list used for
+  `mubeam_sim_total`. In the concat case, `cmd_submit`'s `concat` branch
+  builds its merge-job input list directly from `state/mubeam_outputs.txt` at
+  concat-submit time (`core/pipeline.py:948-953`), so the merged file's stop
+  count reflects the same landed-mubeam population *as long as
+  `mubeam_outputs.txt` was not re-globbed larger after concat consumed it* —
+  verified per-config in §2.2.
+
+### 2.2 Recompute and closure (Step 2/3)
+
+`$SCRATCH/recompute.py` parses, per config, directly from
+`/exp/mu2e/data/users/oksuzian/autoresearch_grid/<config>/{state,harvest}/`
+(never `summary.json`): `ce_seen` from `harvest/edep.log` (`EDEP_SAW_RX`),
+`muminus_stops` summed across every `harvest/count_sim.*.log`
+(`TrigReport Events total =\s*(\d+)`), landed-file counts (`wc -l` equivalent
+on `state/mubeam_outputs.txt`, `state/mustops_ce_outputs.txt`,
+`harvest/ce_files.txt`), and `events_per_job` from
+`state/{mubeam,mustops_ce}_events_per_job.txt`. It reproduces
+`stopping_factor`/`ce_abs_eff` with the code's formula and compares to
+`harvest/summary.json`.
+
+```
+$ python3 $SCRATCH/recompute.py
+config                  ce_abs_eff (recomp) ce_abs_eff (summary)      ratio     src  #logs  mubeam_n   ce_n
+foilsflashSOBX01            0.0006434968099      0.0006434968099   1.000000  concat      1        13     13
+foilsflashBASIN01_00        0.0006448971176      0.0006448971176   1.000000  mubeam     12        12     12
+foilsflashC400_champ         0.000644176255       0.000644176255   1.000000  mubeam     14        14     14
+ipafixAB01                  0.0006755457578      0.0006755457578   1.000000  mubeam     12        12     14
+ipa625AB01                   0.000676420578       0.000676420578   1.000000  mubeam     14        14     13
+ipaovrAB01                  0.0006758439092      0.0006758439092   1.000000  mubeam     12        12     12
+foilsflashHOLEDhi           0.0004078289176      0.0004078289176   1.000000  concat      1        13     13
+nominalAB01                 0.0004244694269      0.0004244694269   1.000000  mubeam     13        13     14
+
+max |ratio - 1| across all 8 configs: 0.000000% (CLOSES <0.1%)
+```
+
+**Closure: PASS for all 8 configs, to <0.0001% (float round-trip only) — well
+inside the <0.1% gate.** This proves both that the formula transcription in
+§2.1 is exact and that no hidden re-normalization happens between the raw
+artifacts and `summary.json`.
+
+**Landed-population consistency check** (the case-by-case verification for
+the muminus_stops caveat in §2.1): for every concatless config, the number of
+`count_sim.*.log` files (one per counted `TargetStops` file) equals
+`mubeam_n` (the landed `mubeam_outputs.txt` line count) exactly —
+`foilsflashBASIN01_00` 12==12, `foilsflashC400_champ` 14==14, `ipafixAB01`
+12==12, `ipa625AB01` 14==14, `ipaovrAB01` 12==12, `nominalAB01` 13==13. For
+the two concat-based configs (`foilsflashSOBX01`, `foilsflashHOLEDhi`), the
+`state/` file mtimes confirm `mubeam_outputs.txt` was written *before* the
+`concat_cluster.txt` submit stamp and never touched afterward, for **both**
+configs: `foilsflashSOBX01` — `mubeam_outputs.txt` 23:45, `concat_cluster.txt`
+23:47, `concat_outputs.txt` 23:57 (2026-07-07/08); `foilsflashHOLEDhi` —
+`mubeam_outputs.txt` 18:07:39, `concat_cluster.txt` 18:09:11,
+`concat_outputs.txt` 18:17:16 (2026-06-30) — same ordering, same-day
+snapshot in both cases. So the single merged file's stop count reflects
+exactly the landed mubeam files also used for `mubeam_sim_total` in both
+configs. **No submitted-vs-landed population mismatch exists for
+any of the 8 configs** — every numerator/denominator pair in the formula is
+built from the same landed-file population, by the deliberate design cited
+in §2.1.
+
+Aside: dataset filenames for every config (including the Run1Bap arms) carry
+the literal prefix `Run1Bak_<config>` (e.g.
+`count_sim.oksuzian.TargetStops.Run1Bak_ipafixAB01...`). This is **not** a
+software-release marker — `DSCONF = f"Run1Bak_{cfg}"` (`core/pipeline.py:135`)
+is a fixed dataset-naming string baked in regardless of which musing actually
+ran the job. Release identity for this investigation is carried by each
+config's `mode_specs/*.json` `software.musing`/`grid_tarball` fields (and by
+submit date relative to the 2026-07-26 JSON-mode migration, `b361e09`), not
+by this filename prefix — noted here so a future reader of raw `harvest/`
+logs doesn't misread it as a release tag.
+
+### 2.3 Loss-consistent shift (Step 4)
+
+Since §2.1/§2.2 establish that **no denominator is submitted-based** — every
+quantity is already computed from a landed-consistent population — there is
+no correction to apply: the "loss-consistent" `ce_abs_eff` is exactly what
+`summary.json`/the recompute already report. The shift below is the direct
+ratio of group means, computed from the recomputed (not `summary.json`)
+`ce_abs_eff` values, with σ from pooled counting statistics on `ce_seen` and
+`muminus_stops` (`1/√N` per the brief; relative σ on a group's pooled
+`ce_abs_eff` is `sqrt(1/Σce_seen + 1/Σmuminus_stops)`, propagated in
+quadrature for the historical/arm ratio):
+
+```
+champion-x (3 historical vs 3 arm):
+  historical mean ce_abs_eff = 0.00064419  (rel sigma 0.14%; SOBX01/BASIN01_00/C400_champ)
+  arm mean ce_abs_eff        = 0.00067594  (rel sigma 0.14%; ipafixAB01/ipa625AB01/ipaovrAB01)
+  shift = +4.93% +/- 0.20%
+
+baseline pair (1 vs 1):
+  historical ce_abs_eff = 0.00040783  (rel sigma 0.29%; foilsflashHOLEDhi)
+  arm ce_abs_eff        = 0.00042447  (rel sigma 0.29%; nominalAB01)
+  shift = +4.08% +/- 0.41%
+```
+
+Both shifts are many σ from zero (champion-x: 4.93/0.20 ≈ 25σ; baseline:
+4.08/0.41 ≈ 10σ) — the shift is a real, statistically robust effect on the
+landed-consistent normalization, not counting noise.
+
+**Provenance of the earlier "carried" figures in §1** (+4.75% champion-x,
++4.76% baseline), traced back to
+`docs/superpowers/specs/2026-08-01-run1bak-run1bap-shift-investigation-design.md`
+(the design doc §1's figures were carried from, per the Task-1 brief):
+
+- **Champion-x +4.75% traces cleanly.** The design doc's table
+  (`...-design.md:37-43`) computes it from a *2-vs-1* subset, not the 3-vs-3
+  mean used here: single historical config `foilsflashBASIN01_00`
+  (6.4490e-4) vs. the mean of only two of the three arms, `ipafixAB01`
+  (6.7555e-4) and `ipaovrAB01` (6.7584e-4) — `ipa625AB01` is absent from
+  that table. Reproducing that exact subset from the full-precision
+  `summary.json` values: `mean(ipafixAB01, ipaovrAB01) / BASIN01_00 − 1 =
+  4.7756%`, matching the carried +4.75% to rounding. This is a narrower
+  sample (1 historical, 2 arms) than this audit's 3-vs-3 mean-of-groups
+  (+4.93%); the two are consistent (both real, both positive, same order),
+  the gap is sampling-basis, not a contradiction.
+- **Baseline +4.76% provenance is NOT determined.** The design doc gives a
+  `sob` shift for the baseline pair (+4.8%, "3.11 → 3.26, arm D") but **no
+  `ce_abs_eff` figure for the baseline pair anywhere in that document** — so
+  there is no computation to trace it to. Directly dividing the two
+  full-precision `summary.json` `ce_abs_eff` values for this exact pair
+  (`foilsflashHOLEDhi` 4.0783e-4, `nominalAB01` 4.2447e-4) gives +4.08026...%,
+  unambiguously — there is no alternative pairing or subset (unlike
+  champion-x) that could yield +4.76% from an n=1-vs-n=1 comparison, since
+  both figures necessarily use the same two configs. Treat the carried
+  +4.76% as approximate/unsourced.
+
+This audit's **+4.93% ± 0.20% (champion-x)** and **+4.08% ± 0.41%
+(baseline)**, both recomputed directly from raw artifacts with full
+precision and a stated σ, are the authoritative, reproducible values —
+Tasks 4/7 should quote these, not the carried figures.
+
+### 2.4 Constants/macro drift check (Step 5)
+
+```
+$ git log --oneline --since=2026-06-25 -- core/harvest.py core/pipeline.py
+c0d3f1d feat(pipeline): gate per-submit getToken on bearer-token age (1h)
+b361e09 refactor(modes): retire the Python foilsflash mode; JSON spec owns the line
+1f1101c Revert "fix(pipeline): write code tarball and cnf jobdef to dCache scratch"
+0d207b6 fix(json-modes): close final-review findings before merge
+3e9bf15 fix(pipeline): write code tarball and cnf jobdef to dCache scratch
+1809635 refactor: harvest Steps 1+4 behind injected runners in harvest.py
+d6e9f53 test: grid-verb coverage + injectable jobsub_q runner in poll_cluster
+b369eda refactor: retire dormant ipa mode + mustops_pileup stage (-190 lines)
+ad46b8e chore: Tier 1 cleanup — dead env seam, fail-open fallback, stale comments
+761b009 refactor: rename autoresearch_bo_michael.py -> core/bo_driver.py
+3e880fd refactor: consolidate root dirs — bo_work/, templates+slides relocated
+e82160d refactor: reorganize root into core/ + leaderboards/ + pending/
+```
+
+Harvest window under audit: historical harvests span `foilsflashHOLEDhi`
+2026-06-30 through `foilsflashC400_champ` 2026-07-23 (mtimes on
+`harvest/summary.json`); A/B (arm) harvests are `ipafixAB01`/`ipa625AB01`
+2026-07-28 and `ipaovrAB01`/`nominalAB01` 2026-07-29. Checked every commit in
+the `--since=2026-06-25` window for touches to `RUN1A_MUBEAM_INPUT_CORRECTION`,
+`run_edepana`, `run_sensitivity_macro`, or `sourced_env`:
+
+- **`RUN1A_MUBEAM_INPUT_CORRECTION`**: never changed in this window (only
+  ever set once, at `e82160d`, a pure root-reorg move — value `0.01278168`
+  throughout). No drift.
+- **`run_edepana` / `run_sensitivity_macro`**: `1809635` moved these two
+  functions from `pipeline.py` into `harvest.py` — a verbatim relocation
+  (`core/harvest.py`'s module docstring: *"moved verbatim from pipeline.py"*);
+  the diff shows only code motion, no logic or constant changes. No other
+  commit in the window touches either function body. No drift.
+- **`sourced_env`**: two touches in-window. `ad46b8e` (2026-07-18) only
+  edited a docstring (mmackenz's copy → own-build EdepAna comment), no
+  functional change. `c0d3f1d` (2026-07-31 18:00) reworked bearer-token
+  refresh gating on the *submit* path (`getToken` caching) — it does not
+  touch the harvest-time `with_muse=True` env-sourcing branch or anything
+  that would change which `mu2e`/ROOT binaries or FHiCL paths harvest sees,
+  **and it postdates every harvest in this audit (07-08 through 07-29)** by
+  at least 2 days, so it is out of the causal window regardless. No drift
+  affecting either the historical or arm harvest dates.
+- **Sensitivity macro file identity**: `Run1BAna/` is a separate git checkout
+  (mmackenz's personal repo, not a submodule of this repo — see wiki
+  `mmackenz-workflow`/`Run1BAna` reference). `git -C Run1BAna log -1 --
+  workflows/scripts/rough_run1a_sensitivity.C` → commit `9c520d9`, dated
+  2026-04-28; filesystem mtime on both `rough_run1a_sensitivity.C` and
+  `edep.fcl` is 2026-04-29 14:40, i.e. **more than two months before the
+  earliest harvest in this audit**. The macro was untouched across the
+  entire historical→arm window.
+
+**No constants or macro drift found between the historical and A/B harvest
+dates.** The +4.93%/+4.08% shifts found in §2.3 cannot be attributed to a
+changed `RUN1A_MUBEAM_INPUT_CORRECTION`, a changed sensitivity macro, or a
+changed harvest-time environment-sourcing path.
+
+**Verdict: shift survives audit at +4.93% ± 0.20% (champion-x) / +4.08% ± 0.41% (baseline) — accounting is landed-consistent by construction, closure passes to <0.0001%, and no constants/macro drift exists in the window.**
+
+## 3. Provenance audit
+
+Closes the remaining "our own migration bug?" avenues: rendered-geometry
+diffs must match exactly the known override deltas, the grid tarballs must
+carry the expected patched-library markers, and the harvest environment must
+be pinned identically for both eras. `$GRID` =
+`/exp/mu2e/data/users/oksuzian/autoresearch_grid` (`graph/config.py:33`
+`GRID_DATA_ROOT`, imported as `DATA_ROOT` at `core/pipeline.py:72`, `ROOT =
+DATA_ROOT / cfg` at `:129`).
+
+### 3.1 Pairwise rendered-geom diffs (Step 1)
+
+Diff helper (`$SCRATCH/geomdiff.sh`, comments stripped per the brief):
+
+```bash
+strip() { sed -e 's://.*$::' -e 's/^#.*$//' -e '/^\s*$/d' "$1"; }
+diff <(strip $GRID/$A/geom/*_geom.txt) <(strip $GRID/$B/geom/*_geom.txt)
+```
+
+Each config's `geom/` directory contains exactly one `*_geom.txt` (glob is
+unambiguous for all 6 configs touched here).
+
+**Pair 1: `foilsflashBASIN01_00` vs `ipafixAB01`**
+
+```
+0a1,2
+> double zEMCSourceInMu2e = 5000.0;
+> double protonabsorber.distFromTargetEnd = 491.666672;
+3c5
+< vector<double> stoppingTarget.radii          = { ... };   (padded)
+---
+> vector<double> stoppingTarget.radii = { ... };             (single-space)
+6c8
+< vector<double> stoppingTarget.holeRadii      = { ... };   (padded)
+---
+> vector<double> stoppingTarget.holeRadii = { ... };          (single-space)
+10,11d11
+< bool tracker.inDS2Vacuum = true;
+< double ds2.halfLength = 3825;
+```
+
+Classification:
+- `zEMCSourceInMu2e = 5000.0` added, `tracker.inDS2Vacuum`/`ds2.halfLength`
+  override removed — **REAL, expected** (matches brief's stated class
+  exactly).
+- `protonabsorber.distFromTargetEnd = 491.666672` added in `ipafixAB01` with
+  no corresponding `625` line anywhere in either rendered file (`grep -n
+  distFromTargetEnd` on both files: zero hits in `BASIN01_00`, one hit —
+  `491.666672` — in `ipafixAB01`). The brief's "625 → 491.666672" phrasing
+  refers to the *conceptual* default (625, defined in the `#include`d stock
+  `geom_run1_a.txt`, not in this per-config override file) vs the explicit
+  override — **REAL, expected**, confirmed by the in-file comment at
+  `ipafixAB01`'s line 10: *"A/B ARM A (control, CORRECT).
+  protonabsorber.distFromTargetEnd 491.666672 holds the IPA at its true
+  hardware position 6901-7901 ... Identical to the live foilsflash spec."*
+- `radii`/`holeRadii` padding hunks (multiple vs single space before `=`) —
+  **FINDING, classified EQUIVALENT**: re-running the diff with whitespace
+  collapsed (`sed -E 's/[[:space:]]+/ /g'`) removes both hunks entirely and
+  leaves exactly the two REAL deltas above — the numeric vectors are
+  byte-identical, only column-alignment formatting differs between the two
+  config-template authors (`foils`-mode vs `foilsflash`-mode templates).
+
+Normalized-whitespace confirmation:
+```
+$ diff <(norm BASIN01_00) <(norm ipafixAB01)
+0a1,2
+> double zEMCSourceInMu2e = 5000.0;
+> double protonabsorber.distFromTargetEnd = 491.666672;
+10,11d11
+< bool tracker.inDS2Vacuum = true;
+< double ds2.halfLength = 3825;
+```
+Exactly the brief's expected class, nothing else.
+
+**Pair 2: `ipafixAB01` vs `ipaovrAB01`**
+
+```
+15a16,17
+> bool tracker.inDS2Vacuum = true;
+> double ds2.halfLength = 3825.0;
+```
+**REAL, expected — EXACTLY the override pair restored**, matching the brief
+verbatim. One cosmetic note (FINDING, classified EQUIVALENT): `ipaovrAB01`
+writes `3825.0` vs `BASIN01_00`/`HOLEDhi`'s `3825` — numerically identical
+(GeometryService parses both as the same double), formatting-only.
+
+**Pair 3: `ipafixAB01` vs `ipa625AB01`**
+
+```
+2c2
+< double protonabsorber.distFromTargetEnd = 491.666672;
+---
+> double protonabsorber.distFromTargetEnd = 625.0;
+```
+**REAL, expected — EXACTLY the one `distFromTargetEnd` line**, matching the
+brief verbatim. No other hunks, no formatting artifacts.
+
+**Pair 4: `foilsflashHOLEDhi` vs `nominalAB01`** (comparability caveat, per
+brief, stated verbatim below)
+
+Raw diff (comments stripped only):
+```
+1,3c1
+< bool hasTSdA = false;
+< bool tsda.helical.build = false;
+< vector<double> stoppingTarget.radii          = { ... };
+---
+> vector<double> stoppingTarget.radii = { ... };
+6c4,7
+< vector<double> stoppingTarget.holeRadii      = { ... };
+---
+> vector<double> stoppingTarget.holeRadii = { ... };
+> double zEMCSourceInMu2e = 5000.0;
+> bool hasTSdA = false;
+> bool tsda.helical.build = false;
+10,11d10
+< bool tracker.inDS2Vacuum = true;
+< double ds2.halfLength = 3825;
+```
+
+**Comparability caveat (verbatim from brief context):** the two configs emit
+the deployed 37-foil stack via different mechanisms —
+`foilsflashHOLEDhi` (a `foils`/foilsflash-mode BO point with the "up/down
+extras" env-seam pinned to `N_UP=N_DOWN=0`, per its header comment "+ 0 up
+... + 0 dn") vs `nominalAB01` (a `nominal`-mode config that writes the
+deployed stack out **explicitly** via `base_*` consts, per its header
+comment: *"Deployed 37-foil stack written out EXPLICITLY via the base_*
+consts. Bit-identical to the base include ... Written out so the baseline is
+self-describing and so preflight's as-built GDML check has a vector to
+verify."*). The raw line-diff above therefore looks large (reordering, not
+just value changes) — enumerated and classified hunk-by-hunk below rather
+than forced into a one-line story, per the task instructions.
+
+Classification, confirmed by an order-independent (sorted, whitespace-normalized)
+set-diff:
+```
+$ diff <(norm HOLEDhi | sort) <(norm nominalAB01 | sort)
+5d4
+< bool tracker.inDS2Vacuum = true;
+8d6
+< double ds2.halfLength = 3825;
+11a10
+> double zEMCSourceInMu2e = 5000.0;
+```
+- `hasTSdA`/`tsda.helical.build`/`stoppingTarget.radii`/`stoppingTarget.halfThicknesses`/
+  `stoppingTarget.holeRadius`/`stoppingTarget.holeRadii` — present in both
+  files with **byte-identical values** (37×75.0000 rOut, 37×0.0528
+  halfThickness, 1.0e6 poison-pill scalar, 37×21.5000 holeRadii); only their
+  **line order** differs (HOLEDhi: `hasTSdA`/`tsda.helical.build` before the
+  vectors; nominalAB01: vectors before `hasTSdA`/`tsda.helical.build`, with
+  `zEMCSourceInMu2e` interleaved) plus the same `radii`/`holeRadii` padding
+  seen in Pair 1. Mu2e's GeometryService `SimpleConfig` format is a flat,
+  order-independent key=value table (each key here is assigned exactly once
+  in each file, no redefinition) — **FINDING, classified EQUIVALENT**: this
+  is exactly the "different emission mechanism, same resulting geometry"
+  the brief flagged as expected, now proven byte-for-byte via the
+  order-independent set-diff, not asserted.
+- `zEMCSourceInMu2e = 5000.0` added, `tracker.inDS2Vacuum`/`ds2.halfLength`
+  override removed — **REAL, expected** — the identical delta class as Pair
+  1 (HOLEDhi is historical/foilsflash-family, nominalAB01 is Run1Bap-era,
+  same override-pair-removed + EMC-relocation pattern).
+
+**Net result for Pair 4: after accounting for reordering and padding, the
+semantic content reduces to exactly the same two REAL deltas found in Pair
+1** (override pair removed, `zEMCSourceInMu2e` added) — the deployed-stack
+values themselves are provably identical between the two emission
+mechanisms. No hunk falls outside the established delta class.
+
+### 3.2 Tarball provenance + strings gates (Step 2)
+
+Provenance per config, `grep -ho "[^ ]*tar.bz2" $GRID/<config>/graph_logs/submit_mubeam_*.log | sort -u`:
+
+| config | tarball |
+|---|---|
+| `foilsflashBASIN01_00` | `Code_helical_holeradii.tar.bz2` |
+| `foilsflashHOLEDhi` | `Code_helical_holeradii.tar.bz2` |
+| `ipafixAB01` | `Code_run1bap_holeradii.tar.bz2` |
+| `ipa625AB01` | `Code_run1bap_holeradii.tar.bz2` |
+| `ipaovrAB01` | `Code_run1bap_holeradii.tar.bz2` |
+| `nominalAB01` | `Code_run1bap_holeradii.tar.bz2` |
+
+Matches the brief exactly: historical + HOLEDhi on the helical tarball, all
+four arms on the run1bap tarball.
+
+In-dir preserved copies (`Code.<name>.tar.bz2`) exist only for the four arm
+configs (`$GRID/<config>/Code.Code_run1bap_holeradii.tar.bz2`, sizes
+15,233,454 / 15,234,937 / 15,233,506 / 15,233,817 bytes for
+ipafixAB01/ipaovrAB01/ipa625AB01/nominalAB01 respectively — all close but not
+byte-identical to each other, and to the shared build-area original at
+`/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii.tar.bz2`,
+which has since been overwritten by a later build, `md5` differs from all
+four in-dir copies). Neither historical config (`foilsflashBASIN01_00`,
+`foilsflashHOLEDhi`) has a preserved in-dir copy, so per the brief's stated
+fallback the extraction used the `autoresearch_muse/` original for the
+helical side.
+
+Extraction (member path found first via `tar -tjf | grep GeometryService`,
+since the lib path differs by build qualifier between the two tarballs:
+`Code/build/al9-prof-e29-p094/...` for helical vs
+`Code/build/al9-prof-e29-p101/...` for run1bap — itself confirming these are
+genuinely distinct qualifier builds, p094 (Run1Bak) vs p101 (Run1Bap), not
+just a rename):
+
+```bash
+tar -xjf /exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2 \
+    -C $SCRATCH/tb_helical --wildcards "*libmu2e_GeometryService.so"
+tar -xjf $GRID/ipafixAB01/Code.Code_run1bap_holeradii.tar.bz2 \
+    -C $SCRATCH/tb_run1bap --wildcards "*libmu2e_GeometryService.so"
+```
+
+Strings gate (note: the brief's `**` glob needs `shopt -s globstar`, or it
+silently expands to a literal unmatched string and `strings`/`grep -c`
+silently report `0` — verified this failure mode, then re-ran with
+`globstar` enabled):
+
+```bash
+$ shopt -s globstar
+$ strings $SCRATCH/tb_helical/**/libmu2e_GeometryService.so | grep -c "holeRadii vector active"
+1
+$ strings $SCRATCH/tb_run1bap/**/libmu2e_GeometryService.so | grep -c "holeRadii vector active"
+1
+```
+Match context in both: `StoppingTargetMaker: holeRadii vector active (n=`.
+
+**Marker present (=1) in BOTH distinct tarballs** — both eras ran the
+holeRadii-patched `StoppingTargetMaker`, per the brief's PASS criterion.
+
+Cross-check: extracted the same lib from `nominalAB01`'s in-dir tarball copy
+(the other run1bap-era arm used in this audit, at
+`$GRID/nominalAB01/Code.Code_run1bap_holeradii.tar.bz2`) and confirmed both
+the marker (`grep -c` = 1) and an **exact md5 match**
+(`ae39b58dd7e0c33d7be571943e70cdc1`) against the `ipafixAB01` copy's
+`libmu2e_GeometryService.so` — the small tarball-size differences noted
+above are metadata/other-file noise, not a different library build across
+the four arm configs.
+
+### 3.3 Harvest env pinning + naming note (Step 3)
+
+`core/pipeline.py:423-452` (`sourced_env(..., with_muse=True)`), quoted:
+
+```python
+def sourced_env(extra="", *, with_muse=False) -> dict:
+    ...
+    if with_muse:
+        # Use our own autoresearch_muse work area (same one that produces the
+        # base Code.tar.bz2). `-q p094` is required: without it muse picks
+        # p095 from main-HEAD's Offline/.muse and errors on the backing.
+        ...
+        mmlib = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/build/al9-prof-e29-p094/Run1BAna/lib"
+        prelude = (
+            "cd /exp/mu2e/app/users/oksuzian/autoresearch_muse && "
+            f"source {SETUPMU2E} >/dev/null 2>&1 && "
+            "muse setup -q p094  >/dev/null 2>&1 && "
+            f"export CET_PLUGIN_PATH={mmlib}:$CET_PLUGIN_PATH && "
+            f"export LD_LIBRARY_PATH={mmlib}:$LD_LIBRARY_PATH && "
+        )
+```
+
+`with_muse=True` unconditionally `cd`s into `autoresearch_muse` and runs
+`muse setup -q p094` — a **hardcoded qualifier**, independent of whichever
+musing/tarball (`Code_helical_holeradii.tar.bz2` vs
+`Code_run1bap_holeradii.tar.bz2`, i.e. p094 vs p101) actually simulated that
+config. `CET_PLUGIN_PATH`/`LD_LIBRARY_PATH` are pinned to the same
+`.../autoresearch_muse/build/al9-prof-e29-p094/Run1BAna/lib` for every
+config, so every harvest — historical and arm alike — runs mmackenz's
+EdepAna module built against the **same fixed p094/Run1Bak-era Offline
+build**, regardless of which release produced the raw art files being
+harvested.
+
+This is the *sole* call site: `cmd_harvest` calls `sourced_env(with_muse=True)`
+exactly once (`core/pipeline.py:1297`), unconditionally for every mode (no
+mode branch on this call), and threads the resulting `env` into both the
+EdepAna runner (`_mu2e_runner`, `core/pipeline.py:1318-1325`, used by
+`hv.run_edepana`) and the muminus-stops counter (`_count_events_art(f, env,
+harvest_dir)`, `:1329`) — i.e. **all** of the harvest-stage tooling for
+**all 8 configs in this audit** ran under this one pinned environment.
+
+Git-window check (from §2.4 / Task 2 Step 5, restated here as the Step 3
+confirmation): `git log --oneline --since=2026-06-25 -- core/pipeline.py`
+shows two touches to `sourced_env` in the audited window — `ad46b8e`
+(2026-07-18, docstring-only) and `c0d3f1d` (2026-07-31, reworks the
+*submit-path* `getToken` bearer-token caching, not the `with_muse=True`
+harvest branch, and postdates every harvest in this audit by ≥2 days). No
+commit in the window changed the pinning lines quoted above. **Confirmed: no
+drift.**
+
+**Naming note.** `harvest/count_sim.*.log` filenames (produced by
+`_count_events_art`, `core/pipeline.py:1167-1186`, `log = harvest_dir /
+f"count_{art_path.stem}.log"`, `:1177`) inherit their name from the
+`TargetStops` input `.art` file's own SAM dataset name — the `mubeam` stage's
+`output_glob` is `"sim.*.TargetStops.*.art"` (`core/pipeline.py:160`), and
+the `<dsconf>` field embedded in that filename comes from `DSCONF =
+f"Run1Bak_{cfg}"` (`core/pipeline.py:135`, set unconditionally in
+`_bind_config()`), overridable only via a per-stage `dsconf_musing` key
+(`_stage_dsconf`, `:139-141`) — which the `mubeam` STAGES entry does **not**
+set (`core/pipeline.py:148-160`, no `dsconf_musing` key present). So every
+config's `mubeam`-stage output files, and therefore every `count_sim.*.log`
+harvest artifact, carry the literal string `Run1Bak_<config>` **regardless
+of which musing actually ran mubeam** — this reproduces the same naming
+quirk already noted in §2.2's Aside (dataset filenames), now traced to its
+exact source (`DSCONF` template + `TargetStops` output_glob). It is a fixed
+dataset-naming string, cosmetic, and carries no release-identity information
+— consistent with, not contradicting, §2.2.
+
+### 3.4 Summary
+
+| Step | Result |
+|---|---|
+| Rendered-geom diffs (4 pairs) | All hunks classified; every REAL delta matches the brief's stated class exactly; all non-matching hunks (padding, line order, `3825` vs `3825.0`) verified EQUIVALENT via whitespace/order-normalized re-diff, not asserted |
+| Tarball provenance | Historical + HOLEDhi → `Code_helical_holeradii.tar.bz2` (p094 build); all 4 arms → `Code_run1bap_holeradii.tar.bz2` (p101 build) — matches brief exactly |
+| `holeRadii vector active` strings gate | Present (=1) in **both** distinct tarballs; cross-checked identical (md5) across two arm configs' in-dir copies |
+| Harvest env pinning | `sourced_env(with_muse=True)` hardcodes `muse setup -q p094` + a fixed `Run1BAna` lib path, called once in `cmd_harvest` (`:1297`), threaded into every metric-producing subprocess, for every one of the 8 configs; no in-window commit touched the pinning lines before any of the 8 harvests |
+| `count_sim.*.log` naming | Traced to `DSCONF = f"Run1Bak_{cfg}"` (`:135`) × `mubeam` `output_glob` (`:160`); cosmetic, no `dsconf_musing` override for `mubeam` |
+
+No hunk, tarball, or environment-pinning check surfaced anything outside an
+expected delta class across all four geometry pairs, both distinct
+tarballs, and the harvest environment. The rendered geometries differ by
+exactly the documented override deltas (plus provably-equivalent
+formatting/ordering noise), both eras' grid tarballs carry the
+holeRadii-patched `StoppingTargetMaker` library, and the harvest environment
+is bit-for-bit pinned across the historical→arm window.
+
+**Verdict: our migration ruled out — rendered-geom diffs match the expected
+override-delta class exactly (all excess hunks verified equivalent, not
+asserted), both distinct tarballs gate PASS on the holeRadii-patched
+GeometryService lib, and the harvest environment (`sourced_env(with_muse=True)`,
+`core/pipeline.py:423-452`) is pinned bit-identically across every historical
+and arm harvest in this audit, with no in-window commit touching the pinning
+path (no finding).**
+
+## 4. Box-scan decomposition
+
+Decomposes the sob shift into the three candidate mechanisms: does the
+macro's momentum test-box move between eras, does acceptance at a *fixed*
+box rise, or does background fall. Quoting §2's audited figures per the
+brief: **+4.93% ± 0.20% (champion-x, ce_abs_eff)** / **+4.08% ± 0.41%
+(baseline, ce_abs_eff)** — these are the audited **ce_abs_eff** input-ratio
+figures (§2.3), not sob ratios; §4.3 recomputes the actual sob ratios here
+and checks them against these as the "pure normalization" expectation.
+
+### 4.1 Macro mechanism (Step 1)
+
+`s_over_sqrt_b = hv.run_sensitivity_macro(harvest_dir, nts_path, ce_abs_eff,
+runner=_root_runner)` (`core/pipeline.py:1346`) calls `run_sensitivity_macro`
+(`core/harvest.py:98-121`), which shells out:
+
+```python
+cmd = ["root", "-q", "-b", "-l",
+       f'scripts/rough_run1a_sensitivity.C("{nts_path}", '
+       f'{ce_abs_eff:.16g}, "{harvest_dir}")']
+```
+
+i.e. `ce_abs_eff` is passed positionally as `rough_run1a_sensitivity.C`'s
+second argument, bound to the macro's `sig_eff` parameter
+(`Run1BAna/workflows/scripts/rough_run1a_sensitivity.C:93`,
+`int rough_run1a_sensitivity(TString sig_file_name, double sig_eff, const
+char* run_dir = ".")`. `run_sensitivity_macro` then parses the return value
+from stdout via `parse_s_over_sqrt_b` (`core/harvest.py:52-57`), which
+`search`es `S_OVER_SQRTB_RX = re.compile(r"^Signal box.*S/sqrt\(B\)\s*=\s*
+([\d.eE+-]+)\s*$", re.MULTILINE)` (`core/harvest.py:36-37`) — **the single
+"Signal box" line**, not any of the many "Test box" lines.
+
+**Where `sig_eff`/`ce_abs_eff` enters the macro (verbatim line cites):**
+
+- `h_sig` (signal, `EDepAna/hist_2/trk_front_energy` from `nts_path`) is
+  rebinned then absolutely normalized: `h_sig->Scale(npot * signal_br *
+  sig_eff / h_sig->GetEntries())` (`rough_run1a_sensitivity.C:127`) — with
+  `npot = 1.e18` and `signal_br = 1.e-13/0.609` fixed constants
+  (`:110-111`). This is the **primary, direct** entry point: `ce_abs_eff`
+  linearly rescales the absolute signal-count normalization of every bin.
+- `response` (`EDepAna/hist_2/trk_front_energy_diff`, per-config energy-loss
+  shape) is separately scaled `response->Scale(sig_eff /
+  response->GetEntries() / response->GetBinWidth(1))` (`:128`). This
+  `response` object is used **twice**: once cosmetically for a diagnostic
+  plot (`:137-138`, `response.png`), and again as the convolution kernel for
+  the DIO background: `TH1* dio_resp = convolve(convolve(dio, response),
+  res)` (`:165`) — so `sig_eff` enters the DIO background a *second* time
+  through this kernel, on top of the direct `dio->Scale(0.39*sig_eff*npot)`
+  at `:162`. (The signal itself is smeared with a *different*, `sig_eff`-independent
+  Gaussian resolution kernel, `res = trk_resolution()` at `:129`, used at
+  `h_sig = convolve(h_sig, res)` `:130` — `response` never touches the
+  signal path.)
+- Cosmic background (`:174-179`) is built from a **fixed** assumed rate,
+  `cosmic_rate_second = 2e4/1.1e7` (`:115`), scaled only by `seconds =
+  nevents*1.695e-6` where `nevents = npot/mean_pot` (`:112-114`) — `npot` is
+  the same fixed `1.e18` constant, `mean_pot` a fixed `1.6e7`. **Cosmic has
+  zero functional dependence on `sig_eff`/`ce_abs_eff`.**
+- The double loop (`:205-234`) scans every `(x_1_l, x_2_l)` box pair,
+  computing `sensitivity_l = signal_rate_l / sqrt(bkg_rate_l)` per box
+  (`:221`) and printing a `"  Test box = ..."` diagnostic line for **every**
+  box tried (`:222-223`, 41,905 lines/config in this audit's logs). The loop
+  tracks the running best (`:224-232`) and, after the loop, prints **one**
+  final `"Signal box = ..."` line (`:236-237`) — the argmax over the whole
+  scan — which is exactly the line `S_OVER_SQRTB_RX` parses.
+
+**How raw ~1e-8/1e-9 scan values become the ~3.9 final number:** verified
+directly against `foilsflashSOBX01`'s log — near the DIO-dominated low-energy
+end of the scan (e.g. `Test box = [50.1, 50.1] MeV/c, ... dio = 6.3e+10 ...
+S/sqrt(B) = 1.83e-09`), `sensitivity_l` is astronomically suppressed because
+the DIO spectrum tail is huge there (`bkg ~ 1e10-1e11`). As the box slides up
+toward the CE endpoint (~103-105 MeV/c), the DIO tail has fallen off by
+~13-14 orders of magnitude (theoretical Michel/DIO spectrum, `get_dio_spectrum()`
+`:6-40`) while `cosmic` stays flat (`~190-350`, box-width-dependent only), so
+`bkg_rate` collapses from `~1e11` to `~190-350` and `sensitivity_l` jumps from
+`~1e-9` to `O(1)`. **The final ~3.9 is not a transform of the small values —
+it is the literal maximum of the per-box `sensitivity_l` array over the whole
+scan**, which lands at the box where DIO has become negligible and cosmic
+(background-floor, `ce_abs_eff`-independent) sets the background. This is
+directly confirmed by this audit's own scan grep: every `"Signal box"` line's
+five fields exactly match the max-`S/sqrt(B)` `"Test box"` row for that same
+config (verified programmatically in §4.2 below — `best(rows)` reproduces the
+grep'd `"Signal box"` line for all 8 configs).
+
+### 4.2 `$SCRATCH/boxscan.py` + argmax boxes (Step 2)
+
+Script (matches the brief's script verbatim, plus tsv-dump and an
+exact/tolerance match-kind report, both requested by the brief):
+`$SCRATCH/boxscan.py`. Per-config full scan dumps:
+`$SCRATCH/boxscan_<config>.tsv` (8 files, `lo hi signal dio cosmic bkg sob`,
+41,905 rows each).
+
+**Box grid identity check (the brief's stated fallback path):** all 8
+configs' `(lo,hi)` tuple sequences are **byte-identical** (`md5sum` of the
+first two tsv columns is `00fb2009...` for all 8, same 41,905-row count) —
+the scan grid did **not** change between eras; every match below is
+`match=exact`, no tolerance fallback needed.
+
+```
+$ python3 $SCRATCH/boxscan.py
+ref_box (argmax of foilsflashBASIN01_00) = (103.1, 104.7)
+foilsflashSOBX01:      argmax_box=[103.3,104.7] sob_at_own=3.9  sob_at_ref=3.89 signal_at_ref=72 dio_at_ref=0.0016  cosmic_at_ref=350
+foilsflashBASIN01_00:  argmax_box=[103.1,104.7] sob_at_own=3.91 sob_at_ref=3.91 signal_at_ref=73 dio_at_ref=0.0016  cosmic_at_ref=350
+foilsflashC400_champ:  argmax_box=[103.1,104.7] sob_at_own=3.9  sob_at_ref=3.9  signal_at_ref=73 dio_at_ref=0.0016  cosmic_at_ref=350
+ipafixAB01:            argmax_box=[103.1,104.7] sob_at_own=4.1  sob_at_ref=4.1  signal_at_ref=76 dio_at_ref=0.0017  cosmic_at_ref=350
+ipa625AB01:            argmax_box=[103.1,104.7] sob_at_own=4.11 sob_at_ref=4.11 signal_at_ref=76 dio_at_ref=0.0017  cosmic_at_ref=350
+ipaovrAB01:             argmax_box=[103.3,104.7] sob_at_own=4.11 sob_at_ref=4.1  signal_at_ref=76 dio_at_ref=0.0017  cosmic_at_ref=350
+foilsflashHOLEDhi:     argmax_box=[103.9,104.7] sob_at_own=3.11 sob_at_ref=2.84 signal_at_ref=53 dio_at_ref=0.001   cosmic_at_ref=350
+nominalAB01:           argmax_box=[103.9,104.7] sob_at_own=3.26 sob_at_ref=2.95 signal_at_ref=55 dio_at_ref=0.0011  cosmic_at_ref=350
+```
+
+`ref_box` is the champion-x-historical `foilsflashBASIN01_00`'s own argmax,
+per the brief's script. The baseline pair's own argmax box (`[103.9,104.7]`)
+differs from the champion-x `ref_box` — this is a **cross-geometry**
+difference (baseline runs a different stopping-target geometry than
+champion-x, so a different CE box optimum is expected), not a same-geometry
+within-era migration, so §4.3's baseline-pair analysis uses the baseline
+pair's own (shared) box rather than the champion-x `ref_box`.
+
+**Precision caveat (applies throughout §4.3):** the macro's own `printf`
+formats are `%.2g` for `signal`/`dio`/`cosmic`/`bkg` and `%.3g` for
+`S/sqrt(B)` (`rough_run1a_sensitivity.C:222-223,236-237`) — the log carries
+**no more precision than 2-3 significant figures**, confirmed by re-reading
+the raw tsv rows directly (no hidden extra digits). All σ below account for
+this quantization floor explicitly, in addition to (for n=3 groups) the
+empirical spread across the 3 configs.
+
+### 4.3 Fixed-box decomposition + the three questions (Step 3)
+
+**σ formula (methodology, matching §2.3's precedent of stating the
+formula):** for n=3 groups (champion-x), relative σ per group = sample
+standard error of the mean of the 3 values = `stdev(3 vals, ddof=1) / √3 /
+mean`; a ratio's relative σ = `sqrt(relσ_arm² + relσ_hist²)`, absolute σ =
+`ratio × relσ_ratio`. Worked example, sob @ fixed box: historical
+`[3.89,3.91,3.90]` → mean 3.9000, sd 0.01000, SEM 0.00577, relσ=0.148%;
+arm `[4.10,4.11,4.10]` → mean 4.1033, sd 0.00577, SEM 0.00333, relσ=0.081%;
+`relσ_ratio = sqrt(0.148%² + 0.081%²) = 0.169%`, `σ = 1.05214 × 0.169% =
+0.178%` — reproduces the table entry exactly. For n=1 comparisons
+(baseline pair) or wherever a group's 3 members print identically (no
+usable sample spread, e.g. champion-x `cosmic`), relative σ per value
+instead uses the macro's own print-quantization floor, `0.5 ×
+10^(⌊log₁₀|v|⌋ − sigfigs + 1) / |v|` (half the last significant digit of
+the `%.2g`/`%.3g` format at `rough_run1a_sensitivity.C:222-223,236-237`),
+combined the same way. Worked example, baseline sob: `3.11` (3 sig figs) →
+quantum 0.005, relσ=0.161%; `3.26` → quantum 0.005, relσ=0.153%;
+`relσ_ratio = sqrt(0.161%²+0.153%²) = 0.222%`, `σ = 1.04823 × 0.222% =
+0.233%` — reproduces the table entry exactly.
+
+**Champion-x group (3 historical: SOBX01/BASIN01_00/C400_champ vs 3 arms:
+ipafixAB01/ipa625AB01/ipaovrAB01), at the shared `ref_box=[103.1,104.7]`:**
+
+| quantity | historical mean | arm mean | ratio | shift | σ (quadrature: group-spread SEM ⊕ print-quantization) |
+|---|---|---|---|---|---|
+| sob (fixed box) | 3.9000 | 4.1033 | 1.05214 | +5.214% | ±0.178% |
+| signal (fixed box) | 72.667 | 76.000 | 1.04587 | +4.587% | ±0.480% |
+| dio (fixed box) | 0.0016 | 0.0017 | 1.0625 | +6.25% | negligible weight (see below) |
+| cosmic (fixed box) | 350.0 | 350.0 | 1.00000 | +0.000% | ±0.000% (identical to 2 sig figs for all 6 configs) |
+| bkg = dio+cosmic (fixed box) | 350.0 | 350.0 | 1.00000 | +0.000% | ±0.000% |
+| dio/bkg fraction | 4.6e-6 (0.00046%) | 4.9e-6 (0.00049%) | — | — | dio contributes <0.0005% of total bkg — physically irrelevant despite its own +6.25% shift |
+
+`sob` at each config's **own** argmax (i.e. what actually lands in
+`summary.json`/the leaderboard): historical mean = 3.9033, arm mean =
+4.1067, ratio = 1.05209, **shift = +5.209% ± 0.124%** — statistically
+identical to the fixed-box figure above (own-argmax − fixed-box =
+**−0.004 percentage points**, consistent with zero).
+
+**This +5.21% supersedes the carried "+4.9%" figure in §1.** Tracing it the
+same way §2.3 traced the ce_abs_eff carried figure: `mean(BASIN01_00) vs
+mean(ipafixAB01, ipaovrAB01)` (excluding `ipa625AB01`, the same 2-vs-1
+narrower subset found in §2.3) gives `4.105/3.91 − 1 = +4.99%` ≈ the carried
++4.9%. **Same provenance pattern as §2.3's ce_abs_eff finding: the carried
+figure is a narrower 1-vs-2 subset; the audited 3-vs-3 group-mean sob shift
+is +5.21% ± 0.12%, not +4.9%.**
+
+**Baseline pair (`foilsflashHOLEDhi` vs `nominalAB01`), at their shared own
+argmax box `[103.9,104.7]`** (identical box for both — no separate
+"fixed-box" table needed, own-argmax *is* the fixed box here):
+
+| quantity | HOLEDhi | nominalAB01 | ratio | shift | σ (print-quantization) |
+|---|---|---|---|---|---|
+| sob | 3.11 | 3.26 | 1.04823 | +4.823% | ±0.233% |
+| signal | 43 | 45 | 1.04651 | +4.651% | ±1.683% |
+| dio | 2.6e-05 | 2.8e-05 | 1.0769 | +7.69% | negligible weight (see below) |
+| cosmic | 190 | 190 | 1.00000 | +0.000% | ±0.000% |
+| dio/bkg fraction | 1.37e-7 (0.0000137%) | 1.47e-7 (0.0000147%) | — | — | utterly negligible |
+
+**Why the `dio` ratio (+6.25%/+7.69%) runs above the `ce_abs_eff` ratio
+(+4.93%/+4.08%):** per §4.1, `dio_resp` is scaled by `sig_eff` **twice** —
+once directly (`dio->Scale(0.39*sig_eff*npot)`, `:162`) and again through
+its convolution kernel `response`, itself pre-scaled by `sig_eff`
+(`response->Scale(sig_eff/...)` `:128`, used at `convolve(dio, response)`
+`:165`) — so `dio`'s `sig_eff` dependence is closer to quadratic than
+linear, which is consistent with a ratio (~1.05²≈1.10-ish territory,
+roughly matching the observed +6-8%) exceeding the linear `ce_abs_eff`
+ratio. This is immaterial to every conclusion below: `dio` is <0.0005% of
+total background in both groups (table rows above), so its super-linear
+scaling has no measurable effect on `sob`.
+
+**Three questions, both groups:**
+
+**1. Did the optimal box move?**
+- Champion-x: argmax boxes are `{[103.1,104.7]×2, [103.3,104.7]×1}`
+  historical vs `{[103.1,104.7]×2, [103.3,104.7]×1}` arms — **the identical
+  two-point set on both sides** of the 0.2 MeV/c scan grid, no systematic
+  direction. Isolated box-migration contribution to sob: **−0.004 percentage
+  points** (own-argmax ratio minus fixed-box ratio), consistent with zero at
+  the print-quantization floor. **No box migration.**
+- Baseline: `[103.9,104.7]` for **both** `HOLEDhi` and `nominalAB01` —
+  **exactly the same box**. Box-migration contribution: **0% by
+  construction** (own argmax = shared box for both configs). **No box
+  migration.**
+
+**2. At fixed box, signal-side vs background-side fraction of the shift?**
+- Champion-x: signal ratio +4.587% vs cosmic (=bkg, dio negligible) ratio
+  +0.000%. Decomposing `sob = signal/sqrt(bkg)`: since `bkg` is unchanged,
+  100% of any *bkg-driven* sob rise is 0% — background contributes ~0% and
+  signal-side (acceptance) contributes ~100% of the fixed-box shift.
+- Baseline: signal ratio +4.651% vs cosmic ratio +0.000%. Same conclusion:
+  **~100% signal-side (acceptance), ~0% background-side**, for both groups.
+  **Caveat on the cosmic-ratio=1.0000 reading:** per §4.1, `cosmic` is a
+  pure function of box width and hardcoded globals
+  (`cosmic_rate_second=2e4/1.1e7`, `npot=1e18`, `mean_pot=1.6e7`,
+  `rough_run1a_sensitivity.C:174-179`) — none of which vary by config or
+  era. The ratio is therefore **structurally guaranteed** to print as
+  1.0000 at a fixed box regardless of whether real cosmic-ray background
+  conditions actually differed between Run1Bak and Run1Bap; this macro has
+  no mechanism to see such a difference even if one existed. "0%
+  background-side" here means *unchanged within what this macro's model
+  can express*, not an independently-measured physical invariant.
+  (Note: the fixed-box `sob` ratio computed directly from the log's
+  3-sig-fig `S/sqrt(B)` field, +5.214%/+4.823%, is numerically somewhat
+  above the ratio implied by recombining the coarser 2-sig-fig
+  `signal`/`bkg` fields, +4.587%/+4.651% — this ~0.6pp/0.2pp gap is
+  **print-rounding noise between the macro's independently-rounded fields**,
+  not a real background effect, since `cosmic` itself prints **bit-identically**
+  at both 2 and 3 significant figures across every one of the 8 configs.)
+
+**3. Is the signal-side ratio consistent with the ce_abs_eff ratio, or is
+there a residual spectrum/shape effect?**
+
+Using the more precise `S/sqrt(B)` field (3 sig figs) as the "sob route",
+and the coarser `signal` field (2 sig figs) as the "signal route", against
+§2.3's audited ce_abs_eff ratios (+4.93%±0.20% champion-x, +4.08%±0.41%
+baseline):
+
+| group | route | measured ratio | expected (ce_abs_eff) | residual | σ | significance |
+|---|---|---|---|---|---|---|
+| champion-x | sob @ fixed box | +5.214% | +4.93% | **+0.270%** | ±0.255% | 1.06σ |
+| champion-x | sob @ own argmax | +5.209% | +4.93% | **+0.266%** | ±0.225% | 1.18σ |
+| champion-x | signal @ fixed box | +4.587% | +4.93% | **−0.327%** | ±0.495% | 0.66σ |
+| baseline | sob @ shared box | +4.823% | +4.08% | **+0.714%** | ±0.456% | 1.57σ |
+| baseline | signal @ shared box | +4.651% | +4.08% | **+0.549%** | ±1.665% | 0.33σ |
+
+**No residual is significant at 2σ in either group or via either route.**
+The sob-route and signal-route residuals for champion-x even carry
+**opposite signs** while both sitting near 1σ — exactly what print-rounding
+noise on independently-quantized log fields produces, not a coherent
+physical effect (a real shape/spectrum shift would push both routes the
+same direction). The baseline pair's sob-route residual (+0.71%, 1.57σ) is
+the largest single figure found, but it is an n=1-vs-n=1 comparison with no
+replicate to check reproducibility, and still falls short of 2σ.
+
+**Conclusion for all three questions, both groups: the sob shift is fully
+consistent with pure `ce_abs_eff`-normalization scaling — no box migration,
+no background change, and no statistically significant residual
+spectrum/shape effect at the log's 2-3-significant-figure precision.**
+
+**Verdict: champion-x +5.21% ± 0.12% (own-argmax; supersedes the carried
++4.9%, same 1-vs-2-subset provenance issue §2.3 found for ce_abs_eff) =
+~100% acceptance-at-fixed-box (+5.21%) + ~0% box-migration (−0.004pp,
+identical argmax box set both eras) + ~0% background (cosmic ratio =
+1.0000 exactly; dio <0.0005% of bkg), with residual-beyond-ce_abs_eff =
++0.27% ± 0.26% (1.1σ, not significant). Baseline pair +4.82% ± 0.23%
+(supersedes carried +4.8%) = ~100% acceptance-at-fixed-box + 0%
+box-migration (identical shared argmax box) + 0% background (cosmic ratio =
+1.0000 exactly), residual-beyond-ce_abs_eff = +0.71% ± 0.46% (1.6σ, not
+significant, n=1 no replicate). Both groups: the +4.9%/+4.8% sob shift is
+essentially entirely explained by the `ce_abs_eff` normalization-input
+ratio audited in §2.3 — the momentum test box does not move and background
+(cosmic-dominated; DIO is <0.0005% of total bkg at the optimal box) does
+not change between eras. *Caveat: "0% background" above is unchanged by
+construction within this macro's model, not an independently-confirmed
+physical invariant — `cosmic` (§4.1, `rough_run1a_sensitivity.C:174-179`)
+is computed from fixed globals with no era or config dependence, so it
+would print identically even if real cosmic-ray background conditions
+genuinely differed between Run1Bak and Run1Bap; this analysis cannot rule
+that out, it can only say the macro's background term is unchanged.***
+
+## 5. Spectra + flash
+
+Closes the two remaining Phase-2 items: does the CE spectrum *shape* also
+shift (vs. the pure event-count/normalization effect established in §2-§4),
+and does the flash side of the shift (declared −4.1% champion / +6.3%
+baseline in the design doc) hold up under a proper accounting with σ.
+
+### 5.1 Tree inspection — the brief's `t1`/`e`/`w` premise was wrong (Step 1)
+
+Per the brief, `$SCRATCH/tree_inspect.py` opened
+`foilsflashBASIN01_00/harvest/nts.ce.root` and looked for a top-level `t1`
+tree. **`f.Get("t1")` returned null.** `f.ls()` showed the file's only
+top-level object is a single `TDirectoryFile EDepAna`, containing four
+cut-tier subdirectories `hist_0`..`hist_3` (`hist_0` "all events", `hist_1`
+"edep 1 MeV", `hist_2` "edep 10 MeV", `hist_3` "edep 50 MeV") — no tree
+anywhere in the file (`$SCRATCH/tree_inspect2.py`/`tree_inspect3.py`
+confirm this by directory listing).
+
+Re-reading `Run1BAna/workflows/scripts/rough_run1a_sensitivity.C` explains
+the mismatch: `TTree tree("t1","t1")` at **line 7**, inside
+`get_dio_spectrum()`, is a **local helper tree used only to parse a fixed
+theoretical DIO table file**
+(`/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/data/heeck_finer_binning_2016_szafron.tbl`,
+`tree.ReadFile(table,"e/D:w/D")`, `:8-11`) — it has no connection to
+`nts.ce.root` at all; it is the same `t1`/`e`/`w` names Task 4 saw while
+reading the macro, misattributed. The macro's **actual** CE-signal input
+(what `sig_eff`/`ce_abs_eff` scales, per §4.1) is read directly as a
+histogram: `TH1* h_sig = (TH1*) sig_file->Get("EDepAna/hist_2/trk_front_energy")`
+(`:119`), and `response = ...Get("EDepAna/hist_2/trk_front_energy_diff")`
+(`:120`) — both `TH1F`, not trees. `hist_2` ("edep 10 MeV") is one of the
+four cut-tier directories.
+
+**Adjustment made (brief explicitly allows this):** `$SCRATCH/spectra.py`
+was rewritten to load `EDepAna/hist_2/trk_front_energy` (and, for a
+population cross-check, `EDepAna/hist_0/trk_front_energy`) as `TH1F`
+objects directly, rather than `Draw("e>>h","w")` off a nonexistent tree.
+`hist_2` is binned 1500×[0,150] MeV — the CE endpoint (~104.97 MeV/c) and
+the macro's signal box (103.1-104.7, §4.2) sit comfortably inside this
+range, so no range adjustment was needed once the correct object was
+identified.
+
+### 5.2 Population cross-check: histogram entries vs audited `ce_seen` (Step 2)
+
+`hist_0` ("all events", no edep cut) is expected to reproduce `ce_seen`
+("EdepAna summary: Saw N events" in `harvest/edep.log`, `EDEP_SAW_RX`,
+§2.1) almost exactly, since both count every event EdepAna processed with
+no downstream selection. Confirmed directly:
+
+```
+foilsflashBASIN01_00: hist_0 entries=474023  vs ce_seen=474026  (diff -3)
+ipafixAB01:           hist_0 entries=580254  vs ce_seen=580262  (diff -8)
+foilsflashHOLEDhi:    hist_0 entries=530647  vs ce_seen=530651  (diff -4)
+nominalAB01:          hist_0 entries=595228  vs ce_seen=595233  (diff -5)
+```
+
+Match to <0.002% (a handful of events fall outside the histogram's [0,150]
+MeV binning range and are silently dropped from the `TH1`, while still
+counted in EdepAna's own `Saw N events` line — a fill-vs-counter edge
+effect, not a population mismatch). **Entries-ratio cross-check against the
+established `ce_seen` ratio (self-review requirement):**
+
+```
+Pair 1 (BASIN01_00 vs ipafixAB01): hist_0 ratio = 1.22411 (+22.411%)  vs  ce_seen ratio = 1.22411 (+22.411%)  — MATCH
+Pair 4 (HOLEDhi vs nominalAB01):   hist_0 ratio = 1.12170 (+12.170%)  vs  ce_seen ratio = 1.12170 (+12.170%)  — MATCH
+```
+
+Exact match (5 significant figures) confirms `nts.ce.root`'s `hist_0` is
+reading the identical landed-file population already audited in §2 — this
+is a data-integrity check, not a physics cross-check: these single-pair
+ratios are naturally much larger than the audited group `ce_abs_eff`
+shift (+4.93%/+4.08%, §2.3) because raw `ce_seen` is not yet normalized by
+`ce_simulated_events`/`stopping_factor` (BASIN01_00 ran 900k simulated CE
+events vs ipafixAB01's 1050k — different job counts, not a shift), exactly
+as the `ce_abs_eff` formula (§2.1) already accounts for.
+
+### 5.3 Shape comparison — mean/RMS/KS at the CE peak (Step 2)
+
+`$SCRATCH/spectra.py` output, `hist_2` (`trk_front_energy`, the macro's
+`h_sig` input):
+
+```
+                        entries  mean(MeV)  rms(MeV)
+foilsflashBASIN01_00:   444637   102.7048    4.0696
+ipafixAB01:             545791   102.5911    4.4477     hist_2 entries ratio +22.750%
+foilsflashHOLEDhi:      499248   103.4528    3.2699
+nominalAB01:            561134   103.3952    3.5644     hist_2 entries ratio +12.396%
+
+KS prob (full 0-150 MeV binning):        Pair1 = 2.514e-14   Pair4 = 7.288e-11
+mean shift (full range): Pair1 -0.1138 MeV (-0.111%, 13.3sigma)  Pair4 -0.0576 MeV (-0.056%, 8.7sigma)
+```
+
+At face value the full-range KS/mean-shift figures look like a real shape
+change — but at N~4.4e5-5.6e5 events, a KS test is powerful enough to
+reject the null on infinitesimal bin-level fluctuations, and the full-range
+`hist_2` mean/RMS is dominated by the **sub-peak tail** below the CE box
+(a broad low-energy population between the "edep>10 MeV" cut and the CE
+peak, ~9-10% of `hist_2`'s events for the champion pair, ~5% for baseline)
+— not the box-relevant CE peak itself. Restricting to **[100,106] MeV**
+(bracketing the macro's signal box, 103.1-104.7 / 103.9-104.7, §4.2)
+isolates the physically relevant comparison:
+
+```
+                                        mean(MeV)   rms(MeV)   frac of hist_2
+Pair 1  foilsflashBASIN01_00 [100,106]:  103.6793    0.9735      91.1%
+        ipafixAB01           [100,106]:  103.6800    0.9670      90.6%
+        dmean = +0.0007 MeV  dRMS = -0.67%
+
+Pair 4  foilsflashHOLEDhi    [100,106]:  104.0534    0.7816      94.8%
+        nominalAB01          [100,106]:  104.0625    0.7780      94.6%
+        dmean = +0.0091 MeV  dRMS = -0.47%
+
+KS prob ([100,106] MeV only): Pair1 = 8.721e-13   Pair4 = 1.376e-16
+```
+
+**At the box, the mean shift essentially vanishes** (+0.0007 MeV / +0.0091
+MeV — three orders of magnitude below the box scan's 0.2 MeV/c grid step,
+§4.2, and consistent with §4.3's box-migration finding of −0.004
+percentage points / "identical argmax box set both eras") and RMS changes
+by <1% either direction. The KS test still rejects the null at these
+statistics (N~4-5×10^5 is enough power to detect any nonzero bin
+difference) — this is a **statistical-power artifact, not a physically
+meaningful shape difference**: the same N~5×10^5 regime that makes the
+13σ/8.7σ full-range mean shift "significant" while it is only a −0.11%/
+−0.06% relative change. Visual overlays (`$SCRATCH/spec_*.png`, read
+directly, both pairs) show the historical (red) and arm (blue) curves
+overlapping essentially everywhere, including the sharp ~104.97 MeV/c
+CE-endpoint edge and the radiative-tail shape below it — no visible peak
+shift, broadening, or edge displacement in either pair.
+
+**Verdict for 5.1-5.3: the CE spectrum SHAPE is unchanged between eras at
+the box.** Mean/RMS at the box-relevant [100,106] MeV window differ by
+<0.01 MeV / <1% (both far below the box scan's 0.2 MeV/c resolution); the
+full-range KS/mean-shift figures that look large are a statistical-power
+artifact of N~5×10^5 combined with a sub-peak tail-population effect
+unrelated to the CE peak. This is consistent with — not in tension with —
+§4's finding that the sob shift is a pure `ce_abs_eff`-normalization effect
+with no box migration: **more events survive the mustops_ce→EdepAna chain
+under Run1Bap (the hist_0/ce_seen entries-ratio match, §5.2), and those
+extra events populate the SAME spectral shape**, not a shifted or widened
+one.
+
+### 5.4 Flash-side accounting (Step 3, no ROOT)
+
+`$SCRATCH/flash_accounting.py` builds the table from `summary_table.tsv`
+(§1) plus the design-doc-carried champion figures, and propagates σ from
+the reference `σ_flash = 2.52% @ N=100 elebeam jobs` scaled as `σ(N) =
+2.52% × √(100/N)` (Poisson counting-stat scaling; anchor-checked against
+the brief's second reference point, `N=400 → ~1.3%`: `2.52×√(100/400) =
+1.26%` ≈ "~1.3%", confirming the scaling law). `N` (elebeam job count) is
+`flash_n_files` from `summary_table.tsv`, except `foilsflashSOBX01` (column
+blank in the harvest — recovered as `flash_n_input/110000 = 19,250,000/110,000
+= 175`, where 110,000 events/job is confirmed constant across every other
+config's `flash_n_input/flash_n_files`) and `foilsflashHOLEDhi` (its own
+`summary.json` lacks flash fields entirely, per §1's Note — its flash
+figure is the deck/wiki-quoted historical value from the dedicated
+high-stats matched A/B test, `wiki/log.md` 2026-06-30, **400 elebeam jobs**
+for both `NOHOLEhi`/`HOLEDhi`).
+
+**Per-config flash + σ:**
+
+| config | role | flash_edep_per_pot | N (elebeam jobs) | σ_flash |
+|---|---|---|---|---|
+| `foilsflashSOBX01` | champion historical | 1.080643e-6 | 175 | 1.905% |
+| `foilsflashBASIN01_00` | champion historical | 1.080318e-6 | 100 | 2.520% |
+| `foilsflashC400_champ` | champion historical | 1.063997e-6 | 400 | 1.260% |
+| `ipafixAB01` | champion arm A (distFromTargetEnd=491.67, no override) | 1.035815e-6 | 99 | 2.533% |
+| `ipa625AB01` | champion arm B (distFromTargetEnd=625.0, no override) | 1.032668e-6 | 100 | 2.520% |
+| `ipaovrAB01` | champion arm C (=A + override pair restored) | 1.058556e-6 | 99 | 2.533% |
+| `foilsflashHOLEDhi` | baseline historical (deck/wiki-quoted) | 6.445e-7 | 400 | 1.260% |
+| `nominalAB01` | baseline arm (Run1Bap deployed stack) | 6.854431e-7 | 100 | 2.520% |
+
+**Champion decomposition** (historical mean n=3 = 1.074986e-6, relσ=1.134%;
+arm A/B mean n=2, no override = 1.034242e-6, relσ=1.786%; arm C, override
+restored = 1.058556e-6, relσ=2.533%):
+
+| quantity | ratio | shift | σ | significance |
+|---|---|---|---|---|
+| total: mean(A,B) / historical mean (no-override arms vs historical) | 0.96210 | **−3.79%** | ±2.12% | 1.79σ |
+| (a) **override-pair contribution**: C / mean(A,B) | 1.02351 | **+2.35%** | ±3.10% | 0.76σ |
+| (a′) seed-paired cross-check: C / A (both N=99, seed-matched) | 1.02195 | **+2.20%** | ≤3.58% (upper bound, see below) | — |
+| (b) **residual version shift**: C / historical mean | 0.98472 | **−1.53%** | ±2.78% | 0.55σ |
+
+Multiplicative consistency: `(1 + total)(1 + override) = (1 + residual)` —
+`0.96210 × 1.02351 = 0.98472`, exact to 5 sig figs, confirming the
+decomposition is arithmetically closed.
+
+**Seed-pairing note (brief's explicit ask):** `ipafixAB01` (A) and
+`ipaovrAB01` (C) are the **only same-N pair** among the three champion arms
+(both N=99). Per the wiki `elebeamcat-tape-migration...`/2026-07-26 log
+entry, the elebeam template pins a fixed `baseSeed:1` +
+`MaxEventsToSkip:319542` + `run_number 1810` for every config — so two
+configs with the **same job count** process the **literally identical**
+EleBeamCat input population (same subrun draw per job index), differing
+only in downstream geometry. A vs C is therefore a genuinely paired
+comparison: **+2.20%**, matching (a′) — and this figure is exactly the
+source of the design doc's carried "arm C ... worth +2.2%" figure, traced
+here to the precise seed-matched A-vs-C pair rather than the C-vs-mean(A,B)
+group comparison (+2.35%, (a) above). The naive independent-quadrature σ
+(±3.58%) quoted for (a′) is an **overestimate** for a seed-paired
+comparison — input-sampling (Poisson) noise cancels between A and C by
+construction; the true residual noise on a seed-paired difference (G4/
+EdepAna stochastic scatter only) cannot be quantified from these summary
+artifacts alone (no per-event data was pulled), so no tighter number is
+asserted — flagged as an open precision gap, not resolved here.
+
+**Reading:** (b) the residual version shift (−1.53% ± 2.78%, 0.55σ) is
+**not statistically significant** — consistent with zero. Once the
+override-pair geometry is restored to match the historical configs (arm
+C), no further Run1Bak→Run1Bap effect on flash is resolvable within this
+σ budget. **Essentially the entire −3.79% champion-arm flash gap is
+attributable to the override-pair removal** (+2.20-2.35% of the
+compounded −3.79%), not to a version-driven flash effect — this is a
+genuinely different conclusion from the sob/`ce_abs_eff` side (§2-§4),
+where the version-driven acceptance shift was the dominant, highly
+significant (>10σ) effect. Flash and sob are different observables on
+different chains (elebeam/DS-off vs mustops_ce/DS-on) and there is no a
+priori reason they should share a mechanism; this section's finding is
+that they evidently do not.
+
+**Baseline pair** (`foilsflashHOLEDhi` → `nominalAB01`):
+
+| quantity | ratio | shift | σ | significance |
+|---|---|---|---|---|
+| nominalAB01 / HOLEDhi | 1.06353 | **+6.35%** | ±2.82% | 2.25σ |
+
+This is mildly significant (>2σ) and, critically, **opposite in sign** from
+the champion group's net shift (−3.79% before accounting for the override,
+−1.53% after). Per the brief, the baseline pair carries **two stated
+confounds** that the champion arms do not:
+
+1. **Unequal job counts, no seed-pairing possible.** `foilsflashHOLEDhi`
+   ran at 400 elebeam jobs (σ≈1.26%, from the dedicated high-stats A/B
+   test) vs `nominalAB01` at 100 (σ≈2.52%) — the two job counts do not
+   match, so (unlike champion's A-vs-C) the deterministic
+   `baseSeed=index+1` structure does **not** give this pair a matched
+   EleBeamCat input population; the comparison is a plain independent one,
+   at its full naive-quadrature σ (±2.82%, no tightening available).
+2. **Different emission mechanism.** The two configs write the deployed
+   37-foil stack via different code paths — `foilsflashHOLEDhi` is a
+   `foils`/foilsflash-mode template with the up/down-extras seam pinned to
+   `N_UP=N_DOWN=0`, while `nominalAB01` is a `nominal`-mode template that
+   writes the stack out explicitly via `base_*` consts (Task 3 §3.1 Pair
+   4). §3.1 already proved this difference is **geometrically inert** — an
+   order-independent set-diff shows byte-identical resolved key/values —
+   but it remains a *provenance* confound (different template code paths)
+   even though not a *geometry* confound.
+
+**Additional note (not in the brief, found while cross-referencing §3.1):**
+the baseline pair's raw rendered-geom diff (Task 3 §3.1 Pair 4) reduces, after
+normalization, to **exactly the same override-pair-removed delta** found in
+the champion pair (Pair 1: `tracker.inDS2Vacuum`/`ds2.halfLength=3825`
+removed, `zEMCSourceInMu2e` added going historical→arm). If the champion's
+measured override-pair effect (+2.20-2.35%, restoring override *raises*
+flash) transferred identically to the baseline geometry, the *un-restored*
+baseline arm (`nominalAB01`, override absent, like champion's A/B) would be
+predicted to sit **below** `HOLEDhi` by a comparable margin — the same
+qualitative direction as the champion group's total gap (−3.79%). Instead
+the baseline pair moves **substantially positive** (+6.35%). No
+override-restored arm exists for the baseline geometry (no baseline analog
+of arm C), so this cannot be decomposed the way the champion group was —
+flagged as an open question: **the override-pair effect measured at the
+champion x-point does not obviously transfer to (or is swamped by some
+other, larger effect at) the deployed-baseline geometry.** This is
+consistent with — not contradicted by — the two stated confounds, but goes
+beyond them as an additional, unresolved observation.
+
+**Verdict: CE spectrum unshifted (KS=8.7e-13/1.4e-16 at [100,106] MeV —
+formally rejects at N~5×10^5, but this is a statistical-power artifact, not
+a physical shape change: Δmean <0.01 MeV, ΔRMS <1% at the box, both ≪ the
+0.2 MeV/c box-scan grid; `hist_0` entries-ratio matches the audited
+`ce_seen` ratio exactly for both pairs, confirming pure event-count
+normalization per §2-§4).
+Flash shift = override (+2.20% seed-paired / +2.35% group-mean, both
+sub-1σ alone) + residual version shift (−1.53% ± 2.78%, 0.55σ, consistent
+with zero) — i.e. the champion flash gap (−3.79% ± 2.12%, 1.79σ) is
+essentially fully explained by the override-pair geometry difference, with
+no significant residual Run1Bak→Run1Bap flash effect once it is accounted
+for. Baseline-pair flash shift (+6.35% ± 2.82%, 2.25σ) runs the OPPOSITE
+sign from the champion group and is not decomposable the same way — its
+two confounds (job-count mismatch/no seed-pairing; different emission
+mechanism, proven geometrically inert but still a provenance difference)
+are stated per the brief, plus an additional open observation that the
+champion-derived override effect does not obviously explain the baseline
+pair's sign or magnitude.**
+
+## 6. Environment diff
+
+Targets the implicated quantity from Tasks 4-5 directly: event-level CE
+acceptance (`ce_seen/ce_simulated`, the fraction of simulated CE events
+surviving the `mustops_ce` chain into EdepAna) at an **unchanged energy
+response** (§5: Δmean <0.01 MeV, ΔRMS <1% at the box). Candidates are judged
+against that mechanism test: can this delta move an event *count* without
+moving the *energy scale*? `$GRID = /exp/mu2e/data/users/oksuzian/autoresearch_grid`.
+Release roots: `ROOT_BAK=/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bak/backing`,
+`ROOT_BAP=/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/Run1Bap/backing` (both
+hold `geom_run1_a.txt` at `Offline/Mu2eG4/geom/geom_run1_a.txt`, confirmed by
+direct `find -L`, Step 1).
+
+### 6.1 Geometry base-tree diff (Steps 1-3)
+
+`$SCRATCH/resolve_geom.py` — verbatim from the brief, a SimpleConfig
+`#include`-chain resolver with last-wins key/value semantics, trying
+`root/inc` then `root/Offline/inc` for each include (handles both release
+layouts).
+
+**Self-test (required before trusting any cross-tree diff):**
+```
+$ python3 resolve_geom.py "$GEOM_BAK" "$ROOT_BAK" "$GEOM_BAK" "$ROOT_BAK"
+# total keys: bak=6283 bap=6283 differing=0
+$ python3 resolve_geom.py "$GEOM_BAP" "$ROOT_BAP" "$GEOM_BAP" "$ROOT_BAP"
+# total keys: bak=6283 bap=6283 differing=0
+```
+**Self-test PASSES on both sides** (identical tree vs itself → `differing=0`,
+6283 keys resolved each time) — the resolver is trusted.
+
+**Cross-tree diff:**
+```
+$ python3 resolve_geom.py "$GEOM_BAK" "$ROOT_BAK" "$GEOM_BAP" "$ROOT_BAP"
+# total keys: bak=6283 bap=6283 differing=0
+```
+**Zero differing keys.** The entire resolved `geom_run1_a.txt` include tree —
+every `double`/`int`/`bool`/`string`/`vector<...>` key that GeometryService
+would see for this base file — is identical between Run1Bak and Run1Bap.
+
+**Verification beyond the resolver (not asserted, checked):** the resolver's
+"seen" file set (421 transitively-`#include`d files, `$SCRATCH/included_files.txt`)
+was diffed pairwise, byte-for-byte, between the two release roots:
+```
+$ <loop: diff -q $ROOT_BAK/$rel $ROOT_BAP/$rel for each of 421 included files>
+total included files: 421, byte-differ: 0, missing: 0
+```
+All 421 files are byte-identical, not merely KV-resolved-identical — this
+rules out both a resolver blind spot (e.g. a value changed in one file and
+silently compensated in another) and any comment/formatting-only difference
+this task might have waved away. The top-level `geom_run1_a.txt` file itself
+also matches by md5 (`582733d150f60940c1d5455d68c7c636` both sides).
+
+Confirmed this is the file actually loaded at run time, not a resolver-only
+artifact: both configs' rendered per-config geom overlays open with
+`#include "Offline/Mu2eG4/geom/geom_run1_a.txt"` verbatim
+(`$GRID/foilsflashBASIN01_00/geom/*_geom.txt`,
+`$GRID/ipafixAB01/geom/*_geom.txt`, first line of each) — i.e. `mu2e`
+resolves this exact `#include` against whichever release's
+`MU2E_SEARCH_PATH` the job actually ran under.
+
+**Sanity check that the resolver isn't blind (the two releases genuinely
+differ elsewhere in `Mu2eG4/geom/`, just not in this chain):** `diff -rq`
+on the two `Mu2eG4/geom/` directories directly turns up 7 differences —
+`crv_counters_extracted_v03/v04.txt` (new in Run1Bap), `geom_common_extracted.txt`
+(differs — its own `#include` bumped `v02`→`v04`), `geom_common_extracted_v03/v04.txt`
+(new in Run1Bap), `geom_run1_b_v40.txt` (differs — adds
+`degrader.supportArm.offsetz/dz`, comments out `tracker.inDS2Vacuum`), and
+`ProductionTarget_Stickman_v1_0.txt` (differs — Inconel718 plate-list
+formatting/comment changes). Traced each: `geom_common_extracted.txt` is
+`#include`d only by `geom_common_trackerVST.txt`/`geom_common_trackerStationVST.txt`
+(VST test-stand geoms, not Run1A); `geom_run1_b_v40.txt` is `#include`d only
+by `geom_run1_b_ds_on_v40.txt` (the DS-on **Run1B** production chain, a
+different physics config from our Run1A `mustops_ce`); `ProductionTarget_Stickman_v1_0.txt`
+is `#include`d only by `geom_run1_a_stickman.txt` (a Stickman-PT variant of
+Run1A, not the plain `geom_run1_a.txt` our configs use). None of the 7
+differing files are reachable from `geom_run1_a.txt`'s own include chain —
+consistent with, not contradicting, the resolver's `differing=0` result.
+
+**Classification: geometry-config candidate set is EMPTY.** Every key the
+mustops_ce stage's `GeometryService` resolves from the base include tree is
+byte-identical between Run1Bak and Run1Bap — there is nothing here that
+could move `ce_abs_eff` in either direction. This goes strictly further than
+Task 3 (§3.1), which only diffed the *rendered* per-config geom file (the
+literal `#include` line plus our own override lines) and therefore could not
+see whether the two releases' copies of `geom_run1_a.txt`'s *resolved
+content* differed — this section closes exactly that gap the Task 3 brief
+flagged, and finds nothing.
+
+### 6.2 Job-config diff (Step 4)
+
+**Materialized-FCL diff (ours, the two grid configs' actual submitted FCLs):**
+```
+$ diff $GRID/foilsflashBASIN01_00/state/mustops_ce_template_materialized.fcl \
+       $GRID/ipafixAB01/state/mustops_ce_template_materialized.fcl
+18c18
+< services.GeometryService.inputFile:  "autoresearch_foilsflashBASIN01_00_geom.txt"
+---
+> services.GeometryService.inputFile:  "autoresearch_ipafixAB01_geom.txt"
+```
+Exactly the expected near-identical result — the only delta is each config's
+own geometry-overlay filename (already fully audited, §3.1). No semantic
+FCL-authoring delta between the two configs' own submitted job files.
+
+**`mu2e --debug-config` (subagent shells, muse setup one-shot per shell,
+`SPACK_USER_CACHE_PATH` set before sourcing CVMFS per the brief):**
+```
+# shell 1 (Run1Bak): muse setup ops && muse setup SimJob Run1Bak
+#   mu2e --debug-config cfg_bak.txt -c .../foilsflashBASIN01_00/.../mustops_ce_template_materialized.fcl
+#   banner: art v3_15_00  root v6_32_06  KinKal v03_05_01 | build al9-prof-e29-p094
+#   exit 0, cfg_bak.txt = 1702 lines
+# shell 2 (Run1Bap): muse setup ops && muse setup SimJob Run1Bap
+#   mu2e --debug-config cfg_bap.txt -c .../ipafixAB01/.../mustops_ce_template_materialized.fcl
+#   banner: art v3_15_00  root v6_32_06  KinKal v03_06_00 | build al9-prof-e29-p101
+#   exit 0, cfg_bap.txt = 1721 lines
+```
+Both succeeded cleanly (exit 0), no errors in either `/tmp/m1.log`/`/tmp/m2.log`.
+
+**`diff $SCRATCH/cfg_bak.txt $SCRATCH/cfg_bap.txt`** (full raw diff, 8 hunks,
+saved to `$SCRATCH/debug_config_diff_raw.txt`):
+```
+68a69
+>          MaximumCaloPartMom: 1e6
+69a71
+>          MinimumCaloPartMom: 0
+73a76
+>          MinimumSumCaloE: 45
+251,252c254,255
+<                "DoseDeposit",
+<                "DelayedDose"
+---
+>                "PromptDoseAmb",
+>                "ResidualDoseAmb"
+450a454,468
+>       KinKalMaterial: { CRVMaterialName: "CRVModule" ElectronBrehmsFraction: 4e-2
+>          GasScatteringFraction: 9.999999e-1 IPAMaterialName: "HDPE"
+>          IonizationEnergyLossMode: 1 STMaterialName: "Target"
+>          SolidScatteringFraction: 9.99999e-1 elements/isotopes/materials: "Offline/TrackerConditions/data/*.data"
+>          strawGasMaterialName: "straw-gas" strawWallMaterialName: "straw-wall" strawWireMaterialName: "straw-wire" }
+452c470
+<       inputFile: "autoresearch_foilsflashBASIN01_00_geom.txt"     (config-name artifact, already audited §3.1)
+---
+>       inputFile: "autoresearch_ipafixAB01_geom.txt"
+477c495,496
+<          ADC2MeV: 6.25e-2
+---
+>          ADC2MeVCsI: 6.25e-2
+>          ADC2MeVlyso: 3.75e-3
+1680c1699
+<          fileName: ".../cfg_bak.txt"     (debug-config's own output-file self-reference — a tool artifact, not a job delta)
+---
+>          fileName: ".../cfg_bap.txt"
+```
+(Full, unabbreviated hunks in `$SCRATCH/debug_config_diff_raw.txt`.)
+
+**Classification, hunk by hunk — every surviving delta traced to its owning
+module/service and to whether that module is actually *scheduled* on
+`physics.PrimaryPath` (confirmed via `physics.PrimaryPath: [...]`,
+`module_label:` list — identical 14-module set both sides:
+`TargetStopResampler, generate, genCounter, GenFilter, g4run,
+g4consistentFilter, StrawGasStepMaker, CaloShowerStepMaker, CrvSteps,
+MakeSS, PrimaryFilter, compressDetStepMCs, FindMCPrimary` plus the
+`genCountLogger`/`PrimaryOutput` end-path):**
+
+- **`PrimaryFilter` — RELEVANT, top candidate: TWO independent
+  acceptance-relaxing levers found in Run1Bap, both traced to source, both
+  only ever widen (never narrow) the `selectcalo` decision.**
+  `PrimaryFilter` (`module_type: "DetectorStepFilter"`) **is scheduled** on
+  `PrimaryPath`, directly downstream of `StrawGasStepMaker`/`CaloShowerStepMaker`/`MakeSS`
+  and upstream of `compressDetStepMCs`/`FindMCPrimary`/`PrimaryOutput` — i.e.
+  it is the literal gate that decides which simulated CE events survive into
+  the output `.art` file that concat feeds to EdepAna. This is not a
+  parallel-subsystem default; it sits *inside* the implicated chain. Traced
+  the code: `diff Offline/Filters/src/DetectorStepFilter_module.cc`
+  (Run1Bak vs Run1Bap, `$SCRATCH/DetectorStepFilter_module_diff.txt`).
+
+  **Lever 1 — new OR-branch, `MinimumSumCaloE: 45`.** Run1Bap's module
+  gained a new **optional** calo-acceptance branch:
+  `fhicl::OptionalAtom<double> minSumCaloTotalE{Name("MinimumSumCaloE"), ...}`
+  → `useMinSumCaloTotalE_ = conf().minSumCaloTotalE(minSumCaloTotalE_)` (only
+  engaged if the key is explicitly present in FHiCL) → in the per-CaloShowerStep
+  loop, a running `total_edep` is accumulated across *all* good particles, and
+  `if (useMinSumCaloTotalE_ && total_edep > minSumCaloTotalE_) selectcalo = true;`
+  — **in addition to**, not replacing, the pre-existing per-particle branch
+  (`caloESum` map, code-unchanged). Traced the FHiCL source:
+  `diff Production/JobConfig/primary/prolog.fcl`
+  (`$SCRATCH/prolog_fcl_diff.txt`) shows Run1Bap's prolog explicitly adds
+  `MinimumSumCaloE : 45.0 # or at least this much calo total energy by
+  accepted sim particles` (and clarifies the old key's comment to "by a
+  single sim particle" — confirming the new key is a genuinely distinct,
+  additional criterion, not a rename). Production-repo prolog change paired
+  with the Offline-repo C++ change that gives the new key an effect — both
+  required together, both land in Run1Bap.
+
+  **Lever 2 — `MinimumCaloPartMom: 0` removes the calo-step momentum floor.**
+  *(Correction to an earlier pass of this section, which misclassified this
+  as a numerically-inert companion by comparing it against the new field's
+  own C++ default instead of against Run1Bak's actual pre-change behavior —
+  fixed here.)* Run1Bak's (pre-diff) calo-step loop bounded
+  `css.momentumIn()` with the **shared** `minPartM_`/`maxPartM_` members —
+  `css.momentumIn() > minPartM_ && css.momentumIn() < maxPartM_`
+  (`DetectorStepFilter_module.cc:167` pre-diff) — sourced from the *same*
+  `MinimumPartMom`/`MaximumPartMom` keys the tracker-step branch uses
+  (`minPartM_(conf().minPartMom())`, `:101`). The materialized configs show
+  `MinimumPartMom: 50` **unchanged** in both `cfg_bak.txt`/`cfg_bap.txt` —
+  i.e. under Run1Bak, a calo step's parent particle needed momentum >50
+  MeV/c to be counted toward *any* calo-based acceptance criterion at all.
+  Run1Bap's module splits this into dedicated `minCaloPartM_`/`maxCaloPartM_`
+  members (`css.momentumIn() > minCaloPartM_ && css.momentumIn() < maxCaloPartM_`)
+  bound to new, independently-configurable `MinimumCaloPartMom`/`MaximumCaloPartMom`
+  keys, and Run1Bap's prolog sets `MinimumCaloPartMom: 0.0` explicitly —
+  **the 50 MeV/c momentum floor on calo-step particles is removed for
+  Run1Bap.** (`MaximumCaloPartMom: 1e6` stays numerically equal to the old
+  shared `maxPartM_`≈1e6 either way — the *maximum* bound genuinely is
+  inert; only the *minimum* bound is a real relaxation.) This is a second,
+  independent lever, and it compounds with Lever 1 two ways: **(a)** it
+  widens the calo-step population feeding Lever 1's `total_edep` sum;
+  **(b)** it *also* widens the population feeding the pre-existing,
+  code-unchanged per-particle `caloESum` branch
+  (`if(icalo->second >= minSumCaloE_ && icalo->second <= maxSumCaloE_) selectcalo = true;`,
+  `DetectorStepFilter_module.cc:209`, bound to `MinimumSumCaloStepE: 45`,
+  numerically unchanged both releases) — so `selectcalo`'s pass rate can
+  rise under Run1Bap **even without Lever 1's new key**, purely because
+  lower-momentum calo steps (≤50 MeV/c, previously excluded outright from
+  the sum) now accumulate toward each particle's 45 MeV calo-energy total.
+
+  **Combined direction.** Both levers only ever *widen* the `selectcalo`
+  decision (Lever 1 adds a disjunct; Lever 2 only loosens a bound, from 50
+  to 0 MeV/c, never tightens one) — neither can flip an event from passing
+  to failing. `retval = (or_ && (selecttrk||selectcalo||selectcrv)) ||
+  (!or_ && (selecttrk&&selectcalo&&selectcrv))`, with `ORRequirements`
+  (`or_`) defaulting `true` in the C++ and **never set in any Production or
+  Offline prolog on either release** (`grep -rn ORRequirements` — zero hits
+  in FHiCL on both trees) — so both releases use the identical, unset,
+  default-true OR-combination at run time, under which a `selectcalo` that
+  can only become *more* true can only make `retval` more permissive too.
+  **`PrimaryFilter`'s combined pass rate under Run1Bap can only be ≥
+  Run1Bak's for the identical input population — never lower** — a provably
+  monotonic, same-direction mechanism for "more CE events produce accepted
+  output under Run1Bap," matching the observed sign exactly, now via two
+  independent, compounding relaxations rather than one.
+
+- **`KinKalMaterial` (new subtree of `services.GeometryService`) — NOT
+  RELEVANT, present but structurally inert for this FCL.** No producer or
+  filter on `PrimaryPath` (or anywhere in either `cfg_*.txt`) references
+  `KinKal` (`grep -in kinkal` on both dumps: only this one hit, the
+  `GeometryService` default block itself). KinKal is Offline's Kalman-filter
+  **track-fit** package (bumped v03_05_01→v03_06_00, `services` toolchain
+  table, §6.3) — this job is a truth-level generate→G4→digitize→filter
+  chain with no track-reconstruction producer scheduled; `GeometryService`
+  publishes this material-lookup subtree unconditionally (a new default in
+  the newer release) whether or not anything downstream reads it. No
+  mechanism to move `ce_seen`/`ce_abs_eff` for a stage that never invokes a
+  KinKal fit.
+
+- **`ADC2MeV` → `ADC2MeVCsI`/`ADC2MeVlyso` (`services.ProditionsService.calCalib`)
+  — NOT RELEVANT, same reasoning.** This is calorimeter ADC-to-MeV
+  *digitization/reconstruction* calibration — consumed by CaloDigi/CaloReco
+  producers, neither of which is scheduled on `PrimaryPath` (only the
+  truth-level `CaloShowerStepMaker` is present, which produces
+  `CaloShowerStep` objects directly from G4 energy deposits, no ADC
+  modeling). `ProditionsService` publishes all registered conditions
+  entities regardless of whether this job's producer schedule consumes
+  them — same "declared but not exercised" pattern as `KinKalMaterial`. The
+  CsI/lyso split reflects an evolving two-crystal-type calorimeter model in
+  the newer release, with no consumer in this chain to be affected.
+
+- **`Scoring.scorerNames` (`DoseDeposit`,`DelayedDose`→`PromptDoseAmb`,`ResidualDoseAmb`,
+  under `physics.producers.g4run.Scoring`) — NOT RELEVANT, block is
+  disabled.** Same hunk shows `enabled: false` unchanged on both sides
+  (context lines, `$SCRATCH/debug_config_diff_raw.txt`) — the
+  Mu2eG4ScoringManager dose-mesh scorer is off entirely for this job; a
+  renamed scorer list inside a disabled block cannot affect any output.
+
+- **`inputFile` (config-name) and the debug-config `fileName`
+  self-reference — NOT RELEVANT, tool/config-naming artifacts.** The first
+  is each config's own geometry-overlay filename (identical mechanism to
+  the materialized-FCL diff above, already fully audited in §3.1); the
+  second is `--debug-config`'s own output-file path, which necessarily
+  differs because `cfg_bak.txt`/`cfg_bap.txt` are different scratch
+  filenames — neither reflects a release difference.
+
+**No other hunks exist** — the 8 hunks above are the complete raw diff
+(`$SCRATCH/debug_config_diff_raw.txt`).
+
+### 6.3 Toolchain versions (Step 5)
+
+`ups active | grep -iE "^geant4|^art |^root |^g4|^xerces|^cry |^artg4"` in
+both shells returned **only the `art` line** — `root`/`geant4`/`xerces`/`cry`/`artg4`
+are not `ups`-registered products under either build (`MU2E_SPACK = true` in
+`muse status` on both sides: these are resolved via **spack**, not `ups`,
+under this Musing generation). Confirmed this is not a fetch miss by
+dumping the full unfiltered `ups active` list on both sides (7 products
+each: `art, encp, mu2efilename, mu2efiletools, mu2egrid, mu2ejobtools, ups`)
+and cross-checking versions via the `mu2e --debug-config` startup banner,
+`muse status`'s `MUSE_ENVSET` line, and `spack find` inside each shell.
+
+**Geant4 hash evidence (re-run and captured to file per review — the
+original pass asserted the hash-match from uncaptured shell output; this is
+the fix):** two additional fresh sourced shells (one per release,
+`SPACK_USER_CACHE_PATH` set before sourcing CVMFS, `muse setup` never
+piped, one-shot per shell as required), each running
+`geant4-config --version`, `spack find -l geant4`, `spack find -lv geant4`
+(full hash + build variants), and `env | grep -E "^G4LIB=|^G4INCLUDE="`,
+captured to `$SCRATCH/g4_hash_bak.txt` (Run1Bak) and `$SCRATCH/g4_hash_bap.txt`
+(Run1Bap). `diff $SCRATCH/g4_hash_bak.txt $SCRATCH/g4_hash_bap.txt` touches
+only the environment name/root-spec-count lines and the three genuinely
+different packages (`artdaq-core-mu2e`, `kinkal`, new `mu2e-ort`) — every
+Geant4-related line is byte-identical across the two files: same
+`geant4-config --version` (`11.3.2`), same short hash (`k4bezfr`), same
+full spec (`geant4@11.3.2+data~hdf5~ipo~motif~opengl~qt~tbb+threads~timemory~vecgeom~vtk~x11
+build_system=cmake build_type=RelWithDebInfo cxxstd=17 generator=ninja`),
+same `G4LIB`/`G4INCLUDE` paths (both
+`.../geant4-11.3.2-k4bezfrnxuvotgxrwtgcfhjqzagc2iyw/...`). The re-run
+**confirms** the original claim rather than contradicting it.
+
+| component | Run1Bak (p094) | Run1Bap (p101) | changed? |
+|---|---|---|---|
+| MUSE_ENVSET | p094 | p101 | — |
+| backing Offline musing | `v13_12_10` | `v13_32_10` | **YES** (many intervening tagged releases) |
+| build stub / date | al9-prof-e29-p094, 2026-05-13 | al9-prof-e29-p101, 2026-07-15 | — |
+| art | v3_15_00 | v3_15_00 | no |
+| ROOT | v6_32_06 | v6_32_06 | no |
+| **Geant4** | 11.3.2 (`v4_11_3_p02`) | 11.3.2 (`v4_11_3_p02`) | **no — bit-identical, same spack build hash** `geant4-11.3.2-k4bezfrnxuvotgxrwtgcfhjqzagc2iyw` on both sides (literally the same installed package, not just the same version string; evidence in `$SCRATCH/g4_hash_bak.txt`/`g4_hash_bap.txt`) |
+| Geant4 physics data (G4EMLOW/PhotonEvaporation/RadioactiveDecay/G4NDL/G4PARTICLEXS/G4ABLA/G4SAID/G4INCL/...) | 8.6.1/5.7/5.6/4.7.1/4.1/3.3/2.0/1.2 | identical, same paths under the p101 spack-env view | no |
+| CRY | 1.7 | 1.7 | no |
+| xerces | 0 hits either side (not a discrete spack root spec; bundled under `art`/`root` externals unchanged) | 0 hits | no evidence of change |
+| KinKal | v03_05_01 (spack `kinkal@3.5.1`) | v03_06_00 (spack `kinkal@3.6.0`) | **YES, but not exercised** — no KinKal-fit producer on `PrimaryPath` (§6.2) |
+| artdaq-core-mu2e | v9_03_00 | v9_04_00 | **YES** — DAQ dataproduct/format bookkeeping, no physics-list/G4/tracker-MC content; not on `PrimaryPath` |
+| mu2e-ort (ONNX runtime) | absent (18 root specs) | present, v1.25.1 (19 root specs) | **NEW**, but no ML-inference producer scheduled on `PrimaryPath` — this truth-level chain has no ML-based selection |
+
+**Geant4 is the toolchain's first-class candidate per the brief, and it is
+definitively ruled out**: not merely version-matched but the *same spack
+build artifact* (identical hash) is loaded by both environments, alongside
+identical physics-data table versions — nothing in the G4 transport/physics
+engine itself differs between the two eras. art and ROOT are bookkeeping
+per the brief and are also unchanged. KinKal, artdaq-core-mu2e, and
+mu2e-ort all changed but are excluded by the same "not exercised on
+`PrimaryPath`" test applied in §6.2 — none has a scheduled consumer in the
+mustops_ce chain. The only toolchain-adjacent fact that *is* real and
+substantial is the backing-Offline-musing jump (`v13_12_10`→`v13_32_10`,
+many releases apart) — but §6.1 already resolved the geometry base tree — the
+one Offline subsystem the jump could have moved through config — and found it
+byte-identical; §6.2's `--debug-config` diff (which bounds only FCL-visible
+deltas — non-FCL C++ changes in other scheduled modules are bounded, not
+excluded, by this method) found the one FCL-prolog delta the jump
+actually produced that both (a) sits inside the scheduled `PrimaryPath` and
+(b) has a stated, monotonic, same-direction mechanism on event count at
+unchanged energy response.
+
+**Verdict: candidate deltas = [`physics.filters.PrimaryFilter` — TWO
+independent, compounding acceptance-relaxing levers in Run1Bap, both
+scheduled on `PrimaryPath`, both provably monotonic same-direction on
+event-count acceptance: **(1)** `MinimumSumCaloE` (new `OptionalAtom`-gated
+total-calo-energy OR-branch in `Offline/Filters/src/DetectorStepFilter_module.cc`,
+engaged by `Production/JobConfig/primary/prolog.fcl`'s new
+`MinimumSumCaloE: 45.0` line); **(2)** `MinimumCaloPartMom: 0` (removes the
+50 MeV/c momentum floor Run1Bak inherited on calo steps via the shared
+`MinimumPartMom`, widening the population feeding both the new branch and
+the pre-existing, code-unchanged per-particle `caloESum`/`MinimumSumCaloStepE`
+branch — `MaximumCaloPartMom` alone remains numerically inert, 1e6 both
+ways)], toolchain = Geant4 11.3.2 **unchanged** (identical spack build hash
+`k4bezfrnxuvotgxrwtgcfhjqzagc2iyw` + physics-data tables, captured to
+`$SCRATCH/g4_hash_bak.txt`/`g4_hash_bap.txt` — ruled out), art v3_15_00 unchanged, ROOT
+v6_32_06 unchanged, KinKal v03_05_01→v03_06_00 and artdaq-core-mu2e
+v9_03_00→v9_04_00 and mu2e-ort (new) all changed but **not exercised** on
+`PrimaryPath` (no scheduled consumer), backing Offline musing
+v13_12_10→v13_32_10. Geometry base-config candidate set is EMPTY (§6.1,
+421/421 included files byte-identical, resolver self-test PASS). All other
+job-config deltas (`KinKalMaterial`, `ADC2MeV`→`ADC2MeVCsI`/`ADC2MeVlyso`,
+`Scoring.scorerNames`) are present-but-inert defaults with no scheduled
+consumer on `PrimaryPath`, or self-referential config-naming artifacts.**
+
+## 7. Candidate ledger + recommendation
+
+Synthesis: a scoped, confirmatory release sweep locating the exact commits
+behind §6's isolated candidate; the full candidate ledger; and the
+recommendation input for the leaderboard decision plus the Task-8 trigger
+verdict.
+
+### 7.1 Scoped release sweep (Step 1)
+
+**What the two Musings pin** (read from the cvmfs trees' own git metadata —
+each Musing ships a full `.git`; `git describe --tags` lands exactly on a
+tag for all four checkouts, no offsets):
+
+| Musing | Offline (backing) | Production |
+|---|---|---|
+| Run1Bak | **v13_12_10** = `9ce62149c213bdc80b369e045c9a6b4ef5cb9f07` (2026-05-12) | **v02_08_00** = `471a813fa445e74ffe7662365848c35d6a68dddd` (2026-05-04) |
+| Run1Bap | **v13_32_10** = `1bd2c4db2bf818645c8e62523635a697c1c08e1a` (2026-07-15) | **v02_13_00** = `062945c18613a68bb0ecff121f542085b4b3dd6b` (2026-07-13) |
+
+The Offline pair confirms §6.3's `MUSE_ENVSET`-derived v13_12_10→v13_32_10;
+the Production pair (v02_08_00→v02_13_00) is the release range for the
+prolog sweep below. Offline history swept in the sparse clone at
+`/exp/mu2e/app/users/oksuzian/Offline_ipa_pr` after `git fetch --tags
+origin` (both tags present); Production swept directly in the Run1Bap
+Musing's cvmfs clone (both tags present there).
+
+**Offline sweep — the implicated module** (`Filters/src/DetectorStepFilter_module.cc`,
+path confirmed via `git ls-tree -r v13_32_10`):
+
+```
+$ git log --oneline v13_12_10..v13_32_10 -- Filters/src/DetectorStepFilter_module.cc
+2905cfa0b Add another printout
+a9839eeb4 Use different particle threshold for calo steps, add total energy selection, and diagnostic printouts
+```
+
+Exactly **two commits**, both authored by michaelmackenzie on **2026-05-06**,
+both delivered by **Offline PR #1819** ("Calo step selection in calo dts
+filtering", merge commit `1d79377fc0192bbf9db27667edea84722f8a3aa8`, merged
+2026-05-06 10:58 −0500):
+
+- `a9839eeb42b2b5be8631bb25d17ef0667dc3f6a4` (51+/6−) is the substantive
+  change and contains **both levers** verbatim as §6.2 described them.
+  Lever 2 — the momentum-floor split — is this exact hunk:
+
+  ```diff
+  -        if(css.energyDepBirks() > minCaloE_ &&
+  -            css.momentumIn() > minPartM_ && css.momentumIn() < maxPartM_ &&
+  +        const float edep_step = css.energyDepBirks();
+  +        if(edep_step > minCaloE_ &&
+  +            css.momentumIn() > minCaloPartM_ && css.momentumIn() < maxCaloPartM_ &&
+  ```
+
+  with the new dedicated keys declared as
+  `fhicl::Atom<double> minCaloPartMom{ Name("MinimumCaloPartMom"), ..., 0.0 }`
+  — **C++ default 0.0**, no longer inheriting `MinimumPartMom` (=50 in both
+  eras' configs). Lever 1 — the new total-energy OR-branch — is the new
+  `fhicl::OptionalAtom<double> minSumCaloTotalE { Name("MinimumSumCaloE"), ... }`
+  plus the accumulated `total_edep` and
+  `if(useMinSumCaloTotalE_) { if(total_edep > minSumCaloTotalE_) { selectcalo = true; ... } }`.
+- `2905cfa0b10aee8f37584672b0bca15a08489ffe` (3+/0−) adds one
+  `diagLevel_ > 1` diagnostic print of `total_edep` — **zero behavior
+  change**.
+
+Completeness checks:
+
+- **Ancestry** (authoritative, since PR #1819's merge *date* precedes
+  v13_12_10's tag date of 2026-05-12 — the tag was cut from a lineage that
+  excludes it): `git merge-base --is-ancestor 1d79377fc v13_12_10` → **NO**;
+  `... v13_32_10` → **YES**. The change is genuinely absent from Run1Bak and
+  present in Run1Bap.
+- **The two commits fully account for the module's release-to-release
+  delta**: `git diff --stat v13_12_10..v13_32_10 -- Filters/src/DetectorStepFilter_module.cc`
+  = 54+/6− = exactly the sum of the two commits (51+/6− and 3+/0−). No
+  third change vector exists in this file.
+- **Nothing else in `Filters/` is in scope**: the only other commits in the
+  range (`b1503e35a` + merge `5c38570d6` + `9e18c745b` + `b13701216`) add
+  and then clean up a brand-new `PhotonFilter_module.cc` — a module that
+  does not appear in the identical 14-module `PrimaryPath` schedule (§6.2)
+  on either side.
+
+**Production sweep — the prolog that engages the levers**
+(`JobConfig/primary/prolog.fcl`):
+
+```
+$ git log --oneline v02_08_00..v02_13_00 -- JobConfig/primary/prolog.fcl
+a387965f Update calo signal primaries with calo dts filter change
+```
+
+Exactly **one commit**, `a387965f6e188da7ad61657b44c2a816604e8317`
+(michaelmackenzie, 2026-05-06), delivered by **Production PR #539** ("Update
+calo signal primaries with calo dts filter change", merge commit
+`994dda612d627d88c8b760492c30f0a6c5766a25`, merged 2026-05-21 12:39 −0500;
+ancestry: not in v02_08_00, in v02_13_00). Its `prolog.fcl` hunk, in full:
+
+```diff
+       MinimumPartMom : 50.0 # MeV/c
+       MaximumPartMom : 1.0e6 # MeV/c
++      MinimumCaloPartMom : 0.0 # MeV
++      MaximumCaloPartMom : 1.0e6 # MeV
+       KeepPDG : [ ] # Loop at steps from all particle types
+       MinimumTrkSteps : 12 # primary must produce at least this many TrkSteps
+-      MinimumSumCaloStepE : 45.0 # or at least this much calo energy
++      MinimumSumCaloStepE : 45.0 # or at least this much calo energy by a single sim particle
++      MinimumSumCaloE : 45.0 # or at least this much calo total energy by accepted sim particles
+```
+
+This is byte-for-byte the delta §6.2 recovered from the rendered
+`mu2e --debug-config` dumps — the sweep confirms §6's isolation at the
+commit level and finds nothing else.
+
+**One refinement the sweep adds to §6.2's "both required together" note:**
+the two levers have *different* engagement conditions. Lever 1
+(`MinimumSumCaloE`) is an `OptionalAtom` — it genuinely requires the
+Production prolog key to exist, so Offline PR #1819 + Production PR #539 are
+jointly necessary for it. Lever 2, however, is active from the **Offline C++
+change alone**: the new dedicated `MinimumCaloPartMom` Atom defaults to
+0.0 in the C++, so the 50 MeV/c floor vanished the moment `a9839eeb4`
+landed, whether or not any prolog sets the key — Production's
+`MinimumCaloPartMom : 0.0` line makes the default explicit but is
+numerically a no-op. (Consequence for any revert test: overriding the FHiCL
+keys suffices to restore Run1Bak semantics for *both* levers — no Offline
+rebuild needed — precisely because both levers are FHiCL-reachable in the
+Run1Bap C++.)
+
+**Intent, from the PR bodies** (`gh pr view`, quoted): Offline #1819 — *"In
+Run 1B work, we found the current filtering can bias the output by
+filtering out events with high deposits but they shower and separate into
+different sim particles. This helps resolve this issue"*; Production #539 —
+*"Primaries with calo signals can now be selected with total calo energy
+deposits, and the calo momentum in threshold on sims is lowered. This
+should reduce loss of viable signals that shower in the calo."* I.e. the
+change is a **deliberate acceptance recovery** — accepting more genuine
+signal events that the old filter wrongly dropped — and the observed
+"+4.9% more CE events survive under Run1Bap" is its *intended* direction,
+not a side effect. (This strengthens plausibility; it does not prove the
+magnitude.)
+
+### 7.2 Candidate ledger (Step 2)
+
+Every candidate raised at any point in this investigation, one row each.
+Strength vocabulary: **direct-paired** (measured A/B at matched x/seeds),
+**elimination** (candidate's causal path shown structurally closed),
+**inspection** (source/artifact read, no new measurement),
+**sweep** (release-history search, §7.1).
+
+| # | candidate | status | evidence | strength |
+|---|---|---|---|---|
+| 1 | IPA position (`distFromTargetEnd` 491.666672 vs 625.0) | **excluded** (for the shift) | arm A vs B at identical champion x: ce_abs_eff 6.7555e-4 vs 6.7642e-4 (+0.13%), sob 4.10 vs 4.11 (1 print quantum); both sit the full +4.9% above history (§1, §3.1 Pair 3) | direct-paired |
+| 2 | Override pair (`tracker.inDS2Vacuum`+`ds2.halfLength=3825`) — sob/ce channel | **excluded** | arm A (removed) vs arm C (restored): ce_abs_eff 6.7555e-4 vs 6.7584e-4 (+0.04%), sob 4.10 vs 4.11; restoring it does NOT return sob to the historical 3.90 (§1, §3.1 Pair 2) | direct-paired |
+| 3 | Override pair — flash channel | **confirmed** (as the champion *flash*-gap driver; unrelated to the sob shift) | C/A seed-paired (both N=99, identical EleBeamCat draw): **+2.20%**; C/mean(A,B): +2.35%±3.10%; residual version flash shift after accounting: −1.53%±2.78% ≈ 0 (§5.4) | direct-paired |
+| 4 | `zEMCSourceInMu2e = 5000.0` (EMC_Source VD move) | **excluded** | VD is built from `ds->vacuumMaterial()` at 20 µm — massless, vacuum-in-vacuum; sob reads tracker `StrawGasStep`/EdepAna, not VD hits (design doc §"already excluded"; §3.1 classifies the line as expected-inert) | inspection |
+| 5 | Analysis binary / harvest environment | **excluded** | `sourced_env(with_muse=True)` hardcodes `muse setup -q p094` + fixed Run1BAna lib for ALL 8 configs, sole call site `core/pipeline.py:1297` (§3.3); no in-window commit touched the pinning (§2.4) | inspection |
+| 6 | Job-loss accounting / normalization denominators | **excluded** | every denominator is landed-file-based by construction; recompute closes to <0.0001% for 8/8 configs; landed-population consistency verified per-config (§2.1–2.3); shift is 25σ/10σ — not noise | direct recompute |
+| 7 | Constants / sensitivity-macro drift | **excluded** | `RUN1A_MUBEAM_INPUT_CORRECTION` never changed; `run_edepana`/`run_sensitivity_macro` verbatim-moved only; macro file untouched since 2026-04-28, months before the earliest harvest (§2.4) | inspection |
+| 8 | Our tarball/geom migration (the 2026-07-26 JSON-mode move) | **excluded** | rendered-geom diffs reduce to exactly the documented override deltas (all excess hunks proven equivalent); both eras' tarballs carry the holeRadii-patched GeometryService (`strings` gate =1 both, md5 cross-check across arm copies) (§3.1–3.2) | elimination |
+| 9 | Base-geometry config deltas (`geom_run1_a.txt` include tree) | **excluded** | resolver cross-diff = 0 differing keys of 6283 (self-test PASS); all 421 transitively-included files **byte-identical** between releases (§6.1) | direct byte comparison |
+| 10 | Momentum test-box migration | **excluded** | identical argmax box set both eras (champion: same two-box set; baseline: same single box); isolated box-migration contribution −0.004 pp ≈ 0 (§4.3) | direct-paired (fixed-box rescan) |
+| 11 | Background change | **excluded within the macro's model** | cosmic ratio 1.0000 exactly (but structurally guaranteed: cosmic is computed from fixed globals — the macro cannot see a real background change; caveat in §4.3); dio <0.0005% of bkg | elimination (model-bound) |
+| 12 | CE spectrum shape change | **excluded** | Δmean < 0.01 MeV, ΔRMS < 1% at the box-relevant [100,106] MeV window (≪ 0.2 MeV/c box grid); full-range KS rejections are a statistical-power artifact at N~5×10⁵; extra events populate the SAME shape (§5.3) | direct-paired |
+| 13 | Geant4 | **excluded** | not just same version — same spack build artifact, hash `k4bezfrnxuvotgxrwtgcfhjqzagc2iyw`, identical physics-data tables (§6.3, `$SCRATCH/g4_hash_{bak,bap}.txt`) | direct artifact identity |
+| 14 | art / ROOT | **excluded** | v3_15_00 / v6_32_06 identical both sides (§6.3) | inspection |
+| 15 | KinKal v03_05_01→v03_06_00, artdaq-core-mu2e v9_03_00→v9_04_00, mu2e-ort (new) | **excluded** | changed, but no consumer scheduled on `PrimaryPath` — truth-level chain has no track fit / DAQ format / ML inference (§6.2–6.3) | elimination (schedule test) |
+| 16 | Other job-config deltas (`KinKalMaterial`, `ADC2MeV`→CsI/lyso split, `Scoring.scorerNames`) | **excluded** | declared-but-unconsumed service defaults, or inside a `enabled: false` block (§6.2) | elimination |
+| 17 | **PrimaryFilter Lever 1** — `MinimumSumCaloE: 45` total-calo-energy OR-branch | **confirmed (combined with row 18, unsplit — §8)** | scheduled on `PrimaryPath`; pure disjunct, monotonic-increasing on acceptance (§6.2); introduced by Offline `a9839eeb4` (PR #1819) + engaged by Production `a387965f` (PR #539) (§7.1); PR intent = deliberate acceptance recovery; combined-lever magnitude measured directly at 95.20%±0.05% survivor fraction vs 95.1-95.5% predicted (§8; the two levers were reverted together, not split — see §8.1) | inspection + sweep + **direct-paired (local re-filter, jointly with row 18)** |
+| 18 | **PrimaryFilter Lever 2** — `MinimumCaloPartMom: 0` removes the 50 MeV/c calo-step momentum floor | **confirmed (combined with row 17, unsplit — §8)** | same commits; active from the Offline C++ default alone (§7.1); widens the population feeding both Lever 1's sum and the pre-existing per-particle `caloESum` branch (§6.2); combined-lever magnitude measured directly at 95.20%±0.05% survivor fraction vs 95.1-95.5% predicted (§8; the two levers were reverted together, not split — see §8.1) | inspection + sweep + **direct-paired (local re-filter, jointly with row 17)** |
+| 19 | Offline code, other subsystems in v13_12_10→v13_32_10 | **bounded (FCL-visible); non-FCL C++ changes in scheduled modules conditionally excluded pending the arm-1 revert readout** | the net FCL-visible effect of ALL Offline+Production changes on this job is bounded by the §6.2 `--debug-config` diff (8 hunks, all classified); within the implicated module's file the two PR #1819 commits account for the entire release delta (54+/6−); remaining `Filters/` changes are an unscheduled new module (§7.1) | elimination + sweep |
+| 20 | Baseline-pair flash anomaly (+6.35% ± 2.82%, 2.25σ, opposite sign to champion) | **open** | n=1-vs-1, no seed pairing possible (400 vs 100 jobs), emission-mechanism provenance confound (geometrically inert per §3.1); champion-derived override effect (+2.2%) predicts the WRONG sign for it (§5.4) | unresolved observation |
+
+Notes on honesty of the two (now-confirmed) PrimaryFilter rows and the bounded row 19: what was *proven* at the time this ledger was first written is
+(a) the mechanism sits inside the implicated chain at the exact gate that
+sets `ce_seen` (§6.2), (b) both levers are provably monotonic in the
+observed direction (§6.2), (c) they are the only in-scope release delta
+(§6.1, §6.2, §7.1), and (d) they were introduced deliberately to accept
+more signal events (§7.1). What was *not yet proven* at that point was that their combined
+pass-rate increase equals +4.93%±0.20% at champion x / +4.08%±0.41% at
+baseline — no measurement in this investigation constrained the magnitude. Row 19's bounded status reflects that the net FCL-visible effect is bounded (8 hunks, all classified by §6.2), but non-FCL C++ changes in scheduled modules remain conditionally excluded pending confirmation from the arm-1 revert readout.
+
+**Update (§8, local re-filter magnitude test):** the magnitude gap flagged above is now closed for rows 17-18. Re-running the exact production `PrimaryFilter` block (control) vs. the same block with only the two lever values reverted (`MinimumSumCaloE: 1.0e9`, `MinimumCaloPartMom: 50.0`), on 165,838 already-archived, already-filtered `ipafixAB01` CE events, measured a corrected survivor fraction of 95.20%±0.05% — inside the 95.1-95.5% window predicted from the audited +4.93%±0.20% `ce_abs_eff` shift (0.52σ from the window's center), implying a production-equivalent shift of +5.04%, i.e. the two levers combined explain ~102% of the measured +4.93% shift within measurement noise. This is now a **direct-paired, same-population** measurement, not inspection/sweep alone — see §8 for the full method and numbers. Row 19's non-FCL-C++ caveat is untouched by this test (it isolates only the two FHiCL-reachable levers, not any other scheduled-module C++ change).
+
+### 7.3 Recommendation input + Task-8 trigger verdict (Step 3)
+
+**Input to the leaderboard archive-vs-baseline-column decision** (the
+decision itself is the operator's, not this document's):
+
+- The shift is **real** (+4.93%±0.20% champion / +4.08%±0.41% baseline in
+  ce_abs_eff; +5.21%±0.12% / +4.82%±0.23% in sob), **not ours** (§2, §3),
+  and **normalization-like in structure**: ~100% acceptance-at-fixed-box,
+  zero box migration, background unchanged-by-construction, CE spectrum
+  shape unchanged (§4, §5). As far as anything measured here can see,
+  Run1Bap rescales sob multiplicatively.
+- **Geometry-independence is supported but not proven**: champion vs
+  baseline shifts differ by 1.9σ in ce_abs_eff ((4.93−4.08)/√(0.20²+0.41²))
+  and 1.5σ in sob — consistent with a single multiplicative factor, but a
+  genuine geometry dependence at the few-tenths-of-a-percent level cannot
+  be excluded on two x-points, and the identified mechanism (calo-step
+  acceptance at `PrimaryFilter`) has no a-priori reason to be exactly
+  geometry-independent.
+- Consequences the evidence supports: (a) Run1Bak-era and Run1Bap-era rows
+  are different absolute-sob populations offset by ≈+5%; mixing them in one
+  GP without an era distinction injects a ~0.2-sob step ≈ 33× the declared
+  `obs_noise=0.006` (the failure class already flagged in the 2026-07-28
+  wiki log). (b) **Ratios to a same-era baseline are era-invariant within
+  measurement**: champion/deployed = +25.5% under Run1Bak (3.9033/3.11)
+  vs +26.0% under Run1Bap (4.1067/3.26) from the audited §4 group means —
+  1.5σ apart on the §4.3 σ budget (combined relative σ = √(0.124² + 0.233²)% ≈ 0.26%; era-ratio difference (1.260/1.255 − 1) ≈ 0.40% → 0.40/0.26 ≈ 1.5σ; the 2026-07-28 wiki log's arm-D figures,
+  +25.6%/+25.8%, are this same comparison at 2-decimal sob precision) — so
+  the historical campaign's physics *conclusions* stand either way. (c) On
+  the flash axis no significant version shift exists at champion once the
+  override pair is accounted (residual −1.53%±2.78%), but the baseline
+  flash pair is open (+6.35%±2.82%, opposite sign) — a flash baseline
+  column would inherit that unresolved 2.25σ tension.
+
+**Task-8 trigger verdict: TRIGGERED.** Live candidates: the PrimaryFilter
+lever pair (rows 17–18 — one mechanism needing **direct proof** of
+magnitude — **since run and closed: see §8 (magnitude CONFIRMED); this
+paragraph is preserved as the pre-measurement state**) and the
+baseline-pair flash anomaly (row 20). That satisfies
+the rule twice over — both disjuncts hold independently ("≥2 live candidates
+or one candidate needing direct proof → recommend the gated Task 8 arm(s)").
+
+**Recommended arms, in order:**
+
+1. **FIRST — config-level revert arm (cheaper AND sharper; run this one) —
+   (EXECUTED as the §8 local re-filter — no grid needed).**
+   One chain under **Run1Bap** at the identical champion x (clone of the
+   `ipafix` spec), with the two prolog levers reverted to Run1Bak-equivalent
+   semantics in the mustops_ce template:
+   `physics.filters.PrimaryFilter.MinimumSumCaloE: @erase` (restores the
+   key-absent state — `useMinSumCaloTotalE_ = false`, exactly Run1Bak's
+   logic; if `@erase` is awkward in the template path, a huge value such as
+   1e9 is behaviorally identical) and
+   `physics.filters.PrimaryFilter.MinimumCaloPartMom: 50.0` (restores the
+   floor Run1Bak applied via the shared `MinimumPartMom`). This works
+   without any rebuild because both levers are FHiCL-reachable in the
+   Run1Bap C++ (§7.1). Readout is three-valued: ce_abs_eff returns to
+   ≈6.44e-4 → mechanism **and magnitude** confirmed, investigation closes;
+   partial return → measures the levers' share directly; no change →
+   candidate falsified, escalate to arm 2. Sharpness: every other
+   environment axis is held at Run1Bap **by construction** (same tarball,
+   same Musing, same geometry, same seeds), so the comparison isolates
+   exactly the two keys — a cross-release control can never be this clean.
+   Optional companion (only if per-lever attribution is wanted): a second
+   config reverting only `MinimumCaloPartMom: 50.0` while keeping
+   `MinimumSumCaloE`, splitting Lever 2 from Lever 1.
+2. **SECOND — full Run1Bak control arm (only if arm 1 fails to close the
+   gap).** Re-run champion x under the Run1Bak musing/tarball
+   (`Code_helical_holeradii.tar.bz2`) today. This tests era-reproducibility
+   of the historical 3.90 and hunts an unmodeled residual, but it re-tests
+   the entire release delta at once (no isolation), and history already
+   supplies three tight Run1Bak evals at this x (3.90/3.91/3.90) — its
+   marginal information is mostly "nothing else drifted since July".
+3. **DEFER — baseline flash anomaly.** Decomposable only with a baseline
+   arm-C analog (`nominalAB01` + override pair restored) and/or an N=400
+   flash re-eval of `nominalAB01` to shrink σ below the naive ±2.82%. At
+   2.25σ with n=1 and no bearing on the sob-side leaderboard question,
+   this is not worth grid time unless a flash-at-baseline number is needed
+   for a decision; row 20 stays open either way.
+
+**Verdict: sweep complete and narrow — the entire release-to-release delta
+of the implicated module is two commits from Offline PR #1819
+(`a9839eeb4` + printout `2905cfa0b`, michaelmackenzie 2026-05-06) engaged by
+one Production commit from PR #539 (`a387965f`), with PR-stated intent of
+deliberate signal-acceptance recovery; ledger closes 15 of 20 rows as
+excluded (1 bounded FCL-visible, 3 confirmed — 1 on the flash channel + 2
+PrimaryFilter levers via the §8 local re-filter magnitude test (jointly,
+unsplit) — + 1 baseline flash anomaly open); Task 8 is TRIGGERED, and the recommended
+first arm is the config-level PrimaryFilter revert under Run1Bap
+(`MinimumSumCaloE` erased + `MinimumCaloPartMom: 50`), which is both
+cheaper and sharper than a Run1Bak control re-run. (Update, §8: the local,
+no-grid version of exactly this revert has since been run and closes the
+magnitude question for rows 17-18 — see §8 for whether the full-chain grid
+arm below is still worth running.)**
+
+## 8. Local re-filter magnitude test
+
+Phase-4a, no-grid proof of the §7.1/§7.3 arm-1 recommendation: does reverting
+the two `PrimaryFilter` levers (§6.2/§7.1) to Run1Bak-equivalent semantics,
+applied locally to already-archived Run1Bap CE events, reproduce the
+predicted ≈95.3% survivor fraction (`= 1/1.0492`, from the paired ratio
+`ipafixAB01` ce_seen/ce_simulated 0.552630 vs `foilsflashBASIN01_00`
+0.526696; the audited group ratio +4.93%±0.20% (§2.3) predicts a
+95.1-95.5% window)? All artifacts: `$SCRATCH/refilter/`.
+
+### 8.1 Method
+
+One local `mu2e` job, two `DetectorStepFilter` instances on two
+`trigger_paths` in the same job, reading the **same** input events once:
+
+- `newFilter` — the exact Run1Bap production `PrimaryFilter` block, copied
+  verbatim from `$SCRATCH/cfg_bap.txt` (the `mu2e --debug-config` dump of
+  `ipafixAB01`'s actual submitted job, §6.2) lines 63-85. This is the
+  **CONTROL**: every archived event already passed this exact filter on the
+  grid, against *uncompressed* steps; its local pass fraction `f_ctrl`
+  measures the bias (if any) introduced by re-evaluating the filter against
+  *compressed* products.
+- `oldFilter` — the identical block with exactly the two values from §6.2/§7.1
+  reverted: `MinimumCaloPartMom: 50.0` (restores the shared 50 MeV/c floor
+  Run1Bak applied to calo steps before PR #1819 split it from the trk-shared
+  `MinimumPartMom`) and `MinimumSumCaloE: 1.0e9` (disables the new
+  total-calo-energy OR-branch — a huge value is behaviorally identical to the
+  key being absent, per §7.3's arm-1 recipe, since `total_edep` can never
+  exceed a few hundred MeV per event).
+
+Full FCL: `$SCRATCH/refilter/refilter_test.fcl`. No producers, no output
+module — `physics.filters.{newFilter,oldFilter}` on
+`physics.{newPath,oldPath}`, `physics.trigger_paths: ["newPath","oldPath"]`,
+`services.scheduler.wantSummary: true` to get art's full per-path
+`TrigReport` breakdown, plus `services.GlobalConstantsService` (the only
+service `DetectorStepFilter` actually calls —
+`GlobalConstantsHandle<PhysicsParams>()->getNominalDRPeriod()` for the
+(unused, since no `TimeCutConfig` is set) time-cut check; confirmed by
+reading `Offline_run1bap/Offline/Filters/src/DetectorStepFilter_module.cc`
+directly — no `GeometryService` or other service dependency exists in this
+module).
+
+**One deliberate input-tag change** vs. the production block, per the task
+brief: `StrawGasSteps`/`CaloShowerSteps` point at `["compressDetStepMCs"]`
+instead of `["StrawGasStepMaker"]`/`["CaloShowerStepMaker"]` — the archived
+`dts.*.CeEndpoint.*.art` files hold only the post-`compressDetStepMCs`
+products (the grid job's own `PrimaryFilter` ran *before* compression, on
+the original `StrawGasStepMaker`/`CaloShowerStepMaker` labels; only the
+compressed copies survive into the archived output, per
+`outputCommands: ["keep *_compressDetStepMCs_*_*", ...]` in
+`$SCRATCH/cfg_bap.txt`'s `PrimaryOutput` block).
+
+### 8.2 Product discovery (Step: is the local route blocked?)
+
+Listed the `Events` `TTree`'s branches directly via `ROOT` (`TFile::Open` +
+`GetListOfBranches()`) on one archived file — no framework job needed for
+this step:
+
+```
+$ root -b -l -q  # TFile::Open(...); t=(TTree*)f->Get("Events"); loop branches
+mu2e::GenParticles_compressDetStepMCs__Primary.
+mu2e::CaloShowerSteps_compressDetStepMCs__Primary.
+mu2e::SimParticleart::Ptrmu2e::MCTrajectorystd::map_compressDetStepMCs__Primary.
+mu2e::SurfaceSteps_compressDetStepMCs__Primary.
+mu2e::SimParticlemv_compressDetStepMCs__Primary.
+mu2e::StatusG4_g4run__Primary.
+mu2e::StepPointMCs_compressDetStepMCs_virtualdetector_Primary.
+mu2e::CrvSteps_compressDetStepMCs__Primary.
+mu2e::PrimaryParticle_FindMCPrimary__Primary.
+mu2e::StrawGasSteps_compressDetStepMCs__Primary.
+art::EventIDs_TargetStopResampler__Primary.
+art::TriggerResults_TriggerResults__Primary.
+```
+
+(Full listing: `$SCRATCH/refilter/full_branch_list.txt`.) **Not blocked**:
+both `CaloShowerSteps_compressDetStepMCs` and `StrawGasSteps_compressDetStepMCs`
+are present (empty instance name, process `Primary`), confirming the
+compression step preserves both collections the filter reads, resolving the
+brief's stated risk in the negative — the local route is viable.
+
+### 8.3 Environment, files, events
+
+```
+export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER
+source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
+muse setup ops > /tmp/m.log 2>&1
+muse setup SimJob Run1Bap >> /tmp/m.log 2>&1   # grep'd for errors, none found
+```
+
+4 files from `ipafixAB01/harvest/ce_files.txt` (`$SCRATCH/refilter/filelist.txt`,
+readability confirmed via `ls -l` before running):
+`dts.oksuzian.CeEndpoint.Run1Bak_ipafixAB01.001801_0000000{0,1,2,3}.art`
+(~890 MB each, ~41.5k events/file). Ran unlimited (`-n -1`) over all four via
+`mu2e -c refilter_test.fcl -S filelist.txt -n -1` — **165,838 events**, well
+above the ~150-200k target. Wall time 213 s / CPU 170 s (`$SCRATCH/refilter/full_run.log`).
+A 500-event smoke test on file 0 alone (`$SCRATCH/refilter/test_full2.log`)
+ran first to validate the FCL (`newFilter` 500/500, `oldFilter` 474/500 =
+94.8% — consistent within that sample's Poisson σ, ≈0.99pp, with the
+full-sample result below).
+
+### 8.4 TrigReport (`services.scheduler.wantSummary: true`)
+
+```
+TrigReport ---------- Event summary -------------
+TrigReport Events total = 165838 passed = 165838 failed = 0
+
+TrigReport ---------- Trigger-path summary ------------
+TrigReport    Path ID        Run     Passed     Failed      Error Name
+TrigReport          0     165838     165838          0          0 newPath
+TrigReport          1     165838     157883       7955          0 oldPath
+```
+
+(Full capture: `$SCRATCH/refilter/TrigReport_extract.txt`, raw job log
+`$SCRATCH/refilter/full_run.log`.)
+
+### 8.5 f_ctrl, f_old, corrected survivor fraction
+
+```
+f_ctrl = 165838 / 165838 = 1.000000  (100.0000%)   -- zero compression-bias failures observed;
+                                                       rule-of-three 95% CL upper bound on the
+                                                       true failure rate ~= 3/165838 = 0.0018%
+f_old  = 157883 / 165838 = 0.952032 (95.2032%)   sigma_old (binomial, sqrt(p(1-p)/n)) = +/-0.0525 pp
+
+headline estimator, f_old / f_ctrl = 95.2032% +/- 0.0525% (absolute; f_ctrl's
+own sigma is negligible, so it does not add to the quadrature sum)
+```
+
+**Why re-filtering the archive (rather than the raw unfiltered population)
+gives an exact, not approximate, answer here:** §6.2/§7.1 already proved
+both levers only ever *widen* `selectcalo` — for any raw event,
+`oldFilter`-pass implies `newFilter`-pass (old is a strict subset of new at
+the event level, not just in aggregate rate). Since our archive *is* exactly
+the raw population's `newFilter`-passing subset, every raw event that would
+pass `oldFilter` is guaranteed to already be inside the archive — so
+`oldFilter`'s count on the archive equals `oldFilter`'s count on the full
+raw population, exactly, not approximately. This also means the measurement
+is **self-paired on the same simulated events** (same G4 run, same seeds,
+both filter configs evaluated on identical events) — it isolates the
+filter's own contribution free of the campaign-to-campaign Poisson
+population variance that inflates the cross-release `ce_abs_eff` comparison
+in §2.3.
+
+**Comparison against the predicted window:**
+
+```
+predicted survivor central (from +4.93%+/-0.20% ce_abs_eff shift, §2.3) = 1/1.0493 = 95.302%
+predicted window                                                        = [95.120%, 95.484%]
+window-alone sigma (half the predicted window width)                    = +/-0.182 pp
+measured survivor fraction                                              = 95.2032% +/- 0.0525% pp
+combined sigma (window-alone 0.182pp (+) measured 0.0525pp, quadrature)  = 0.189 pp
+deviation from predicted center                                          = 0.099 pp
+significance                                                             = 0.52 sigma  -- inside the window
+
+implied production-equivalent shift, 1/f_old - 1                        = +5.0385%
+audited ce_abs_eff shift (Sec 2.3)                                       = +4.93% +/- 0.20%
+deviation                                                                = 0.109 pp
+significance, quadrature (audited 0.20% (+) measured-side ~0.058pp
+  propagated to shift-space via d(shift)/df=-1/f^2, sigma_quad=0.208%)  = 0.52 sigma  -- primary figure
+significance, audited-sigma-only (conservative form, ignores the small
+  measured-side term)                                                   = 0.54 sigma
+fraction of the +4.93% shift explained by the two levers combined       = 102.2%
+```
+
+**Rebuttal to a vacuous/misconfigured-filter reading:** a trivially-passing or
+broken filter (e.g. a mistyped input tag silently yielding an empty
+collection, or a config that never actually engages `selectcalo`) would
+pass ~100% on *both* paths, since an empty/never-consumed collection can
+never contribute a rejection. That is not what happened here: `oldFilter`
+rejected 7,955 of 165,838 events (4.8%) on the **identical** input tags
+`newFilter` used to pass 100.0000% of the same events — the two paths only
+differ in the two reverted values (§8.1), so a non-trivial, differential
+rejection at exactly the lever-controlled branch is direct evidence both
+filters are reading real, non-empty `StrawGasStep`/`CaloShowerStep`
+collections and actually engaging the `selectcalo` logic, not silently
+no-op'ing.
+
+### 8.6 Verdict
+
+**Verdict: magnitude CONFIRMED — the two `PrimaryFilter` levers
+(`MinimumSumCaloE`, `MinimumCaloPartMom`), reverted together and re-applied
+locally to 165,838 already-archived Run1Bap CE events, yield a corrected
+survivor fraction of 95.20% ± 0.05%, landing inside (0.52σ from center of)
+the 95.1-95.5% window predicted from the audited +4.93%±0.20% champion-x
+`ce_abs_eff` shift (§2.3), and imply a production-equivalent shift of
++5.04% — 102% of the measured shift, i.e. the two levers combined explain
+the full +4.93% within measurement noise. The compression-bias control
+(`newFilter` on compressed products) passed 100.0000% (0/165,838 failures),
+so no correction beyond the direct ratio was needed.** This closes the
+magnitude question §7.2 flagged as open for ledger rows 17-18 (updated
+above) and is, in substance, a lighter/faster/no-grid execution of the
+exact revert §7.3 recommended as arm 1 — the full-chain grid re-run remains
+available as an independent confirmatory step (it would additionally cross
+the compression boundary and the `ce_abs_eff`/`s_over_sqrt_b` normalization
+chain rather than stopping at the filter's own pass/fail decision), but is
+no longer required to answer the magnitude question this investigation was
+gated on. **Caveat:** this test used only `ipafixAB01` (one config, one
+population); it was not repeated at the baseline geometry pair or against
+an independent champion-x arm, so a residual geometry-dependence at the
+few-tenths-of-a-percent level (§7.3's stated open question) is not
+addressed by this test and remains exactly as open as §7.3 left it.

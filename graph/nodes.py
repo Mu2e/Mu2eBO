@@ -1,4 +1,4 @@
-"""Graph nodes for the BO iteration (Phase 1: mock grid).
+"""Graph nodes for the BO iteration.
 
 Each node is a pure function: state in → partial state out. LangGraph merges
 the returned dict into the running state and checkpoints it.
@@ -12,16 +12,18 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "core"))  # BO/pipeline modules
 
 from langgraph.graph import END  # noqa: E402
 
-import autoresearch_bo_michael as bo  # noqa: E402
+import bo_driver as bo  # noqa: E402
 import pipeline_io as pio  # noqa: E402
 from config import (  # noqa: E402
     DEFAULT_ALPHA,
     DEFAULT_MODE,
     GRID_DATA_ROOT,
     MAX_PROPOSE_RETRIES,
+    PRESUBMIT_AFTER,
 )
 from state import BOIterationState  # noqa: E402
 
@@ -58,16 +60,20 @@ def node_propose(state: BOIterationState) -> dict:
     """Ask the BO model for the next x; materialize the geom file.
 
     If state["x_point"] is already populated, skip the BO ask and force that
-    point (used to evaluate GP-Pareto picks).
+    point (used to evaluate GP-Pareto picks). The propose attempt counter is
+    passed as the picker seed_idx so each preflight-driven retry draws a
+    fresh point (the seed varies) instead of re-asking for the same one.
     """
     mode = state.get("mode", DEFAULT_MODE)
     alpha = state.get("alpha", DEFAULT_ALPHA)
     caller_pinned = bool(state.get("config_name"))
     name = state.get("config_name") or pio.next_config_name(mode)
     forced = state.get("x_point") or None
+    seed_idx = state.get("attempts", {}).get("propose", 0)
 
     try:
-        x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced)
+        x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
+                                  seed_idx=seed_idx)
     except ValueError:
         if caller_pinned:
             # Re-entry with the same caller-pinned name (preflight
@@ -80,13 +86,15 @@ def node_propose(state: BOIterationState) -> dict:
             # the closed-loop --name-prefix contract and trip the
             # config_name swap guard in graph/run.py.
             bo.MODES[mode].remove_pending(name)
-            x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced)
+            x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
+                                      seed_idx=seed_idx)
         else:
             # Auto-named path (no --config-name on the CLI): a true name
             # collision means a concurrent runner picked the same auto-name;
             # fork to the next free name.
             retry_name = pio.next_config_name(mode)
-            x, geom = pio.propose_one(mode, retry_name, alpha=alpha, x_override=forced)
+            x, geom = pio.propose_one(mode, retry_name, alpha=alpha,
+                                      x_override=forced, seed_idx=seed_idx)
             name = retry_name
 
     return {
@@ -108,15 +116,16 @@ def node_propose(state: BOIterationState) -> dict:
 def node_render_preflight(state: BOIterationState) -> dict:
     """Run mu2e -n 1 + surface-check on the proposal.
 
-    Outcomes:
+    Outcomes (vocabulary: bo_driver.PREFLIGHT_VERDICTS + "timeout"):
     - pass → real/mock grid chain
     - fail_managed → retry propose (managed-volume overlap, BO-fixable)
     - ambiguous (rc=3) → retry propose. rc=3 = subprocess died early
       without a regex-matchable G4 init signature (OOM under concurrent
       preflight load, transient FS, host load). Treated as retriable
       2026-05-29 after foilsX04 incident where 20/20 children died here;
-      each propose retry draws a different `x` from skopt so a true geom
-      bug doesn't infinite-loop. Bounded by MAX_PROPOSE_RETRIES (graph/config.py).
+      each propose retry bumps seed_idx so the botorch ask draws a
+      different `x` and a true geom bug doesn't infinite-loop. Bounded by
+      MAX_PROPOSE_RETRIES (graph/config.py).
     - fail_init → terminal (real G4 init failure; geom is broken)
     """
     mode = state["mode"]
@@ -145,6 +154,18 @@ def make_stage_node(stage: str):
         stages = dict(state.get("stages", {}))
         try:
             stages[stage] = pio.run_stage(name, stage)
+            # Overlap seam: early-submit data-independent downstream stages
+            # (e.g. foilsflash elebeam_flash after mubeam) so their grid time
+            # hides behind the intervening chain. Best-effort — on failure
+            # the stage's own node submits sequentially (idempotent guards).
+            for ps in PRESUBMIT_AFTER.get(stage, ()):
+                try:
+                    pio.presubmit_stage(name, ps)
+                    print(f"[graph] presubmit[{ps}/{name}] submitted early "
+                          f"(overlaps rest of chain)", flush=True)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[graph] presubmit[{ps}/{name}] failed ({exc}); "
+                          f"will submit sequentially", flush=True)
         except Exception as exc:  # noqa: BLE001
             print(f"[graph] stage[{stage}/{name}] FAILED: {exc}", flush=True)
             errors.append(f"stage[{stage}/{name}]: {exc}")
@@ -158,11 +179,17 @@ def make_stage_node(stage: str):
 
 
 def node_harvest(state: BOIterationState) -> dict:
-    """Run pipeline.py harvest; populate metrics from summary.json."""
+    """Run pipeline.py harvest; populate metrics from summary.json.
+
+    Verb is mode-dispatched (ModeSpec.harvest_verb in modes.py): prodtarget
+    runs `harvest-pot-only` (uproot, mu_per_POT); others run `harvest`
+    (4-stage S/√B + calo).
+    """
     name = state["config_name"]
+    mode = state.get("mode")
     errors = list(state.get("errors", []))
     try:
-        metrics = pio.run_harvest(name)
+        metrics = pio.run_harvest(name, mode=mode)
     except Exception as exc:  # noqa: BLE001
         errors.append(f"harvest[{name}]: {exc}")
         _record_zero_row(name, "harvest_exception", str(exc))
@@ -172,7 +199,7 @@ def node_harvest(state: BOIterationState) -> dict:
 
 def node_mock_grid(state: BOIterationState) -> dict:
     """Mock substitute for the real grid chain: synthesizes metrics from x."""
-    return {"metrics": pio.mock_metrics(state["x_point"])}
+    return {"metrics": pio.mock_metrics(state["x_point"], state["mode"])}
 
 
 def node_scan_logs(state: BOIterationState) -> dict:
@@ -235,33 +262,9 @@ def node_evaluate(state: BOIterationState) -> dict:
     obj, tail = pio.run_evaluate(mode, name, metrics, alpha=alpha)
     if obj is None:
         errors.append(f"evaluate[{name}]: could not parse objective; tail={tail}")
+        # historical cause name; obj now arrives via evaluate_result.json
         _record_zero_row(name, "obj_unparseable", tail or "")
     return {"objective": obj, "errors": errors}
-
-
-def node_decide_next(state: BOIterationState) -> dict:
-    """Bump iteration counter; if auto_continue and iter+1<max_iter, prep next.
-
-    When looping, we clear `config_name` so `propose` auto-generates a fresh
-    name from the leaderboard, and reset per-iter scratch (attempts, errors,
-    preflight, metrics, objective).
-    """
-    cur_iter = state.get("iter", 0)
-    next_iter = cur_iter + 1
-    auto = state.get("auto_continue", False)
-    max_iter = state.get("max_iter", 1)
-    if auto and next_iter < max_iter:
-        return {
-            "iter": next_iter,
-            "config_name": None,
-            "x_point": None,
-            "attempts": {},
-            "preflight": "pending",
-            "scan_logs_broken": False,
-            "metrics": None,
-            "objective": None,
-        }
-    return {"iter": next_iter}
 
 
 # --- conditional edges ---
@@ -308,10 +311,3 @@ def route_after_stage(state: BOIterationState) -> Literal["next", "__end__"]:
         )
         return END
     return "next"
-
-
-def route_after_decide(state: BOIterationState) -> Literal["propose", "__end__"]:
-    """Loop back to propose when auto_continue is on and we haven't hit max_iter."""
-    if state.get("auto_continue") and state.get("iter", 0) < state.get("max_iter", 1):
-        return "propose"
-    return END

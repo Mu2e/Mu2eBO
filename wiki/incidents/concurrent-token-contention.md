@@ -1,17 +1,16 @@
 ---
-name: concurrent-token-contention
-description: jobsub_lite mu2ejobsub races when N>1 chains submit within ~10s; need 60-90s stagger
 type: incident
+title: Concurrent token contention on mu2ejobsub
+description: jobsub_lite mu2ejobsub races when N>1 chains submit within ~10s; need
+  60-90s stagger
+status: resolved
+status_note: '(mitigated 2026-05-20: host-wide `fcntl.flock` on `/tmp/mu2e_submit.$USER.lock`
+  wraps the token-refresh + `mu2ejobsub` critical section in `pipeline.py:_submit_lock`;
+  serializes all submits across all concurrent chains)'
+timestamp: '2026-07-17'
 ---
 
 # Concurrent token contention on mu2ejobsub
-
-**Type:** incident
-**Status:** mitigated 2026-05-20 (host-wide `fcntl.flock` on
-`/tmp/mu2e_submit.$USER.lock` wraps the token-refresh + `mu2ejobsub`
-critical section in `pipeline.py:_submit_lock`; serializes all submits
-across all concurrent chains)
-**Updated:** 2026-05-20
 
 ## Summary
 When two or more pipeline.py chains run concurrently and both reach a
@@ -59,7 +58,7 @@ mustops_ce within a 5-minute window — three of five failed.
     the grid without a retry.
   - BUT: chains drifted into sync at the concat→mustops_ce transition.
     helical026 hit submit-concat at 09:50:07 (stage-out rename race —
-    [[stage-out-rename-race]] variant 2), and on its 10:02:09 retry it
+    [stage-out-rename-race](/incidents/stage-out-rename-race.md) variant 2), and on its 10:02:09 retry it
     collided with helical025's submit-mustops_ce → htgettoken failed.
   - **Lesson:** launch-time stagger does not propagate. Stage wall times
     are nearly identical across configs (mubeam ~6 min, run1b_mubeam
@@ -81,17 +80,17 @@ mustops_ce within a 5-minute window — three of five failed.
   the surface:
   1. Token race (this page) — stderr mentions htgettoken / vault / no
      cluster ID parsed.
-  2. Stage-out rename race ([[stage-out-rename-race]]) — `FileNotFoundError`
+  2. Stage-out rename race ([stage-out-rename-race](/incidents/stage-out-rename-race.md)) — `FileNotFoundError`
      inside `stage_hardlink_farm` because /pnfs `NNNNN.<hash>` dir renamed
      to bare-index mid-glob.
-  3. Empty inputs file ([[concat-xrootd-fileopen-postendjob]]) — upstream
+  3. Empty inputs file ([concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md)) — upstream
      concat job lost its .art in PostEndJob xrootd timeout, so
      `<stage>_basenames.txt` is empty.
-  See [[concat-xrootd-fileopen-postendjob]] for the diagnostic ladder.
+  See [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md) for the diagnostic ladder.
 
 ## Cross-links
-- Related: [[stage-out-rename-race]], [[grid-job-completion-check]],
-  [[bo-helical]], [[concat-xrootd-fileopen-postendjob]]
+- Related: [stage-out-rename-race](/incidents/stage-out-rename-race.md), [grid-job-completion-check](/incidents/grid-job-completion-check.md),
+  [bo-helical](/projects/bo-helical.md), [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md), [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md), [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md), [stage-out-lag](/incidents/stage-out-lag.md)
 - Source: `pipeline.py:submit_stage` (preemptive `getToken` landed
   2026-05-18; still no flock for cache-dir race)
 - Resume scripts (ad-hoc, /tmp): `helical_resume_run1b.sh`,
@@ -111,6 +110,22 @@ mustops_ce within a 5-minute window — three of five failed.
   since the cache dir is keyed on submit start time and only one process
   starts a submit at a time. Throughput cost: ~4 chains × 4 stages × 60s =
   ~16 min total serialized submit time over a ~2-hour run — negligible.
+
+- **Gauging submit activity before launching a 2nd concurrent campaign (2026-06-18):**
+  the closed-loop child logs (`/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/closed_loop_logs/<cfg>.log`) only
+  snapshot the **preflight** state (`{"preflight": "pass", "objective": null}`)
+  and never log mubeam/run1b_mubeam submit or grid-poll progress — they are
+  **useless** for telling whether a campaign is mid-submit. The reliable
+  in-flight signal is the process tree: `pgrep -f "mu2ejobsub|jobsub_submit"`
+  (live grid submit) and `pgrep -f "pipeline.py.*submit <stage>"` (which child +
+  stage). A running campaign cycles through submit bursts at **every** stage
+  boundary (per the per-stage-submit point above), so there is no single "drain"
+  moment until it nears completion. **But:** because the host-wide submit lock
+  above serializes `getToken`+`mu2ejobsub` across *all* chains on the host
+  (including a different-prefix/different-mode campaign), a 2nd concurrent
+  closed-loop is **token-safe regardless of launch timing** — the lock, not
+  launch-time quiet-window picking, is what prevents the race. Waiting for a
+  quiet `pgrep` window only avoids queueing latency, not failures.
 
 ## Open questions / TODO
 - (none — closed by the 2026-05-20 lock)

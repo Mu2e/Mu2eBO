@@ -1,8 +1,23 @@
+---
+type: driver
+title: graph-runner — LangGraph orchestrator for the BO loop
+description: LangGraph state-machine orchestrator (Phase 1 mock-grid); Studio +
+  Streamlit overlay
+status: active
+timestamp: '2026-07-08'
+updated_note: headless-log format gotcha
+---
+
 # graph-runner — LangGraph orchestrator for the BO loop
 
-**Type:** driver
-**Status:** active
-**Updated:** 2026-05-29 (propose_one now retries with is_buildable+penalty; node_decide_next auto_continue clears x_point + scan_logs_broken — see Key facts)
+> **Monitoring gotcha (2026-07-08):** a headless `graph.run` log contains ONLY
+> `[run] {...}` JSON status lines (config_name / preflight / objective) — node
+> names like `propose` / `render_preflight` / `stage_mubeam` never appear, so
+> log-grep monitors keyed on node names silently never fire (foilsflashSOBX01:
+> preflight had passed while a `grep "propose|render_preflight"` watcher was
+> still waiting). Watch the JSON fields (`"preflight": "pass"`), the
+> `state/<cfg>/*_cluster.txt`/`*_outputs.txt` files, or the leaderboard row —
+> not node names.
 
 ## Summary
 LangGraph runner that replaces the manual `propose → preflight → submit → poll
@@ -22,11 +37,42 @@ mock-grid branch; helical mode only.
   in series. `route_after_stage` (between every pair of stages) terminates the
   iteration on the first stage that returns `status="failed"`, so `evaluate`
   never runs with partial metrics.
+- **Mode-aware stage chain (Mu2eBO #15, 2026-06-07):** `config.GRID_STAGES`
+  is selected from `GRID_STAGES_BY_MODE` at module-load time via
+  `os.environ.get("AUTORESEARCH_MODE","michael")`. `build.STAGE_NODES` and
+  `build.build_graph()` freeze that selection at import time, so the env var
+  MUST be stamped BEFORE `from config import …`. Both `graph/run.py` and
+  `graph/closed_loop.py` have a `_presniff_mode()` that scans `sys.argv` for
+  `--mode foo` / `--mode=foo` and stamps `AUTORESEARCH_MODE` before the
+  config import — argparse runs in `main()` which is too late. Forgetting
+  this stamp = silent fallback to michael's 4-stage chain regardless of
+  `--mode` value. `prodtarget` → `["pot_only"]`; all others (michael,
+  helical, foils, foilsf) → the 4-stage CE chain. Harvest verb also
+  dispatches: `HARVEST_VERB_BY_MODE["prodtarget"] = "harvest-pot-only"`
+  (others use `"harvest"`); `pio.run_harvest(name, mode=…)` picks the verb.
 - **Per-stage idempotency lives in pipeline.py, not in the graph node.** Re-entering
   `stage_X` after a checkpoint kill or a hot-reload re-runs submit/poll/list-outputs;
   pipeline.py's submit/list-outputs guards no-op when the cluster file already
   exists (and, for list-outputs, every basename in `<stage>_outputs.txt` still
-  resolves on /pnfs). Override with `--force`. See [[pipeline]].
+  resolves on /pnfs). Override with `--force`. See [pipeline](/drivers/pipeline.md).
+- **Idempotency corollary — rebuilt base tarballs are invisible on resubmit.**
+  `write_code_tarball` (`pipeline.py:387-423`) re-extracts `MUSING_BY_MODE`'s
+  base tarball into `<stage>/Code/` every time submit runs, BUT submit itself
+  no-ops if `state/<stage>_cluster.txt` exists. So a graph.run that picks up
+  an old cluster.txt also harvests the prior grid outputs, which were built
+  against the *previous* base tarball. Symptom on pt001 (2026-06-08): rebuilt
+  `Code_MDC2025aq_prodtarget.tar.bz2` (15:03, ships `ProductionTargetEdepHist`
+  .so) was ignored; harvest read 100 stale files, all reported zero edep,
+  leaderboard row landed as `edep_per_POT_MeV=nan`. Fix: wipe
+  `<workdir>/state/<stage>_cluster.txt` AND `<workdir>/state/<stage>_outputs.txt`
+  AND `<workdir>/harvest/summary.json` (so the next harvest re-runs). The
+  `<workdir>/<stage>/` directory holds only tarball artifacts (`Code.tar.bz2`,
+  `Code/`, `cnf.*.tar`); wiping those alone does NOT clear the gating
+  state — that lives in `state/`, a separate sibling dir. **Wrong-dir wipe
+  trap**: I burned a 4-min preflight cycle on 2026-06-08 wiping
+  `<workdir>/pot_only/` thinking it held the cluster file; the file is
+  actually at `<workdir>/state/pot_only_cluster.txt`. Confirm with
+  `ls <workdir>/state/<stage>_*.txt` before wiping.
 - **`langgraph dev` hot-reload is hostile to long-running subprocess nodes.**
   The dev server watches `graph/` and SIGKILLs the worker on file change, mid-`subprocess.run`.
   graph007 (2026-05-19) suffered three double-submits of `stage_mubeam` because
@@ -70,7 +116,7 @@ mock-grid branch; helical mode only.
 - **`--x-point` bypasses `is_buildable` and BOUNDS** (2026-05-25).
   `propose_one` with `x_override` (`graph/pipeline_io.py:61-62`) skips the
   BO `opt.ask()` path, so the N_crit / BOUNDS-rail guards at
-  `autoresearch_bo_michael.py:623` (which only fire on BO-asked picks)
+  `bo_driver.py:623` (which only fire on BO-asked picks)
   never run. Hand-curated x-points outside `BOUNDS` (e.g. angle > 720°)
   are accepted silently; only G4-build-time pathologies (broken-plug
   scan_logs gate, preflight fail) catch unbuildable picks. **Operator
@@ -125,19 +171,19 @@ mock-grid branch; helical mode only.
   near-zero on clean iterations. `n_logs` in the report counts only workers
   whose `.art` made it to `<stage>_outputs.txt`, not raw outstage dirs —
   matches the scope of data actually being harvested. See
-  [[tessellated-solid-facet-orientation]] for the first issue this caught.
+  [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) for the first issue this caught.
 
 ## Cross-links
-- Related: [[autoresearch-bo-michael]], [[preflight]], [[bo-helical]], [[orchestrator-evaluation-2026-05]]
-- Wrapped by: [[closed-loop-runner]] (multi-round driver spawns q parallel `graph.run` children per round)
-- Per-stage I/O: [[pipeline]] (idempotent submit/poll/list-outputs/harvest)
-- Regression tests: [[tests]]
+- Related: [bo-driver](/drivers/bo-driver.md), [preflight](/drivers/preflight.md), [bo-helical](/projects/bo-helical.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [closed-loop-runner](/drivers/closed-loop-runner.md)
+- Wrapped by: [closed-loop-runner](/drivers/closed-loop-runner.md) (multi-round driver spawns q parallel `graph.run` children per round)
+- Per-stage I/O: [pipeline](/drivers/pipeline.md) (idempotent submit/poll/list-outputs/harvest)
+- Regression tests: [tests](/drivers/tests.md)
 - Source files: `graph/build.py`, `graph/nodes.py`, `graph/pipeline_io.py`, `graph_app/streamlit_app.py`
 - Config: `langgraph.json`, `requirements-graph.txt`
 - External: [LangGraph docs](https://langchain-ai.github.io/langgraph/)
 
 ## Open questions / TODO
-- **Multi-round driver lives in [[closed-loop-runner]]** — `graph.run` remains
+- **Multi-round driver lives in [closed-loop-runner](/drivers/closed-loop-runner.md)** — `graph.run` remains
   the single-iteration entrypoint; `graph.closed_loop` wraps q parallel
   `graph.run` children per round and refits the GP between rounds.
 - Supervisor loop to re-invoke pending threads every N min (Phase 3).

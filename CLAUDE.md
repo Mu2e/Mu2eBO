@@ -13,8 +13,8 @@ work, and update it when you learn something non-obvious.
 
 ## When to update the wiki
 
-Update a wiki page (and append one line to `wiki/log.md`) whenever you learn
-a fact that:
+Update a wiki page (and add a `wiki/log.md` bullet under today's date heading
+at the TOP — the log is newest-first per OKF) whenever you learn a fact that:
 
 - Took >5 min to derive from raw sources, OR
 - A future session would otherwise have to re-derive, OR
@@ -25,8 +25,22 @@ not the wiki. Do not duplicate code into wiki pages — link to it.
 
 ## Linting
 
-Run `/wiki-lint` to audit the wiki (dangling `[[wiki-links]]`, orphans, stale
-`Updated:` dates, schema conformance, missing backlinks, and semantic checks
-for contradictions and decaying claims). The check is pure-LLM — no helper
-script — to match the dominant Karpathy-wiki convention. Pass `--quick` to
-skip the semantic pass.
+The wiki is an **OKF v0.1 bundle** (converted 2026-07-17): YAML frontmatter +
+bundle-relative markdown links. Run `/wiki-lint` to audit it (broken links,
+orphans, stale `timestamp:` fields, OKF conformance, missing backlinks, and
+semantic checks for contradictions and decaying claims). The check is
+pure-LLM — no helper script. Pass `--quick` to skip the semantic pass.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues at github.com/oksuzian/Mu2eBO via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary (needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.

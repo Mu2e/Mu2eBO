@@ -1,8 +1,14 @@
-# mmackenz_table_plots/ — off-repo analysis + picker scripts dir
+---
+type: external
+title: mmackenz_table_plots/ — off-repo analysis + picker scripts dir
+description: off-repo /data dir holding ~20 unversioned picker/renderer scripts
+  + artifacts; name is historical misnomer; 3 hardcoded repo refs; migration blocked
+  while a closed-loop runs
+status: active
+timestamp: '2026-07-17'
+---
 
-**Type:** external
-**Status:** active
-**Updated:** 2026-06-02
+# mmackenz_table_plots/ — off-repo analysis + picker scripts dir
 
 ## Summary
 `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/` is an
@@ -15,22 +21,35 @@ artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
 ## Key facts
 - **Why "mmackenz" (historical drift):** it began as plots of mmackenz's
   hand-designed config TABLE — `scrape_geom_params.py` scrapes
-  `geom_params.tsv` from the [[mmackenz-workflow]] tree; "table_plots" = plots
+  `geom_params.tsv` from the [mmackenz-workflow](/external/mmackenz-workflow.md) tree; "table_plots" = plots
   of that table. It then accreted ALL the BO renderers/shims/overlays. The
   name is now a **misnomer** — almost nothing in it is mmackenz-specific.
 - **Why on /data:** /app (repo volume) has tight quota; /data is the big
   volume, so large regenerable artifacts (GIFs ~2.9 MB, PNGs ~200–250 KB)
   live there to keep git lean — same rationale as
-  [[venv-relocated-to-data-volume]]. It's also a sibling of the
+  [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md). It's also a sibling of the
   `autoresearch_grid/` work tree it plots.
 - **Smell:** ~20 scripts there are CODE, unversioned (no git history/review).
   `botorch_predict_helical.py` was once deleted before a snapshot window
-  (see [[bo-helical]]) — exactly this fragility. Artifacts on /data is fine;
+  (see [bo-helical](/projects/bo-helical.md)) — exactly this fragility. Artifacts on /data is fine;
   load-bearing code on /data is the risk.
 - **THREE hardcoded repo refs pin this path** (must all change on any move):
   - `graph/closed_loop.py:86` — `GP_SCRIPT_DIR` (picker import dir)
   - `botorch_predict.py:6` — docstring pointer to `gp_predict_{foils,helical}.py`
-  - `autoresearch_bo_michael.py:76` — `GEOM_TSV = .../geom_params.tsv`
+  - `bo_driver.py:76` — `GEOM_TSV = .../geom_params.tsv`
+- **REVERSE coupling (these plotters hardcode the repo's module + leaderboard
+  paths) — REBASED onto the 2026-07-17 core/leaderboards/ reorg.** 20 scripts
+  were rewritten in one pass: every `sys.path.insert(0, <repo root>)` →
+  `<root>/core` (the BO modules moved to `core/`), and every
+  `ROOT/"leaderboard_bo_<mode>.tsv"` → `ROOT/"leaderboards"/…` (incl. the
+  absolute-path `overlay_bo_on_s_sqrt_b.py` and loco's embedded `python -c`
+  snippet). Pre-edit backup:
+  `autoresearch_archive/mmackenz_table_plots_prereorg_20260717.tar.gz`.
+  **CONVENTION GOING FORWARD:** a new off-repo plotter must
+  `sys.path.insert(0, str(AUTORESEARCH / "core"))` to import `bo`/`bp`, and
+  read leaderboards as `AUTORESEARCH / "leaderboards" / "leaderboard_bo_<mode>.tsv"`.
+  The old flat-root forms silently fail (module not found / stale-PNG
+  half-refresh).
 - **Size breakdown (2026-06-02 `du`):** 2.2 GB total, but that's **1.6 GB of
   TSV/JSON** (sobol prediction dumps, scraped tables) — the actual size driver.
   Code is **147 KB** (all 20 `.py`); PNGs 4.6 MB (39); GIF 2.4 MB. For scale
@@ -55,10 +74,10 @@ artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
   Do it between campaigns, or leave a symlink `mmackenz_table_plots → <new>`.
 
 ## Cross-links
-- Related: [[gp-cloud-rendering]], [[closed-loop-runner]], [[batch-bo]],
-  [[mmackenz-workflow]], [[venv-relocated-to-data-volume]]
+- Related: [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [closed-loop-runner](/drivers/closed-loop-runner.md), [batch-bo](/concepts/batch-bo.md),
+  [mmackenz-workflow](/external/mmackenz-workflow.md), [venv-relocated-to-data-volume](/incidents/venv-relocated-to-data-volume.md)
 - Source refs: `graph/closed_loop.py:86`, `botorch_predict.py:6`,
-  `autoresearch_bo_michael.py:76`
+  `bo_driver.py:76`
 
 ## Open questions / TODO
 - Execute the code→repo / artifacts→renamed-dir migration after the current

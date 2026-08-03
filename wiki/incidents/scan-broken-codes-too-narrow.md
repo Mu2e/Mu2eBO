@@ -1,8 +1,15 @@
-# scan_logs SCAN_BROKEN_CODES filter is too narrow
+---
+type: incident
+title: scan_logs SCAN_BROKEN_CODES filter is too narrow
+description: SCAN_BROKEN_CODES=("GeomSolids1001",) only; 19 configs with LikelyGeomOverlap
+  > 100 (up to 28.5M on helical050a) entered leaderboard; champion status of top-3
+  may be tainted
+status: active
+timestamp: '2026-05-29'
+updated_note: parse-exception branch now broken-unknown to match missing-report
+---
 
-**Type:** incident
-**Status:** active
-**Updated:** 2026-05-29 (parse-exception branch now broken-unknown to match missing-report)
+# scan_logs SCAN_BROKEN_CODES filter is too narrow
 
 ## Summary
 `graph/pipeline_io.py:336` defines `SCAN_BROKEN_CODES = ("GeomSolids1001",)`
@@ -23,7 +30,7 @@ geometries G4 considers broken.
   `GeomNav1002`, `StuckTrack`, generic `G4Exception`, `Error`, `Warning`,
   `FATAL`, `SEGV` (`_SCAN_PATTERNS` at L264-274).
 - `GeomSolids1001` fires on `G4TessellatedSolid::SetSolidClosed` negative-volume
-  (the [[tessellated-solid-facet-orientation]] failure mode) — but the
+  (the [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) failure mode) — but the
   broader navigation overlaps (`LikelyGeomOverlap`) are NOT a trigger.
 
 ### Empirical census (2026-05-26, n=159 scanned configs)
@@ -193,7 +200,7 @@ through the new FCL-selectable dispatcher under both implementations
 
 Neither clean reproduction recovers the original sob=3.13 / calo=2.97e-6
 metrics. The calo inflation direction (clean > broken) matches the
-[[tessellated-solid-facet-orientation]] mechanism (broken plug absorbs
+[tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) mechanism (broken plug absorbs
 stuck tracks, masking calo background). **Direct empirical proof that
 helical041a's "top-3 champion" rank was a broken-geometry artifact, not
 a real physics signal.** By extension the other two retro-scan-broken
@@ -223,15 +230,15 @@ The 44 broken split cleanly by `GeomSolids1001 (g4s)` co-presence:
 
 | class | n | g4s | example configs | failure mode |
 |---|--:|---|---|---|
-| A. tess facet self-intersection | 28 | >450 | graph007–024, helical037a/041a/050a/051a/052a, helicalL01–L05, helicalH2 | [[tessellated-solid-facet-orientation]] (N_crit exceeded) |
+| A. tess facet self-intersection | 28 | >450 | graph007–024, helical037a/041a/050a/051a/052a, helicalL01–L05, helicalH2 | [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md) (N_crit exceeded) |
 | B. nav-only overlap | 16 | 0 | helicalNG02/05, helicalRA01–04, helicalPC01R00_02, PC02R00_03/04, PC03R01_00, helicalFT03R00_02, helicalQR00_02_noise, graph027, helicalTWB04_tess | sub-N_crit geometry but G4 navigation reports thousands of LikelyGeomOverlap; current `SCAN_BROKEN_CODES=("GeomSolids1001",)` gate **completely misses these** |
 
 Class B is the more dangerous bucket: configs build (no GeomSolids1001)
 so the harvest-time gate passes them, yet G4 sees navigation overlaps —
 likely the helical-plug × TSdA4-disc sibling overlap mode of
-[[tsda-disc-helical-sibling-overlap]] or thin-plate ÷ high-angle
+[tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md) or thin-plate ÷ high-angle
 tessellation creating G4Voxel binning pathology below the
-self-intersection threshold (see [[tessellated-solid-facet-orientation]]
+self-intersection threshold (see [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md)
 TWB04 entry for empirical example at dx=0.3mm × angle=600° below N_crit).
 
 The `_is_broken` gate in `gp_predict_helical.py:117` (ovr>100) catches
@@ -250,8 +257,8 @@ Symmetric and conservative — any report we can't trust to read is treated
 the same as no report at all.
 
 ## Cross-links
-- Related: [[tessellated-solid-facet-orientation]], [[tsda-disc-helical-sibling-overlap]],
-  [[bo-helical]], [[gp-cloud-rendering]], [[calo-constant-across-helical]]
+- Related: [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md), [tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md),
+  [bo-helical](/projects/bo-helical.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [calo-constant-across-helical](/incidents/calo-constant-across-helical.md), [elebeamcat-tape-migration-elebeam-wipeout](/incidents/elebeamcat-tape-migration-elebeam-wipeout.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md), [preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)
 - Source files: `graph/pipeline_io.py:336` (SCAN_BROKEN_CODES),
   `graph/pipeline_io.py:264` (_SCAN_PATTERNS), `graph/nodes.py:115`
   (node_scan_logs)

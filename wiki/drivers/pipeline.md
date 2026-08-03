@@ -1,8 +1,14 @@
-# pipeline.py — parametric grid runner
+---
+type: driver
+title: pipeline.py — parametric grid runner
+description: 'per-config runner: forks config, submits grid, harvests'
+status: active
+timestamp: '2026-07-19'
+updated_note: 'cmd_harvest Steps 1+4 (EdepAna, sensitivity macro) delegate to
+  harvest.py runner seams (commit 1809635); Step 2 event-counting still inline'
+---
 
-**Type:** driver
-**Status:** active
-**Updated:** 2026-05-19 (idempotent submit + list-outputs with `--force` escape)
+# pipeline.py — parametric grid runner
 
 ## Summary
 One canonical pipeline.py at the repo root. Pass `--config CFG`; per-config
@@ -10,11 +16,12 @@ paths (work tree, geom file, DSCONF, /pnfs staging dir, stage `desc` strings)
 are derived from CFG. Invoked once per BO iteration after `propose` to submit
 the multi-stage workflow to the grid and harvest results into `summary.json`.
 
-Replaced the per-config rsync+sed fork pattern (see [[template-fcl-staleness]]
+Replaced the per-config rsync+sed fork pattern (see [template-fcl-staleness](/incidents/template-fcl-staleness.md)
 for the failure that motivated this).
 
 ## Key facts
-- **Path:** `pipeline.py` (project root)
+- **Path:** `core/pipeline.py` (moved from project root in the 2026-07-17
+  reorg; this page's "project root" wording was stale — fixed 2026-07-19)
 - **Templates:** `pipeline_templates/<stage>/template.fcl` with the geom
   basename slot marked `__GEOM_FILE__`. `submit_stage` substitutes
   `autoresearch_<cfg>_geom.txt` and writes the materialized FCL to
@@ -28,9 +35,16 @@ for the failure that motivated this).
   `<stage>/` (cnf tarballs + Code.tar.bz2), `state/` (cluster IDs, output
   lists, materialized FCL), `harvest/` (summary.json, EdepAna outputs).
 - **PNFS staging:** `/pnfs/mu2e/scratch/users/$USER/autoresearch_grid/<cfg>/staged/`
-- **Subcommands:** `submit | poll | list-outputs | harvest | materialize`.
-  `materialize <stage>` is a debug helper that prints the substituted template
-  without submitting.
+- **Subcommands:** `submit | poll | list-outputs | harvest | harvest-pot-only`
+  (a `materialize` debug verb was removed 2026-07-12 — zero callers;
+  `_materialize_template` itself lives on inside `submit`). `harvest-pot-only` (added
+  2026-06-07 for [bo-prodtarget](/projects/bo-prodtarget.md)) is a separate uproot-based subcommand
+  (not a switch on `harvest`) because the objective differs (`mu_per_POT` at
+  VD sid=8 vs S/√B − α·calo/POT) and the chain is single-stage — cleaner as
+  a parallel command than rewiring `cmd_harvest`. VD branch is `sid` (not
+  `vdid`); denominator is `genCountLogger/numEvents` (1-bin TH1D, exact POT
+  per file). `harvest-pot-only` only checks the `pot_only` stage SHA — the
+  4-stage harvest checks all four.
 - **Idempotency (landed 2026-05-19 for Phase 2b LangGraph wiring):**
   `submit` no-ops with `"already submitted (cluster=NNN); skip submit"` if
   `<stage>_cluster.txt` already exists. `list-outputs` no-ops if
@@ -40,26 +54,62 @@ for the failure that motivated this).
   needs to be reseeded with a different cluster (rare; usually the right move
   is to delete the cluster file by hand). Poll and harvest have always been
   naturally re-entrant. The guards enable the LangGraph stage nodes (see
-  [[graph-runner]]) to safely re-run after a checkpoint kill or hot-reload
+  [graph-runner](/drivers/graph-runner.md)) to safely re-run after a checkpoint kill or hot-reload
   without double-submitting — see graph007 incident, 2026-05-19, where three
   successive submits clobbered the cluster file before the guards landed.
 - **Preemptive token renewal (`submit_stage` lines 319-326, landed 2026-05-18):**
   Before every `mu2ejobsub` invocation, runs
   `bash -c 'source $SETUPMU2E && getToken'` to refresh the bearer token
   idempotently. Addresses the "cached token went stale under concurrent
-  submission" sub-flavor of [[concurrent-token-contention]]. The
+  submission" sub-flavor of [concurrent-token-contention](/incidents/concurrent-token-contention.md). The
   jobsub_lite cache-dir same-second collision is NOT addressed by this and
   still needs a per-user flock (TODO).
 - **Stages:** `mubeam` → `concat` → `mustops_ce` (Run1A) and `run1b_mubeam`
-  (Run1B), defined in module-level `STAGES` dict.
+  (Run1B), defined in module-level `STAGES` dict. Plus `pot_only`
+  (single-stage, MDC2025aq-backed) added 2026-06-07 for [bo-prodtarget](/projects/bo-prodtarget.md).
+  Stage selection for a chain is owned by `GRID_STAGES_BY_MODE` in
+  `graph/config.py` (Mu2eBO issue #15, design only as of 2026-06-07);
+  invoked-by-name `pipeline.py submit <stage>` works for any STAGES entry
+  regardless of mode dispatch.
+- **Per-stage backing override (2026-06-07):** two optional STAGES keys
+  let one stage swap out from the helical-patched Run1Bak default:
+  - `"code_tarball"`: absolute path to an alternate muse-built
+    `Code_*.tar.bz2` (used by `write_code_tarball(stage_dir,
+    base_tarball=...)`). Default is module-global `MUSE_BASE_TARBALL`
+    (helical-patched Run1Bak).
+  - `"dsconf_musing"`: string substituted into DSCONF as
+    `f"{musing}_{cfg}"` (via new `_stage_dsconf(stage)` helper at
+    pipeline.py:113). Default is module-global `DSCONF = f"Run1Bak_{cfg}"`.
+    Only affects the cnf filename and the `--dsconf` arg of mu2ejobdef
+    (does NOT propagate into /pnfs paths). Without this, prodtarget
+    output files were mislabeled `…Run1Bak_pt001…` despite being built
+    against MDC2025aq.
 - **Geom overlay:** ships via `Code.tar`; geom-bearing stages
   (mubeam, run1b_mubeam, mustops_ce) reference the same
   `autoresearch_<cfg>_geom.txt` basename via the `__GEOM_FILE__` substitution.
-- **Geom auto-staging:** `autoresearch_bo_michael.py propose <cfg>` copies the
+- **Geom auto-staging:** `bo_driver.py propose <cfg>` copies the
   rendered proposal into `<work_root>/<cfg>/geom/` so `pipeline.py --config
   <cfg>` runs without manual prep.
 - **Harvest output:** `summary.json` with `s_over_sqrt_b`, `calo_per_pot`,
   and a `config` field naming the CFG.
+- **`cmd_harvest` delegates Steps 1+4 to `harvest.py` runner seams
+  (2026-07-19, commit 1809635 — friction-survey candidate 5's harvest
+  phase-2 slice, `graph/closed_loop.py`'s ChildTracker full-cut was
+  candidate 2's).** Step 1 (EdepAna over CeEndpoint outputs) and Step 4
+  (`rough_run1a_sensitivity.C` → `s_over_sqrt_b`) now call
+  `hv.run_edepana(...)` / `hv.run_sensitivity_macro(...)`, each taking an
+  injected `runner(cmd, cwd)` — `pipeline.py` still owns env/
+  `FHICL_FILE_PATH` binding via a local closure (`_mu2e_runner`/
+  `_root_runner`) so `harvest.py` stays stdlib-only and testable with
+  fakes. `EDEP_FCL`/`SENSITIVITY_MACRO` path constants moved to
+  `harvest.py` with their consumers. Hard-fail (`SystemExit`) semantics on
+  rc≠0 or unparseable output preserved exactly. Golden re-harvest of
+  `foilsflash13R00_02` verified all `summary.json` keys bit-identical
+  before/after. **`cmd_harvest` is NOT fully subprocess-free**: Step 2
+  (per-file event counting via `_count_events_art`, `pipeline.py:1115`,
+  called at `:1277`) is still an inline `subprocess.run` — out of this
+  round's scope. See
+  [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md).
 - **Calo extraction:** reuses `_extract_target_al_entries` from mmackenz's
   `Run1BAna/workflows/scripts/extract_analysis_results.py`, with
   `_MUBEAM_INPUT_EFFICIENCY_BY_FCL = 0.01278168` correction.
@@ -87,8 +137,8 @@ for the failure that motivated this).
   `Code/build/al9-prof-e29-p094/Offline/lib/`. Build artifact source is
   `/exp/mu2e/app/users/oksuzian/autoresearch_muse/` (mgit Mu2eG4 sparse
   checkout of v13_12_10 + helical-plug.patch, backed by SimJob/Run1Bak,
-  `muse build -j 8 → muse tarball`). See [[muse-backing-pattern]] for the
-  build recipe and [[calo-constant-across-helical]] for the motivating bug.
+  `muse build -j 8 → muse tarball`). See [muse-backing-pattern](/external/muse-backing-pattern.md) for the
+  build recipe and [calo-constant-across-helical](/incidents/calo-constant-across-helical.md) for the motivating bug.
 - **Historical: `LD_PRELOAD` retired 2026-05-17.** An earlier same-day
   iteration shipped the patched lib as `Code/lib/libmu2e_Mu2eG4.so` + an
   `export LD_PRELOAD=` line in `setup.sh`, because `LD_LIBRARY_PATH` is
@@ -104,11 +154,12 @@ for the failure that motivated this).
   staging, so worker mounts don't matter.
 
 ## Cross-links
-- Consumed by: [[autoresearch-bo-michael]] `evaluate`, [[graph-runner]] (per-stage nodes)
-- Geom rendered by: [[autoresearch-bo-michael]] `propose` (auto-stages into work tree)
-- Regression tests: [[tests]] (pins the `_check_stage_config_sha` contract)
-- See: [[grid-job-completion-check]] for monitoring conventions
-- History: [[template-fcl-staleness]] (the bug this refactor closes)
+- Consumed by: [bo-driver](/drivers/bo-driver.md) `evaluate`, [graph-runner](/drivers/graph-runner.md) (per-stage nodes)
+- Geom rendered by: [bo-driver](/drivers/bo-driver.md) `propose` (auto-stages into work tree)
+- Regression tests: [tests](/drivers/tests.md) (pins the `_check_stage_config_sha` contract)
+- Related: [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md) (candidate 5, harvest unification)
+- See: [grid-job-completion-check](/incidents/grid-job-completion-check.md) for monitoring conventions
+- History: [template-fcl-staleness](/incidents/template-fcl-staleness.md) (the bug this refactor closes)
 
 ## Open questions / TODO
 - Eventually delete the legacy `smoke_*/` trees under

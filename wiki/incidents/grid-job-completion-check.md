@@ -1,8 +1,12 @@
-# Grid job completion check tooling
+---
+type: incident
+title: Grid job completion check tooling
+description: use `jobsub_q` + plain `/pnfs ls`; avoid `condor_q` and `ifdh`
+status: resolved
+timestamp: '2026-05-17'
+---
 
-**Type:** incident
-**Status:** resolved
-**Updated:** 2026-05-17
+# Grid job completion check tooling
 
 ## Summary
 For checking whether a Mu2e grid submission has completed, use `jobsub_q` and
@@ -25,8 +29,8 @@ and unreliable for simple existence checks).
   `/pnfs/.../outstage/<cid>/`. mustops_ce is 1:1, concat is 2:1.
 - **Failure signature:** `.log` files with **no** `.art` siblings means jobs
   died before any module produced output — almost always G4 init failure.
-  See [[template-fcl-staleness]] for the canonical example.
+  See [template-fcl-staleness](/incidents/template-fcl-staleness.md) for the canonical example.
 
 ## Cross-links
-- Driver: [[pipeline]]
-- Related: [[template-fcl-staleness]]
+- Driver: [pipeline](/drivers/pipeline.md)
+- Related: [template-fcl-staleness](/incidents/template-fcl-staleness.md), [concat-xrootd-fileopen-postendjob](/incidents/concat-xrootd-fileopen-postendjob.md), [concurrent-token-contention](/incidents/concurrent-token-contention.md), [stage-out-rename-race](/incidents/stage-out-rename-race.md), [stage-out-lag](/incidents/stage-out-lag.md), [harvest-denominator-bug](/incidents/harvest-denominator-bug.md), [calo-constant-across-helical](/incidents/calo-constant-across-helical.md), [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md)

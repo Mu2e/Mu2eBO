@@ -1,0 +1,101 @@
+{
+  "name": "template",
+  "note": "COPY-PASTE TEMPLATE for a new JSON-defined optimization line. Copy to mode_specs/<yourline>.json, then change: (1) name -- it must equal the file stem, (2) leaderboard.file -- it must be a path NO other mode uses (the loader rejects a collision, including against the six Python modes), (3) the knobs and the geometry. Deliberately NOT pointed at a live leaderboard. tests/fixtures/modes/foils.json and foilsflash.json are the reference fixtures that reproduce live lines byte-for-byte; they declare LIVE leaderboards to prove parity and must not be used as the starting point.",
+
+  "software": {
+    "musing":       "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
+  },
+
+  "run": {
+    "stages":          ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
+    "harvest":         "harvest",
+    "jobs_per_stage":  {},
+    "presubmit_after": {},
+    "stage_tuning":    {}
+  },
+
+  "knobs": [
+    {"name": "extra_rOut_up",          "min": 50.0, "max": 250.0, "fmt": "{:.4f}"},
+    {"name": "extra_rOut_dn",          "min": 50.0, "max": 250.0, "fmt": "{:.4f}"},
+    {"name": "extra_halfThickness_up", "min": 0.01, "max": 1.0,   "fmt": "{:.6f}"},
+    {"name": "extra_halfThickness_dn", "min": 0.01, "max": 1.0,   "fmt": "{:.6f}"}
+  ],
+  "int_dims": [],
+
+  "leaderboard": {
+    "file":      "leaderboards/leaderboard_bo_template.tsv",
+    "columns":   ["sob", "calo", "alpha", "obj"],
+    "obs_noise": [0.006, 0.035],
+    "metrics": {
+      "sob":  ["s_over_sqrt_b"],
+      "calo": ["calo_per_pot"]
+    }
+  },
+
+  "preflight": {
+    "dumps_gdml":             true,
+    "verifies_foil_gdml":     true,
+    "preserves_gdml":         false,
+    "checks_managed_overlap": true,
+    "require_zero_overlaps": false
+  },
+
+  "geom": {
+    "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+
+    "consts": {
+      "n_up":      6,
+      "n_dn":      6,
+      "base_n":    37,
+      "base_rOut": 75.0,
+      "base_hT":   0.0528,
+      "base_hole": 21.5
+    },
+
+    "lines": [
+      {"comment": "=== template (4D) -- rename this line with your mode ==="},
+      {"comment": "{base_n} base foils (DOE-2017, rOut={base_rOut}, hT={base_hT}, holeRadius={base_hole})"},
+      {"comment": "+ {n_up} up at (rOut={extra_rOut_up:.2f}, hT={extra_halfThickness_up:.4f})"},
+      {"comment": "+ {n_dn} dn at (rOut={extra_rOut_dn:.2f}, hT={extra_halfThickness_dn:.4f})"},
+
+      {"key": "hasTSdA",            "type": "bool", "value": false},
+      {"key": "tsda.helical.build", "type": "bool", "value": false},
+
+      {"key": "stoppingTarget.radii", "type": "vector<double>", "fmt": "{:.4f}",
+       "segments": [{"count": "n_up",   "expr": "extra_rOut_up"},
+                    {"count": "base_n", "expr": "base_rOut"},
+                    {"count": "n_dn",   "expr": "extra_rOut_dn"}]},
+
+      {"key": "stoppingTarget.halfThicknesses", "type": "vector<double>", "fmt": "{:.6f}",
+       "segments": [{"count": "n_up",   "expr": "extra_halfThickness_up"},
+                    {"count": "base_n", "expr": "base_hT"},
+                    {"count": "n_dn",   "expr": "extra_halfThickness_dn"}]},
+
+      {"comment": "POISON PILL: an unpatched StoppingTargetMaker ignores holeRadii and reads"},
+      {"comment": "this scalar. 1e6 forces a loud G4Tubs crash instead of a silently uniform"},
+      {"comment": "stack -- emitting a 'sensible' scalar is how 62 foilsg rows were lost."},
+      {"key": "stoppingTarget.holeRadius", "type": "double", "raw": "1.0e6"},
+
+      {"key": "stoppingTarget.holeRadii", "type": "vector<double>", "fmt": "{:.4f}",
+       "segments": [{"count": "n_up",   "expr": "base_hole"},
+                    {"count": "base_n", "expr": "base_hole"},
+                    {"count": "n_dn",   "expr": "base_hole"}]},
+
+      {"comment": "Degrader parked at 120 deg (mmackenz hardware detent)"},
+      {"key": "degrader.build",         "type": "bool",   "value": false},
+      {"key": "degrader.rotation",      "type": "double", "value": 120.0},
+      {"key": "ts.coll5.material1Name", "type": "string", "value": "COL5Poly"},
+
+      {"comment": "TT_MidInner -> DS2Vacuum fix (manually patched, mirrors v111)"},
+      {"key": "tracker.inDS2Vacuum", "type": "bool",   "value": true},
+      {"key": "ds2.halfLength",      "type": "double", "value": 3825},
+      {"key": "ds.hasServicePipes",  "type": "bool",   "value": false},
+
+      {"comment": "Overlap-suppression (foil-support off + rail shrink)"},
+      {"key": "stoppingTarget.foilTarget_supportStructure", "type": "bool",   "value": false},
+      {"key": "ds.lengthRail2", "type": "double", "value": 0.1},
+      {"key": "ds.lengthRail3", "type": "double", "value": 0.1}
+    ]
+  }
+}

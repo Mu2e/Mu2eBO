@@ -19,14 +19,12 @@ from langgraph.graph import END, START, StateGraph  # noqa: E402
 from config import GRID_STAGES  # noqa: E402
 from nodes import (  # noqa: E402
     make_stage_node,
-    node_decide_next,
     node_evaluate,
     node_harvest,
     node_mock_grid,
     node_propose,
     node_render_preflight,
     node_scan_logs,
-    route_after_decide,
     route_after_preflight,
     route_after_stage,
 )
@@ -38,7 +36,7 @@ from state import BOIterationState  # noqa: E402
 STAGE_NODES = {stage: f"stage_{stage}" for stage in GRID_STAGES}
 
 
-def _build_graph() -> StateGraph:
+def build_graph() -> StateGraph:
     g = StateGraph(BOIterationState)
     g.add_node("propose", node_propose)
     g.add_node("render_preflight", node_render_preflight)
@@ -48,7 +46,6 @@ def _build_graph() -> StateGraph:
     g.add_node("scan_logs", node_scan_logs)
     g.add_node("mock_grid", node_mock_grid)
     g.add_node("evaluate", node_evaluate)
-    g.add_node("decide_next", node_decide_next)
 
     g.add_edge(START, "propose")
     g.add_edge("propose", "render_preflight")
@@ -74,13 +71,46 @@ def _build_graph() -> StateGraph:
     g.add_edge("harvest", "scan_logs")
     g.add_edge("scan_logs", "evaluate")
     g.add_edge("mock_grid", "evaluate")
-    g.add_edge("evaluate", "decide_next")
-    g.add_conditional_edges(
-        "decide_next",
-        route_after_decide,
-        {"propose": "propose", END: END},
-    )
+    # evaluate is terminal for a single iteration; the OUTER round loop
+    # (graph/closed_loop.py) drives multi-round BO. The inner graph never
+    # loops back — the old auto_continue/decide_next path had no writer and
+    # was removed 2026-07-12.
+    g.add_edge("evaluate", END)
     return g
 
 
-graph = _build_graph().compile()
+def is_child_terminal(thread_id: str, child_graph) -> bool:
+    """True iff the child thread has reached a real terminal state.
+
+    `CheckpointTuple` does not expose `next`; only `StateSnapshot` (returned
+    by `compiled_graph.get_state(cfg)`) does. The caller compiles the inner
+    graph once against the shared SqliteSaver and passes it in — per-tick
+    recompile costs ~O(q * ticks_per_round) wasted compiles (see
+    wiki/concepts/closed-loop-bo-design.md).
+
+    Empty `snap.next` is ambiguous: it means the graph is terminal OR the
+    thread has no checkpoint at all (freshly-spawned subprocess that
+    hasn't flushed its first state yet). Round-N children are launched
+    in parallel and the barrier polls within seconds; without
+    disambiguation, every fresh child is mis-resolved on the first
+    barrier tick — closed-loop declares premature convergence and exits.
+    See wiki/incidents/barrier-false-positive-round1.md.
+
+    Disambiguation: a real terminal state has both populated `values` AND
+    `metadata.step >= 1` (at least one super-step executed). Fresh threads
+    return empty `values` and `step == -1` from LangGraph's SqliteSaver.
+    """
+    cfg = {"configurable": {"thread_id": thread_id}}
+    try:
+        snap = child_graph.get_state(cfg)
+    except Exception:
+        return False
+    if snap is None or snap.next:
+        return False
+    if not snap.values:
+        return False
+    meta = getattr(snap, "metadata", None) or {}
+    return meta.get("step", -1) >= 1
+
+
+graph = build_graph().compile()

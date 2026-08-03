@@ -1,14 +1,15 @@
 ---
-name: mu2e-overlap-check
-description: G4 surface-check recipe for detecting silent volume overlaps; pre-built FCL + per-config wrapper pattern
 type: external
+title: Mu2e G4 overlap-check recipe
+description: G4 surface-check recipe for detecting silent volume overlaps; pre-built
+  FCL + per-config wrapper pattern
+status: active
+timestamp: '2026-07-17'
+updated_note: added the ROOT `overlapCheck.sh` method — complementary to the G4
+  surface check
 ---
 
 # Mu2e G4 overlap-check recipe
-
-**Type:** external
-**Status:** active
-**Updated:** 2026-05-19 (stock-baseline claim retracted; per-geom baselining required)
 
 ## Summary
 Geant4's `CheckOverlaps` flag samples points on each volume's surface and
@@ -59,7 +60,7 @@ https://mu2ewiki.fnal.gov/wiki/Validation#Overlaps
     117 lines emitted pre-abort: 111 FoilSupportStructure + 1 EMC_Front VD
     + 5 `VirtualDetector_TT_{Back,FrontHollow,InSurf,MidInner,OutSurf}`.
     Run1A *cannot* be surface-checked under Run1Bak without the patches
-    `autoresearch_bo_michael.py:436` applies.
+    `bo_driver.py:436` applies.
   - **MDC2025an / Offline v13_11_00**, `geom_SurfaceCheck_run1a.txt`
     (ships pre-built, wraps `geom_run1_a.txt`): **0 overlap lines, full
     check completes.** The TT_MidInner→DS2Vacuum fix is baked into
@@ -72,9 +73,9 @@ https://mu2ewiki.fnal.gov/wiki/Validation#Overlaps
   are NOT inherited from stock common — they are introduced by the run1-derived
   geom overrides, and they are real overlap warnings, not cosmetic noise.
 - **Implication for the BO whitelist.** `SURFACE_OVERLAP_MANAGED =
-  ^(TSdA|AbsorberPV|AbsorberS)` in `autoresearch_bo_michael.py:679` still
+  ^(TSdA|AbsorberPV|AbsorberS)` in `bo_driver.py:679` still
   identifies the volumes BO can move. But the comment at
-  `autoresearch_bo_michael.py:674` ("Stock Mu2e geometry has ~117 baseline
+  `bo_driver.py:674` ("Stock Mu2e geometry has ~117 baseline
   overlap lines") is stale by the same argument: the floor is whatever the
   *baseline geom the preflight wraps* emits (currently `geom_run1_a.txt`,
   not stock common), and that floor must be measured, not quoted from this
@@ -115,8 +116,38 @@ https://mu2ewiki.fnal.gov/wiki/Validation#Overlaps
      prodtools `/mu2e-run` slash command bakes this step in;
      `.claude/commands/mu2e-run.md` in this repo mirrors it.
 
+## Second method: ROOT `overlapCheck.sh` on a GDML (complementary, 2026-06-17)
+
+Distinct from the G4 surface-sampling check above — this is **ROOT TGeo
+`CheckOverlaps`** on a GDML file. Use it when you already have an as-built
+GDML (e.g. preflight's `asbuilt_<config>.gdml`, see [preflight](/drivers/preflight.md)) and want a
+fast geometric check without re-running G4.
+
+- **Tool:** `Offline/bin/overlapCheck.sh [-q|-b|-r] <file.gdml>` — ships in
+  Offline, **on PATH after plain `muse setup`** (the `setup codetools` UPS
+  product is NOT needed; codetools is the legacy home but Offline carries its
+  own copy). `-r` prints `Overlaps result: <nodes>/<UIDs>, <N> illegal`;
+  exit code 1 if any illegal overlap (or ROOT error / unexpected line count).
+- **Tolerance is picometer-tight:** `overlapCheck.C` calls
+  `gGeoManager->CheckOverlaps(res)` with **`res = 1e-12 cm`** (default arg).
+  That is ~7 orders of magnitude below the 50–100 nm (5e-6…1e-5 cm)
+  precision-tolerance overlaps documented in
+  [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md) — so a **0-illegal result here
+  genuinely rules them out**, unlike the stochastic G4 surface sampling which
+  can miss thin features. Touching (flush) surfaces are NOT counted as
+  overlaps; only true interpenetration is.
+- **Subset trick for a focused check:** running on a `/exp/mu2e/data/users/oksuzian/autoresearch_tools/gdml_subset_*`
+  extract (e.g. the [production-target-stickman](/concepts/production-target-stickman.md) `ProductionTargetMother`
+  subset, 54 nodes) checks all *target-internal* daughter↔daughter overlaps
+  in seconds, with the real local coordinates preserved. It does NOT see
+  mother↔external overlaps — for that, run on the full-world
+  `asbuilt_<config>.gdml` (~13.7k volumes, minutes).
+- **Result on file:** `pt6d07R01_07` (6D champion) target subset = **0 illegal
+  / 54 nodes** at 1e-12 cm — consistent with its clean 90/100 grid run; the
+  3 R1 spacer↔plate-00 failures were *other* picks.
+
 ## Cross-links
-- Related: [[bo-helical]] (preflight integration), [[tsda-disc-helical-sibling-overlap]] (the bug class this catches), [[preflight]]
+- Related: [bo-helical](/projects/bo-helical.md) (preflight integration), [tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md) (the bug class this catches), [preflight](/drivers/preflight.md), [production-target-stickman](/concepts/production-target-stickman.md), [prodtarget-spacer-supportring-overlap](/incidents/prodtarget-spacer-supportring-overlap.md), [mu2e-offline-radiation-damage](/external/mu2e-offline-radiation-damage.md)
 - Source files: `/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v13_12_10/Offline/Mu2eG4/fcl/surfaceCheck.fcl`, `Offline/Mu2eG4/geom/geom_SurfaceCheck.txt`
 - External: [G4 CheckOverlaps docs](https://geant4-userdoc.web.cern.ch/UsersGuides/ForApplicationDeveloper/html/Detector/Geometry/geomChecking.html)
 
