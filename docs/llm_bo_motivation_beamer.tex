@@ -175,6 +175,53 @@ $\Rightarrow$ Recognizing when to \textbf{stop optimizing and start measuring} i
 outer-loop judgement --- and worth $\sim$19$\times$ the compute here.
 \end{frame}
 
+% ------------------------------------------------- 4b. "just run more BO?"
+\begin{frame}{``Why not just run more BO?'' --- we measured that, twice}
+\footnotesize
+The natural objection: skip the outer loop, buy more evaluations. The
+campaign history already contains that experiment, at two different walls:
+\vspace{0.2em}
+\begin{center}
+\scriptsize
+\begin{tabular}{@{}llcl@{}}
+\toprule
+campaign & box & evals & best S/$\sqrt{B}$ \\
+\midrule
+foilspf01 & extent $\le$ 1100                     & 20  & $\rightarrow$ 4.09 \\
+foilspf02 & \textbf{same box}                     & +20 & \textbf{4.09 ($+0.00$)} \\
+foilspf03 & ceiling raised $\rightarrow$ 2000     & +20 & 4.41 ($+0.32$) \\
+foilspf04 & exploiting the raise                  & +20 & 4.75 ($+0.34$) \\
+foilspf2k01 & \textbf{same box} (shape-only, extent pinned 2000) & +20 &
+  \textbf{0/20 beat 4.75} (best 4.09) \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.1em}
+Every gain is adjacent to a \textbf{box change} or the search it unlocked;
+both ``same box'' repeats returned \textbf{zero} --- the second despite
+seeding with the line's 15 best rows. 15 of 80 rows sit at \emph{exactly}
+extent $=$ 2000: the optimizer piles onto a wall it cannot cross.
+\vspace{0.4em}
+
+\textbf{Why more sampling cannot answer the open question.} The decision
+needs \emph{where S/$\sqrt{B}$(extent) turns over}. GP uncertainty at the
+champion shape: $\sigma = \textbf{0.008}$ at extent 2000 vs.\
+$\sigma = \textbf{0.21}$ at 800. Acquisition spends where improvement is
+plausible --- it polishes the 0.008 forever and never buys the 0.21 the
+decision needs.
+\vspace{0.4em}
+
+\textbf{What we ran instead}, with the surrogate's answer
+\textbf{pre-registered} before any row landed: the 10-evaluation fixed-shape
+scan (previous slide). Frozen predictions: shape A monotone but
+\emph{decelerating} into the wall; shape B turning over \emph{before} 2000;
+and --- the consequential $\sigma = 0.21$ extrapolation --- the champion shape
+\textbf{at the deployed 800~mm footprint} within noise of the 6D champion's
+S/$\sqrt{B}$ at $\sim$20\% lower flash. The scan grades the surrogate as well
+as the geometry: if the GP already knew the curve, future scans are nearly
+free; if not, its ``converged'' verdicts were acquisition-relative all along.
+\end{frame}
+
 % ------------------------------------------------- 5. architecture + risks
 \begin{frame}{What we propose --- and how we design against its failure modes}
 \begin{columns}[T]
