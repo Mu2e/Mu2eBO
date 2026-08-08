@@ -29,35 +29,12 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple
 if TYPE_CHECKING:  # annotation-only: PEP 563 means this is never resolved at runtime
     from core.geom_template import GeomTemplate
 
-# foils family preflight MUST see the patched StoppingTargetMaker
-# (stoppingTarget.holeRadii vector) or it diverges from the grid tarball and
-# silently validates the wrong geometry (foilsg-grid-tarball incident).
-_HELICAL_LOCAL = "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh"
-# prodtarget: locally-built patched workdir backed by MDC2025aq (%02d plate-LV
-# rename + NIEL SD + spacer-shrink). See wiki prodtarget-env-divergence.
-_PRODTARGET_LOCAL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse_prodtarget/setup_local.sh"
-
-# Patched libmu2e_GeometryService.so (holeRadii vector). michael/helical stay
-# on Code_helical_base (Offline_helical's Mu2eG4 lib predates the twistedbox
-# facet fix); foils family requires this one.
-_HOLERADII_TARBALL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
 # prodtarget ships per-STAGE via pipeline.py STAGES["pot_only"]["code_tarball"];
-# recorded here as the mode's tarball fact (same file).
+# recorded here as the mode's tarball fact (same file). Still consulted by
+# core/mode_json.py's pot_only-stage guard (any JSON mode using that stage
+# must ship this exact tarball) even after the Python ProdTargetMode adapter
+# was archived 2026-08-08.
 _PRODTARGET_TARBALL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_MDC2025aq_prodtarget.tar.bz2"
-
-_CE_CALO_CHAIN = ("mubeam", "run1b_mubeam", "concat", "mustops_ce")
-
-# Replicate-measured observation noise (see ModeSpec.obs_noise).
-# sigma(sob): pooled within-group sd over repeated geometries — 0.0059 raw
-# on foilsflash (9 groups, df=12), 0.0051 after removing the 0.01
-# leaderboard quantization; 0.0030 on foils_v3 (3 groups, df=8). 0.006 is
-# the conservative round number covering both.
-_SIGMA_SOB = 0.006
-# calo modes: axis 1 is -log10(calo), so sigma = sigma_rel / ln(10).
-# Uses the 8% budget from wiki/concepts/bo-noise-budget.md rather than the
-# 3.29% replicate estimate (df=8, dominated by one 11% group) — deliberately
-# conservative on the axis that is NOT the decision axis.
-_FOILS_FAMILY_NOISE = (_SIGMA_SOB, 0.035)
 
 
 @dataclass(frozen=True)
@@ -67,7 +44,7 @@ class ModeSpec:
     musing: str                       # abs path of the setup.sh preflight/harvest source
     grid_tarball: str                 # Code.tar.bz2 shipped to grid workers
     grid_stages: Tuple[str, ...]      # ordered stage chain
-    harvest_verb: str                 # pipeline.py verb: "harvest" | "harvest-pot-only"
+    harvest_verb: str                 # pipeline.py verb: "harvest"
     stage_target_overrides: Dict[str, int]   # njobs overrides on graph.config.STAGE_TARGETS
     presubmit_after: Dict[str, Tuple[str, ...]]  # after-stage -> stages to presubmit
     # Per-stage core/pipeline.py STAGES overrides (events_per_job/memory_mb/
@@ -143,151 +120,7 @@ class ModeSpec:
                 f"(one per GP output axis), got {self.obs_noise!r}")
 
 
-SPECS: Dict[str, ModeSpec] = {
-    "foils": ModeSpec(
-        name="foils",
-        musing=_HELICAL_LOCAL,
-        grid_tarball=_HOLERADII_TARBALL,
-        grid_stages=_CE_CALO_CHAIN,
-        harvest_verb="harvest",
-        stage_target_overrides={},
-        presubmit_after={},
-        stage_tuning={},
-        # last two dims are hole RADII [mm] (foilsf/foilsflash use fractions)
-        bounds_lo=(50.0, 50.0, 0.01, 0.01, 0.0, 0.0),
-        bounds_hi=(250.0, 250.0, 1.0, 1.0, 50.0, 50.0),
-        int_dims=(),
-        dumps_gdml=True, verifies_foil_gdml=True, preserves_gdml=False,
-        checks_managed_overlap=True,
-        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
-        knob_names=("extra_rOut_up", "extra_rOut_dn",
-                    "extra_halfThickness_up", "extra_halfThickness_dn",
-                    "extra_rIn_up", "extra_rIn_dn"),
-        knob_fmts=("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"),
-        metric_cols=("sob", "calo", "alpha", "obj"),
-        obs_noise=_FOILS_FAMILY_NOISE,
-        geom=None,
-        metrics=None,
-        leaderboard_rel=None,
-    ),
-    "foilsf": ModeSpec(
-        name="foilsf",
-        musing=_HELICAL_LOCAL,
-        grid_tarball=_HOLERADII_TARBALL,
-        grid_stages=_CE_CALO_CHAIN,
-        harvest_verb="harvest",
-        stage_target_overrides={},
-        presubmit_after={},
-        stage_tuning={},
-        bounds_lo=(50.0, 50.0, 0.01, 0.01, 0.0, 0.0),
-        bounds_hi=(250.0, 250.0, 1.0, 1.0, 0.95, 0.95),
-        int_dims=(),
-        dumps_gdml=True, verifies_foil_gdml=True, preserves_gdml=False,
-        checks_managed_overlap=True,
-        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
-        knob_names=("extra_rOut_up", "extra_rOut_dn",
-                    "extra_halfThickness_up", "extra_halfThickness_dn",
-                    "extra_f_up", "extra_f_dn"),
-        knob_fmts=("{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"),
-        metric_cols=("sob", "calo", "alpha", "obj"),
-        obs_noise=_FOILS_FAMILY_NOISE,
-        geom=None,
-        metrics=None,
-        leaderboard_rel=None,
-    ),
-    # "foilsflash" RETIRED from this table 2026-07-26 — it is now declared by
-    # mode_specs/foilsflash.json and merged in by the load_mode_dir() call at
-    # the tail of this file. Every field above (stages, njobs overrides,
-    # presubmit map, the 0.002 hT floor, knob fmts, obs_noise) moved into that
-    # file verbatim; the stage_tuning it used to leave {} now carries the
-    # values that were hardcoded in core/pipeline.py. See bo_driver.py's
-    # "FoilsFlashMode RETIRED" note for why the Python class went too.
-    "foilsg": ModeSpec(
-        name="foilsg",
-        musing=_HELICAL_LOCAL,
-        grid_tarball=_HOLERADII_TARBALL,
-        grid_stages=_CE_CALO_CHAIN,
-        harvest_verb="harvest",
-        stage_target_overrides={},
-        presubmit_after={},
-        stage_tuning={},
-        bounds_lo=(50.0, 0.01, 0.0) * 4,
-        bounds_hi=(250.0, 1.0, 0.95) * 4,
-        int_dims=(),
-        dumps_gdml=True, verifies_foil_gdml=True, preserves_gdml=False,
-        checks_managed_overlap=True,
-        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
-        knob_names=("rOut_g0", "hT_g0", "f_g0", "rOut_g1", "hT_g1", "f_g1",
-                    "rOut_g2", "hT_g2", "f_g2", "rOut_g3", "hT_g3", "f_g3"),
-        knob_fmts=("{:.4f}", "{:.6f}", "{:.4f}") * 4,
-        metric_cols=("sob", "calo", "alpha", "obj"),
-        obs_noise=_FOILS_FAMILY_NOISE,
-        geom=None,
-        metrics=None,
-        leaderboard_rel=None,
-    ),
-    "prodtarget": ModeSpec(
-        name="prodtarget",
-        musing=_PRODTARGET_LOCAL,
-        grid_tarball=_PRODTARGET_TARBALL,   # shipped via STAGES["pot_only"]["code_tarball"]
-        grid_stages=("pot_only",),
-        harvest_verb="harvest-pot-only",
-        stage_target_overrides={},
-        presubmit_after={},
-        stage_tuning={},
-        bounds_lo=(2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 25.0),
-        bounds_hi=(4.5, 4.5, 4.5, 8.0, 8.0, 8.0, 12.0, 12.0, 12.0, 45.0),
-        int_dims=(9,),   # numberOfPlates
-        dumps_gdml=True, verifies_foil_gdml=False, preserves_gdml=True,
-        checks_managed_overlap=True,
-        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
-        knob_names=("r0", "r1", "r2", "t0", "t1", "t2",
-                    "l0", "l1", "l2", "N"),
-        knob_fmts=("{:.4f}",) * 9 + ("{:d}",),
-        metric_cols=("mu_per_POT", "edep_per_POT_MeV",
-                     "peak_dose_Gy_per_POT", "peak_plate_idx", "obj"),
-        # EXPLICIT None, not a default: this family's GP axis 1 is a raw
-        # negated value whose units depend on which fallback fired
-        # (-peak_dose_Gy_per_POT, else -edep_per_POT_MeV — see
-        # botorch_predict._load_history_tensor). One absolute sigma cannot
-        # cover both scales, and no replicate evals exist to measure one.
-        # Keeps the MLL-fitted noise until somebody measures it.
-        obs_noise=None,
-        geom=None,
-        metrics=None,
-        leaderboard_rel=None,
-    ),
-    "prodtarget6d": ModeSpec(
-        name="prodtarget6d",
-        musing=_PRODTARGET_LOCAL,
-        grid_tarball=_PRODTARGET_TARBALL,
-        grid_stages=("pot_only",),
-        harvest_verb="harvest-pot-only",
-        stage_target_overrides={},
-        presubmit_after={},
-        stage_tuning={},
-        bounds_lo=(2.0, 2.0, 2.0, 3.0, 3.0, 3.0),
-        bounds_hi=(4.5, 4.5, 4.5, 8.0, 8.0, 8.0),
-        int_dims=(),
-        dumps_gdml=True, verifies_foil_gdml=False, preserves_gdml=True,
-        checks_managed_overlap=True,
-        require_zero_overlaps=False,   # Run1Bak: EMC_0_Front is unavoidable
-        knob_names=("r0", "r1", "r2", "t0", "t1", "t2"),
-        knob_fmts=("{:.4f}",) * 6,
-        metric_cols=("mu_per_POT", "edep_per_POT_MeV",
-                     "peak_dose_Gy_per_POT", "peak_plate_idx", "obj"),
-        # EXPLICIT None, not a default: this family's GP axis 1 is a raw
-        # negated value whose units depend on which fallback fired
-        # (-peak_dose_Gy_per_POT, else -edep_per_POT_MeV — see
-        # botorch_predict._load_history_tensor). One absolute sigma cannot
-        # cover both scales, and no replicate evals exist to measure one.
-        # Keeps the MLL-fitted noise until somebody measures it.
-        obs_noise=None,
-        geom=None,
-        metrics=None,
-        leaderboard_rel=None,
-    ),
-}
+SPECS: Dict[str, ModeSpec] = {}
 
 # JSON-defined modes (one file per line) are merged in AFTER the Python table,
 # and may never shadow it -- see core/mode_json.py.

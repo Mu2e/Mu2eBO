@@ -405,28 +405,29 @@ class TestLeaderboardUniqueness(unittest.TestCase):
         self.assertIn("leaderboard_bo_shared.tsv", msg)
         self.assertIn("lineone", msg)
 
-    def test_json_mode_pointing_at_a_live_python_leaderboard_rejected(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            _write(tmp, "myline", self._spec_doc(
-                "myline", "leaderboards/leaderboard_bo_foils_v2.tsv"))
-            with self.assertRaises(ValueError) as cm:
-                load_mode_dir(tmp, modes.SPECS)
-        msg = str(cm.exception)
-        self.assertIn("leaderboard_bo_foils_v2.tsv", msg)
-        self.assertIn("foils", msg)
+    # test_json_mode_pointing_at_a_live_python_leaderboard_rejected removed
+    # 2026-08-08: exercised the PYTHON_MODE_LEADERBOARDS carve-out, which was
+    # deleted along with the last Python-mode adapters (core/mode_json.py
+    # load_mode_dir no longer has a "belongs to a Python mode" case --
+    # leaderboard-ownership is JSON-vs-JSON only now, see
+    # test_two_json_modes_sharing_a_leaderboard_rejected above).
 
     def test_dotted_path_does_not_defeat_the_check(self):
-        # foils, not foilsflash: foilsflash became JSON-defined 2026-07-26 and
-        # its leaderboard is no longer Python-owned, so it can no longer serve
-        # as the "belongs to a Python mode" example here.
+        # Repointed 2026-08-08 (was: a name naming a Python-owned leaderboard
+        # -- "belongs to a Python mode" no longer exists as a concept, see
+        # the removed test above). Same normalization guarantee
+        # (_normalize_leaderboard_rel collapses './'), proven here against a
+        # JSON-vs-JSON collision: two specs in the SAME scan, one with a
+        # dotted prefix, must still collide.
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            _write(tmp, "myline", self._spec_doc(
-                "myline", "./leaderboards/leaderboard_bo_foils_v2.tsv"))
+            _write(tmp, "lineone", self._spec_doc(
+                "lineone", "leaderboards/leaderboard_bo_dottest.tsv"))
+            _write(tmp, "linetwo", self._spec_doc(
+                "linetwo", "./leaderboards/leaderboard_bo_dottest.tsv"))
             with self.assertRaises(ValueError) as cm:
-                load_mode_dir(tmp, modes.SPECS)
-        self.assertIn("foils", str(cm.exception))
+                load_mode_dir(tmp, {})
+        self.assertIn("leaderboard_bo_dottest.tsv", str(cm.exception))
 
     def test_parent_traversal_in_leaderboard_path_rejected(self):
         doc = self._spec_doc("myline", "../elsewhere/leaderboard.tsv")
@@ -446,35 +447,12 @@ class TestLeaderboardUniqueness(unittest.TestCase):
             out = load_mode_dir(tmp, modes.SPECS)
         self.assertEqual(sorted(out), ["lineone", "linetwo"])
 
-    def test_python_leaderboard_table_matches_the_driver_classes(self):
-        """The loader cannot import bo_driver (bo_driver -> modes ->
-        mode_json is already a cycle), so the live Python leaderboard paths
-        are frozen in core/mode_json.py. This is the lockstep test that makes
-        a renamed Python leaderboard fail HERE instead of re-opening the hole.
-
-        The mode list is DERIVED, not hardcoded: retiring a Python mode must
-        also prune its entry from PYTHON_MODE_LEADERBOARDS, or the JSON spec
-        that replaces it is locked out of the very leaderboard it is meant to
-        inherit. A hardcoded list made that a silent trap (hit for real when
-        foilsflash was retired 2026-07-26); deriving it means the retirement
-        and the pruning are checked against each other automatically.
-        """
-        import bo_driver as bo
-        import mode_json
-        root = Path(__file__).resolve().parent.parent
-        # CLASS attribute, not the instance one: botorch_predict.main's
-        # --leaderboard override (exercised by tests/test_botorch_predict.py)
-        # assigns bo.MODES[...].leaderboard on the INSTANCE and never puts it
-        # back, so reading the instance here makes this test order-dependent.
-        live = {
-            str(type(m).leaderboard.relative_to(root)): n
-            for n, m in bo.MODES.items()
-            if not isinstance(m, bo.JsonMode)
-        }
-        self.assertEqual(dict(mode_json.PYTHON_MODE_LEADERBOARDS), live)
-        self.assertNotIn("foilsflash", live.values(),
-                         "foilsflash is JSON-defined; it must not appear in "
-                         "the Python-owned leaderboard table")
+    # test_python_leaderboard_table_matches_the_driver_classes removed
+    # 2026-08-08: pinned PYTHON_MODE_LEADERBOARDS (core/mode_json.py) against
+    # the live Python BOMode subclasses' `leaderboard` class attributes.
+    # Both sides are gone -- every mode is JsonMode now, so
+    # `bo.MODES.items() if not isinstance(m, bo.JsonMode)` is always empty
+    # and there is no second leaderboard table left to keep in lockstep.
 
 
 class TestCopyPasteTemplate(unittest.TestCase):
@@ -503,10 +481,12 @@ class TestCopyPasteTemplate(unittest.TestCase):
         self.assertTrue(spec.geom.render([v for v in spec.bounds_lo]))
 
     def test_template_leaderboard_is_not_a_live_one(self):
-        import mode_json
+        # Repointed 2026-08-08: PYTHON_MODE_LEADERBOARDS is gone (retired
+        # with the last Python-mode adapters); every leaderboard now lives
+        # in modes.SPECS (JSON-defined modes only), so check against that.
         spec = load_mode_file(self.TEMPLATE)
-        self.assertNotIn(spec.leaderboard_rel,
-                         mode_json.PYTHON_MODE_LEADERBOARDS)
+        live_leaderboards = {s.leaderboard_rel for s in modes.SPECS.values()}
+        self.assertNotIn(spec.leaderboard_rel, live_leaderboards)
 
     def test_readme_documents_the_int_fmt_limitation(self):
         """F14: _validate_fmt probes with a float, so "{:d}" is rejected at

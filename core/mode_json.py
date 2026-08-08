@@ -56,25 +56,6 @@ _STAGE_TUNING_KEYS = ("events_per_job", "memory_mb", "quorum")
 # tail. The spec's own leaderboard.columns are added on top at load.
 _RESERVED_KNOB_COLUMNS = ("config", "alpha", "obj")
 
-# The leaderboards the six PYTHON modes own, repo-relative. Frozen here
-# because this module cannot import bo_driver (bo_driver -> modes ->
-# mode_json is already a cycle) and the paths are class attributes there.
-# tests/test_mode_json.py TestLeaderboardUniqueness pins this against the
-# live classes, so a renamed Python leaderboard fails there rather than
-# silently re-opening the shared-leaderboard hole.
-PYTHON_MODE_LEADERBOARDS = {
-    "leaderboards/leaderboard_bo_foils_v2.tsv":        "foils",
-    "leaderboards/leaderboard_bo_foils_v3.tsv":        "foilsf",
-    # foilsflash removed 2026-07-26: its Python mode was retired, so
-    # mode_specs/foilsflash.json now legitimately OWNS that leaderboard and
-    # its 392 rows. This map must be pruned whenever a Python mode is retired
-    # — a stale entry locks the JSON replacement out of the very history it
-    # is meant to inherit (which is exactly how this line was found).
-    "leaderboards/leaderboard_bo_foilsg.tsv":          "foilsg",
-    "leaderboards/leaderboard_bo_prodtarget_v0.tsv":   "prodtarget",
-    "leaderboards/leaderboard_bo_prodtarget6d_v0.tsv": "prodtarget6d",
-}
-
 # core/pipeline.py hardcodes STAGES["pot_only"]["code_tarball"] to
 # prodtarget's tarball (and dsconf_musing to MDC2025aq), and the per-stage
 # code_tarball WINS over the SPECS-driven MUSE_BASE_TARBALL. A JSON mode
@@ -500,14 +481,6 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
         # rows as its own evals. The realistic path is a copy-pasted spec
         # whose leaderboard line was never edited -- it looks plausible.
         lb = spec.leaderboard_rel
-        owner = PYTHON_MODE_LEADERBOARDS.get(lb)
-        if owner is not None:
-            raise ValueError(
-                f"{path}: leaderboard {lb!r} belongs to the Python mode "
-                f"{owner!r}. Two modes sharing one leaderboard silently "
-                f"cross-contaminate their GP history (identical column "
-                f"schema, so each parses the other's rows as its own evals). "
-                f"Give {spec.name!r} its own leaderboards/*.tsv.")
         if lb in seen_leaderboards:
             raise ValueError(
                 f"{path}: leaderboard {lb!r} is already declared by "

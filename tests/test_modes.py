@@ -16,20 +16,19 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes  # noqa: E402
 
-# The six hand-written Python modes -- frozen here, deliberately NOT derived
-# from modes.SPECS. Dropping a real mode_specs/*.json file in (the entire
-# point of the json-modes branch) adds a 7th SPECS entry; tests that assert
+# The Python-mode names -- frozen here, deliberately NOT derived from
+# modes.SPECS. Dropping a real mode_specs/*.json file in (the entire
+# point of the json-modes branch) adds a SPECS entry; tests that assert
 # facts about "the Python modes" must key off this frozen set, not "every key
 # in SPECS", or they break the moment the feature they exist to enable is
 # first used. See I6 in the json-configurable-modes final review.
-# Modes still defined by a Python class in core/modes.py's SPECS table.
-# foilsflash left this set 2026-07-26 when it became mode_specs/foilsflash.json
-# — see bo_driver.py's "FoilsFlashMode RETIRED" note. Retiring a mode means
-# removing it here too; test_python_mode_names_matches_the_live_registry below
-# derives the truth from the registry so a stale name cannot linger unnoticed.
-PYTHON_MODE_NAMES = frozenset({
-    "foils", "foilsf", "foilsg", "prodtarget", "prodtarget6d",
-})
+# Empty since 2026-08-08: the last five Python-mode adapters (foils, foilsf,
+# foilsg, prodtarget, prodtarget6d) were archived that day -- see
+# docs/superpowers/specs/2026-08-08-leaderboard-module-design.md. Every mode
+# is JSON-defined now (JsonMode); test_python_mode_names_matches_the_live_registry
+# below derives the truth from the registry so a stale name cannot linger
+# unnoticed if a Python mode adapter is ever reintroduced.
+PYTHON_MODE_NAMES = frozenset()
 
 
 class TestRegistryCompleteness(unittest.TestCase):
@@ -60,20 +59,22 @@ class TestRegistryCompleteness(unittest.TestCase):
             self.assertTrue(spec.musing.startswith("/"), name)
             self.assertTrue(spec.grid_tarball.endswith(".tar.bz2"), name)
             self.assertGreater(len(spec.grid_stages), 0, name)
-            self.assertIn(spec.harvest_verb, ("harvest", "harvest-pot-only"), name)
+            # "harvest-pot-only" retired 2026-08-08 with the ProdTarget
+            # family (its only user); "harvest" is the sole verb now.
+            self.assertEqual(spec.harvest_verb, "harvest", name)
 
     def test_obs_noise_declared_per_family(self):
-        # The foils family has replicate-measured sigma and MUST pin it
-        # (free MLL noise ranked the best-ever eval 16th of 324). The
-        # ProdTarget family declares None EXPLICITLY because its GP axis 1
-        # is a raw negated value whose units depend on which fallback fired.
-        for name in ("foils", "foilsf", "foilsflash", "foilsg"):
-            noise = modes.SPECS[name].obs_noise
-            self.assertIsNotNone(noise, name)
-            self.assertEqual(len(noise), 2, name)
-            self.assertTrue(all(v > 0 for v in noise), name)
-        for name in ("prodtarget", "prodtarget6d"):
-            self.assertIsNone(modes.SPECS[name].obs_noise, name)
+        # The foils/flash family has replicate-measured sigma and MUST pin
+        # it (free MLL noise ranked the best-ever eval 16th of 324).
+        # "foils"/"foilsf"/"foilsg" (the original Python-mode family) and
+        # the ProdTarget family (which declared obs_noise=None EXPLICITLY,
+        # since its GP axis 1 is a raw negated value whose units depend on
+        # which fallback fired) were both archived 2026-08-08; foilsflash is
+        # the sole surviving anchor of this pin.
+        noise = modes.SPECS["foilsflash"].obs_noise
+        self.assertIsNotNone(noise)
+        self.assertEqual(len(noise), 2)
+        self.assertTrue(all(v > 0 for v in noise))
 
     def test_obs_noise_malformed_rejected_at_construction(self):
         import dataclasses
@@ -133,8 +134,30 @@ class TestBoundsLockstep(unittest.TestCase):
                     self.assertAlmostEqual(float(got), float(want), places=3, msg=name)
 
     def test_prodtarget_tarball_matches_stage_config(self):
+        # ProdTargetMode was archived 2026-08-08; modes._PRODTARGET_TARBALL
+        # is the surviving single source for this fact (core/mode_json.py's
+        # pot_only-stage guard also reads it), not modes.SPECS["prodtarget"]
+        # (that key is gone).
+        #
+        # Re-assert worktree core/ at sys.path[0] before this bare `import
+        # pipeline`: an earlier test in this class already imports bo_driver,
+        # whose hardcoded ROOT (core/bo_driver.py:95, out of scope here)
+        # inserts the LIVE tree's graph/ ahead of us -- and the LIVE tree's
+        # graph/config.py (once that resolves "config") inserts the LIVE
+        # tree's core/ at position 0 too, self-relative to its own __file__.
+        # If "pipeline" has not been cached yet, a fresh sys.path search
+        # then finds the LIVE tree's UNPATCHED core/pipeline.py (which still
+        # reads the now-deleted modes.SPECS["prodtarget"]) ahead of this
+        # worktree's fixed copy -- a KeyError that has nothing to do with
+        # this test's own assertion. Standalone `-m unittest tests.test_modes`
+        # hits this deterministically (TestBoundsLockstep.
+        # test_build_space_matches_spec imports bo_driver first,
+        # alphabetically, within the same class); the full `discover` suite
+        # does not, because some earlier file caches "pipeline" from the
+        # worktree first.
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
         import pipeline
-        self.assertEqual(modes.SPECS["prodtarget"].grid_tarball,
+        self.assertEqual(modes._PRODTARGET_TARBALL,
                          pipeline.STAGES["pot_only"]["code_tarball"])
 
 
@@ -156,30 +179,33 @@ class TestSpotFacts(unittest.TestCase):
 
     def test_foils_family_needs_holeradii_tarball(self):
         # (ipa — the last non-holeradii CE/calo mode — retired 2026-07-18;
-        # its base-tarball regression pin went with it.)
-        for m in ("foils", "foilsf", "foilsflash", "foilsg"):
-            self.assertIn("holeradii", modes.SPECS[m].grid_tarball, m)
+        # its base-tarball regression pin went with it. "foils"/"foilsf"/
+        # "foilsg" -- the Python-mode family -- archived 2026-08-08;
+        # foilsflash is the sole surviving anchor.)
+        self.assertIn("holeradii", modes.SPECS["foilsflash"].grid_tarball)
 
-    def test_prodtarget6d_banner_drift_retired(self):
-        # The old :2403 banner tuple omitted prodtarget6d; the flag is the
-        # single source now and must include it.
-        self.assertTrue(modes.SPECS["prodtarget6d"].checks_managed_overlap)
+    # test_prodtarget6d_banner_drift_retired removed 2026-08-08: pinned
+    # `modes.SPECS["prodtarget6d"].checks_managed_overlap` as a regression
+    # guard against the old hand-listed preflight-mode-tuple omission bug.
+    # prodtarget6d itself was archived (Python-mode adapter deleted, no JSON
+    # replacement); nothing named "prodtarget6d" is left to omit from a
+    # tuple that no longer exists either (checks_managed_overlap is a
+    # per-ModeSpec field, not a hand-listed mode-name tuple).
+
 
 class TestSchemaFields(unittest.TestCase):
     def test_lockstep_enforced_at_construction(self):
         import dataclasses
         with self.assertRaises(ValueError):
-            dataclasses.replace(modes.SPECS["foils"], knob_names=("one",))
+            dataclasses.replace(modes.SPECS["foilsflash"], knob_names=("one",))
 
     def test_metric_cols_spot_pins(self):
+        # "foils" (plain "calo" tail) and "prodtarget" (5-column mu_per_POT
+        # tail) were archived 2026-08-08; every surviving mode shares the
+        # foilsflash-family "flash_edep" tail, so there is no longer a
+        # second shape to contrast against.
         self.assertEqual(modes.SPECS["foilsflash"].metric_cols,
                          ("sob", "flash_edep", "alpha", "obj"))
-        self.assertEqual(modes.SPECS["foils"].metric_cols,
-                         ("sob", "calo", "alpha", "obj"))
-        self.assertEqual(
-            modes.SPECS["prodtarget"].metric_cols,
-            ("mu_per_POT", "edep_per_POT_MeV", "peak_dose_Gy_per_POT",
-             "peak_plate_idx", "obj"))
 
     def test_driver_reads_registry(self):
         import bo_driver as bo
@@ -190,28 +216,24 @@ class TestSchemaFields(unittest.TestCase):
     def test_calo_col_derives_from_metric_cols(self):
         import bo_driver as bo
         self.assertEqual(bo.MODES["foilsflash"].CALO_COL, "flash_edep")
-        self.assertEqual(bo.MODES["foils"].CALO_COL, "calo")
 
     def test_format_row_rejects_non4_metric_tail(self):
         import dataclasses
         import bo_driver as bo
-        bad = dataclasses.replace(modes.SPECS["foils"],
+        bad = dataclasses.replace(modes.SPECS["foilsflash"],
                                   metric_cols=("sob", "calo", "obj"))
-        with mock.patch.dict(modes.SPECS, {"foils": bad}):
+        with mock.patch.dict(modes.SPECS, {"foilsflash": bad}):
             with self.assertRaises(ValueError):
-                bo.MODES["foils"].format_row(
+                bo.MODES["foilsflash"].format_row(
                     bo.Point(cfg="x", x=[0.0] * 6, sob=0.0, calo=1.0), 1.0)
 
 
 class TestGeomField(unittest.TestCase):
-    def test_python_modes_declare_the_json_fields_as_none(self):
-        for name in PYTHON_MODE_NAMES:
-            spec = modes.SPECS[name]
-            self.assertIsNone(spec.geom, f"{name} should have no geom template")
-            self.assertIsNone(spec.metrics, f"{name} should have no metrics map")
-            self.assertIsNone(spec.leaderboard_rel, f"{name} sets leaderboard on the class")
-            self.assertEqual(spec.stage_tuning, {},
-                             f"{name} (Python mode) must declare stage_tuning={{}} explicitly")
+    # test_python_modes_declare_the_json_fields_as_none removed 2026-08-08:
+    # asserted geom/metrics/leaderboard_rel are None and stage_tuning={} for
+    # every name in PYTHON_MODE_NAMES. That set is now permanently empty (no
+    # Python-mode adapters survive), so the loop body could never execute --
+    # a vacuously-passing test is worse than no test.
 
     def test_the_new_fields_are_required_not_defaulted(self):
         """A missing fact must be a TypeError, never a silent default."""
@@ -235,19 +257,18 @@ class TestSubprocessImport(unittest.TestCase):
         """
         import subprocess
         core = Path(__file__).resolve().parent.parent / "core"
-        # Count only the frozen Python-mode names (see PYTHON_MODE_NAMES
-        # above), not len(modes.SPECS): a live mode_specs/*.json file adds
-        # extra SPECS entries and must not break this pin.
-        script = (
-            "import modes; "
-            "python_names = {'foils', 'foilsf', 'foilsflash', 'foilsg', "
-            "'prodtarget', 'prodtarget6d'}; "
-            "print(len(python_names & set(modes.SPECS)))"
-        )
+        # Was: counted the six frozen Python-mode names against modes.SPECS
+        # (all archived 2026-08-08). "foilsflash" is the stable, long-lived
+        # JSON mode (mode_specs/foilsflash.json) -- a fixed anchor to check
+        # instead, unlike the shipped-specs set as a whole (IPA A/B clones
+        # and similar throwaway modes come and go, see
+        # TestModeSpecsDirectoryWiring.SHIPPED_SPECS).
+        script = "import modes; print('foilsflash' in modes.SPECS)"
         r = subprocess.run([sys.executable, "-c", script],
                            cwd=str(core), capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, f"import failed: {r.stderr}")
-        self.assertEqual(r.stdout.strip(), "6", "must expose all six python specs")
+        self.assertEqual(r.stdout.strip(), "True",
+                         "modes.SPECS must expose the foilsflash JSON spec")
 
 
 class TestModeSpecsDirectoryWiring(unittest.TestCase):

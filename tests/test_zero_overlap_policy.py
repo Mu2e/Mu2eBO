@@ -74,11 +74,15 @@ class TestPolicyFlagWiring(unittest.TestCase):
         for name in ("foilsflash", "foilspf"):
             self.assertTrue(modes.SPECS[name].require_zero_overlaps, name)
 
-    def test_run1bak_modes_do_not_require_zero(self):
-        """Run1Bak carries EMC_0_Front unavoidably; demanding zero there would
-        fail every config rather than catch anything."""
-        for name in ("foils", "foilsf", "foilsg"):
-            self.assertFalse(modes.SPECS[name].require_zero_overlaps, name)
+    # test_run1bak_modes_do_not_require_zero removed 2026-08-08: pinned
+    # "foils"/"foilsf"/"foilsg" (Run1Bak-backed, EMC_0_Front unavoidable)
+    # against require_zero_overlaps=False. All three were archived, and
+    # every surviving mode runs Run1Bap (Offline_run1bap_partial) -- there
+    # is no live Run1Bak-backed mode left to exercise this scenario against.
+    # (ipa625/ipafix/ipaovr/nominal also have require_zero_overlaps=False,
+    # but for an unrelated reason -- known-wrong/inert throwaway A/B arms,
+    # not an unavoidable Run1Bak overlap -- so repointing here would
+    # misstate what the flag is guarding against.)
 
     def test_every_mode_declares_the_flag(self):
         """No silent defaults: a new mode must state its overlap policy."""
@@ -102,7 +106,16 @@ class TestPassBanner(unittest.TestCase):
                          " and zero surface-check overlaps")
 
     def test_banner_reports_managed_policy(self):
-        self.assertEqual(_overlap_banner("foils"),
+        # Repointed 2026-08-08: "foils" (Run1Bak-backed, non-strict) was
+        # archived. Pick any live mode with the "managed, non-strict"
+        # combination this banner variant covers, rather than hardcoding a
+        # name from the ipa625/ipafix/ipaovr/nominal A/B throwaway set (all
+        # explicitly "DELETE after the A/B lands" per their mode_specs/
+        # notes, so a hardcoded name here would rot again soon).
+        managed_name = next(
+            name for name, spec in modes.SPECS.items()
+            if spec.checks_managed_overlap and not spec.require_zero_overlaps)
+        self.assertEqual(_overlap_banner(managed_name),
                          " and no managed-volume overlap")
 
 

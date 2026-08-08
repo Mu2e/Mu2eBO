@@ -67,6 +67,16 @@ def _submit_lock(stage: str):
 # --- Paths fixed at the code-repo level (config-independent) ---
 TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 
+# graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
+# "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —
+# that file is out of scope here (graph/ stays untouched by the 2026-08-08
+# Python-mode archive cut). "foils" no longer exists in modes.SPECS, so an
+# unset AUTORESEARCH_MODE would KeyError inside `from config import` below.
+# Real launches (graph/run.py, graph/closed_loop.py) always stamp
+# AUTORESEARCH_MODE before importing config, so setdefault is a no-op for
+# them; a bare `import pipeline` (tests, ad-hoc scripts) gets a live JSON
+# mode instead of the dead "foils" default.
+os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from config import (  # noqa: E402
     GRID_DATA_ROOT as DATA_ROOT,
@@ -109,7 +119,7 @@ import modes as _modes  # noqa: E402
 # mechanism behind the foilsflash-tarball-mode-key-omission incident — is
 # gone: an unknown mode is now a loud KeyError at import.
 MUSE_BASE_TARBALL = Path(
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")].grid_tarball)
+    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilsflash")].grid_tarball)
 USER = os.environ["USER"]
 OUTSTAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/workflow/default/outstage")
 
@@ -241,7 +251,7 @@ STAGES = {
         "events_per_job": 2500,
         "run_number": 1700,
         "ships_geom": True,
-        "code_tarball": _modes.SPECS["prodtarget"].grid_tarball,
+        "code_tarball": _modes._PRODTARGET_TARBALL,
         "dsconf_musing": "MDC2025aq",
         "default_loc": "disk",
         "output_glob": "nts.*.POT_vd.*.root",
@@ -295,7 +305,7 @@ def _apply_stage_tuning(stages: dict, tuning: dict) -> None:
 # JSON mode that sets it.
 _apply_stage_tuning(
     STAGES,
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")].stage_tuning)
+    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilsflash")].stage_tuning)
 
 
 # EleBeamCat resampler normalization: each resampled electron corresponds to
