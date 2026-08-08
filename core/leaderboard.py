@@ -202,3 +202,126 @@ class Leaderboard:
             if new:
                 f.write(header)
             f.write(line)
+
+    # --- pending -----------------------------------------------------------
+    def pending_path(self) -> Path:
+        return self.path.parent / f"pending_bo_{self.name}.tsv"
+
+    def _pending_quarantine_path(self) -> Path:
+        pp = self.pending_path()
+        return pp.with_name(pp.name + ".quarantine.tsv")
+
+    def pending_add(self, name: str, x, alpha: float) -> None:
+        pp = self.pending_path()
+        row = (f"{name}\t{json.dumps(to_py_scalars(x))}"
+               f"\t{alpha:.3f}\t{int(time.time())}\n")
+        with _flock_ex(pp):
+            if not pp.exists():
+                pp.write_text(PENDING_HEADER + row)
+                return
+            with pp.open() as f:
+                first = f.readline()
+            if first.rstrip("\n") != PENDING_HEADER.rstrip("\n"):
+                qp = self._pending_quarantine_path()
+                new = not qp.exists()
+                with qp.open("a") as f:
+                    if new:
+                        f.write(PENDING_HEADER)
+                    f.write(row)
+                raise SchemaMismatch(pp, PENDING_HEADER, first,
+                                     quarantined=qp)
+            with pp.open("a") as f:
+                f.write(row)
+
+    def pending_load(self, *, now: float | None = None) -> list:
+        pp = self.pending_path()
+        if not pp.exists():
+            return []
+        now = time.time() if now is None else now
+        out, stale = [], []
+        with _flock_sh(pp), pp.open() as f:
+            first = f.readline()
+            if first.rstrip("\n") != PENDING_HEADER.rstrip("\n"):
+                raise SchemaMismatch(pp, PENDING_HEADER, first)
+            cols = ("config", "x", "alpha", "submitted_at")
+            reader = csv.DictReader(f, fieldnames=cols, delimiter="\t")
+            for line_no, row in enumerate(reader, start=2):
+                try:
+                    name, x = row["config"], json.loads(row["x"])
+                    age_s = now - float(row["submitted_at"])
+                except (KeyError, ValueError, TypeError,
+                        json.JSONDecodeError) as e:
+                    raise RowParseError(pp, line_no, e) from e
+                out.append((name, x))
+                if age_s > STALE_PENDING_S:
+                    stale.append((name, age_s / 3600.0))
+        if stale:
+            rows = "\n".join(f"    {n}  ({h:.0f}h old)" for n, h in stale)
+            print(f"[{self.name}] WARNING: {len(stale)} pending row(s) older "
+                  f"than {STALE_PENDING_S/3600:.0f}h — likely dead children "
+                  f"still repelling the GP as phantom in-flight points:\n"
+                  f"{rows}\n  To remove:  ./core/bo_driver.py --mode "
+                  f"{self.name} pending-prune", file=sys.stderr)
+        return out
+
+    def pending_prune(self, older_than_h: float = 48.0,
+                      now: float | None = None) -> list[str]:
+        pp = self.pending_path()
+        now = time.time() if now is None else now
+        with _flock_ex(pp):
+            if not pp.exists():
+                return []
+            lines = pp.read_text().splitlines()
+            if not lines:
+                return []
+            first = lines[0]
+            if first != PENDING_HEADER.rstrip("\n"):
+                raise SchemaMismatch(pp, PENDING_HEADER, first + "\n")
+            kept, removed = [first], []
+            for ln in lines[1:]:
+                cells = ln.split("\t")
+                try:
+                    age_h = (now - float(cells[3])) / 3600.0
+                except (IndexError, ValueError):
+                    kept.append(ln)   # unparseable rows are prune-immune;
+                    continue          # pending_load will name them loudly
+                if age_h > older_than_h:
+                    removed.append(cells[0])
+                else:
+                    kept.append(ln)
+            if removed:
+                # same newline invariant as pending_remove
+                pp.write_text("\n".join(kept) + "\n")
+            return removed
+
+    def pending_remove(self, name: str) -> bool:
+        pp = self.pending_path()
+        # Read-modify-write under lock: without LOCK_EX two concurrent removals
+        # can race and one's truncate overwrites the other's deletion.
+        with _flock_ex(pp):
+            if not pp.exists():
+                return False
+            rows = pp.read_text().splitlines()
+            if len(rows) < 2:
+                return False
+            header, body = rows[0], rows[1:]
+            kept = [r for r in body if not r.startswith(name + "\t")]
+            if len(kept) == len(body):
+                return False
+            # ALWAYS terminate with a newline, including when `kept` is empty.
+            # The old `("\n" if kept else "")` left the header unterminated
+            # once the last pending row was removed, and append_pending opens
+            # in "a" mode -- so the NEXT proposal was written straight onto the
+            # header line ("...submitted_atfoilsflash22R00_00\t[...]"). From
+            # then on the file was a single line forever: load_pending()
+            # returned 0 rows, silently. That went unnoticed for a long time
+            # because nothing depended on reading it back -- Python modes
+            # recovered x via parse_geom, and the only other consumers degrade
+            # quietly (the propose_one collision guard stops seeing pending
+            # names, and botorch_ask gets an empty X_pending so concurrent
+            # children no longer repel each other's in-flight points). It
+            # became fatal the moment foilsflash went JSON-defined and
+            # x_for_evaluate made the pending TSV the ONLY record of x:
+            # foilsflash24R00_00 lost a finished 3.5 h eval to it (2026-07-26).
+            pp.write_text("\n".join([header] + kept) + "\n")
+            return True
