@@ -133,32 +133,11 @@ class TestBoundsLockstep(unittest.TestCase):
                 else:
                     self.assertAlmostEqual(float(got), float(want), places=3, msg=name)
 
-    def test_prodtarget_tarball_matches_stage_config(self):
-        # ProdTargetMode was archived 2026-08-08; modes._PRODTARGET_TARBALL
-        # is the surviving single source for this fact (core/mode_json.py's
-        # pot_only-stage guard also reads it), not modes.SPECS["prodtarget"]
-        # (that key is gone).
-        #
-        # Re-assert worktree core/ at sys.path[0] before this bare `import
-        # pipeline`: an earlier test in this class already imports bo_driver,
-        # whose hardcoded ROOT (core/bo_driver.py:95, out of scope here)
-        # inserts the LIVE tree's graph/ ahead of us -- and the LIVE tree's
-        # graph/config.py (once that resolves "config") inserts the LIVE
-        # tree's core/ at position 0 too, self-relative to its own __file__.
-        # If "pipeline" has not been cached yet, a fresh sys.path search
-        # then finds the LIVE tree's UNPATCHED core/pipeline.py (which still
-        # reads the now-deleted modes.SPECS["prodtarget"]) ahead of this
-        # worktree's fixed copy -- a KeyError that has nothing to do with
-        # this test's own assertion. Standalone `-m unittest tests.test_modes`
-        # hits this deterministically (TestBoundsLockstep.
-        # test_build_space_matches_spec imports bo_driver first,
-        # alphabetically, within the same class); the full `discover` suite
-        # does not, because some earlier file caches "pipeline" from the
-        # worktree first.
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
-        import pipeline
-        self.assertEqual(modes._PRODTARGET_TARBALL,
-                         pipeline.STAGES["pot_only"]["code_tarball"])
+    # test_prodtarget_tarball_matches_stage_config removed 2026-08-08:
+    # modes._PRODTARGET_TARBALL and pipeline.STAGES["pot_only"] (the two
+    # facts it pinned in lockstep) were both deleted along with the
+    # harvest-pot-only verb and the ProdTarget family that was their only
+    # consumer.
 
 
 class TestSpotFacts(unittest.TestCase):

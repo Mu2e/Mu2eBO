@@ -29,13 +29,6 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple
 if TYPE_CHECKING:  # annotation-only: PEP 563 means this is never resolved at runtime
     from core.geom_template import GeomTemplate
 
-# prodtarget ships per-STAGE via pipeline.py STAGES["pot_only"]["code_tarball"];
-# recorded here as the mode's tarball fact (same file). Still consulted by
-# core/mode_json.py's pot_only-stage guard (any JSON mode using that stage
-# must ship this exact tarball) even after the Python ProdTargetMode adapter
-# was archived 2026-08-08.
-_PRODTARGET_TARBALL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_MDC2025aq_prodtarget.tar.bz2"
-
 
 @dataclass(frozen=True)
 class ModeSpec:

@@ -30,9 +30,9 @@ def _fail():
 
 class TestProbeInputUrls(unittest.TestCase):
     def test_no_urls_is_a_noop(self):
-        # Stages without auxinput (e.g. pot_only) have nothing to probe.
+        # Stages without auxinput (e.g. concat) have nothing to probe.
         with mock.patch.object(pipeline.subprocess, "Popen") as r:
-            pipeline._probe_input_urls("pot_only", "physics: {}")
+            pipeline._probe_input_urls("concat", "physics: {}")
         r.assert_not_called()
 
     def test_mapped_readable_passes(self):

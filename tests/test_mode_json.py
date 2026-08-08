@@ -309,18 +309,10 @@ class TestRejections(unittest.TestCase):
             d["knobs"][0]["name"] = "n"
         self._expect_error(mutate, "knobs[0]", "reserved")
 
-    # -- F13: pot_only ships prodtarget's tarball, hardcoded ----------------
-    def test_pot_only_chain_with_a_foreign_tarball_rejected(self):
-        """core/pipeline.py sets STAGES['pot_only']['code_tarball'] to
-        prodtarget's tarball and the per-stage value WINS over the
-        SPECS-driven one. A JSON mode declaring run.stages: ['pot_only']
-        would silently ship prodtarget's code to the grid while preflight
-        validated its OWN musing -- the preflight-passes/grid-diverges
-        mechanism of the foilsflash-tarball and foilsg-tarball incidents
-        (F13)."""
-        def mutate(d):
-            d["run"]["stages"] = ["pot_only"]
-        self._expect_error(mutate, "pot_only", "code_tarball")
+    # F13 ("pot_only chain with a foreign tarball rejected") removed
+    # 2026-08-08: the _POT_ONLY_STAGE guard it pinned was deleted from
+    # core/mode_json.py along with the harvest-pot-only verb and the
+    # ProdTarget family that was its only user.
 
 
 class TestDuplicateJsonKeys(unittest.TestCase):

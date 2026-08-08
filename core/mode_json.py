@@ -56,16 +56,6 @@ _STAGE_TUNING_KEYS = ("events_per_job", "memory_mb", "quorum")
 # tail. The spec's own leaderboard.columns are added on top at load.
 _RESERVED_KNOB_COLUMNS = ("config", "alpha", "obj")
 
-# core/pipeline.py hardcodes STAGES["pot_only"]["code_tarball"] to
-# prodtarget's tarball (and dsconf_musing to MDC2025aq), and the per-stage
-# code_tarball WINS over the SPECS-driven MUSE_BASE_TARBALL. A JSON mode
-# whose chain includes pot_only therefore ships prodtarget's code to the
-# grid no matter what its own software.grid_tarball says, while preflight
-# validates its OWN musing -- exactly the preflight-passes/grid-diverges
-# mechanism of the foilsflash-tarball-mode-key-omission and
-# foilsg-grid-tarball-scalar-holeradius-fallback incidents.
-_POT_ONLY_STAGE = "pot_only"
-
 
 class _DuplicateJsonKey(ValueError):
     """A JSON object carried the same key twice."""
@@ -276,29 +266,6 @@ def load_mode_file(path: Path) -> "object":
             f"{where}[run.stages]: must be a list of stage-name strings, "
             f"got {stages!r} (a bare string here silently becomes a tuple "
             f"of its characters)")
-
-    if _POT_ONLY_STAGE in stages:
-        # Lazy import for the same reason as ModeSpec above (see the header
-        # comment): resolve the ALREADY-loaded modes module, bare or
-        # `core.`-qualified. _PRODTARGET_TARBALL is the single source for
-        # this path -- tests/test_modes.py pins it == the value
-        # core/pipeline.py stamps into STAGES["pot_only"]["code_tarball"].
-        if __package__:
-            from core.modes import _PRODTARGET_TARBALL
-        else:
-            from modes import _PRODTARGET_TARBALL
-        if software.get("grid_tarball") != _PRODTARGET_TARBALL:
-            raise ValueError(
-                f"{where}[run.stages]: stage {_POT_ONLY_STAGE!r} hardcodes "
-                f"code_tarball={_PRODTARGET_TARBALL} (and "
-                f"dsconf_musing='MDC2025aq') in core/pipeline.py, and the "
-                f"per-stage code_tarball WINS over this mode's "
-                f"software.grid_tarball ({software.get('grid_tarball')!r}). "
-                f"The grid would run prodtarget's code while preflight "
-                f"validated this mode's own musing -- the silent "
-                f"preflight-passes/grid-diverges split behind the "
-                f"foilsflash-tarball and foilsg-tarball incidents. Declare "
-                f"the same grid_tarball, or use a different stage.")
 
     stage_tuning = _validate_stage_tuning(run, stages, where)
     jobs_per_stage = _validate_jobs_per_stage(run, stages, where)
