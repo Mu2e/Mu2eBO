@@ -159,12 +159,12 @@ class TestComputeExplorePicks(unittest.TestCase):
         self.assertEqual(int(mu.argmax()), best,
                          "highest observed sob must also be the GP's argmax")
 
-    def test_prodtarget_family_keeps_free_noise(self):
-        # obs_noise=None is a deliberate declaration (axis-1 units depend on
-        # which fallback fired), not an oversight. Guards against someone
-        # "completing" the registry with an invented sigma.
-        for name in ("prodtarget", "prodtarget6d"):
-            self.assertIsNone(bp.MODE_SPECS[name]["obs_noise"], name)
+    # test_prodtarget_family_keeps_free_noise removed 2026-08-08: pinned
+    # obs_noise=None (a deliberate declaration -- axis-1 units depend on
+    # which fallback fired) for the ProdTarget family specifically. Both
+    # "prodtarget" and "prodtarget6d" were archived (Python-mode adapters
+    # deleted; no JSON replacement), and no surviving mode declares
+    # obs_noise=None -- there is nothing left to pin this fact against.
 
     def test_real_gp_qnehvi_pick_on_fixture(self):
         # The one real GP fit in the suite (CPU, ~seconds on 10 rows).

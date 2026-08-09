@@ -94,16 +94,14 @@ class TestProfile(unittest.TestCase):
         self.assertAlmostEqual(vals[2], 20.0)
         self.assertAlmostEqual(vals[-1], 30.0)
 
-    def test_matches_prodtarget_profile(self):
-        """Byte-for-byte agreement with the numpy original it replaces."""
-        from bo_driver import ProdTargetMode  # noqa: E402 (bare, see top-of-file note)
-        for ctrl in [(2.0, 3.0, 4.5), (4.5, 2.0, 4.5), (3.0, 3.0, 3.0)]:
-            for n in (5, 35, 49):
-                want = list(ProdTargetMode._profile(ctrl, n))
-                got = lagrange_profile(ctrl, n, None)
-                for a, b in zip(want, got):
-                    self.assertAlmostEqual(a, b, places=12,
-                                           msg=f"ctrl={ctrl} n={n}")
+    # test_matches_prodtarget_profile removed 2026-08-08: was a byte-for-byte
+    # parity check of lagrange_profile against ProdTargetMode._profile, the
+    # numpy original it replaced. ProdTargetMode was archived along with the
+    # other four dormant Python-mode adapters (no JSON successor -- the
+    # "prodtarget" line was retired outright), so the reference
+    # implementation no longer exists to compare against. lagrange_profile
+    # itself stays live (foilspf's K=3 control-point profiles) and remains
+    # covered by the other tests in this class.
 
     def test_overshoot_is_real_without_clip(self):
         """(50,250,250) exceeds 250 -- this is why clip is mandatory."""

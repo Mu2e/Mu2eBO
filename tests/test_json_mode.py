@@ -60,10 +60,11 @@ class TestJsonMode(unittest.TestCase):
     def test_no_priors(self):
         self.assertEqual(self.mode.load_priors(), [])
 
-    def test_parse_geom_refuses_clearly(self):
-        with self.assertRaises(NotImplementedError) as cm:
-            self.mode.parse_geom("anything")
-        self.assertIn("demoflash", str(cm.exception))
+    # test_parse_geom_refuses_clearly removed 2026-08-08: JsonMode.parse_geom
+    # (and BOMode.parse_geom) were deleted outright -- geometry round-trip is
+    # no longer part of the interface at all (not even as a NotImplementedError
+    # stub), now that no Python mode needs the round-trip default. See
+    # docs/superpowers/specs/2026-08-08-leaderboard-module-design.md.
 
     def test_extract_metrics_uses_the_fallback_chain(self):
         self.assertEqual(
