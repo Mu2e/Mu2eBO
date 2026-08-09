@@ -48,12 +48,13 @@ _ALLOWED_KNOB = ("name", "min", "max", "fmt")
 _STAGE_TUNING_KEYS = ("events_per_job", "memory_mb", "quorum")
 
 # Leaderboard columns a knob may NOT be named after. A collision makes
-# BOMode.format_row emit the column twice; csv.DictReader keeps the LAST, so
-# load_history_row reads the METRIC into that knob's coordinate and the GP
-# trains on garbage -- silently. `config` is the writer-side leading column
-# (format_row hardcodes it); `alpha`/`obj` are normally in leaderboard.columns
-# already but are listed here so they are rejected even if a spec renames the
-# tail. The spec's own leaderboard.columns are added on top at load.
+# core/leaderboard.py's Leaderboard.header/append emit the column twice;
+# csv.DictReader keeps the LAST, so Leaderboard.load reads the METRIC into
+# that knob's coordinate and the GP trains on garbage -- silently. `config`
+# is the writer-side leading column (Leaderboard.header hardcodes it);
+# `alpha`/`obj` are normally in leaderboard.columns already but are listed
+# here so they are rejected even if a spec renames the tail. The spec's own
+# leaderboard.columns are added on top at load.
 _RESERVED_KNOB_COLUMNS = ("config", "alpha", "obj")
 
 
@@ -279,10 +280,11 @@ def load_mode_file(path: Path) -> "object":
         _need(k, _ALLOWED_KNOB, kw)
         _reject_unknown(k, _ALLOWED_KNOB, kw)
         # R1: an unvalidated fmt like "75.0" (no replacement field) writes a
-        # CONSTANT into every knob column of the leaderboard; load_history_row
-        # parses it back as a valid float, so every past eval collapses to the
-        # same point and the GP trains on garbage -- silently. Same guard
-        # geom_template.py already applies to computed geometry lines.
+        # CONSTANT into every knob column of the leaderboard; Leaderboard.load
+        # (core/leaderboard.py) parses it back as a valid float, so every past
+        # eval collapses to the same point and the GP trains on garbage --
+        # silently. Same guard geom_template.py already applies to computed
+        # geometry lines.
         _validate_fmt(k["fmt"], kw)
         # `i`/`n` are injected by the geometry renderer's per_index loop and
         # would silently shadow the knob there (see geom_template's
@@ -321,22 +323,25 @@ def load_mode_file(path: Path) -> "object":
         raise ValueError(
             f"{where}[leaderboard]: 'columns' must have exactly 4 entries "
             f"(sob-like, second-objective, alpha, obj) to match "
-            f"BOMode.format_row; got {list(columns)}")
+            f"core/leaderboard.py's Leaderboard row schema; got "
+            f"{list(columns)}")
     if columns[0] != "sob":
         raise ValueError(
             f"{where}[leaderboard]: columns[0] must be exactly 'sob', got "
-            f"{columns[0]!r}. BOMode.load_history_row (core/bo_driver.py) "
-            f"hardcodes row['sob'] when reading leaderboard history back; a "
-            f"different first-column name raises KeyError there, which "
-            f"load_history's `except (KeyError, ValueError): continue` "
-            f"swallows silently -- yielding ZERO history rows and an "
-            f"eternal BO cold-start instead of a visible error.")
+            f"{columns[0]!r}. Leaderboard.load (core/leaderboard.py) reads "
+            f"row[metric_cols[0]] into Point.sob positionally, so this isn't "
+            f"a parse-time hazard, but every leaderboard TSV across every "
+            f"mode names its first metric column 'sob' by convention -- a "
+            f"per-spec rename here would be the one leaderboard file whose "
+            f"header doesn't match, tripping up anyone diffing/grepping "
+            f"leaderboards/*.tsv by that convention.")
 
     # A knob column and a metric column share one TSV header row
-    # (BOMode.format_row writes `config` + KNOB_NAMES + metric_cols). A knob
-    # named after any of them emits that column TWICE; csv.DictReader keeps
-    # the LAST, so load_history_row reads the METRIC back into that knob's
-    # coordinate and the GP trains on garbage -- silently.
+    # (Leaderboard.header/append -- core/leaderboard.py -- writes `config` +
+    # knob_names + metric_cols). A knob named after any of them emits that
+    # column TWICE; csv.DictReader keeps the LAST, so Leaderboard.load reads
+    # the METRIC back into that knob's coordinate and the GP trains on
+    # garbage -- silently.
     reserved_cols = set(columns) | set(_RESERVED_KNOB_COLUMNS)
     for i, nm in enumerate(names):
         if nm in reserved_cols:
@@ -345,8 +350,8 @@ def load_mode_file(path: Path) -> "object":
                 f"leaderboard column (leaderboard.columns + "
                 f"{list(_RESERVED_KNOB_COLUMNS)}). The header would carry it "
                 f"twice and csv.DictReader keeps the last, so "
-                f"BOMode.load_history_row would read the METRIC into this "
-                f"knob's coordinate on every past row")
+                f"core/leaderboard.py's Leaderboard.load would read the "
+                f"METRIC into this knob's coordinate on every past row")
 
     noise = leaderboard["obs_noise"]
     if noise is not None:

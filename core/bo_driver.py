@@ -24,7 +24,6 @@ lockstep with modes.SPECS/graph/state.py is pinned by test_modes).
 from __future__ import annotations
 
 import argparse
-import csv
 import fcntl
 import json
 import os
@@ -32,10 +31,7 @@ import re
 import shutil
 import sys
 import tempfile
-import time
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -44,54 +40,9 @@ from typing import NamedTuple
 # incident class. Stdlib-only import.
 import modes as _modes  # noqa: E402
 
-
-def _lock_path(target: Path) -> Path:
-    """Flock anchor for `target`: <target's dir>/locks/<target's name>.lock.
-
-    All runtime lock files live in a dedicated locks/ folder next to the
-    thing they guard (relative to the target's parent, NOT a global constant,
-    so tests that point a mode's TSVs at a tmp dir keep their lock isolation).
-    Lock files are created if absent and intentionally NEVER deleted —
-    deleting one while a process holds it would let the next opener lock a
-    fresh inode at the same path, silently splitting the mutual exclusion.
-    """
-    lock_dir = target.parent / "locks"
-    lock_dir.mkdir(parents=True, exist_ok=True)
-    return lock_dir / (target.name + ".lock")
-
-
-@contextmanager
-def _flock_ex(target: Path):
-    """Exclusive-lock target's locks/-dir anchor for the duration of the block.
-
-    Used by leaderboard/pending TSV writers when multiple closed-loop child
-    processes may append concurrently.
-    """
-    lock_path = _lock_path(target)
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
-
-
-@contextmanager
-def _flock_sh(target: Path):
-    """Shared-lock target's locks/-dir anchor for the duration of the block.
-
-    Paired with _flock_ex on the same path: writers (append_history) hold EX
-    and block readers; readers (load_history) hold SH and block only writers,
-    not each other. Closes the torn-row race where a reader could observe a
-    partially-written leaderboard line mid-append.
-    """
-    lock_path = _lock_path(target)
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_SH)
-        try:
-            yield
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
+    Leaderboard, Point, to_py_scalars,   # are public API of this module)
+    _flock_ex, _flock_sh, _lock_path)
 
 ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
 
@@ -113,28 +64,6 @@ DEFAULT_ALPHA = 1.0e5  # mmackenz calo range 4e-8..2.5e-5; alpha=1e5 makes
                        # 1e-5 calo cost 1 unit of S/sqrt(B). Override per study.
 
 
-@dataclass
-class Point:
-    """Generic BO point: x layout depends on mode."""
-    cfg: str
-    x: list      # mode-specific list of param values
-    sob: float
-    calo: float
-    extras: dict | None = None  # mode-specific side metrics (logged not optimized)
-
-    def obj(self, alpha: float) -> float:
-        return self.sob - alpha * self.calo
-
-
-
-
-def to_py_scalars(x) -> list:
-    """Coerce numpy scalars (np.int64/np.float64) to native Python types for
-    JSON/msgpack. Shared by append_pending and graph/pipeline_io.propose_one —
-    see wiki/incidents/langgraph-checkpoint-numpy-int64.md."""
-    return [v.item() if hasattr(v, "item") else v for v in x]
-
-
 class SpaceDim(NamedTuple):
     """One search-space dimension. Plain data (skopt kernel retired
     2026-07-18) — the picker consumes bounds from modes.SPECS directly;
@@ -152,10 +81,10 @@ class SpaceDim(NamedTuple):
 class BOMode(ABC):
     """A BO mode = search space + render + prior loader + leaderboard format.
 
-    Each subclass owns its pinned constants and its 4 mode-specific methods
-    (build_space, _geom_text, format_row, load_history_row). Shared concerns
-    (history I/O, pending TSV, proposal file write, priors, x recovery at
-    evaluate time) are concrete on this base class.
+    Each subclass fills in the one abstract method (_geom_text); everything
+    else -- build_space, priors, x recovery at evaluate time, and leaderboard
+    + pending TSV I/O (delegated to core/leaderboard.py's Leaderboard via
+    leaderboard_io()) -- is concrete on this base class.
     """
     name: str
     leaderboard: Path
@@ -194,13 +123,13 @@ class BOMode(ABC):
             f"hits this. Refusing to append a row rather than guess x.")
 
     # Leaderboard row shape shared by every sob/calo-schema mode: knob columns
-    # = KNOB_NAMES, per-position precision = KNOB_FMTS, second-objective column
-    # = CALO_COL. These are registry-reading properties now (modes.SPECS is
-    # the single source — ADR-0002 extension); subclasses that change the
-    # knob names (FoilsFracMode: rIn->f) or the objective column
-    # (FoilsFlashMode: flash_edep) get that from their own spec entry, no
-    # class-attr override needed. The ProdTarget family overrides both
-    # methods (different metric columns).
+    # = KNOB_NAMES, per-position precision = KNOB_FMTS. These are
+    # registry-reading properties (modes.SPECS is the single source —
+    # ADR-0002 extension); a mode that changes its knob names (FoilsFracMode:
+    # rIn->f) or objective column (FoilsFlashMode: flash_edep) gets that from
+    # its own spec entry, no class-attr override needed. The second-objective
+    # column itself is metric_cols[1], read by leaderboard_io() when it
+    # builds the Leaderboard (core/leaderboard.py).
     @property
     def KNOB_NAMES(self) -> tuple:
         return _modes.SPECS[self.name].knob_names
@@ -208,31 +137,6 @@ class BOMode(ABC):
     @property
     def KNOB_FMTS(self) -> tuple:
         return _modes.SPECS[self.name].knob_fmts
-
-    @property
-    def CALO_COL(self) -> str:
-        # Foils-family second-objective column = metric_cols[1].
-        return _modes.SPECS[self.name].metric_cols[1]
-
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        cols = _modes.SPECS[self.name].metric_cols
-        if len(cols) != 4:
-            raise ValueError(
-                f"{self.name}: BOMode.format_row writes a 4-column tail "
-                f"(sob-like, calo-like, alpha, obj) but metric_cols is "
-                f"{cols} — override format_row for this shape "
-                f"(ProdTargetMode pattern)")
-        header = ("config\t" + "\t".join(self.KNOB_NAMES)
-                  + "\t" + "\t".join(cols) + "\n")
-        knobs = "\t".join(fmt.format(v) for fmt, v in zip(self.KNOB_FMTS, p.x))
-        line = (f"{p.cfg}\t{knobs}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        return Point(cfg=row["config"],
-                     x=[float(row[c]) for c in self.KNOB_NAMES],
-                     sob=float(row["sob"]), calo=float(row[self.CALO_COL]))
 
     # Search space: SpaceDim rows from the ModeSpec registry box
     # (modes.SPECS[name].bounds_lo/hi/int_dims) paired with the per-mode
@@ -262,7 +166,7 @@ class BOMode(ABC):
     def extract_metrics(self, summary: dict) -> tuple[float, float]:
         return summary["s_over_sqrt_b"], summary["calo_per_pot"]
 
-    # Optional side metrics (logged via format_row, not part of obj). Default
+    # Optional side metrics (Point.extras; not part of obj). Default
     # returns None — modes opt in (e.g. ProdTargetMode -> edep_per_POT_MeV).
     # x is the BO x_point (geometry knobs), supplied so modes can compute
     # derived quantities that need both per-plate harvest output and the
@@ -277,94 +181,55 @@ class BOMode(ABC):
         out.write_text(self._geom_text(x))
         return out
 
+    # --- leaderboard + pending I/O: owned by core/leaderboard.py -----------
+    def leaderboard_io(self) -> Leaderboard:
+        lb = getattr(self, "_lb_cache", None)
+        # Rebuild whenever `self.leaderboard` no longer matches the cached
+        # instance's path, not just on first access. `mock.patch.object(mode,
+        # "leaderboard", tmp_path)` is the standard test seam across this
+        # suite (test_botorch_predict.py, test_seam_protocol.py) and the
+        # botorch_predict --leaderboard CLI override does the same directly;
+        # a path-blind cache would silently keep serving the PRE-patch (or,
+        # worse, an already-deleted tmpdir's) Leaderboard once any earlier
+        # call had populated it -- exactly the failure mode
+        # touched-leaderboard-headerless-history-loss warns about, just at
+        # the object-cache layer instead of the TSV layer.
+        if lb is None or lb.path != self.leaderboard:
+            spec = _modes.SPECS[self.name]
+            lb = Leaderboard(path=self.leaderboard, name=self.name,
+                             knob_names=tuple(spec.knob_names),
+                             knob_fmts=tuple(spec.knob_fmts),
+                             metric_cols=tuple(spec.metric_cols))
+            self._lb_cache = lb
+        return lb
+
     def load_history(self) -> list[Point]:
-        if not self.leaderboard.exists():
-            return []
-        out = []
-        with _flock_sh(self.leaderboard), self.leaderboard.open() as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                try:
-                    out.append(self.load_history_row(row))
-                except (KeyError, ValueError):
-                    continue
-        return out
+        return self.leaderboard_io().load()
 
     def append_history(self, p: Point, alpha: float):
-        with _flock_ex(self.leaderboard):
-            new_file = not self.leaderboard.exists()
-            header, line = self.format_row(p, alpha)
-            with self.leaderboard.open("a") as f:
-                if new_file:
-                    f.write(header)
-                f.write(line)
+        self.leaderboard_io().append(p, alpha)
 
-    # --- batch BO pending-state (see wiki/concepts/batch-bo.md) ---
     def pending_path(self) -> Path:
-        return self.leaderboard.parent / f"pending_bo_{self.name}.tsv"
+        return self.leaderboard_io().pending_path()
 
     def load_pending(self) -> list[tuple[str, list]]:
-        pp = self.pending_path()
-        if not pp.exists():
-            return []
-        out = []
-        with _flock_sh(pp), pp.open() as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                try:
-                    out.append((row["config"], json.loads(row["x"])))
-                except (KeyError, ValueError, json.JSONDecodeError):
-                    continue
-        return out
+        return self.leaderboard_io().pending_load()
 
     def append_pending(self, name: str, x, alpha: float):
-        pp = self.pending_path()
-        with _flock_ex(pp):
-            new = not pp.exists()
-            with pp.open("a") as f:
-                if new:
-                    f.write("config\tx\talpha\tsubmitted_at\n")
-                x_py = to_py_scalars(x)
-                f.write(f"{name}\t{json.dumps(x_py)}\t{alpha:.3f}\t{int(time.time())}\n")
+        self.leaderboard_io().pending_add(name, x, alpha)
 
     def remove_pending(self, name: str) -> bool:
-        pp = self.pending_path()
-        # Read-modify-write under lock: without LOCK_EX two concurrent removals
-        # can race and one's truncate overwrites the other's deletion.
-        with _flock_ex(pp):
-            if not pp.exists():
-                return False
-            rows = pp.read_text().splitlines()
-            if len(rows) < 2:
-                return False
-            header, body = rows[0], rows[1:]
-            kept = [r for r in body if not r.startswith(name + "\t")]
-            if len(kept) == len(body):
-                return False
-            # ALWAYS terminate with a newline, including when `kept` is empty.
-            # The old `("\n" if kept else "")` left the header unterminated
-            # once the last pending row was removed, and append_pending opens
-            # in "a" mode -- so the NEXT proposal was written straight onto the
-            # header line ("...submitted_atfoilsflash22R00_00\t[...]"). From
-            # then on the file was a single line forever: load_pending()
-            # returned 0 rows, silently. That went unnoticed for a long time
-            # because nothing depended on reading it back -- Python modes
-            # recovered x via parse_geom, and the only other consumers degrade
-            # quietly (the propose_one collision guard stops seeing pending
-            # names, and botorch_ask gets an empty X_pending so concurrent
-            # children no longer repel each other's in-flight points). It
-            # became fatal the moment foilsflash went JSON-defined and
-            # x_for_evaluate made the pending TSV the ONLY record of x:
-            # foilsflash24R00_00 lost a finished 3.5 h eval to it (2026-07-26).
-            pp.write_text("\n".join([header] + kept) + "\n")
-            return True
+        return self.leaderboard_io().pending_remove(name)
 
 
 class JsonMode(BOMode):
     """The single driver class behind every JSON-defined mode.
 
     All the leaderboard/search-space/priors/x-recovery behaviour is
-    inherited: BOMode reads KNOB_NAMES, KNOB_FMTS, CALO_COL, format_row and
-    build_space straight from modes.SPECS, so a JSON spec gets them with no
-    code. Only the one abstract method needs filling.
+    inherited: BOMode reads KNOB_NAMES, KNOB_FMTS and build_space straight
+    from modes.SPECS, and leaderboard_io() builds a core/leaderboard.py
+    Leaderboard from the same spec, so a JSON spec gets them with no code.
+    Only the one abstract method needs filling.
     """
 
     def __init__(self, name: str):

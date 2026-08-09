@@ -5,9 +5,10 @@ Usage:
     PYTHONPATH= .venv/bin/python tests/golden_parity.py capture [a b c]
     PYTHONPATH= .venv/bin/python tests/golden_parity.py check   [a b c]
 
-(a) per-mode leaderboard round-trip: load_history_row -> format_row over
-    every live leaderboard; baseline = per-mode row counts, skip counts,
-    mismatch-index set, sha256 of regenerated lines. Pins reader+writer.
+(a) per-mode leaderboard round-trip: parse -> core/leaderboard.py's
+    Leaderboard formatter over every live leaderboard; baseline = per-mode
+    row counts, skip counts, mismatch-index set, sha256 of regenerated
+    lines. Pins reader+writer.
 (b) loader fingerprint: `botorch_predict._load_history_tensor("foilsflash")`
     on the frozen leaderboard copy, hashed (sha256 of X/Y tensor bytes +
     shapes + bounds + int_dims). Exact-compare only.
@@ -48,30 +49,32 @@ C_BASE = GOLDENS / "seam_replay_baseline.json"
 
 
 def _roundtrip_mode(name):
+    """Reader+writer parity pin over the on-disk leaderboard."""
     mode = bo.MODES[name]
     if not mode.leaderboard.exists():
         return None
+    lb = mode.leaderboard_io()
     raw_lines = mode.leaderboard.read_text().splitlines(keepends=True)
     regen, mismatches, skipped = [], [], 0
     with mode.leaderboard.open() as f:
         rows = list(DictReader(f, delimiter="\t"))
     for i, (row, raw) in enumerate(zip(rows, raw_lines[1:])):
         try:
-            p = mode.load_history_row(row)
+            p = bo.Point(cfg=row["config"],
+                        x=[float(row[c]) for c in lb.knob_names],
+                        sob=float(row[lb.metric_cols[0]]),
+                        calo=float(row[lb.metric_cols[1]]))
             alpha = float(row.get("alpha", bo.DEFAULT_ALPHA))
-            line = mode.format_row(p, alpha)[1]
+            line = lb._format_line(p, alpha)
         except (KeyError, ValueError):
             skipped += 1
             continue
         regen.append(line)
         if line != raw:
             mismatches.append(i)
-    header = mode.format_row(
-        bo.Point(cfg="x", x=[0.0] * len(mode.KNOB_NAMES), sob=0.0,
-                 calo=1.0), bo.DEFAULT_ALPHA)[0]
     return {
         "rows": len(rows), "skipped": skipped, "mismatch_idx": mismatches,
-        "header_matches_disk": header == raw_lines[0],
+        "header_matches_disk": lb.header() == raw_lines[0],
         "sha256": hashlib.sha256("".join(regen).encode()).hexdigest(),
     }
 

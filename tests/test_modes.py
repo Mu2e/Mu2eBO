@@ -103,35 +103,47 @@ class TestBoundsLockstep(unittest.TestCase):
                              tuple(bo.MODES[name].KNOB_NAMES), name)
 
     def test_leaderboard_row_roundtrips(self):
-        # format_row writes the leaderboard header + line; load_history_row
-        # must read exactly those columns back. This pins the KNOB_NAMES /
-        # header / CALO_COL contract the 2026-07-12 driver collapse introduced:
-        # a renamed knob column silently breaks reading EXISTING rows (dropped
-        # via load_history's except-continue). Round-trips build_space midpoints
-        # through format_row and back for every mode.
-        import csv
-        import io
+        # Leaderboard.append (core/leaderboard.py) writes the header + line;
+        # Leaderboard.load must read exactly those columns back. This pins
+        # the KNOB_NAMES / header / metric_cols contract the 2026-07-12
+        # driver collapse introduced: a renamed knob column silently broke
+        # reading EXISTING rows (now a loud RowParseError/SchemaMismatch
+        # instead of a swallowed KeyError -- see
+        # wiki/incidents/touched-leaderboard-headerless-history-loss.md).
+        # Round-trips build_space midpoints through append/load for every
+        # mode, each against its own scratch temp-dir copy (never the real
+        # leaderboards/*.tsv -- mode.leaderboard_io() is only consulted for
+        # its knob/metric column schema, not written to).
+        import tempfile
         import bo_driver as bo
-        extras = {"edep_per_POT_MeV": 1.2e-9, "peak_dose_Gy_per_POT": 3.4e-12,
-                  "peak_dose_plate_idx": 5}
         for name, mode in bo.MODES.items():
+            # leaderboard_io() caches onto the shared bo.MODES[name]
+            # singleton (same object across every test in this process);
+            # drop the cache afterward so a later test that patches
+            # modes.SPECS[name] and expects a fresh Leaderboard build
+            # (e.g. test_leaderboard_io_rejects_non4_metric_tail) doesn't
+            # silently get this test's cached instance back instead.
+            self.addCleanup(setattr, mode, "_lb_cache", None)
+            spec_lb = mode.leaderboard_io()
             x0 = []
             for d in mode.build_space():
                 if d.is_int:
                     x0.append(int(round((d.low + d.high) / 2)))
                 else:
                     x0.append((d.low + d.high) / 2.0)
-            p = bo.Point(cfg="RT01", x=x0, sob=3.21, calo=6.5e-7, extras=extras)
-            header, line = mode.format_row(p, alpha=1.0e5)
-            row = next(csv.DictReader(io.StringIO(header + line), delimiter="\t"))
-            back = mode.load_history_row(row)
+            p = bo.Point(cfg="RT01", x=x0, sob=3.21, calo=6.5e-7)
+            with tempfile.TemporaryDirectory() as td:
+                lb = bo.Leaderboard(
+                    path=Path(td) / f"leaderboard_bo_{name}.tsv", name=name,
+                    knob_names=spec_lb.knob_names,
+                    knob_fmts=spec_lb.knob_fmts,
+                    metric_cols=spec_lb.metric_cols)
+                lb.append(p, alpha=1.0e5)
+                [back] = lb.load()
             self.assertEqual(back.cfg, "RT01", name)
             self.assertEqual(len(back.x), len(x0), name)
             for got, want in zip(back.x, x0):
-                if isinstance(want, str):
-                    self.assertEqual(got, want, name)
-                else:
-                    self.assertAlmostEqual(float(got), float(want), places=3, msg=name)
+                self.assertAlmostEqual(float(got), float(want), places=3, msg=name)
 
     # test_prodtarget_tarball_matches_stage_config removed 2026-08-08:
     # modes._PRODTARGET_TARBALL and pipeline.STAGES["pot_only"] (the two
@@ -193,18 +205,30 @@ class TestSchemaFields(unittest.TestCase):
             self.assertEqual(mode.KNOB_FMTS, modes.SPECS[name].knob_fmts)
 
     def test_calo_col_derives_from_metric_cols(self):
-        import bo_driver as bo
-        self.assertEqual(bo.MODES["foilsflash"].CALO_COL, "flash_edep")
+        # CALO_COL (the BOMode property) was retired with format_row/
+        # load_history_row 2026-08-08 -- core/leaderboard.py's Leaderboard
+        # reads metric_cols[1] directly, so that's the fact worth pinning.
+        self.assertEqual(modes.SPECS["foilsflash"].metric_cols[1], "flash_edep")
 
-    def test_format_row_rejects_non4_metric_tail(self):
+    def test_leaderboard_io_rejects_non4_metric_tail(self):
+        # format_row's own 4-column-tail guard moved to
+        # Leaderboard.__post_init__ (core/leaderboard.py) with Tasks 4-5;
+        # leaderboard_io() is what constructs one from modes.SPECS, so that's
+        # the seam a malformed metric_cols must fail loudly at now.
         import dataclasses
         import bo_driver as bo
+        mode = bo.MODES["foilsflash"]
+        self.addCleanup(setattr, mode, "_lb_cache", None)
         bad = dataclasses.replace(modes.SPECS["foilsflash"],
                                   metric_cols=("sob", "calo", "obj"))
         with mock.patch.dict(modes.SPECS, {"foilsflash": bad}):
+            # Force a fresh Leaderboard build against the patched (bad)
+            # spec -- leaderboard_io() caches onto the shared bo.MODES
+            # singleton, so a valid instance left behind by an earlier test
+            # would otherwise be handed back unchecked.
+            mode._lb_cache = None
             with self.assertRaises(ValueError):
-                bo.MODES["foilsflash"].format_row(
-                    bo.Point(cfg="x", x=[0.0] * 6, sob=0.0, calo=1.0), 1.0)
+                mode.leaderboard_io()
 
 
 class TestGeomField(unittest.TestCase):

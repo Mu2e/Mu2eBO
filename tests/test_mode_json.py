@@ -95,14 +95,14 @@ class TestRejections(unittest.TestCase):
 
     # -- C1: columns[0] must be exactly "sob" ------------------------------
     def test_columns_first_entry_must_be_sob(self):
-        """Verified bug: any other first-column name is silently swallowed by
-        BOMode.load_history's `except (KeyError, ValueError): continue`,
-        yielding ZERO history rows and an eternal BO cold-start (Critical
-        finding #1)."""
+        """A naming-consistency guard (core/leaderboard.py's Leaderboard.load
+        reads row[metric_cols[0]] positionally, so a rename doesn't actually
+        break parsing) -- every leaderboards/*.tsv names its first metric
+        column 'sob' by convention and this spec-load check pins that."""
         self._expect_error(
             lambda d: d["leaderboard"].update(
                 {"columns": ["s_over_sqrt_b", "flash_edep", "alpha", "obj"]}),
-            "sob", "load_history_row")
+            "sob", "Leaderboard.load")
 
     # -- I4: run.stage_tuning keys are validated ----------------------------
     def test_stage_tuning_unknown_key_rejected(self):
@@ -174,10 +174,10 @@ class TestRejections(unittest.TestCase):
     # -- R1: knob fmt is validated the same way geom lines are --------------
     def test_knob_fmt_without_replacement_field_rejected(self):
         """Verified bug: fmt='75.0' (no replacement field) writes a CONSTANT
-        into every knob column of the leaderboard; load_history_row parses
-        it back as a valid float, so every past eval collapses to the same
-        point and the GP trains on garbage -- silently (R1 in the final
-        review)."""
+        into every knob column of the leaderboard; Leaderboard.load
+        (core/leaderboard.py) parses it back as a valid float, so every past
+        eval collapses to the same point and the GP trains on garbage --
+        silently (R1 in the final review)."""
         def mutate(d):
             d["knobs"][0]["fmt"] = "75.0"
         self._expect_error(mutate, "75.0", "replacement field")
@@ -275,10 +275,10 @@ class TestRejections(unittest.TestCase):
 
     # -- F11: a knob may not be named after a leaderboard column ------------
     def test_knob_named_after_the_sob_column_rejected(self):
-        """Verified: a knob named 'sob' makes format_row write a DUPLICATE
-        'sob' column; csv.DictReader keeps the last, so load_history_row
-        reads the METRIC into that knob coordinate and the GP trains on
-        garbage (F11)."""
+        """Verified: a knob named 'sob' makes Leaderboard.header/append
+        (core/leaderboard.py) write a DUPLICATE 'sob' column; csv.DictReader
+        keeps the last, so Leaderboard.load reads the METRIC into that knob
+        coordinate and the GP trains on garbage (F11)."""
         def mutate(d):
             d["knobs"][0]["name"] = "sob"
         self._expect_error(mutate, "sob", "reserved leaderboard column")
