@@ -1,0 +1,335 @@
+{
+  "name": "foilspfbw",
+  "note": "9D BORE-PARAMETERIZED sibling of foilspfbp at the same DEPLOYED foil pitch (extent PINNED 1066.666667 = 48 x 22.2222 mm). Two changes vs foilspfbp, both motivated by measurement on its 93 rows (2026-08-07):\n(1) THE HOLE IS NOW A DIRECT KNOB IN mm. foilspfbp parameterized the hole as a FRACTION f, so the physical bore was a PRODUCT rIn = f*rOut of two knobs -- and the bore is what actually drives the flash: Spearman(min bore, flash) = -0.83, beating BOTH of its own components (f_1 -0.78, rOut_1 -0.23). Worse, the product of two quadratics is a QUARTIC, so f-parameterization could not even express a clean bore profile. Here `bore_{0,1,2}` (mm) and ring width `w_{0,1,2}` (mm) are the knobs and rOut is DERIVED as bore+w. Because w >= 10 by construction, rIn < rOut ALWAYS -- the parameterization has no invalid region and needs no clamp (foilspfbp's f<=0.95 cap was itself a workaround for that, and it forbade thin rings at large radius -- exactly what the front kept reaching for).\n(2) rOut CEILING RAISED 120 -> 150 mm. On foilspfbp's 29-point Pareto front, 12-15 designs sat pinned at the 120 mm wall: the optimizer had been asking for more radius since campaign 1 and could not have it. 150 mm is MEASURED buildable -- local zero-overlap preflight on config RCLEAR150 (bp04R00_02's shape scaled 1.25x, bore unchanged) returned PASS with total_hits=0, unique_volumes=0, and all 49 foils verified against the as-built GDML. rOut = bore+w spans [10, 150].\nSEEDING: this leaderboard starts EMPTY and the mode COLD-STARTS. foilspfbp's rows are NOT transferable exactly -- its holeRadii were f_p(u)*rOut_p(u), a quartic in u, which no (bore_p, w_p) quadratic pair reproduces foil-by-foil. Converting control points would seed the GP with metrics measured on geometries it is not describing. foilspf01 cold-started to sob 4.09 in 16 evals, so the cold start is cheap; prefer it over approximate seeds. foilspfbp/foilspf/foilspf2k are UNCHANGED and keep their records.",
+  "software": {
+    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
+  },
+  "run": {
+    "stages": [
+      "mubeam",
+      "mustops_ce",
+      "elebeam_flash"
+    ],
+    "harvest": "harvest",
+    "jobs_per_stage": {
+      "mubeam": 15,
+      "mustops_ce": 15,
+      "elebeam_flash": 100
+    },
+    "presubmit_after": {
+      "mubeam": [
+        "elebeam_flash"
+      ]
+    },
+    "stage_tuning": {
+      "mubeam": {
+        "events_per_job": 200000,
+        "memory_mb": 2000,
+        "quorum": 0.8
+      },
+      "mustops_ce": {
+        "events_per_job": 75000,
+        "memory_mb": 2000,
+        "quorum": 0.8
+      },
+      "elebeam_flash": {
+        "events_per_job": 110000,
+        "memory_mb": 2000
+      }
+    }
+  },
+  "knobs": [
+    {
+      "name": "bore_0",
+      "min": 0.0,
+      "max": 90.0,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "bore_1",
+      "min": 0.0,
+      "max": 90.0,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "bore_2",
+      "min": 0.0,
+      "max": 90.0,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "w_0",
+      "min": 10.0,
+      "max": 60.0,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "w_1",
+      "min": 10.0,
+      "max": 60.0,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "w_2",
+      "min": 10.0,
+      "max": 60.0,
+      "fmt": "{:.4f}"
+    },
+    {
+      "name": "hT_0",
+      "min": 0.01,
+      "max": 0.15,
+      "fmt": "{:.6f}"
+    },
+    {
+      "name": "hT_1",
+      "min": 0.01,
+      "max": 0.15,
+      "fmt": "{:.6f}"
+    },
+    {
+      "name": "hT_2",
+      "min": 0.01,
+      "max": 0.15,
+      "fmt": "{:.6f}"
+    }
+  ],
+  "int_dims": [],
+  "leaderboard": {
+    "file": "leaderboards/leaderboard_bo_foilspfbw.tsv",
+    "columns": [
+      "sob",
+      "flash_edep",
+      "alpha",
+      "obj"
+    ],
+    "obs_noise": [
+      0.006,
+      0.01
+    ],
+    "metrics": {
+      "sob": [
+        "s_over_sqrt_b"
+      ],
+      "flash_edep": [
+        "flash_edep_per_pot",
+        "flash_edep_per_event"
+      ]
+    }
+  },
+  "preflight": {
+    "dumps_gdml": true,
+    "verifies_foil_gdml": true,
+    "preserves_gdml": false,
+    "checks_managed_overlap": true,
+    "require_zero_overlaps": true
+  },
+  "geom": {
+    "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+    "consts": {
+      "n_foils": 49,
+      "z0": 5871.0,
+      "ipa_dist_deployed": 625.0,
+      "span_deployed": 800.0,
+      "extent": 1066.666667
+    },
+    "derived": {
+      "deltaZ": "extent / 48",
+      "ipa_dist": "ipa_dist_deployed - (extent - span_deployed) / 2"
+    },
+    "profiles": {
+      "bore_p": {
+        "count": "n_foils",
+        "control": [
+          "bore_0",
+          "bore_1",
+          "bore_2"
+        ],
+        "clip": [
+          0.0,
+          90.0
+        ]
+      },
+      "w_p": {
+        "count": "n_foils",
+        "control": [
+          "w_0",
+          "w_1",
+          "w_2"
+        ],
+        "clip": [
+          10.0,
+          60.0
+        ]
+      },
+      "hT_p": {
+        "count": "n_foils",
+        "control": [
+          "hT_0",
+          "hT_1",
+          "hT_2"
+        ],
+        "clip": [
+          0.01,
+          0.15
+        ]
+      }
+    },
+    "lines": [
+      {
+        "comment": "=== foilspfbw (9D BORE-parameterized) === {n_foils} free foils at the deployed pitch"
+      },
+      {
+        "comment": "bore  profile: {bore_0:.2f} -> {bore_1:.2f} -> {bore_2:.2f} mm  (rIn_i, the CLEAR BORE, direct in mm)"
+      },
+      {
+        "comment": "width profile: {w_0:.2f} -> {w_1:.2f} -> {w_2:.2f} mm  (ring width; rOut_i = bore_i + w_i, so rIn < rOut ALWAYS)"
+      },
+      {
+        "comment": "hT    profile: {hT_0:.4f} -> {hT_1:.4f} -> {hT_2:.4f} mm"
+      },
+      {
+        "comment": "rOut spans [10, 150] mm. The 150 ceiling is MEASURED buildable: RCLEAR150 preflight PASS, total_hits=0, 49/49 foils GDML-verified (2026-08-07). Deployed reference for scale: 37 foils, rOut 75 flat, bore 21.5 flat."
+      },
+      {
+        "comment": "extent {extent:.1f} mm over 48 gaps -> deltaZ {deltaZ:.6f} mm; centre pinned at z0 {z0:.1f}"
+      },
+      {
+        "comment": "extent is PINNED at 1066.666667 here (geom const, not a knob) = 48 x 22.2222 mm, the DEPLOYED foil pitch -- see this file's `note`. This sits INSIDE the original certified zero-overlap corridor (worst-corner preflight PASS at 0 overlaps for 1100, measured 2026-08-02), so no corridor caveats apply. Do NOT turn extent back into a knob here: the designed extent scan (foilspfSCAN*, 2026-08-03) closed the length question."
+      },
+      {
+        "comment": "protonabsorber.distFromTargetEnd {ipa_dist:.3f} (stock 625). Offline places the IPA at targetEnd+distFromTargetEnd -- i.e. RELATIVE to the stopping target -- but the IPA is fixed hardware at z=6901-7901. Without this compensation a longer target slides the absorber the same distance downstream as a RIGID body (length is unchanged: pabs1halflen saturates at the protonabsorber.halfLength=500 cap), which both mis-simulates real in-beam material and pushes its support wires out of DS2Vacuum. This holds the absorber at its true absolute position for any extent; at extent 800 it returns the stock 625 exactly. Measured with protonabsorber.verbosityLevel=1: 6901.02-7901.02 at extent 400, 800 and 1100, identical to stock."
+      },
+      {
+        "comment": "EMC_Source relocated 5300 -> 5000 (2026-07-31) -> 4850 (2026-08-02). It is a 20um disc of ds.vacuumMaterial (vd.halfLength=0.01) -- ZERO mass, no scattering, no absorption -- and NO foils-family stage reads virtual detectors (only pot_only instantiates ReadVirtualDetector), so moving it is physics-neutral. Kept identical to the foilspf/foilspf2k siblings (harmless at this extent: the stack's upstream edge is 5337.7, nearly 500mm clear) so the three specs stay byte-comparable outside their extent lines. zEMCSourceInMu2e is a plain c.getDouble default at VirtualDetectorMaker.cc:189."
+      },
+      {
+        "key": "zEMCSourceInMu2e",
+        "type": "double",
+        "value": 4850.0
+      },
+      {
+        "key": "protonabsorber.distFromTargetEnd",
+        "type": "double",
+        "expr": "ipa_dist",
+        "fmt": "{:.6f}"
+      },
+      {
+        "comment": "protonabsorber.zStartInMu2e 6901.02: ABSOLUTE pin, authoritative under the patched GeometryService (maker substitutes targetEnd = zStartInMu2e - distFromTargetEnd, so placement is 6901.02 exactly; see docs/superpowers/specs/2026-07-31-ipa-absolute-position-design.md). The distFromTargetEnd expression above STAYS as the fail-safe: an unpatched lib ignores this key and the expression alone still places the absorber at 6901.02 (cylindrical IPA, OutRadius0 == OutRadius1 == 300.5, so the two routes are degenerate). Consistency pinned by tests/test_foilspf_spec.py."
+      },
+      {
+        "key": "protonabsorber.zStartInMu2e",
+        "type": "double",
+        "value": 6901.02
+      },
+      {
+        "key": "hasTSdA",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "key": "tsda.helical.build",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "key": "stoppingTarget.z0InMu2e",
+        "type": "double",
+        "expr": "z0",
+        "fmt": "{:.4f}"
+      },
+      {
+        "key": "stoppingTarget.deltaZ",
+        "type": "double",
+        "expr": "deltaZ",
+        "fmt": "{:.6f}"
+      },
+      {
+        "key": "stoppingTarget.radii",
+        "type": "vector<double>",
+        "fmt": "{:.4f}",
+        "per_index": {
+          "count": "n_foils",
+          "expr": "bore_p[i] + w_p[i]"
+        }
+      },
+      {
+        "key": "stoppingTarget.halfThicknesses",
+        "type": "vector<double>",
+        "fmt": "{:.6f}",
+        "per_index": {
+          "count": "n_foils",
+          "expr": "hT_p[i]"
+        }
+      },
+      {
+        "comment": "POISON PILL: an unpatched StoppingTargetMaker ignores holeRadii and reads"
+      },
+      {
+        "comment": "this scalar. 1e6 forces a loud G4Tubs crash instead of a silently uniform"
+      },
+      {
+        "comment": "stack -- emitting a 'sensible' scalar is how 62 foilsg rows were lost."
+      },
+      {
+        "key": "stoppingTarget.holeRadius",
+        "type": "double",
+        "raw": "1.0e6"
+      },
+      {
+        "key": "stoppingTarget.holeRadii",
+        "type": "vector<double>",
+        "fmt": "{:.4f}",
+        "per_index": {
+          "count": "n_foils",
+          "expr": "bore_p[i]"
+        }
+      },
+      {
+        "comment": "Degrader parked at 120 deg (mmackenz hardware detent)"
+      },
+      {
+        "key": "degrader.build",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "key": "degrader.rotation",
+        "type": "double",
+        "value": 120.0
+      },
+      {
+        "key": "ts.coll5.material1Name",
+        "type": "string",
+        "value": "COL5Poly"
+      },
+      {
+        "comment": "TT_MidInner -> DS2Vacuum workaround REMOVED 2026-07-28 (Run1Bap migration) -- see mode_specs/foilsflash.json for the full mechanism. Short version: v13_12_10 parented tracker VDs on `isDumbbell` so they landed in DS2Vacuum while the tracker sat in DS3Vacuum (GeomMgt0002 fatal); the override forced agreement. v13_32_10 keys VD parenting on !tracker.inDS2Vacuum, making stock self-consistent -- and keeping the override is what held the last EMC_0_Front overlap."
+      },
+      {
+        "key": "ds.hasServicePipes",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "comment": "Overlap-suppression (foil-support off + rail shrink)"
+      },
+      {
+        "key": "stoppingTarget.foilTarget_supportStructure",
+        "type": "bool",
+        "value": false
+      },
+      {
+        "key": "ds.lengthRail2",
+        "type": "double",
+        "value": 0.1
+      },
+      {
+        "key": "ds.lengthRail3",
+        "type": "double",
+        "value": 0.1
+      }
+    ]
+  }
+}
