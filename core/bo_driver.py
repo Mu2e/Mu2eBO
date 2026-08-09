@@ -936,6 +936,19 @@ def cmd_preflight(args):
     return rc
 
 
+def cmd_pending_prune(args):
+    mode = MODES[args.mode]
+    removed = mode.leaderboard_io().pending_prune(
+        older_than_h=args.older_than_hours)
+    if removed:
+        print(f"[{mode.name}] pruned {len(removed)} stale pending row(s): "
+              + ", ".join(removed))
+    else:
+        print(f"[{mode.name}] nothing stale "
+              f"(threshold {args.older_than_hours:.0f}h)")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -966,6 +979,13 @@ def main():
                        help="Write the typed verdict JSON to this path "
                             "(graph seam; tmp+rename atomic)")
     p_pre.set_defaults(func=cmd_preflight)
+
+    p_prune = sub.add_parser(
+        "pending-prune",
+        help="Delete pending rows older than a threshold (never automatic; "
+             "this is the command the stale-row warning points at)")
+    p_prune.add_argument("--older-than-hours", type=float, default=48.0)
+    p_prune.set_defaults(func=cmd_pending_prune)
 
     args = ap.parse_args()
     sys.exit(args.func(args))

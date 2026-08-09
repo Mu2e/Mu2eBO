@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from contextlib import redirect_stderr
 from pathlib import Path
 
@@ -153,6 +154,24 @@ class TestPending(unittest.TestCase):
         self.assertTrue(self.lb.pending_path()
                         .with_name(self.lb.pending_path().name
                                    + ".quarantine.tsv").exists())
+
+
+class TestPendingPruneCmd(unittest.TestCase):
+    def test_cmd_pending_prune_prints_and_prunes(self):
+        import types
+        import bo_driver as bo
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            lb = make_lb(tmp)
+            lb.pending_add("old01", [1.0, 2.0], alpha=1.0)
+            mode = next(iter(bo.MODES.values()))
+            with unittest.mock.patch.object(
+                    type(mode), "leaderboard_io", return_value=lb):
+                args = types.SimpleNamespace(
+                    mode=mode.name, older_than_hours=-1.0)  # everything stale
+                rc = bo.cmd_pending_prune(args)
+                self.assertEqual(rc, 0)
+                self.assertEqual(lb.pending_load(), [])  # row actually pruned
 
 
 if __name__ == "__main__":
