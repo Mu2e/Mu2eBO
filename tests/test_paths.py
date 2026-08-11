@@ -59,8 +59,15 @@ class TestPathsResolution(unittest.TestCase):
 
     def test_unset_user_raises_instead_of_inventing_a_path(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(paths.PathsError) as cm:
+            # NOTE: assertRaises(paths.PathsError) does NOT work here.
+            # importlib.reload re-executes the module, rebinding PathsError to
+            # a NEW class object, so the class captured when assertRaises was
+            # entered is not the class the reloaded code raises. Match on the
+            # name instead of the identity; the module stays free of test
+            # machinery.
+            with self.assertRaises(Exception) as cm:
                 importlib.reload(paths)
+        self.assertEqual(type(cm.exception).__name__, "PathsError")
         self.assertIn("AUTORESEARCH_DATA_ROOT", str(cm.exception))
 
     def test_import_does_not_require_exp_mu2e_to_exist(self):

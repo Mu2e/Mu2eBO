@@ -4,10 +4,12 @@ Stdlib only, and it imports nothing from the rest of the project, so the
 botorch venv subprocess and the test suite can import it with no path games
 (the same rule core/leaderboard.py follows).
 
-Resolution is string math. Importing this module performs exactly one lstat
-(the `backing` symlink probe), never requires /exp/mu2e to exist, and never
-raises for a missing path. Only artifact() and verify() stat beyond that --
-which is what keeps the suite green on a machine with no /exp/mu2e.
+Resolution is string math over the environment. Importing this module never
+raises for a missing path and never requires /exp/mu2e to exist. The only
+filesystem access at import is canonicalising this file's own location and a
+single lstat probe of the `backing` symlink; nothing under DATA_ROOT or
+ARTIFACT_ROOT is touched. Only artifact() and verify() stat those -- which is
+what keeps the suite green on a machine with no /exp/mu2e.
 
 Layout borrowed from Mu2e's own build system (see museSetup.sh /
 museBacking.sh on cvmfs): location is identity, a `backing` link supplies
@@ -22,24 +24,8 @@ import os
 from pathlib import Path
 
 
-if "PathsError" not in globals():
-    # Guarded so identity survives importlib.reload(): the test suite
-    # reloads this module under mock.patch.dict(os.environ, ...) to vary
-    # DATA_ROOT/ARTIFACT_ROOT per-test, and captures `paths.PathsError`
-    # BEFORE triggering a reload that raises it (see
-    # test_unset_user_raises_instead_of_inventing_a_path). Reload re-executes
-    # this module's top-level code in the SAME namespace, so an unguarded
-    # `class PathsError(RuntimeError): ...` statement rebinds the name to a
-    # brand-new class object every time -- unrelated to the one the test
-    # already captured, so `assertRaises(paths.PathsError)` cannot catch an
-    # instance raised by the reloaded module (confirmed empirically: two
-    # reloads produce two distinct class objects, not subclasses of each
-    # other). Guarding on first-definition-only keeps one class object for
-    # the life of the process, matching every other module in this project
-    # that is never reloaded in production -- reload is purely a test
-    # technique here.
-    class PathsError(RuntimeError):
-        """A root could not be resolved, or verify() found a missing input."""
+class PathsError(RuntimeError):
+    """A root could not be resolved, or verify() found a missing input."""
 
 
 # Deliberately NOT configurable: this is not a preference, it is where the
