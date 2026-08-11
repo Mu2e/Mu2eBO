@@ -40,8 +40,8 @@ class TestPathsResolution(unittest.TestCase):
 
     def test_data_root_defaults_to_the_users_data_volume(self):
         p = reload_with()
-        self.assertEqual(p.DATA_ROOT, Path("/exp/mu2e/data/users/testuser"))
-        self.assertEqual(p.ARTIFACT_ROOT, Path("/exp/mu2e/app/users/testuser"))
+        self.assertEqual(p.DATA_ROOT, Path("/exp/mu2e/data/users/testuser"))  # personal-path-ok: synthetic account name from reload_with()
+        self.assertEqual(p.ARTIFACT_ROOT, Path("/exp/mu2e/app/users/testuser"))  # personal-path-ok: same synthetic account name
 
     def test_env_override_beats_the_user_default(self):
         p = reload_with(AUTORESEARCH_DATA_ROOT="/scratch/d",

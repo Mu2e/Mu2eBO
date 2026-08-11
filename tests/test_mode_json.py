@@ -328,7 +328,7 @@ class TestRejections(unittest.TestCase):
     def test_personal_absolute_path_is_rejected(self):
         self._expect_error(
             lambda d: d["software"].update(
-                {"musing": "/exp/mu2e/app/users/somebody/x/setup.sh"}),
+                {"musing": "/exp/mu2e/app/users/somebody/x/setup.sh"}),  # personal-path-ok: synthetic account name, proving the rejection works
             "${ARTIFACT}")
 
     def test_leaderboards_colliding_on_basename_are_rejected(self):
