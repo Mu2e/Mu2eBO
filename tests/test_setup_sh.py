@@ -66,6 +66,21 @@ class TestSetupSh(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertFalse((ROOT / "backing").is_symlink())
 
+    def test_sourcing_does_not_leak_shell_options(self):
+        # `set -u`/`pipefail` applied while sourced would persist in the
+        # operator's interactive shell for the rest of the session.
+        script = ("shopt -po nounset pipefail; "
+                  "source ./setup.sh >/dev/null 2>&1; "
+                  "echo ---; "
+                  "shopt -po nounset pipefail")
+        e = dict(os.environ)
+        e.pop("PYTHONPATH", None)
+        r = subprocess.run(["bash", "-c", script], cwd=str(ROOT),
+                           capture_output=True, text=True, env=e)
+        before, after = r.stdout.split("---")
+        self.assertEqual(before.split(), after.split(),
+                         msg="sourcing setup.sh changed the caller's shell options")
+
 
 if __name__ == "__main__":
     unittest.main()
