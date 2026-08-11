@@ -16,7 +16,7 @@ Spec: `docs/superpowers/specs/2026-08-11-portable-paths-design.md`.
 - **Importing `core/paths.py` never raises for a missing path and never requires `/exp/mu2e` to exist.** It performs exactly one `lstat` (the `backing` symlink probe). Only `artifact()` and `verify()` stat beyond that.
 - **The full suite must stay green with no `AUTORESEARCH_*` variable set.** Baseline as of 2026-08-11: `Ran 422 tests ... OK (skipped=1)`.
 - **Test command:** `PYTHONPATH= .venv/bin/python -m unittest discover -s tests`. The leading blank `PYTHONPATH=` is required — it clears what a sourced Mu2e/cvmfs environment leaves behind. Single file: `PYTHONPATH= .venv/bin/python -m unittest discover -s tests -p "test_paths.py"`.
-- **Golden parity must still pass:** `PYTHONPATH= .venv/bin/python tests/golden_parity.py check` (manual, not in discover).
+- **Golden parity — gate on `[b]` and `[c]` only.** Run `PYTHONPATH= .venv/bin/python tests/golden_parity.py check` (manual, not in discover) and require `[b] history tensor fingerprint: OK` and the `[c]` seam replay stage to stay green. **`[a] round-trip parity` is EXEMPT and is expected to report MISMATCH** — it reads the *live* leaderboards, which have grown ~200 rows since the golden was captured at `eeb8cb6`, so it fails identically on an untouched checkout. Do not "fix" it and do not re-baseline it; the operator has an open investigation into `tests/goldens/parity_a_baseline.json`. The overall command therefore exits 1 even when your work is correct — judge by the `[b]`/`[c]` lines, not the exit code. (Operator ruling, 2026-08-11.)
 - **Zero behaviour change for the current operator.** With `$USER=oksuzian` and no overrides, every resolved path must be byte-identical to today's literal. Task 4 has an explicit before/after diff step proving it.
 - **Do not commit `wiki/` edits** — project convention is that they stay uncommitted for operator review. Do not `git push`. Stage explicit paths only; never `git add -A`/`-u`/`.`.
 - **Commit trailers** (every commit in this plan):
@@ -578,7 +578,7 @@ Expected: `OK (skipped=1)`, same count as after Task 1 plus the 2 new tests.
 PYTHONPATH= .venv/bin/python tests/golden_parity.py check
 ```
 
-Expected: PASS. If it fails, the geometry renderers are reading a path they should not — stop and report.
+Expected: `[b]`/`[c]` green. `[a]` MISMATCH is expected (see Global Constraints). If `[b]` or `[c]` breaks, the geometry renderers or the history path are reading something they should not — stop and report.
 
 - [ ] **Step 11: Commit**
 
@@ -764,7 +764,7 @@ PYTHONPATH= .venv/bin/python -m unittest discover -s tests 2>&1 | grep -E "^Ran|
 PYTHONPATH= .venv/bin/python tests/golden_parity.py check
 ```
 
-Expected: `OK (skipped=1)` and golden parity PASS.
+Expected: `OK (skipped=1)` and golden parity `[b]`/`[c]` green (`[a]` MISMATCH is expected — see Global Constraints).
 
 - [ ] **Step 8: Commit**
 
@@ -1430,7 +1430,7 @@ PYTHONPATH= .venv/bin/python -m unittest discover -s tests 2>&1 | grep -E "^Ran|
 PYTHONPATH= .venv/bin/python tests/golden_parity.py check
 ```
 
-Expected: `OK (skipped=1)` and golden parity PASS. A failure mentioning unexpected leaderboard rows means an override site was missed — re-check Steps 6-8 against the list in **Files**.
+Expected: `OK (skipped=1)` and golden parity `[b]`/`[c]` green (`[a]` MISMATCH is expected — see Global Constraints). A failure mentioning unexpected leaderboard rows means an override site was missed — re-check Steps 6-8 against the list in **Files**.
 
 - [ ] **Step 10: Verify the live board reads the real archive**
 
@@ -2125,7 +2125,7 @@ PYTHONPATH= .venv/bin/python -m unittest discover -s tests 2>&1 | grep -E "^Ran|
 PYTHONPATH= .venv/bin/python tests/golden_parity.py check
 ```
 
-Expected: `OK (skipped=1)` and golden parity PASS. Note the README and `requirements.txt` are outside the scanned dirs, so the grep test does not enforce Steps 3-5 — check them by eye:
+Expected: `OK (skipped=1)` and golden parity `[b]`/`[c]` green (`[a]` MISMATCH is expected — see Global Constraints). Note the README and `requirements.txt` are outside the scanned dirs, so the grep test does not enforce Steps 3-5 — check them by eye:
 
 ```bash
 grep -n "oksuzian" README.md requirements.txt
