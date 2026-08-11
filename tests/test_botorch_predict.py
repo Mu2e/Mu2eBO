@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+import torch  # noqa: E402
 import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 
@@ -174,6 +175,55 @@ class TestComputeExplorePicks(unittest.TestCase):
             self.assertEqual(len(picks), 1)
             self.assertEqual(len(picks[0]), 6)
             self.assertTrue(in_bounds(picks[0]))
+
+    def test_budget_sob_picks_respect_the_damage_constraint(self):
+        # budget_sob must return in-bounds picks whose PREDICTED flash sits at
+        # or below the budget -- the property the whole picker exists for. A
+        # stub posterior stands in for a GP fit: sob rises with x[0] while
+        # -log10(flash) FALLS with it, so the unconstrained argmax is exactly
+        # the over-budget corner pareto_sob would have taken.
+        thr = -math.log10(bp.DEP_FLASH_PER_POT)
+
+        class _Post:
+            def __init__(self, X):
+                u = (X[:, :1] - 30.0) / 120.0          # ~[0,1] over the rOut box
+                self.mean = torch.cat([3.0 + 2.0 * u, thr + 0.30 - 0.60 * u], dim=-1)
+                self.variance = torch.full_like(self.mean, 1e-6)
+
+        class _Model:
+            def posterior(self, X):
+                return _Post(X)
+
+        bounds = torch.tensor([[30.0] * 3, [150.0] * 3])
+        picks = bp._budget_sob_picks(_Model(), bounds, q=4, round_idx=0)
+        self.assertEqual(len(picks), 4)
+        post = _Post(picks)
+        # every pick predicted at or below the budget (k=1 sigma, sigma ~ 0)
+        self.assertTrue(bool((post.mean[:, 1] >= thr).all()),
+                        "budget_sob returned a pick predicted OVER the damage budget")
+        # and it still maximizes sob: picks sit near the constraint, not at the
+        # low-sob end of the feasible region
+        self.assertGreater(float(post.mean[:, 0].max()), 3.9)
+
+    def test_budget_sob_refuses_when_nothing_is_feasible(self):
+        # If the GP believes no point in the box can meet the budget, submitting
+        # picks anyway would burn a 40-eval round on rows that answer nothing.
+        thr = -math.log10(bp.DEP_FLASH_PER_POT)
+
+        class _Post:
+            def __init__(self, X):
+                n = X.shape[0]
+                self.mean = torch.cat(
+                    [torch.full((n, 1), 4.0), torch.full((n, 1), thr - 1.0)], dim=-1)
+                self.variance = torch.full_like(self.mean, 1e-6)
+
+        class _Model:
+            def posterior(self, X):
+                return _Post(X)
+
+        bounds = torch.tensor([[30.0] * 3, [150.0] * 3])
+        with self.assertRaises(SystemExit):
+            bp._budget_sob_picks(_Model(), bounds, q=2, round_idx=0)
 
     def test_main_emits_picks_json(self):
         with tempfile.TemporaryDirectory() as tmp:

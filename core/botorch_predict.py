@@ -479,6 +479,127 @@ def _pareto_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None):
     return Xs[torch.tensor(picks[:q])].detach()
 
 
+# The DEPLOYED stopping target's damage, in MeV/POT. This is the deployment
+# constraint line, not a tuning knob: a design at or below it is buildable at
+# today's radiation budget, one above it is not, however high its significance.
+# Env-overridable so a different scenario (or a re-measured baseline) can move
+# the line without a code edit.
+DEP_FLASH_PER_POT = float(os.environ.get("AUTORESEARCH_FLASH_BUDGET", "6.85443e-7"))
+# Feasibility margin, in posterior sigmas, for the budget_sob constraint.
+# k=0 constrains the posterior MEAN (~50% of picks land over budget once
+# measured); k=1 asks for ~84% feasibility at the cost of aiming slightly
+# under the line. Tunable because the right trade depends on how much of the
+# round you are willing to spend on rows that turn out unbuildable.
+BUDGET_SOB_K_SIGMA = float(os.environ.get("AUTORESEARCH_BUDGET_KSIGMA", "1.0"))
+
+
+def _budget_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None,
+                      flash_budget: float | None = None,
+                      k_sigma: float | None = None):
+    """Return the q highest-sob points the GP believes stay INSIDE the damage budget.
+
+    The deployment-facing sibling of _pareto_sob_picks. That picker maximizes
+    sob outright and therefore walks off to +60% damage, which is exactly what
+    happened over three exploit rounds: a 4.41 record that cannot be built.
+    This one maximizes the same posterior-mean sob subject to a constraint on
+    the SECOND objective, so every pick is aimed at a design that could
+    actually be deployed.
+
+    The constraint. Y[:,1] is -log10(flash per POT) and botorch maximizes it,
+    so "flash <= budget" is the lower bound Y1 >= -log10(budget). We require
+
+        mean_1 - k*sigma_1  >=  -log10(flash_budget)
+
+    i.e. feasibility at roughly the k-sigma level rather than on the mean
+    alone, because a pick whose TRUE damage lands above the line contributes
+    nothing to the deployment question. Since sob is still being maximized,
+    the batch naturally presses right up against the constraint from below --
+    which is where the interesting designs are.
+
+    Why this is worth a round: "best-at-budget stalled at 4.00" was measured by
+    campaigns whose acquisition (qNEHVI hypervolume, or pure max-sob) never
+    aimed at the budget line. Saturation is acquisition-relative
+    (wiki/concepts/saturation-is-acquisition-relative.md) -- the same reasoning
+    that made the max-sob exploit rounds break a supposed ceiling twice. The
+    budget corner has never had a dedicated exploit round.
+
+    x_pending (k, d): in-flight evals, seeding the min-distance filter exactly
+    as in _pareto_sob_picks (NOT returned).
+    """
+    from scipy.stats import qmc
+
+    budget = DEP_FLASH_PER_POT if flash_budget is None else float(flash_budget)
+    k = BUDGET_SOB_K_SIGMA if k_sigma is None else float(k_sigma)
+    thr = -math.log10(budget)
+
+    N = 16384
+    seed = _seed(round_idx)
+    d = bounds.shape[-1]
+    unit = qmc.Sobol(d=d, scramble=True, seed=seed).random(N)
+    lo = bounds[0].cpu().numpy()
+    hi = bounds[1].cpu().numpy()
+    Xs = torch.tensor(lo + unit * (hi - lo), dtype=bounds.dtype, device=bounds.device)
+    with torch.no_grad():
+        post = model.posterior(Xs)
+        mean = post.mean                      # (N, 2), un-standardized
+        std = post.variance.clamp_min(0).sqrt()
+    sob = mean[:, 0]
+    feas_margin = mean[:, 1] - k * std[:, 1]
+
+    # Relax the margin rather than return an empty batch: if the GP thinks
+    # almost nothing is k-sigma-feasible, a smaller k still answers the
+    # question, and returning 0 picks would silently stall the campaign.
+    used_k = k
+    feasible = feas_margin >= thr
+    for relaxed in (k * 0.5, 0.0):
+        if int(feasible.sum()) >= q:
+            break
+        used_k = relaxed
+        feasible = (mean[:, 1] - relaxed * std[:, 1]) >= thr
+    n_feas = int(feasible.sum())
+    if used_k != k:
+        print(f"[botorch_predict] budget_sob: only {int((feas_margin >= thr).sum())} "
+              f"candidates at k={k}sigma; relaxed to k={used_k}sigma "
+              f"({n_feas} candidates)", flush=True)
+    if n_feas == 0:
+        raise SystemExit(
+            "[botorch_predict] budget_sob: GP predicts NO point in the search box "
+            f"with flash <= {budget:.3e} MeV/POT. Either the budget is wrong or the "
+            "box has moved off the feasible region; refusing to submit blind picks.")
+
+    idx_feas = torch.nonzero(feasible, as_tuple=False).squeeze(-1)
+    order = idx_feas[torch.argsort(sob[idx_feas], descending=True)]
+    norm = (Xs - bounds[0]) / (bounds[1] - bounds[0])
+    avoid = []
+    if x_pending is not None and len(x_pending):
+        avoid = list((x_pending - bounds[0]) / (bounds[1] - bounds[0]))
+    picks: list[int] = []
+    for idx in order.tolist():
+        if len(picks) >= q:
+            break
+        dmin = min((float((norm[idx] - a).pow(2).sum().sqrt()) for a in avoid),
+                   default=float("inf"))
+        if dmin >= PARETO_SOB_MIN_SPACING:
+            picks.append(idx)
+            avoid.append(norm[idx])
+    # Top up ONLY from the feasible set -- topping up from `order` over all
+    # candidates (as pareto_sob may) would leak over-budget picks into a batch
+    # whose entire purpose is to stay under the line.
+    if len(picks) < q:
+        for idx in order.tolist():
+            if idx not in picks:
+                picks.append(idx)
+            if len(picks) >= q:
+                break
+    sel = torch.tensor(picks[:q])
+    print(f"[botorch_predict] budget_sob: {n_feas}/{N} candidates feasible at "
+          f"k={used_k}sigma (flash <= {budget:.3e}); picked q={len(sel)}, "
+          f"predicted sob {float(sob[sel].min()):.3f}-{float(sob[sel].max()):.3f}, "
+          f"predicted flash {10**-float(mean[sel, 1].max()):.3e}-"
+          f"{10**-float(mean[sel, 1].min()):.3e}", flush=True)
+    return Xs[sel].detach()
+
+
 def compute_explore_picks(q: int = 5,
                           mode: str = "foils",
                           round_idx: int = 0,
@@ -491,7 +612,9 @@ def compute_explore_picks(q: int = 5,
     (single-objective qLogNoisyExpectedImprovement on sob only — drops calo
     entirely; closed_loop stamps AUTORESEARCH_NO_RUN1B=1 so the DS-off stage
     is skipped and the grid time is actually saved), "pareto_sob"
-    (GP-mean sob corner), "qnparego"
+    (GP-mean sob corner), "budget_sob" (GP-mean sob corner CONSTRAINED to
+    flash <= the deployed damage budget — the deployment-facing exploit),
+    "qnparego"
     (qLogNEI over random Chebyshev scalarizations — spreads across the whole
     front) or "hybrid" (~60% qnehvi + ~40% qnparego; recommended for new
     multi-objective lines). qnparego/hybrid use the same 2-objective path as
@@ -526,6 +649,9 @@ def compute_explore_picks(q: int = 5,
     elif picker == "pareto_sob":
         cands = _pareto_sob_picks(model, bounds, q=q, round_idx=round_idx,
                                   x_pending=pend)
+    elif picker == "budget_sob":
+        cands = _budget_sob_picks(model, bounds, q=q, round_idx=round_idx,
+                                  x_pending=pend)
     elif picker == "qnparego":
         cands = _qnparego_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
                                 x_pending=pend)
@@ -548,7 +674,8 @@ def main(argv=None):
     ap.add_argument("--round-idx", type=int, default=0,
                     help="Round index; seeds MC sampler (default 0)")
     ap.add_argument("--picker",
-                    choices=("qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid"),
+                    choices=("qnehvi", "qlnei", "pareto_sob", "budget_sob",
+                             "qnparego", "hybrid"),
                     default="qnehvi",
                     help="qnehvi = multi-obj Pareto-HV (default); "
                          "qlnei = single-obj qLogNoisyEI on sob only; "
