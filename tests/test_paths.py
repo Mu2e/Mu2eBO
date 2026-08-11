@@ -197,5 +197,55 @@ class TestDataRootsHaveOneDefinition(unittest.TestCase):
                          Path("/scratch/d/autoresearch_grid"))
 
 
+class FakeSpec:
+    def __init__(self, name, musing, grid_tarball):
+        self.name, self.musing, self.grid_tarball = name, musing, grid_tarball
+
+
+class TestVerify(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._td.name)
+
+    def tearDown(self):
+        self._td.cleanup()
+        importlib.reload(paths)
+
+    def test_passes_when_every_artifact_exists(self):
+        setup = self.tmp / "setup_local.sh"
+        tarball = self.tmp / "Code.tar.bz2"
+        setup.write_text("")
+        tarball.write_text("")
+        p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
+        p.verify([FakeSpec("m", str(setup), str(tarball))])
+
+    def test_creates_the_three_data_dirs(self):
+        setup = self.tmp / "s.sh"
+        setup.write_text("")
+        p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
+        p.verify([FakeSpec("m", str(setup), str(setup))])
+        self.assertTrue(p.GRID_DATA_ROOT.is_dir())
+        self.assertTrue(p.GRAPH_DATA.is_dir())
+        self.assertTrue(p.LEADERBOARD_LIVE.is_dir())
+
+    def test_missing_artifact_names_the_remediation_command(self):
+        p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
+        with self.assertRaises(paths.PathsError) as cm:
+            p.verify([FakeSpec("m", str(self.tmp / "gone.sh"),
+                               str(self.tmp / "gone.tar.bz2"))])
+        msg = str(cm.exception)
+        self.assertIn("setup.sh --backing", msg)
+        self.assertIn("gone.sh", msg)
+        self.assertIn("m", msg)
+
+    def test_make_dirs_false_does_not_create_anything(self):
+        setup = self.tmp / "s.sh"
+        setup.write_text("")
+        p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
+        p.verify([FakeSpec("m", str(setup), str(setup))], make_dirs=False)
+        self.assertFalse(p.GRID_DATA_ROOT.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

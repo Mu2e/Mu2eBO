@@ -115,3 +115,40 @@ def leaderboard_live(rel: str) -> Path:
     the basename survives -- which is why core/mode_json.py enforces
     uniqueness on the basename rather than the whole relative path."""
     return LEADERBOARD_LIVE / _relative(rel, "leaderboard 'file'").name
+
+
+def verify(specs, *, make_dirs: bool = True) -> None:
+    """Fail at launch, not three hours into a grid chain.
+
+    `specs` is any iterable of objects carrying .name, .musing and
+    .grid_tarball -- pass core.modes.SPECS.values(). Injected rather than
+    imported so this module stays project-import-free.
+
+    Modelled on museSetup.sh:502, which refuses to proceed when the backing
+    build cannot supply what is needed. Both prodtarget-env-divergence and
+    foilsflash-tarball-mode-key-omission were "preflight used a patched
+    local environment while the grid shipped an unpatched tarball"; both
+    become unrepresentable once these resolve through one function.
+
+    Deliberately does NOT validate leaderboard headers -- that would need an
+    import of leaderboard.py, breaking the stdlib-only rule. Leaderboard's
+    own SchemaMismatch and tests/test_live_leaderboard_headers.py already
+    cover it twice over.
+    """
+    for spec in specs:
+        for field in ("musing", "grid_tarball"):
+            p = Path(getattr(spec, field))
+            if not p.exists():
+                raise PathsError(
+                    f"mode {spec.name!r}: {field} not found at {p}\n"
+                    f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
+                    f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
+                    f"Point at an operator who has it:\n"
+                    f"    ./setup.sh --backing /exp/mu2e/app/users/<them>\n"
+                    f"or build your own (see README, 'Artifacts').")
+    if make_dirs:
+        for d in (GRID_DATA_ROOT, GRAPH_DATA, LEADERBOARD_LIVE):
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                raise PathsError(f"cannot create {d}: {e}") from e

@@ -693,6 +693,10 @@ def write_json_atomic(path: Path, payload: dict) -> None:
 
 def _cmd_preflight_impl(args):
     mode = MODES[args.mode]
+
+    import paths as _paths
+    _paths.verify([_modes.SPECS[mode.name]], make_dirs=False)
+
     name = args.config_name
     geom = mode.proposal_dir / f"{name}_geom.txt"
     if not geom.exists():
