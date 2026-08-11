@@ -156,8 +156,8 @@ CLOSED_LOOP_BARRIER_POLL_SEC = 300
 # pipeline.py's per-stage cap_hours). 1440 = 24h. Tripping this is rare
 # and always worth investigating.
 CLOSED_LOOP_BARRIER_MAX_MIN = 1440
-# Operator stop file. `touch ($GRAPH_DATA/STOP_CLOSED_LOOP)` and the next
-# barrier-poll iteration or decide_next will exit cleanly without affecting
+# Operator stop file. `touch $GRAPH_DATA/STOP_CLOSED_LOOP` ($GRAPH_DATA expands to
+# the path value at runtime) and the next barrier-poll iteration or decide_next will exit cleanly without affecting
 # in-flight children.
 STOP_FLAG = GRAPH_DATA / "STOP_CLOSED_LOOP"
 

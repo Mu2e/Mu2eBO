@@ -174,6 +174,13 @@ class TestDataRootsHaveOneDefinition(unittest.TestCase):
         importlib.reload(paths)
 
     def test_config_data_roots_come_from_the_resolver(self):
+        # graph/config.py:50 still defaults AUTORESEARCH_MODE to the archived
+        # "foils" mode, so a bare `import config` raises KeyError unless
+        # something already stamped the env var. bo_driver does it at import
+        # time via os.environ.setdefault, which is why the FULL suite masks
+        # this — an alphabetically earlier test file imports bo_driver first.
+        # Prime it here so this file is runnable on its own.
+        os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
         sys.path.insert(0, str(ROOT / "graph"))
         import config
         self.assertEqual(config.GRID_DATA_ROOT, paths.GRID_DATA_ROOT)
