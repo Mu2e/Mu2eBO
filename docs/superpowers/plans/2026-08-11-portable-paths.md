@@ -1828,10 +1828,14 @@ Expected: FAIL — `setup.sh` does not exist.
 # the test suite depends on `PYTHONPATH=` being empty, and this script has
 # one job. Resolution itself lives in core/paths.py -- this is a view over
 # it, never a second implementation.
-set -uo pipefail
-
 _SOURCED=0
 [[ "${BASH_SOURCE[0]}" != "$0" ]] && _SOURCED=1
+# Strict mode only when EXECUTED. When sourced this runs in the operator's own
+# shell and is never restored, so `set -u` would leak into their session and
+# turn a later bare `echo $UNSET_VAR` into a fatal error. Every parameter
+# expansion below already carries a `${x:-}` default, so nothing here relies
+# on `set -u`.
+(( _SOURCED )) || set -uo pipefail
 
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _PY="$_HERE/.venv/bin/python"
@@ -1879,9 +1883,18 @@ PY
 }
 
 _export() {
-    local d a
-    d="$(PYTHONPATH= "$_PY" -c "import sys;sys.path.insert(0,'$_HERE/core');import paths;print(paths.DATA_ROOT)")" || return 1
-    a="$(PYTHONPATH= "$_PY" -c "import sys;sys.path.insert(0,'$_HERE/core');import paths;print(paths.ARTIFACT_ROOT)")" || return 1
+    local out d a
+    # Same argv-passing shape as _dump: $_HERE never gets embedded in Python
+    # source text, and one interpreter start instead of two.
+    out="$(PYTHONPATH= "$_PY" - "$_HERE" <<'PY'
+import os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], "core"))
+import paths
+print(paths.DATA_ROOT)
+print(paths.ARTIFACT_ROOT)
+PY
+)" || return 1
+    { IFS= read -r d; IFS= read -r a; } <<< "$out"
     export AUTORESEARCH_DATA_ROOT="$d"
     export AUTORESEARCH_ARTIFACT_ROOT="$a"
     echo "exported AUTORESEARCH_DATA_ROOT=$d"
