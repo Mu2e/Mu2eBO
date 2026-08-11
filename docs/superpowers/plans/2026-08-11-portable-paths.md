@@ -13,7 +13,7 @@ Spec: `docs/superpowers/specs/2026-08-11-portable-paths-design.md`.
 ## Global Constraints
 
 - **`core/paths.py` is stdlib-only and imports nothing from the rest of the project** — same rule `core/leaderboard.py` follows, so the botorch venv subprocess and the tests import it with no path games.
-- **Importing `core/paths.py` never raises for a missing path and never requires `/exp/mu2e` to exist.** It performs exactly one `lstat` (the `backing` symlink probe). Only `artifact()` and `verify()` stat beyond that.
+- **Importing `core/paths.py` never raises for a missing path and never requires `/exp/mu2e` to exist.** The only filesystem access at import is canonicalising the module's own location (`Path(__file__).resolve()`, ~8 lstats) and a single lstat probe of the `backing` symlink; nothing under `DATA_ROOT` or `ARTIFACT_ROOT` is touched. Only `artifact()` and `verify()` stat those.
 - **The full suite must stay green with no `AUTORESEARCH_*` variable set.** Baseline as of 2026-08-11: `Ran 422 tests ... OK (skipped=1)`.
 - **Test command:** `PYTHONPATH= .venv/bin/python -m unittest discover -s tests`. The leading blank `PYTHONPATH=` is required — it clears what a sourced Mu2e/cvmfs environment leaves behind. Single file: `PYTHONPATH= .venv/bin/python -m unittest discover -s tests -p "test_paths.py"`.
 - **Golden parity — gate on `[b]` and `[c]` only.** Run `PYTHONPATH= .venv/bin/python tests/golden_parity.py check` (manual, not in discover) and require `[b] history tensor fingerprint: OK` and the `[c]` seam replay stage to stay green. **`[a] round-trip parity` is EXEMPT and is expected to report MISMATCH** — it reads the *live* leaderboards, which have grown ~200 rows since the golden was captured at `eeb8cb6`, so it fails identically on an untouched checkout. Do not "fix" it and do not re-baseline it; the operator has an open investigation into `tests/goldens/parity_a_baseline.json`. The overall command therefore exits 1 even when your work is correct — judge by the `[b]`/`[c]` lines, not the exit code. (Operator ruling, 2026-08-11.)
@@ -233,10 +233,12 @@ Stdlib only, and it imports nothing from the rest of the project, so the
 botorch venv subprocess and the test suite can import it with no path games
 (the same rule core/leaderboard.py follows).
 
-Resolution is string math. Importing this module performs exactly one lstat
-(the `backing` symlink probe), never requires /exp/mu2e to exist, and never
-raises for a missing path. Only artifact() and verify() stat beyond that --
-which is what keeps the suite green on a machine with no /exp/mu2e.
+Resolution is string math over the environment. Importing this module never
+raises for a missing path and never requires /exp/mu2e to exist. The only
+filesystem access at import is canonicalising this file's own location and a
+single lstat probe of the `backing` symlink; nothing under DATA_ROOT or
+ARTIFACT_ROOT is touched. Only artifact() and verify() stat those -- which is
+what keeps the suite green on a machine with no /exp/mu2e.
 
 Layout borrowed from Mu2e's own build system (see museSetup.sh /
 museBacking.sh on cvmfs): location is identity, a `backing` link supplies
@@ -388,8 +390,8 @@ where local artifacts win and the backing fills in. Stdlib-only and
 project-import-free, so the botorch subprocess and the tests import it with
 no path games.
 
-Resolution is string math: import does exactly one lstat (the backing
-probe), never requires /exp/mu2e, and never raises for a missing path.
+Resolution is string math over the environment: import never requires
+/exp/mu2e and never raises for a missing path.
 Only artifact() stats, and it is total -- a miss returns the intended local
 path so callers can name it. That keeps spec loading safe in a bare
 environment; verify() (next) is the single place a miss becomes a failure.

@@ -169,9 +169,14 @@ The gate. Raises `PathsError` with a remediation command on the first failure:
 3. Every archive leaderboard that exists has a valid header — delegated to
    `core/leaderboard.py`, which already owns that invariant.
 
-### Resolution never touches the filesystem
+### Resolution never touches the operator's volumes
 
-**Constants are pure string math. Only `verify()` and `artifact()` stat.**
+**Constants are string math over the environment; only `verify()` and
+`artifact()` stat DATA_ROOT / ARTIFACT_ROOT.** Import itself does touch the
+filesystem twice, and the earlier wording claiming otherwise was wrong (caught
+by strace in the Task 1 review): `Path(__file__).resolve()` canonicalises this
+file's own location, ~8 lstats, and the `backing` probe is one more. Neither
+goes near the operator's volumes, which is the property that actually matters.
 
 This is what keeps the suite green on a machine with no `/exp/mu2e`, and it is
 why `artifact()` is total rather than raising: `core/mode_json.py` expands
