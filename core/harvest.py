@@ -61,7 +61,7 @@ def parse_s_over_sqrt_b(stdout: str) -> float:
 # (harvest.py stays stdlib-only; runner(cmd, cwd) is a proc-like the CALLER
 # binds env for — see pipeline.py's _mu2e_runner / _root_runner.)
 
-AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
+from paths import REPO_ROOT as AUTORESEARCH  # see core/paths.py
 EDEP_FCL = AUTORESEARCH / "Run1BAna/workflows/fcl/edep.fcl"
 SENSITIVITY_MACRO = AUTORESEARCH / "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C"
 

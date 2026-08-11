@@ -23,8 +23,10 @@ from pathlib import Path
 
 import torch
 
-AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
-sys.path.insert(0, str(AUTORESEARCH / "core"))  # BO/pipeline modules (2026-07-17 reorg)
+# This file lives in core/, so its own directory IS the core/ dir. Bootstrap
+# sys.path from it, then take the root from the resolver.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from paths import REPO_ROOT as AUTORESEARCH  # noqa: E402  (see core/paths.py)
 import bo_driver as bo  # noqa: E402
 
 

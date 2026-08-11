@@ -4,12 +4,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-PROJECT_ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
 # The BO/pipeline modules live in core/ (2026-07-17 reorg). Put it on
-# sys.path so bare `import modes` / `import bo_driver` resolve
-# from any graph entrypoint regardless of import order.
+# sys.path so bare `import modes` / `import bo_driver` resolve from any
+# graph entrypoint regardless of import order. This has to happen BEFORE
+# `import paths`, so the repo root is bootstrapped from this file's own
+# location; paths.REPO_ROOT is then the single definition everyone uses.
 import sys as _sys  # noqa: E402
-_sys.path.insert(0, str(PROJECT_ROOT / "core"))
+_sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
+from paths import REPO_ROOT as PROJECT_ROOT  # noqa: E402  (see core/paths.py)
 # Runtime logs/forensics live off the /app repo on /data (2026-07-17), so the
 # repo root stays clean and grid-log churn doesn't eat the /app quota. Single
 # seam: everything (parent logs, closed_loop_logs/, STOP_FLAG) derives from here.

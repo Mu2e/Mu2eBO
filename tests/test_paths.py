@@ -144,5 +144,26 @@ class TestLeaderboardPaths(unittest.TestCase):
             p.leaderboard_live("/tmp/escaped.tsv")
 
 
+class TestEveryModuleAgreesOnTheRoot(unittest.TestCase):
+    """The point of the module: one definition, not five copies that can
+    drift. Each consumer keeps its own historic constant name; all must be
+    the same object value as paths.REPO_ROOT."""
+
+    def test_core_modules_use_the_resolver(self):
+        import bo_driver
+        import botorch_predict
+        import harvest
+        import pipeline
+        self.assertEqual(bo_driver.ROOT, paths.REPO_ROOT)
+        self.assertEqual(harvest.AUTORESEARCH, paths.REPO_ROOT)
+        self.assertEqual(pipeline.AUTORESEARCH, paths.REPO_ROOT)
+        self.assertEqual(botorch_predict.AUTORESEARCH, paths.REPO_ROOT)
+
+    def test_graph_modules_use_the_resolver(self):
+        sys.path.insert(0, str(ROOT / "graph"))
+        import config
+        self.assertEqual(config.PROJECT_ROOT, paths.REPO_ROOT)
+
+
 if __name__ == "__main__":
     unittest.main()

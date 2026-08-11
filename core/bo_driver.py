@@ -44,7 +44,7 @@ from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
     Leaderboard, Point, to_py_scalars,   # are public API of this module)
     _flock_ex, _flock_sh, _lock_path)
 
-ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
+from paths import REPO_ROOT as ROOT  # single root resolver, see core/paths.py
 
 # graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
 # "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —

@@ -19,7 +19,7 @@ from pathlib import Path
 
 # Ensure core/ (BO/pipeline modules, 2026-07-17 reorg) is importable so we can
 # pull the BO modes in-process.
-sys.path.insert(0, "/exp/mu2e/app/users/oksuzian/autoresearch/core")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 
 import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
