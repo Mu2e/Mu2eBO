@@ -15,8 +15,8 @@ defined as JSON specs in `mode_specs/` (legacy lines are Python classes in
 `core/bo_driver.py`). Currently registered:
 
 ```
-foils foilsf foilsflash foilsg foilspf foilspf2k prodtarget prodtarget6d   # BO lines
-ipa625 ipafix ipaovr nominal                                              # fixed A/B reference arms
+foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw   # BO lines
+ipa625 ipafix ipaovr nominal                                            # fixed A/B reference arms
 ```
 
 ## Prerequisites
@@ -114,6 +114,7 @@ the updated leaderboard, and picks the next batch:
 ```bash
 cd /exp/mu2e/app/users/$USER/autoresearch    # wherever you cloned it
 source .venv/bin/activate
+source setup.sh   # exports AUTORESEARCH_DATA_ROOT / AUTORESEARCH_ARTIFACT_ROOT used below
 export AUTORESEARCH_CHECKPOINT_DIR=/tmp/$USER/<prefix>   # SQLite checkpoints off CephFS
 
 nohup python -m graph.closed_loop \
@@ -147,13 +148,17 @@ Key flags (`python -m graph.closed_loop --help` for the full list):
 4. **Don't edit `core/`, `graph/`, or `core/pipeline_templates/` while
    children are in flight** — children re-execute the working tree.
 
-**Stopping**: `touch "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/STOP_CLOSED_LOOP"`
+**Stopping**: `source setup.sh` (if not already done in this shell), then
+`touch "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/STOP_CLOSED_LOOP"`
 for a clean stop at the next round boundary (remove the file afterwards).
 
 **Monitoring**: parent log (path in the launch line above); per-child logs at
 `<graph_data>/closed_loop_logs/<child>.log`; grid queue via
 `jobsub_q -G mu2e --user=$USER`; results via
-`tail leaderboards/leaderboard_bo_<mode>.tsv`.
+`tail "$AUTORESEARCH_DATA_ROOT/autoresearch_leaderboards/leaderboard_bo_<mode>.tsv"`
+(again, `source setup.sh` first if needed — the repo's `leaderboards/` is the
+frozen archive of past campaigns, not where a running campaign's new rows
+land).
 
 ## Running a single evaluation
 

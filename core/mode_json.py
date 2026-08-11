@@ -11,21 +11,22 @@ import re
 from pathlib import Path
 from typing import Dict, Tuple
 
-import paths
-
-# Mirror our own package-qualification when importing the sibling module: if
+# Mirror our own package-qualification when importing sibling modules: if
 # we were loaded as `core.mode_json` (repo-root imports, __package__=="core"),
-# resolve GeomTemplate the same way; if we were loaded as bare `mode_json`
-# (bo_driver.py subprocess path, core/ alone on sys.path, __package__==""),
-# resolve it bare too. A hardcoded qualified import breaks the bare path
-# outright (no `core` package to find); a hardcoded bare import would, under
-# the qualified path, load core/geom_template.py a SECOND time under a
-# different sys.modules key -- reproducing the two-non-identical-classes bug
-# Task 4 fixed for this exact class (see core/modes.py's tail comment).
+# resolve GeomTemplate and paths the same way; if we were loaded as bare
+# `mode_json` (bo_driver.py subprocess path, core/ alone on sys.path,
+# __package__==""), resolve them bare too. A hardcoded qualified import
+# breaks the bare path outright (no `core` package to find); a hardcoded
+# bare import would, under the qualified path, load core/geom_template.py a
+# SECOND time under a different sys.modules key -- reproducing the
+# two-non-identical-classes bug Task 4 fixed for this exact class (see
+# core/modes.py's tail comment).
 if __package__:
+    from core import paths
     from core.geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                     _validate_fmt)
 else:
+    import paths
     from geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                _validate_fmt)
 
