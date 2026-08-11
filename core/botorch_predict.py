@@ -698,6 +698,7 @@ def main(argv=None):
     ns = ap.parse_args(argv)
     if ns.leaderboard:
         bo.MODES[ns.mode].leaderboard = Path(ns.leaderboard)
+        bo.MODES[ns.mode].leaderboard_archive = None
         print(f"[botorch_predict] leaderboard override: {ns.leaderboard}",
               flush=True)
 

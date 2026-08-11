@@ -674,8 +674,10 @@ class TestPendingTsvRoundTrip(unittest.TestCase):
         # remove_pending/load_pending); "foils" (Python mode, archived
         # 2026-08-08) repointed to the JSON-defined "foilsflash".
         self.mode = bo.MODES["foilsflash"]
-        patcher = mock.patch.object(
-            self.mode, "leaderboard", self.tmp / "leaderboard_bo_probe.tsv")
+        patcher = mock.patch.multiple(
+            self.mode,
+            leaderboard=self.tmp / "leaderboard_bo_probe.tsv",
+            leaderboard_archive=None)
         patcher.start()
         self.addCleanup(patcher.stop)
 

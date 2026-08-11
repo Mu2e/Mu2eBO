@@ -96,12 +96,14 @@ def section_b():
     """
     import botorch_predict as bp
     mode = bo.MODES["foilsflash"]
-    orig = mode.leaderboard
+    orig, orig_arch = mode.leaderboard, mode.leaderboard_archive
     mode.leaderboard = FROZEN_LB
+    mode.leaderboard_archive = None
     try:
         X, Y, bounds, int_dims = bp._load_history_tensor("foilsflash")
     finally:
         mode.leaderboard = orig
+        mode.leaderboard_archive = orig_arch
     return {
         "X_shape": list(X.shape), "Y_shape": list(Y.shape),
         "sha_X": hashlib.sha256(X.numpy().tobytes()).hexdigest(),
@@ -129,8 +131,9 @@ def section_c():
     tmp = Path(tempfile.mkdtemp())
     lb_copy = tmp / mode.leaderboard.name
     shutil.copyfile(mode.leaderboard, lb_copy)
-    orig = mode.leaderboard
+    orig, orig_arch = mode.leaderboard, mode.leaderboard_archive
     mode.leaderboard = lb_copy
+    mode.leaderboard_archive = None
     try:
         buf = io.StringIO()
         args = SimpleNamespace(mode="foilsflash", config_name=cfg,
@@ -148,6 +151,7 @@ def section_c():
             result["evaluate"]["json"] = json.loads(Path(ej).read_text())
     finally:
         mode.leaderboard = orig
+        mode.leaderboard_archive = orig_arch
     # -- preflight replay (real G4 init, ~2 min) --
     buf = io.StringIO()
     args = SimpleNamespace(mode="foilsflash", config_name=cfg)

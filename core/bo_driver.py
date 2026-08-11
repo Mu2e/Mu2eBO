@@ -45,6 +45,7 @@ from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
     _flock_ex, _flock_sh, _lock_path)
 
 from paths import REPO_ROOT as ROOT, GRID_DATA_ROOT  # single root resolver, see core/paths.py
+from paths import leaderboard_archive, leaderboard_live
 
 # graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
 # "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —
@@ -184,9 +185,10 @@ class BOMode(ABC):
     # --- leaderboard + pending I/O: owned by core/leaderboard.py -----------
     def leaderboard_io(self) -> Leaderboard:
         lb = getattr(self, "_lb_cache", None)
-        # Rebuild whenever `self.leaderboard` no longer matches the cached
-        # instance's path, not just on first access. `mock.patch.object(mode,
-        # "leaderboard", tmp_path)` is the standard test seam across this
+        # Rebuild whenever `self.leaderboard` or `self.leaderboard_archive` no
+        # longer matches the cached instance's paths, not just on first
+        # access. `mock.patch.multiple(mode, leaderboard=tmp_path,
+        # leaderboard_archive=None)` is the standard test seam across this
         # suite (test_botorch_predict.py, test_seam_protocol.py) and the
         # botorch_predict --leaderboard CLI override does the same directly;
         # a path-blind cache would silently keep serving the PRE-patch (or,
@@ -194,12 +196,14 @@ class BOMode(ABC):
         # call had populated it -- exactly the failure mode
         # touched-leaderboard-headerless-history-loss warns about, just at
         # the object-cache layer instead of the TSV layer.
-        if lb is None or lb.path != self.leaderboard:
+        archive = getattr(self, "leaderboard_archive", None)
+        if lb is None or lb.path != self.leaderboard or lb.archive_path != archive:
             spec = _modes.SPECS[self.name]
             lb = Leaderboard(path=self.leaderboard, name=self.name,
                              knob_names=tuple(spec.knob_names),
                              knob_fmts=tuple(spec.knob_fmts),
-                             metric_cols=tuple(spec.metric_cols))
+                             metric_cols=tuple(spec.metric_cols),
+                             archive_path=archive)
             self._lb_cache = lb
         return lb
 
@@ -237,7 +241,10 @@ class JsonMode(BOMode):
         if spec.geom is None:
             raise ValueError(f"{name}: JsonMode requires a geom template")
         self.name = name
-        self.leaderboard = ROOT / spec.leaderboard_rel
+        # Live rows go to this operator's own /data board; the committed
+        # leaderboards/ are read-only priors both operators start warm from.
+        self.leaderboard = leaderboard_live(spec.leaderboard_rel)
+        self.leaderboard_archive = leaderboard_archive(spec.leaderboard_rel)
         self.proposal_dir = ROOT / "bo_work" / "proposals" / name
         self.preflight_dir = ROOT / "bo_work" / "preflight" / name
 

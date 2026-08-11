@@ -174,5 +174,75 @@ class TestPendingPruneCmd(unittest.TestCase):
                 self.assertEqual(lb.pending_load(), [])  # row actually pruned
 
 
+class TestArchivePlusLive(unittest.TestCase):
+    """The committed leaderboards/ are read-only priors; this operator's own
+    rows append to a separate live file. load() returns both."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._td.name)
+        self.archive = self.tmp / "archive.tsv"
+        self.live = self.tmp / "live" / "board.tsv"
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _lb(self):
+        return Leaderboard(path=self.live, name="m", archive_path=self.archive,
+                           knob_names=("a",), knob_fmts=("{:.3f}",),
+                           metric_cols=("sob", "calo", "alpha", "obj"))
+
+    def test_load_returns_archive_rows_then_live_rows(self):
+        lb = self._lb()
+        self.archive.write_text(
+            lb.header()
+            + "old1\t1.000\t3.10000\t1.00000e-06\t0.000\t3.10000\n")
+        lb.append(Point(cfg="new1", x=[2.0], sob=4.0, calo=2e-6), 0.0)
+        got = [p.cfg for p in lb.load()]
+        self.assertEqual(got, ["old1", "new1"])
+
+    def test_append_creates_the_live_directory(self):
+        lb = self._lb()
+        self.assertFalse(self.live.parent.exists())
+        lb.append(Point(cfg="new1", x=[2.0], sob=4.0, calo=2e-6), 0.0)
+        self.assertTrue(self.live.exists())
+
+    def test_append_never_writes_to_the_archive(self):
+        lb = self._lb()
+        self.archive.write_text(lb.header())
+        before = self.archive.read_text()
+        lb.append(Point(cfg="new1", x=[2.0], sob=4.0, calo=2e-6), 0.0)
+        self.assertEqual(self.archive.read_text(), before)
+
+    def test_a_promoted_row_is_not_counted_twice(self):
+        # Promotion into the committed archive is a manual git commit; a row
+        # left behind in the live file must not enter the GP twice.
+        lb = self._lb()
+        lb.append(Point(cfg="dup", x=[2.0], sob=4.0, calo=2e-6), 0.0)
+        self.archive.write_text(
+            lb.header()
+            + "dup\t2.000\t4.00000\t2.00000e-06\t0.000\t4.00000\n")
+        got = [p.cfg for p in lb.load()]
+        self.assertEqual(got, ["dup"])
+
+    def test_a_malformed_archive_header_fails_loud(self):
+        lb = self._lb()
+        self.archive.write_text("wrong\theader\n1\t2\n")
+        with self.assertRaises(SchemaMismatch):
+            lb.load()
+
+    def test_no_archive_configured_behaves_as_before(self):
+        lb = Leaderboard(path=self.live, name="m",
+                         knob_names=("a",), knob_fmts=("{:.3f}",),
+                         metric_cols=("sob", "calo", "alpha", "obj"))
+        lb.append(Point(cfg="only", x=[2.0], sob=4.0, calo=2e-6), 0.0)
+        self.assertEqual([p.cfg for p in lb.load()], ["only"])
+
+    def test_pending_follows_the_live_file_not_the_archive(self):
+        lb = self._lb()
+        self.assertEqual(lb.pending_path().parent, self.live.parent)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,7 +38,8 @@ def write_fixture(path: Path, n: int = 10, header_only: bool = False):
 def patched_leaderboard(tmp: str, **kw):
     lb = Path(tmp) / "leaderboard_bo_foilsflash.tsv"
     write_fixture(lb, **kw)
-    return mock.patch.object(bo.MODES["foilsflash"], "leaderboard", lb)
+    return mock.patch.multiple(bo.MODES["foilsflash"],
+                               leaderboard=lb, leaderboard_archive=None)
 
 
 BOUNDS_LO = bp.MODE_SPECS["foilsflash"]["lo"]
