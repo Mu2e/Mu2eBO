@@ -23,13 +23,55 @@ ipa625 ipafix ipaovr nominal                                              # fixe
 
 - **Python env**: the project venv is `.venv` at the repo root (a symlink to
   `/exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv`). Use
-  `source .venv/bin/activate` or call `.venv/bin/python` directly.
+  `source .venv/bin/activate` or call `.venv/bin/python` directly. If it
+  doesn't exist yet, see [Building the environment](#building-the-environment).
 - **Kerberos**: a fresh ticket before launch. Mid-run expiry kills chains at
   grid submission (see `wiki/incidents/kerberos-mid-run-expiry.md`).
 - **Mu2e environment** is sourced by the pipeline itself per stage; do not
   pre-source it in the launching shell. If you source cvmfs setups manually,
   `export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER` first (NFS lock
   wedge, see `wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md`).
+
+### Building the environment
+
+One venv serves everything — orchestrator, botorch picker, and plot
+renderers (consolidated 2026-07-18 from three separate venvs). Python 3.11,
+built with [uv](https://github.com/astral-sh/uv); pinned in
+`requirements.txt`, whose header is the authoritative recipe.
+
+**Install the CPU torch wheel FIRST, before anything else.** `botorch` and
+`gpytorch` both depend on torch, so if pip resolves it for them you get the
+default CUDA build — gigabytes of unusable wheels on a CPU-only grid node.
+The explicit `+cpu` local version from the pytorch CPU index pre-satisfies
+that dependency.
+
+```bash
+VENV=/exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv   # keep it OFF /exp/mu2e/app
+uv venv --python 3.11 "$VENV"
+uv pip install --python "$VENV/bin/python" \
+  --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu
+uv pip install --python "$VENV/bin/python" -r requirements.txt
+ln -s "$VENV" .venv
+```
+
+The venv lives on the `/data` volume and is *symlinked* into the repo
+deliberately: it is far too large for the `/exp/mu2e/app` quota, and moving
+it across volumes afterwards is painfully slow on CephFS
+(`wiki/incidents/venv-relocated-to-data-volume.md`). Adjust `$VENV` for your
+own account; only the symlink name `.venv` is load-bearing.
+
+Verify with the test suite. The leading blank `PYTHONPATH=` is required: it
+clears any `PYTHONPATH` inherited from a sourced Mu2e/cvmfs environment, so
+the tests resolve imports against the venv alone.
+
+```bash
+PYTHONPATH= .venv/bin/python -m unittest discover -s tests
+```
+
+To A/B a different picker stack (say a newer botorch), build a second venv
+the same way and point `AUTORESEARCH_BOTORCH_VENV` at it; the picker
+subprocess resolves that env var against the repo root, so the orchestrator
+keeps running on `.venv`.
 
 ## Running an optimization campaign
 
