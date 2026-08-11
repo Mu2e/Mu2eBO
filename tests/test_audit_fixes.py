@@ -418,165 +418,6 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
                          "unrelated attempts keys must be preserved")
 
 
-class TestFoilsAsymmetric6D(unittest.TestCase):
-    """v2 FoilsMode pins n_up=n_down=6 and decouples extras per side.
-
-    Search space is 6 Real dims: (rOut, halfThickness, rIn) × (up, dn).
-    Geom vectors always have 6 + 37 + 6 = 49 entries. v1 (5D coupled)
-    legacy geom files are NOT round-trippable through v2 parse_geom —
-    only files emitted with n_up=n_down=6 are.
-    """
-    @classmethod
-    def setUpClass(cls):
-        from bo_driver import MODES
-        cls.mode = MODES["foils"]
-
-    def test_geom_text_asymmetric_values(self):
-        text = self.mode._geom_text([80.0, 120.0, 0.30, 0.50, 5.0, 15.0])
-        m_r = self.mode._RADII_RX.search(text)
-        m_h = self.mode._HALFTH_RX.search(text)
-        m_hr = self.mode._HOLE_VEC_RX.search(text)
-        radii = [float(v) for v in m_r.group(1).split(",")]
-        halfth = [float(v) for v in m_h.group(1).split(",")]
-        hole_radii = [float(v) for v in m_hr.group(1).split(",")]
-        self.assertEqual(len(radii), 49)
-        for v in radii[:6]:
-            self.assertAlmostEqual(v, 80.0, places=4)
-        for v in radii[6:6 + 37]:
-            self.assertAlmostEqual(v, self.mode.BASE_ROUT_MM, places=4)
-        for v in radii[-6:]:
-            self.assertAlmostEqual(v, 120.0, places=4)
-        for v in halfth[:6]:
-            self.assertAlmostEqual(v, 0.30, places=4)
-        for v in halfth[-6:]:
-            self.assertAlmostEqual(v, 0.50, places=4)
-        for v in hole_radii[:6]:
-            self.assertAlmostEqual(v, 5.0, places=4)
-        for v in hole_radii[-6:]:
-            self.assertAlmostEqual(v, 15.0, places=4)
-
-    def test_geom_text_always_49_entries(self):
-        # Both symmetric and asymmetric cases must produce 49-entry vectors.
-        for x in ([100.0, 100.0, 0.1, 0.1, 5.0, 5.0],
-                  [60.0, 240.0, 0.05, 1.0, 0.0, 49.9]):
-            text = self.mode._geom_text(x)
-            for rx in (self.mode._RADII_RX, self.mode._HALFTH_RX,
-                       self.mode._HOLE_VEC_RX):
-                m = rx.search(text)
-                vals = [float(v) for v in m.group(1).split(",")]
-                self.assertEqual(len(vals), 49, x)
-
-    def test_parse_geom_round_trip(self):
-        x = [85.0, 175.0, 0.25, 0.75, 3.0, 22.0]
-        text = self.mode._geom_text(x)
-        parsed = self.mode.parse_geom(text)
-        self.assertIsNotNone(parsed)
-        for got, want in zip(parsed, x):
-            self.assertAlmostEqual(got, want, places=4)
-
-    def test_parse_geom_legacy_symmetric_round_trip(self):
-        # Hand-build a v1-shaped geom (49 entries, all extras equal on both
-        # sides) — parse_geom must project to *_up == *_dn.
-        radii_csv = ", ".join(["110.0000"] * 6
-                              + ["75.0000"] * 37
-                              + ["110.0000"] * 6)
-        halfth_csv = ", ".join(["0.150000"] * 6
-                               + ["0.052800"] * 37
-                               + ["0.150000"] * 6)
-        hole_csv = ", ".join(["8.0000"] * 6
-                             + ["21.5000"] * 37
-                             + ["8.0000"] * 6)
-        legacy_text = (
-            '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            f'vector<double> stoppingTarget.radii = {{ {radii_csv} }};\n'
-            f'vector<double> stoppingTarget.halfThicknesses = {{ {halfth_csv} }};\n'
-            'double stoppingTarget.holeRadius = 21.5;\n'
-            f'vector<double> stoppingTarget.holeRadii = {{ {hole_csv} }};\n'
-        )
-        parsed = self.mode.parse_geom(legacy_text)
-        self.assertIsNotNone(parsed)
-        rOut_up, rOut_dn, hT_up, hT_dn, rIn_up, rIn_dn = parsed
-        self.assertAlmostEqual(rOut_up, 110.0, places=4)
-        self.assertAlmostEqual(rOut_dn, 110.0, places=4)
-        self.assertAlmostEqual(hT_up, 0.15, places=4)
-        self.assertAlmostEqual(hT_dn, 0.15, places=4)
-        self.assertAlmostEqual(rIn_up, 8.0, places=4)
-        self.assertAlmostEqual(rIn_dn, 8.0, places=4)
-
-    def test_parse_geom_wrong_length_raises(self):
-        # 5D-era proposal with n_up=3, n_down=2 → 42 entries; v2 parse
-        # must refuse rather than silently misinterpret.
-        radii_csv = ", ".join(["100.0"] * 3
-                              + ["75.0000"] * 37
-                              + ["100.0"] * 2)
-        text = (
-            f'vector<double> stoppingTarget.radii = {{ {radii_csv} }};\n'
-        )
-        with self.assertRaises(ValueError):
-            self.mode.parse_geom(text)
-
-    def test_is_buildable_per_side(self):
-        # rIn_up >= rOut_up rejects even if downstream is fine.
-        self.assertFalse(self.mode.is_buildable(
-            [70.0, 200.0, 0.1, 0.1, 80.0, 5.0]))
-        # rIn_dn >= rOut_dn rejects too.
-        self.assertFalse(self.mode.is_buildable(
-            [200.0, 70.0, 0.1, 0.1, 5.0, 80.0]))
-        # Both sides fine → buildable.
-        self.assertTrue(self.mode.is_buildable(
-            [100.0, 150.0, 0.1, 0.2, 5.0, 10.0]))
-
-    def test_load_priors_drops_base_hole_mismatch(self):
-        # v1 priors are valid in v2 ONLY when extra_rIn ≈ base hole (21.5);
-        # v1 applied holeRadius=extra_rIn globally (base 37 included), v2 pins
-        # the base at 21.5. Rows far from 21.5 must be dropped.
-        m = self.mode
-        rows = [
-            # config, n_up, n_down, extra_rOut, extra_hT, extra_rIn, sob, calo, alpha, obj
-            ("keep_match", 6, 6, 120.0, 0.10, 21.5, 3.0, 1e-5, 1e5, 2.0),
-            ("keep_near",  6, 6, 130.0, 0.12, 22.0, 2.9, 1e-5, 1e5, 1.9),  # within 1.5
-            ("drop_far",   6, 6, 140.0, 0.08,  5.0, 3.5, 1e-5, 1e5, 2.5),  # base mismatch
-            ("drop_zero",  6, 6, 150.0, 0.09,  0.0, 3.6, 1e-5, 1e5, 2.6),
-            ("drop_count", 3, 1, 100.0, 0.10, 21.5, 2.0, 1e-5, 1e5, 1.0),  # n_up!=6
-        ]
-        hdr = ("config\tn_up\tn_down\textra_rOut\textra_halfThickness\t"
-               "extra_rIn\tsob\tcalo\talpha\tobj\n")
-        with tempfile.TemporaryDirectory() as td:
-            lb = Path(td) / "leaderboard_bo_foils_v1.tsv"
-            lb.write_text(hdr + "".join(
-                "\t".join(str(c) for c in r) + "\n" for r in rows))
-            with mock.patch.object(m, "leaderboard_v1", lb):
-                priors = m.load_priors()
-        cfgs = sorted(p.cfg for p in priors)
-        self.assertEqual(cfgs, ["keep_match", "keep_near"])
-        # Projected onto the up==dn diagonal.
-        p = next(p for p in priors if p.cfg == "keep_match")
-        self.assertEqual(p.x, [120.0, 120.0, 0.10, 0.10, 21.5, 21.5])
-
-    def test_format_row_header_schema(self):
-        from bo_driver import Point
-        p = Point(cfg="foilsY01R00_00",
-                  x=[85.0, 175.0, 0.25, 0.75, 3.0, 22.0],
-                  sob=2.5, calo=1.5e-5)
-        header, line = self.mode.format_row(p, alpha=10000.0)
-        cols = header.rstrip("\n").split("\t")
-        self.assertEqual(cols, [
-            "config",
-            "extra_rOut_up", "extra_rOut_dn",
-            "extra_halfThickness_up", "extra_halfThickness_dn",
-            "extra_rIn_up", "extra_rIn_dn",
-            "sob", "calo", "alpha", "obj",
-        ])
-        # And no n_up/n_down columns leaked in.
-        self.assertNotIn("n_up", cols)
-        self.assertNotIn("n_down", cols)
-        # Round-trip via load_history_row.
-        row = dict(zip(cols, line.rstrip("\n").split("\t")))
-        p2 = self.mode.load_history_row(row)
-        for got, want in zip(p2.x, p.x):
-            self.assertAlmostEqual(got, want, places=4)
-
-
 class TestRunSourcedBash(unittest.TestCase):
     """graph/sourced_bash.py — shared cvmfs/spack env-flake retry helper.
 
@@ -829,7 +670,10 @@ class TestPendingTsvRoundTrip(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        self.mode = bo.MODES["foils"]
+        # Any live mode exercises this generically (BOMode.append_pending/
+        # remove_pending/load_pending); "foils" (Python mode, archived
+        # 2026-08-08) repointed to the JSON-defined "foilsflash".
+        self.mode = bo.MODES["foilsflash"]
         patcher = mock.patch.object(
             self.mode, "leaderboard", self.tmp / "leaderboard_bo_probe.tsv")
         patcher.start()

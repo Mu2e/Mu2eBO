@@ -98,7 +98,8 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 # cl_min retired per ADR-0001 (2026-07-06, deleted 2026-07-11): the closed
 # loop must never import code outside this repo; all pickers route through
 # in-repo botorch_predict.py in the project .venv.
-PICKER_CHOICES = ("qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid")
+PICKER_CHOICES = ("qnehvi", "qlnei", "pareto_sob", "budget_sob",
+                  "qnparego", "hybrid")
 DEFAULT_PICKER = "hybrid"
 
 # ============================================================================
@@ -296,7 +297,8 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
 
     picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj),
     "qlnei" (single-obj sob), "pareto_sob" (GP-mean sob corner),
-    "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
+    "budget_sob" (GP-mean sob corner constrained to the deployed damage
+    budget), "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
     (~60% qnehvi + ~40% qnparego; recommended for new multi-objective lines).
     Rolling mode passes in-flight x_points via `pending` so replacements
     fantasize over them (X_pending) instead of re-picking a point that's
@@ -317,6 +319,9 @@ def node_predict_picks(state: RoundState) -> dict:
         not the scalarized obj the leaderboard reports.
       qlnei: single-obj qLogNoisyEI on sob only (drops the run1b_mubeam stage).
       pareto_sob: the GP-mean highest-sob frontier points.
+      budget_sob: same corner, CONSTRAINED to predicted flash <= the deployed
+        damage budget -- the deployment-facing exploit (pareto_sob's picks are
+        typically unbuildable: +50-70% damage).
       qnparego: qLogNEI over random Chebyshev scalarizations — spreads picks
         across the whole Pareto front (patrols the tails qNEHVI underprices).
       hybrid: ~60% qnehvi + ~40% qnparego in one batch — recommended default

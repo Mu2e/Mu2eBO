@@ -95,14 +95,14 @@ class TestRejections(unittest.TestCase):
 
     # -- C1: columns[0] must be exactly "sob" ------------------------------
     def test_columns_first_entry_must_be_sob(self):
-        """Verified bug: any other first-column name is silently swallowed by
-        BOMode.load_history's `except (KeyError, ValueError): continue`,
-        yielding ZERO history rows and an eternal BO cold-start (Critical
-        finding #1)."""
+        """A naming-consistency guard (core/leaderboard.py's Leaderboard.load
+        reads row[metric_cols[0]] positionally, so a rename doesn't actually
+        break parsing) -- every leaderboards/*.tsv names its first metric
+        column 'sob' by convention and this spec-load check pins that."""
         self._expect_error(
             lambda d: d["leaderboard"].update(
                 {"columns": ["s_over_sqrt_b", "flash_edep", "alpha", "obj"]}),
-            "sob", "load_history_row")
+            "sob", "Leaderboard.load")
 
     # -- I4: run.stage_tuning keys are validated ----------------------------
     def test_stage_tuning_unknown_key_rejected(self):
@@ -174,10 +174,10 @@ class TestRejections(unittest.TestCase):
     # -- R1: knob fmt is validated the same way geom lines are --------------
     def test_knob_fmt_without_replacement_field_rejected(self):
         """Verified bug: fmt='75.0' (no replacement field) writes a CONSTANT
-        into every knob column of the leaderboard; load_history_row parses
-        it back as a valid float, so every past eval collapses to the same
-        point and the GP trains on garbage -- silently (R1 in the final
-        review)."""
+        into every knob column of the leaderboard; Leaderboard.load
+        (core/leaderboard.py) parses it back as a valid float, so every past
+        eval collapses to the same point and the GP trains on garbage --
+        silently (R1 in the final review)."""
         def mutate(d):
             d["knobs"][0]["fmt"] = "75.0"
         self._expect_error(mutate, "75.0", "replacement field")
@@ -275,10 +275,10 @@ class TestRejections(unittest.TestCase):
 
     # -- F11: a knob may not be named after a leaderboard column ------------
     def test_knob_named_after_the_sob_column_rejected(self):
-        """Verified: a knob named 'sob' makes format_row write a DUPLICATE
-        'sob' column; csv.DictReader keeps the last, so load_history_row
-        reads the METRIC into that knob coordinate and the GP trains on
-        garbage (F11)."""
+        """Verified: a knob named 'sob' makes Leaderboard.header/append
+        (core/leaderboard.py) write a DUPLICATE 'sob' column; csv.DictReader
+        keeps the last, so Leaderboard.load reads the METRIC into that knob
+        coordinate and the GP trains on garbage (F11)."""
         def mutate(d):
             d["knobs"][0]["name"] = "sob"
         self._expect_error(mutate, "sob", "reserved leaderboard column")
@@ -309,18 +309,10 @@ class TestRejections(unittest.TestCase):
             d["knobs"][0]["name"] = "n"
         self._expect_error(mutate, "knobs[0]", "reserved")
 
-    # -- F13: pot_only ships prodtarget's tarball, hardcoded ----------------
-    def test_pot_only_chain_with_a_foreign_tarball_rejected(self):
-        """core/pipeline.py sets STAGES['pot_only']['code_tarball'] to
-        prodtarget's tarball and the per-stage value WINS over the
-        SPECS-driven one. A JSON mode declaring run.stages: ['pot_only']
-        would silently ship prodtarget's code to the grid while preflight
-        validated its OWN musing -- the preflight-passes/grid-diverges
-        mechanism of the foilsflash-tarball and foilsg-tarball incidents
-        (F13)."""
-        def mutate(d):
-            d["run"]["stages"] = ["pot_only"]
-        self._expect_error(mutate, "pot_only", "code_tarball")
+    # F13 ("pot_only chain with a foreign tarball rejected") removed
+    # 2026-08-08: the _POT_ONLY_STAGE guard it pinned was deleted from
+    # core/mode_json.py along with the harvest-pot-only verb and the
+    # ProdTarget family that was its only user.
 
 
 class TestDuplicateJsonKeys(unittest.TestCase):
@@ -405,28 +397,29 @@ class TestLeaderboardUniqueness(unittest.TestCase):
         self.assertIn("leaderboard_bo_shared.tsv", msg)
         self.assertIn("lineone", msg)
 
-    def test_json_mode_pointing_at_a_live_python_leaderboard_rejected(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            _write(tmp, "myline", self._spec_doc(
-                "myline", "leaderboards/leaderboard_bo_foils_v2.tsv"))
-            with self.assertRaises(ValueError) as cm:
-                load_mode_dir(tmp, modes.SPECS)
-        msg = str(cm.exception)
-        self.assertIn("leaderboard_bo_foils_v2.tsv", msg)
-        self.assertIn("foils", msg)
+    # test_json_mode_pointing_at_a_live_python_leaderboard_rejected removed
+    # 2026-08-08: exercised the PYTHON_MODE_LEADERBOARDS carve-out, which was
+    # deleted along with the last Python-mode adapters (core/mode_json.py
+    # load_mode_dir no longer has a "belongs to a Python mode" case --
+    # leaderboard-ownership is JSON-vs-JSON only now, see
+    # test_two_json_modes_sharing_a_leaderboard_rejected above).
 
     def test_dotted_path_does_not_defeat_the_check(self):
-        # foils, not foilsflash: foilsflash became JSON-defined 2026-07-26 and
-        # its leaderboard is no longer Python-owned, so it can no longer serve
-        # as the "belongs to a Python mode" example here.
+        # Repointed 2026-08-08 (was: a name naming a Python-owned leaderboard
+        # -- "belongs to a Python mode" no longer exists as a concept, see
+        # the removed test above). Same normalization guarantee
+        # (_normalize_leaderboard_rel collapses './'), proven here against a
+        # JSON-vs-JSON collision: two specs in the SAME scan, one with a
+        # dotted prefix, must still collide.
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            _write(tmp, "myline", self._spec_doc(
-                "myline", "./leaderboards/leaderboard_bo_foils_v2.tsv"))
+            _write(tmp, "lineone", self._spec_doc(
+                "lineone", "leaderboards/leaderboard_bo_dottest.tsv"))
+            _write(tmp, "linetwo", self._spec_doc(
+                "linetwo", "./leaderboards/leaderboard_bo_dottest.tsv"))
             with self.assertRaises(ValueError) as cm:
-                load_mode_dir(tmp, modes.SPECS)
-        self.assertIn("foils", str(cm.exception))
+                load_mode_dir(tmp, {})
+        self.assertIn("leaderboard_bo_dottest.tsv", str(cm.exception))
 
     def test_parent_traversal_in_leaderboard_path_rejected(self):
         doc = self._spec_doc("myline", "../elsewhere/leaderboard.tsv")
@@ -446,35 +439,12 @@ class TestLeaderboardUniqueness(unittest.TestCase):
             out = load_mode_dir(tmp, modes.SPECS)
         self.assertEqual(sorted(out), ["lineone", "linetwo"])
 
-    def test_python_leaderboard_table_matches_the_driver_classes(self):
-        """The loader cannot import bo_driver (bo_driver -> modes ->
-        mode_json is already a cycle), so the live Python leaderboard paths
-        are frozen in core/mode_json.py. This is the lockstep test that makes
-        a renamed Python leaderboard fail HERE instead of re-opening the hole.
-
-        The mode list is DERIVED, not hardcoded: retiring a Python mode must
-        also prune its entry from PYTHON_MODE_LEADERBOARDS, or the JSON spec
-        that replaces it is locked out of the very leaderboard it is meant to
-        inherit. A hardcoded list made that a silent trap (hit for real when
-        foilsflash was retired 2026-07-26); deriving it means the retirement
-        and the pruning are checked against each other automatically.
-        """
-        import bo_driver as bo
-        import mode_json
-        root = Path(__file__).resolve().parent.parent
-        # CLASS attribute, not the instance one: botorch_predict.main's
-        # --leaderboard override (exercised by tests/test_botorch_predict.py)
-        # assigns bo.MODES[...].leaderboard on the INSTANCE and never puts it
-        # back, so reading the instance here makes this test order-dependent.
-        live = {
-            str(type(m).leaderboard.relative_to(root)): n
-            for n, m in bo.MODES.items()
-            if not isinstance(m, bo.JsonMode)
-        }
-        self.assertEqual(dict(mode_json.PYTHON_MODE_LEADERBOARDS), live)
-        self.assertNotIn("foilsflash", live.values(),
-                         "foilsflash is JSON-defined; it must not appear in "
-                         "the Python-owned leaderboard table")
+    # test_python_leaderboard_table_matches_the_driver_classes removed
+    # 2026-08-08: pinned PYTHON_MODE_LEADERBOARDS (core/mode_json.py) against
+    # the live Python BOMode subclasses' `leaderboard` class attributes.
+    # Both sides are gone -- every mode is JsonMode now, so
+    # `bo.MODES.items() if not isinstance(m, bo.JsonMode)` is always empty
+    # and there is no second leaderboard table left to keep in lockstep.
 
 
 class TestCopyPasteTemplate(unittest.TestCase):
@@ -503,10 +473,12 @@ class TestCopyPasteTemplate(unittest.TestCase):
         self.assertTrue(spec.geom.render([v for v in spec.bounds_lo]))
 
     def test_template_leaderboard_is_not_a_live_one(self):
-        import mode_json
+        # Repointed 2026-08-08: PYTHON_MODE_LEADERBOARDS is gone (retired
+        # with the last Python-mode adapters); every leaderboard now lives
+        # in modes.SPECS (JSON-defined modes only), so check against that.
         spec = load_mode_file(self.TEMPLATE)
-        self.assertNotIn(spec.leaderboard_rel,
-                         mode_json.PYTHON_MODE_LEADERBOARDS)
+        live_leaderboards = {s.leaderboard_rel for s in modes.SPECS.values()}
+        self.assertNotIn(spec.leaderboard_rel, live_leaderboards)
 
     def test_readme_documents_the_int_fmt_limitation(self):
         """F14: _validate_fmt probes with a float, so "{:d}" is rejected at

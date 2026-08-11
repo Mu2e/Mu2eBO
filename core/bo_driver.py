@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 """Bayesian Optimization driver for Mu2e geometry searches.
 
-Modes (select with --mode; bounds live in modes.SPECS, the registry of record):
-
-  foils         5D/6D extras-only stopping-target envelope (absolute rIn)
-  foilsf        v3 foils: hole radius as FRACTION of rOut (rIn = f*rOut)
-  foilsflash    foilsf geometry vs elebeam-flash tracker edep objective
-  foilsg        12D grouped 49-foil stack (4 z-groups x (rOut, hT, f))
-  prodtarget    ~11D Stickman production-target profile search (mu_per_POT)
-  prodtarget6d  6D simplification of prodtarget (no lug knobs, N pinned)
+Modes (select with --mode; bounds/facts live in modes.SPECS, the registry of
+record) are JSON-defined: one mode_specs/<name>.json file per optimization
+line (schema in mode_specs/README.md), loaded at import time by
+core/mode_json.py. Run `bo_driver.py --help` for the live --mode choices --
+the roster changes as campaigns come and go (see mode_specs/*.json), so it is
+not hand-listed here. The five Python-mode adapters (foils, foilsf, foilsg,
+prodtarget, prodtarget6d) were archived 2026-08-08; see
+docs/superpowers/specs/2026-08-08-leaderboard-module-design.md.
 
 Subcommands:
   propose      : seed GP, propose next candidate, render geom override file
   evaluate     : after pipeline run, parse summary.json + append to leaderboard
   preflight    : run mu2e -n 1 locally on a proposal to catch G4 init failures
 
-Architecture: BOMode is an ABC; each concrete mode is an adapter. MODES =
-{name: instance} is the registry argparse selects from, keyed 1:1 with
-modes.SPECS (ADR-0002). Adding a mode = subclass BOMode + add to MODES +
-modes.SPECS + graph/state.py Literal (the lockstep is pinned by test_modes).
+Architecture: BOMode is an ABC; JsonMode is the single concrete adapter,
+one instance per mode_specs/*.json file. MODES = {name: instance} is the
+registry argparse selects from, keyed 1:1 with modes.SPECS (ADR-0002).
+Adding a mode = drop a mode_specs/<name>.json file (no Python change; the
+lockstep with modes.SPECS/graph/state.py is pinned by test_modes).
 """
 from __future__ import annotations
 
 import argparse
-import csv
 import fcntl
 import json
 import os
@@ -31,10 +31,7 @@ import re
 import shutil
 import sys
 import tempfile
-import time
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -43,85 +40,28 @@ from typing import NamedTuple
 # incident class. Stdlib-only import.
 import modes as _modes  # noqa: E402
 
-
-def _lock_path(target: Path) -> Path:
-    """Flock anchor for `target`: <target's dir>/locks/<target's name>.lock.
-
-    All runtime lock files live in a dedicated locks/ folder next to the
-    thing they guard (relative to the target's parent, NOT a global constant,
-    so tests that point a mode's TSVs at a tmp dir keep their lock isolation).
-    Lock files are created if absent and intentionally NEVER deleted —
-    deleting one while a process holds it would let the next opener lock a
-    fresh inode at the same path, silently splitting the mutual exclusion.
-    """
-    lock_dir = target.parent / "locks"
-    lock_dir.mkdir(parents=True, exist_ok=True)
-    return lock_dir / (target.name + ".lock")
-
-
-@contextmanager
-def _flock_ex(target: Path):
-    """Exclusive-lock target's locks/-dir anchor for the duration of the block.
-
-    Used by leaderboard/pending TSV writers when multiple closed-loop child
-    processes may append concurrently.
-    """
-    lock_path = _lock_path(target)
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
-
-
-@contextmanager
-def _flock_sh(target: Path):
-    """Shared-lock target's locks/-dir anchor for the duration of the block.
-
-    Paired with _flock_ex on the same path: writers (append_history) hold EX
-    and block readers; readers (load_history) hold SH and block only writers,
-    not each other. Closes the torn-row race where a reader could observe a
-    partially-written leaderboard line mid-append.
-    """
-    lock_path = _lock_path(target)
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_SH)
-        try:
-            yield
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
+    Leaderboard, Point, to_py_scalars,   # are public API of this module)
+    _flock_ex, _flock_sh, _lock_path)
 
 ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
 
+# graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
+# "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —
+# that file is out of scope here (graph/ stays untouched by the 2026-08-08
+# Python-mode archive cut). "foils" no longer exists in modes.SPECS, so an
+# unset AUTORESEARCH_MODE would KeyError inside `from config import` below.
+# Real launches (graph/run.py, graph/closed_loop.py) always stamp
+# AUTORESEARCH_MODE before importing config, so setdefault is a no-op for
+# them; a bare `import bo_driver` (tests, ad-hoc scripts) gets a live JSON
+# mode instead of the dead "foils" default.
+os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
 sys.path.insert(0, str(ROOT / "graph"))
 from config import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
 from sourced_bash import run_sourced_bash  # noqa: E402
 
 DEFAULT_ALPHA = 1.0e5  # mmackenz calo range 4e-8..2.5e-5; alpha=1e5 makes
                        # 1e-5 calo cost 1 unit of S/sqrt(B). Override per study.
-
-
-@dataclass
-class Point:
-    """Generic BO point: x layout depends on mode."""
-    cfg: str
-    x: list      # mode-specific list of param values
-    sob: float
-    calo: float
-    extras: dict | None = None  # mode-specific side metrics (logged not optimized)
-
-    def obj(self, alpha: float) -> float:
-        return self.sob - alpha * self.calo
-
-
-
-
-def to_py_scalars(x) -> list:
-    """Coerce numpy scalars (np.int64/np.float64) to native Python types for
-    JSON/msgpack. Shared by append_pending and graph/pipeline_io.propose_one —
-    see wiki/incidents/langgraph-checkpoint-numpy-int64.md."""
-    return [v.item() if hasattr(v, "item") else v for v in x]
 
 
 class SpaceDim(NamedTuple):
@@ -141,10 +81,10 @@ class SpaceDim(NamedTuple):
 class BOMode(ABC):
     """A BO mode = search space + render + prior loader + leaderboard format.
 
-    Each subclass owns its pinned constants and its 6 mode-specific methods
-    (load_priors, build_space, _geom_text, parse_geom, format_row,
-    load_history_row). Shared concerns (history I/O, pending TSV,
-    proposal file write) are concrete on this base class.
+    Each subclass fills in the one abstract method (_geom_text); everything
+    else -- build_space, priors, x recovery at evaluate time, and leaderboard
+    + pending TSV I/O (delegated to core/leaderboard.py's Leaderboard via
+    leaderboard_io()) -- is concrete on this base class.
     """
     name: str
     leaderboard: Path
@@ -153,40 +93,43 @@ class BOMode(ABC):
 
     # --- abstract: each concrete mode implements ---
     @abstractmethod
-    def load_priors(self) -> list[Point]: ...
-
-    @abstractmethod
     def _geom_text(self, x) -> str: ...
 
-    @abstractmethod
-    def parse_geom(self, text: str): ...
+    # --- concrete: no mode has code-carried priors anymore ---
+    def load_priors(self) -> list[Point]:
+        """No mode has code-carried priors anymore (botorch Sobol cold-starts
+        a fresh line; history comes from the leaderboard)."""
+        return []
 
     # --- x recovery at evaluate time (the seam cmd_evaluate calls) ---
     def x_for_evaluate(self, config_name: str, geom_text: str):
-        """Recover the x that was actually evaluated, for the leaderboard row.
+        """Recover x from the pending TSV instead of parsing the geometry.
 
-        The six Python modes round-trip their own rendered geometry, which is
-        what this default does. A mode with no parser (JsonMode) overrides
-        this and recovers x from the pending TSV instead — `x` is persisted
-        there by append_pending at propose time and is still present here,
-        because cmd_evaluate calls remove_pending only AFTER this point.
-
-        This indirection exists because cmd_evaluate used to call parse_geom
-        directly: JsonMode.parse_geom raises NotImplementedError, which is not
-        in cmd_evaluate's `except (KeyError, TypeError)`, so every JSON-mode
-        child died at evaluate after its full ~4.5h grid run and the campaign
-        landed zero rows.
+        append_pending wrote the exact proposed x as JSON at propose time and
+        cmd_evaluate clears pending only after this call, so the row is still
+        there. An absent config is a HARD refusal: a partial or guessed x
+        would put a real (sob, calo) measurement at the wrong coordinates and
+        train the GP on a point that was never evaluated.
         """
-        return self.parse_geom(geom_text)
+        for name, x in self.load_pending():
+            if name == config_name:
+                return list(x)
+        raise SystemExit(
+            f"[{self.name}] cannot recover x for {config_name!r}: no such row "
+            f"in {self.pending_path()}. JSON-defined modes have no geometry "
+            f"parser, so the pending TSV is the ONLY record of the proposed "
+            f"x; it is written by propose and cleared by a SUCCESSFUL "
+            f"evaluate. Re-running evaluate for an already-recorded config "
+            f"hits this. Refusing to append a row rather than guess x.")
 
     # Leaderboard row shape shared by every sob/calo-schema mode: knob columns
-    # = KNOB_NAMES, per-position precision = KNOB_FMTS, second-objective column
-    # = CALO_COL. These are registry-reading properties now (modes.SPECS is
-    # the single source — ADR-0002 extension); subclasses that change the
-    # knob names (FoilsFracMode: rIn->f) or the objective column
-    # (FoilsFlashMode: flash_edep) get that from their own spec entry, no
-    # class-attr override needed. The ProdTarget family overrides both
-    # methods (different metric columns).
+    # = KNOB_NAMES, per-position precision = KNOB_FMTS. These are
+    # registry-reading properties (modes.SPECS is the single source —
+    # ADR-0002 extension); a mode that changes its knob names (FoilsFracMode:
+    # rIn->f) or objective column (FoilsFlashMode: flash_edep) gets that from
+    # its own spec entry, no class-attr override needed. The second-objective
+    # column itself is metric_cols[1], read by leaderboard_io() when it
+    # builds the Leaderboard (core/leaderboard.py).
     @property
     def KNOB_NAMES(self) -> tuple:
         return _modes.SPECS[self.name].knob_names
@@ -194,31 +137,6 @@ class BOMode(ABC):
     @property
     def KNOB_FMTS(self) -> tuple:
         return _modes.SPECS[self.name].knob_fmts
-
-    @property
-    def CALO_COL(self) -> str:
-        # Foils-family second-objective column = metric_cols[1].
-        return _modes.SPECS[self.name].metric_cols[1]
-
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        cols = _modes.SPECS[self.name].metric_cols
-        if len(cols) != 4:
-            raise ValueError(
-                f"{self.name}: BOMode.format_row writes a 4-column tail "
-                f"(sob-like, calo-like, alpha, obj) but metric_cols is "
-                f"{cols} — override format_row for this shape "
-                f"(ProdTargetMode pattern)")
-        header = ("config\t" + "\t".join(self.KNOB_NAMES)
-                  + "\t" + "\t".join(cols) + "\n")
-        knobs = "\t".join(fmt.format(v) for fmt, v in zip(self.KNOB_FMTS, p.x))
-        line = (f"{p.cfg}\t{knobs}"
-                f"\t{p.sob:.5f}\t{p.calo:.5e}\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        return Point(cfg=row["config"],
-                     x=[float(row[c]) for c in self.KNOB_NAMES],
-                     sob=float(row["sob"]), calo=float(row[self.CALO_COL]))
 
     # Search space: SpaceDim rows from the ModeSpec registry box
     # (modes.SPECS[name].bounds_lo/hi/int_dims) paired with the per-mode
@@ -248,7 +166,7 @@ class BOMode(ABC):
     def extract_metrics(self, summary: dict) -> tuple[float, float]:
         return summary["s_over_sqrt_b"], summary["calo_per_pot"]
 
-    # Optional side metrics (logged via format_row, not part of obj). Default
+    # Optional side metrics (Point.extras; not part of obj). Default
     # returns None — modes opt in (e.g. ProdTargetMode -> edep_per_POT_MeV).
     # x is the BO x_point (geometry knobs), supplied so modes can compute
     # derived quantities that need both per-plate harvest output and the
@@ -263,892 +181,55 @@ class BOMode(ABC):
         out.write_text(self._geom_text(x))
         return out
 
+    # --- leaderboard + pending I/O: owned by core/leaderboard.py -----------
+    def leaderboard_io(self) -> Leaderboard:
+        lb = getattr(self, "_lb_cache", None)
+        # Rebuild whenever `self.leaderboard` no longer matches the cached
+        # instance's path, not just on first access. `mock.patch.object(mode,
+        # "leaderboard", tmp_path)` is the standard test seam across this
+        # suite (test_botorch_predict.py, test_seam_protocol.py) and the
+        # botorch_predict --leaderboard CLI override does the same directly;
+        # a path-blind cache would silently keep serving the PRE-patch (or,
+        # worse, an already-deleted tmpdir's) Leaderboard once any earlier
+        # call had populated it -- exactly the failure mode
+        # touched-leaderboard-headerless-history-loss warns about, just at
+        # the object-cache layer instead of the TSV layer.
+        if lb is None or lb.path != self.leaderboard:
+            spec = _modes.SPECS[self.name]
+            lb = Leaderboard(path=self.leaderboard, name=self.name,
+                             knob_names=tuple(spec.knob_names),
+                             knob_fmts=tuple(spec.knob_fmts),
+                             metric_cols=tuple(spec.metric_cols))
+            self._lb_cache = lb
+        return lb
+
     def load_history(self) -> list[Point]:
-        if not self.leaderboard.exists():
-            return []
-        out = []
-        with _flock_sh(self.leaderboard), self.leaderboard.open() as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                try:
-                    out.append(self.load_history_row(row))
-                except (KeyError, ValueError):
-                    continue
-        return out
+        return self.leaderboard_io().load()
 
     def append_history(self, p: Point, alpha: float):
-        with _flock_ex(self.leaderboard):
-            new_file = not self.leaderboard.exists()
-            header, line = self.format_row(p, alpha)
-            with self.leaderboard.open("a") as f:
-                if new_file:
-                    f.write(header)
-                f.write(line)
+        self.leaderboard_io().append(p, alpha)
 
-    # --- batch BO pending-state (see wiki/concepts/batch-bo.md) ---
     def pending_path(self) -> Path:
-        return self.leaderboard.parent / f"pending_bo_{self.name}.tsv"
+        return self.leaderboard_io().pending_path()
 
     def load_pending(self) -> list[tuple[str, list]]:
-        pp = self.pending_path()
-        if not pp.exists():
-            return []
-        out = []
-        with _flock_sh(pp), pp.open() as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                try:
-                    out.append((row["config"], json.loads(row["x"])))
-                except (KeyError, ValueError, json.JSONDecodeError):
-                    continue
-        return out
+        return self.leaderboard_io().pending_load()
 
     def append_pending(self, name: str, x, alpha: float):
-        pp = self.pending_path()
-        with _flock_ex(pp):
-            new = not pp.exists()
-            with pp.open("a") as f:
-                if new:
-                    f.write("config\tx\talpha\tsubmitted_at\n")
-                x_py = to_py_scalars(x)
-                f.write(f"{name}\t{json.dumps(x_py)}\t{alpha:.3f}\t{int(time.time())}\n")
+        self.leaderboard_io().pending_add(name, x, alpha)
 
     def remove_pending(self, name: str) -> bool:
-        pp = self.pending_path()
-        # Read-modify-write under lock: without LOCK_EX two concurrent removals
-        # can race and one's truncate overwrites the other's deletion.
-        with _flock_ex(pp):
-            if not pp.exists():
-                return False
-            rows = pp.read_text().splitlines()
-            if len(rows) < 2:
-                return False
-            header, body = rows[0], rows[1:]
-            kept = [r for r in body if not r.startswith(name + "\t")]
-            if len(kept) == len(body):
-                return False
-            # ALWAYS terminate with a newline, including when `kept` is empty.
-            # The old `("\n" if kept else "")` left the header unterminated
-            # once the last pending row was removed, and append_pending opens
-            # in "a" mode -- so the NEXT proposal was written straight onto the
-            # header line ("...submitted_atfoilsflash22R00_00\t[...]"). From
-            # then on the file was a single line forever: load_pending()
-            # returned 0 rows, silently. That went unnoticed for a long time
-            # because nothing depended on reading it back -- Python modes
-            # recovered x via parse_geom, and the only other consumers degrade
-            # quietly (the propose_one collision guard stops seeing pending
-            # names, and botorch_ask gets an empty X_pending so concurrent
-            # children no longer repel each other's in-flight points). It
-            # became fatal the moment foilsflash went JSON-defined and
-            # x_for_evaluate made the pending TSV the ONLY record of x:
-            # foilsflash24R00_00 lost a finished 3.5 h eval to it (2026-07-26).
-            pp.write_text("\n".join([header] + kept) + "\n")
-            return True
-
-
-# ============================================================================
-# FoilsMode: 5D extras-only stopping-target foil-stack search
-# ============================================================================
-
-class FoilsMode(BOMode):
-    """BO over the extras around the pinned 37-foil base — 6D, per-side decoupled.
-
-    n_up and n_down are PINNED at 6 (both champions foilsX07R01_03 and
-    foilsX08R04_08 railed there in the 5D era). The 6 free knobs are
-    (rOut, halfThickness, rIn) × (up, dn) — upstream extras carry their own
-    triple, downstream their own.
-
-    Geom vectors always have BASE_N_FOILS + 2*6 = 49 entries: 6 upstream
-    extras, 37 pinned base, 6 downstream extras. Base 37 keep
-    rOut=75, halfThickness=0.0528, holeRadius=21.5.
-
-    Patched StoppingTargetMaker.cc reads the per-foil holeRadii vector;
-    legacy binaries fall back to scalar holeRadius (still emitted at
-    BASE_HOLE_RADIUS_MM so the base 37 build correctly under either lib).
-
-    v1 (5D coupled) leaderboard rows are loaded as 6D priors via the
-    n_up=n_down=6 subset projection (*_up = *_dn = scalar).
-
-    No helical plug (tsda.helical.build = false, hasTSdA = false).
-    """
-    name = "foils"
-    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foils_v2.tsv"
-    leaderboard_v1 = ROOT / "leaderboards" / "leaderboard_bo_foils_v1.tsv"
-    proposal_dir = ROOT / "bo_work" / "proposals" / "foils"
-    preflight_dir = ROOT / "bo_work" / "preflight" / "foils"
-
-    # Base 37-foil DOE-2017 spec.
-    BASE_N_FOILS = 37
-    BASE_ROUT_MM = 75.0
-    BASE_HALFTHICK_MM = 0.0528
-    # Deployed base central hole = Edmonds DOE-review-2017 (21.5 mm). Env-gated
-    # ONLY for one-off geometry experiments (e.g. the no-hole flash A/B that tests
-    # Edmonds' ~30% central-hole effect); default unchanged so normal BO is unaffected.
-    # See wiki/external/edmonds-target-hole-docdb10898.md.
-    BASE_HOLE_RADIUS_MM = float(os.environ.get("AUTORESEARCH_BASE_HOLE_RADIUS_MM", "21.5"))
-
-    # v2: integer envelope knobs pinned at the saturated v1 upper bound. Env-gated
-    # (default 6) so a one-off can drop the extras and emit a pure 37-foil base.
-    FIXED_N_UP = int(os.environ.get("AUTORESEARCH_N_UP", "6"))
-    FIXED_N_DOWN = int(os.environ.get("AUTORESEARCH_N_DOWN", "6"))
-
-    # A v1 row is only a valid v2 prior when its global holeRadius matches v2's
-    # FIXED base hole. v1 _geom_text emitted `holeRadius = extra_rIn` GLOBALLY
-    # (base 37 + extras) whenever extras were present, whereas v2 pins the base
-    # 37 at BASE_HOLE_RADIUS_MM and only the extras get rIn. So unless
-    # extra_rIn == base hole, the prior's (sob,calo) was measured with a
-    # different base geometry than the projected v2 x-point builds -- and the
-    # base 37 dominate the 49-foil stack, so that mismatch makes the y
-    # meaningless for v2 (base stopping-area sensitivity ~0.83%/mm near 21.5).
-    # 1.5 mm tol keeps the base-area mismatch under ~1.3%.
-    # See wiki/projects/bo-foils.md (v1->v2 prior base-hole mismatch).
-    PRIOR_BASE_HOLE_TOL_MM = 1.5
-
-    def load_priors(self):
-        """Project the SUBSET of v1 rows that round-trip into v2 geometry.
-
-        A v1 row qualifies only if n_up==n_down==6 AND its extra_rIn is within
-        PRIOR_BASE_HOLE_TOL_MM of BASE_HOLE_RADIUS_MM. For those rows the full
-        v1 geometry (symmetric extras, base+extras all at hole≈21.5) is
-        identical to the v2 geometry at x=[rOut,rOut,hT,hT,rIn,rIn], so the
-        (sob,calo) is valid. Rows with a different extra_rIn are DROPPED --
-        their y reflects a base hole v2 cannot reproduce (most v1 rows; see
-        wiki/projects/bo-foils.md). v2's own leaderboard history is the primary
-        warm start; these priors are supplementary.
-        """
-        if not self.leaderboard_v1.exists():
-            return []
-        out = []
-        with self.leaderboard_v1.open() as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                try:
-                    if int(row["n_up"]) != self.FIXED_N_UP:
-                        continue
-                    if int(row["n_down"]) != self.FIXED_N_DOWN:
-                        continue
-                    rOut = float(row["extra_rOut"])
-                    hT = float(row["extra_halfThickness"])
-                    rIn = float(row["extra_rIn"])
-                    if abs(rIn - self.BASE_HOLE_RADIUS_MM) > self.PRIOR_BASE_HOLE_TOL_MM:
-                        continue  # base-hole mismatch -> y invalid for v2
-                    out.append(Point(
-                        cfg=row["config"],
-                        x=[rOut, rOut, hT, hT, rIn, rIn],
-                        sob=float(row["sob"]),
-                        calo=float(row["calo"]),
-                    ))
-                except (KeyError, ValueError):
-                    continue
-        return out
-
-    def is_buildable(self, x) -> bool:
-        rOut_up, rOut_dn, _, _, rIn_up, rIn_dn = x
-        if rIn_up >= rOut_up:
-            return False
-        if rIn_dn >= rOut_dn:
-            return False
-        return True
-
-    def _geom_text(self, x) -> str:
-        rOut_up, rOut_dn, hT_up, hT_dn, rIn_up, rIn_dn = x
-        n_up = self.FIXED_N_UP
-        n_down = self.FIXED_N_DOWN
-        radii = ([rOut_up] * n_up
-                 + [self.BASE_ROUT_MM] * self.BASE_N_FOILS
-                 + [rOut_dn] * n_down)
-        halfth = ([hT_up] * n_up
-                  + [self.BASE_HALFTHICK_MM] * self.BASE_N_FOILS
-                  + [hT_dn] * n_down)
-        hole_radii = ([rIn_up] * n_up
-                      + [self.BASE_HOLE_RADIUS_MM] * self.BASE_N_FOILS
-                      + [rIn_dn] * n_down)
-        radii_csv = ", ".join(f"{r:.4f}" for r in radii)
-        halfth_csv = ", ".join(f"{h:.6f}" for h in halfth)
-        hole_radii_csv = ", ".join(f"{h:.4f}" for h in hole_radii)
-
-        hole_lines = (
-            # POISON-PILL scalar: an unpatched StoppingTargetMaker ignores
-            # the holeRadii vector and reads this scalar — emitting the old
-            # back-compat 21.5 made that fallback silent (all 297 v3 rows
-            # built with hole=21.5, f knobs inert). 1e6 forces a loud G4Tubs
-            # crash in any scalar-fallback env. See
-            # wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md.
-            f'double stoppingTarget.holeRadius = 1.0e6;\n'
-            f'vector<double> stoppingTarget.holeRadii      = {{ {hole_radii_csv} }};\n'
-        )
-
-        return (
-            '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            '\n// === bo_driver (foils mode v2, 6D) proposal ===\n'
-            f'// 37 base foils (DOE-2017, rOut=75, hT=0.0528, holeRadius=21.5)\n'
-            f'// + {n_up} up at (rOut={rOut_up:.2f}, hT={hT_up:.4f}, rIn={rIn_up:.2f})\n'
-            f'// + {n_down} dn at (rOut={rOut_dn:.2f}, hT={hT_dn:.4f}, rIn={rIn_dn:.2f})\n'
-            '// holeRadii vector decouples extras-rIn from base-rIn (patched lib).\n'
-            'bool hasTSdA = false;\n'
-            'bool tsda.helical.build = false;\n'
-            f'vector<double> stoppingTarget.radii          = {{ {radii_csv} }};\n'
-            f'vector<double> stoppingTarget.halfThicknesses = {{ {halfth_csv} }};\n'
-            + hole_lines
-            + '\n// Degrader parked at 120° (mmackenz hardware detent)\n'
-              'bool degrader.build = false;\n'
-              'double degrader.rotation = 120.0;\n'
-              'string ts.coll5.material1Name = "COL5Poly";\n'
-              '\n// TT_MidInner→DS2Vacuum fix (manually patched, mirrors v111)\n'
-              'bool tracker.inDS2Vacuum = true;\n'
-              'double ds2.halfLength = 3825;\n'
-              'bool ds.hasServicePipes = false;\n'
-              '\n// Overlap-suppression (foil-support off + rail shrink)\n'
-              'bool stoppingTarget.foilTarget_supportStructure = false;\n'
-              'double ds.lengthRail2 = 0.1;\n'
-              'double ds.lengthRail3 = 0.1;\n'
-        )
-
-    _RADII_RX = re.compile(
-        r"vector<double>\s+stoppingTarget\.radii\s*=\s*\{([^}]*)\}")
-    _HALFTH_RX = re.compile(
-        r"vector<double>\s+stoppingTarget\.halfThicknesses\s*=\s*\{([^}]*)\}")
-    _HOLE_VEC_RX = re.compile(
-        r"vector<double>\s+stoppingTarget\.holeRadii\s*=\s*\{([^}]*)\}")
-    _HOLE_RX = re.compile(
-        r"stoppingTarget\.holeRadius\s*=\s*([\d.eE+-]+)")
-
-    def parse_geom(self, text: str):
-        """Parse a v2 (6D, n_up=n_down=6) geom file. Vectors must have
-        BASE_N_FOILS + 12 = 49 entries; the first/last entries on each side
-        are the *_up/*_dn extras for (rOut, halfThickness, rIn)."""
-        n_up = self.FIXED_N_UP
-        n_down = self.FIXED_N_DOWN
-        expected_len = self.BASE_N_FOILS + n_up + n_down
-
-        m = self._RADII_RX.search(text)
-        if not m:
-            return None
-        radii = [float(v) for v in m.group(1).split(",")]
-        if len(radii) != expected_len:
-            raise ValueError(
-                f"FoilsMode v2 expects {expected_len}-entry radii vector "
-                f"(n_up={n_up}+base={self.BASE_N_FOILS}+n_down={n_down}); "
-                f"got {len(radii)} entries"
-            )
-
-        mh = self._HALFTH_RX.search(text)
-        if not mh:
-            return None
-        halfth = [float(v) for v in mh.group(1).split(",")]
-        if len(halfth) != expected_len:
-            raise ValueError(
-                f"FoilsMode v2 expects {expected_len}-entry halfThicknesses; "
-                f"got {len(halfth)}"
-            )
-
-        mvec = self._HOLE_VEC_RX.search(text)
-        if mvec:
-            hole_radii = [float(v) for v in mvec.group(1).split(",")]
-            if len(hole_radii) != expected_len:
-                raise ValueError(
-                    f"FoilsMode v2 expects {expected_len}-entry holeRadii; "
-                    f"got {len(hole_radii)}"
-                )
-            rIn_up = hole_radii[0]
-            rIn_dn = hole_radii[-1]
-        else:
-            # Pre-holeRadii era: scalar holeRadius applied to all foils; the
-            # extras' rIn was implicitly the scalar.
-            mr = self._HOLE_RX.search(text)
-            scalar = float(mr.group(1)) if mr else self.BASE_HOLE_RADIUS_MM
-            rIn_up = scalar
-            rIn_dn = scalar
-
-        return [radii[0], radii[-1], halfth[0], halfth[-1], rIn_up, rIn_dn]
-
-    # Row format/parse inherited from the BOMode generic; KNOB_FMTS comes
-    # from modes.SPECS["foils"].knob_fmts.
-
-
-class FoilsFracMode(FoilsMode):
-    """v3: identical 6D foils geometry to FoilsMode, but each side's hole radius
-    is a FRACTION of that side's outer radius (rIn = f * rOut) rather than an
-    absolute mm value. Two payoffs:
-
-      * the downstream hole can exceed the old 50 mm cap (the rIn_dn=50 pegging
-        pointed past it) with NO infeasible rIn>=rOut region — f in [0, 0.95]
-        means rIn < rOut always, so is_buildable is trivially True;
-      * LOSSLESS reparam of v2 — every v2 row maps EXACTLY via f = rIn/rOut
-        (same physical foil), so all v2 evals + the 1 v1 prior reuse with no
-        base-hole filter. See wiki/projects/bo-foils.md.
-
-    Point.x = [rOut_up, rOut_dn, hT_up, hT_dn, f_up, f_dn]. The geometry layer
-    (geom emission, parse, preflight, harvest) is unchanged and still works in
-    absolute rIn; only the BO search coordinate differs, so _geom_text /
-    parse_geom just wrap the v2 methods with the f<->rIn transform.
-    """
-    name = "foilsf"
-    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foils_v3.tsv"
-
-    # hole = FRACTION of rOut (rIn = f*rOut); registry caps f at 0.95 so
-    # rIn < rOut always. Same geometry as FoilsMode, so only the last two
-    # knob NAMES change (rIn -> f) — that's modes.SPECS["foilsf"].knob_names;
-    # bounds also come from modes.SPECS["foilsf"].
-
-    def is_buildable(self, x) -> bool:
-        return True  # f in [0, 0.95] => rIn = f*rOut < rOut, always buildable
-
-    @staticmethod
-    def _frac_to_abs(x):
-        rOut_up, rOut_dn, hT_up, hT_dn, f_up, f_dn = x
-        return [rOut_up, rOut_dn, hT_up, hT_dn, f_up * rOut_up, f_dn * rOut_dn]
-
-    @staticmethod
-    def _abs_to_frac(xa):
-        rOut_up, rOut_dn, hT_up, hT_dn, rIn_up, rIn_dn = xa
-        return [rOut_up, rOut_dn, hT_up, hT_dn, rIn_up / rOut_up, rIn_dn / rOut_dn]
-
-    def _geom_text(self, x) -> str:
-        return FoilsMode._geom_text(self, self._frac_to_abs(x))
-
-    def parse_geom(self, text: str):
-        xa = FoilsMode.parse_geom(self, text)  # [..., rIn_up, rIn_dn] absolute
-        return None if xa is None else self._abs_to_frac(xa)
-
-    def load_priors(self):
-        """v3-only: empty prior list. Live picker trains only on the v3
-        leaderboard (via load_history). The v1 prior + 54 v2 evals are
-        intentionally NOT loaded because v2's rIn<=50 regime regresses the GP
-        away from v3's high-f exploration (see
-        [[gp-cloud-rendering]] foils v2+v3 bias; v3-only cloud envelopes the
-        gold stars, v2+v3 does not). Trade-off: GP becomes under-identified
-        (length_scale -> upper-bound saturation observed on 67-row v3-only
-        fit). Accepted 2026-06-05 per operator direction."""
-        return []
-
-
-
-# FoilsFlashMode RETIRED 2026-07-26 — the line is now defined entirely by
-# mode_specs/foilsflash.json (JSON-configurable modes). The class was a pure
-# duplicate of what the spec declares: geometry inherited from FoilsFracMode
-# (reproduced by the spec's geom block, parity-proven against
-# tests/fixtures/golden_geom/foilsflash_*.txt, captured from THIS class before
-# deletion) and a 2-line extract_metrics whose flash_edep_per_pot →
-# flash_edep_per_event chain plus zero/negative refusal are now
-# ModeSpec.metrics + JsonMode.extract_metrics. Its leaderboard, all 392 rows,
-# carries over untouched — the JSON spec declares the same path and an
-# identical column header. Validated on the real grid by ffjson01 (2026-07-26)
-# before this deletion. Live behaviour is unchanged; there is no Python
-# fallback left, so see wiki/projects/bo-foilsflash.md for the line itself.
-
-
-class FoilsGroupMode(BOMode):
-    """49 free foils in 4 z-grouped bands (sizes 12-13-12-12); 12-D BO.
-
-    Replaces the deployed 37-foil baseline rather than augmenting it: the
-    *whole* stack is free. Each contiguous z-group shares one
-    (rOut, halfThickness, hole_fraction) triple — so 4 groups × 3 knobs = 12
-    Real dims. Hole is parameterised as a fraction f ∈ [0, 0.95] of that
-    group's rOut (mirrors FoilsFracMode), giving rIn < rOut always and
-    is_buildable trivially True.
-
-    Z-layout (Option 1): uniform spacing across the same z-extent as the
-    deployed baseline. Deployed: 37 foils × deltaZ=22.222222 → extent ≈ 800 mm
-    (36 gaps). New: 49 foils with deltaZ = 800/48 ≈ 16.667 mm. Stack center
-    pinned by keeping z0InMu2e = 5871.
-
-    No carryover priors (load_priors=[]); first round is Sobol-init.
-    """
-    name = "foilsg"
-    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_foilsg.tsv"
-    proposal_dir = ROOT / "bo_work" / "proposals" / "foilsg"
-    preflight_dir = ROOT / "bo_work" / "preflight" / "foilsg"
-
-    N_FOILS = 49
-    GROUP_SIZES = (12, 13, 12, 12)  # sum == 49; center-loaded
-    Z0_MM = 5871.0
-    # Match deployed z-extent: 36 gaps × 22.222222 mm ≈ 800 mm spread over 49
-    # foils → 48 gaps of 800/48 ≈ 16.6667 mm.
-    DEPLOYED_DELTA_Z = 22.222222
-    DEPLOYED_GAPS = 36
-    BASE_EXTENT_MM = DEPLOYED_DELTA_Z * DEPLOYED_GAPS
-    DELTA_Z_MM = BASE_EXTENT_MM / (N_FOILS - 1)
-
-    # (rOut, hT, f) per z-group; hole f in [0, 0.95] of rOut. 12 dims (names +
-    # fmts + bounds) all live in modes.SPECS["foilsg"] (registry stores
-    # (50,0.01,0)*4 / (250,1,0.95)*4 for bounds).
-
-    def load_priors(self):
-        return []  # fresh 12D space — no upstream rows to project
-
-    def is_buildable(self, x) -> bool:
-        return True  # f<1 ⇒ rIn = f*rOut < rOut, always buildable
-
-    @staticmethod
-    def _unpack_groups(x):
-        """Yield (group_index, n_foils_in_group, rOut, hT, f) for each group."""
-        for g, n in enumerate(FoilsGroupMode.GROUP_SIZES):
-            rOut, hT, f = x[3 * g], x[3 * g + 1], x[3 * g + 2]
-            yield g, n, rOut, hT, f
-
-    def _geom_text(self, x) -> str:
-        radii, halfth, hole_radii = [], [], []
-        per_group_lines = []
-        for g, n, rOut, hT, f in self._unpack_groups(x):
-            radii.extend([rOut] * n)
-            halfth.extend([hT] * n)
-            hole_radii.extend([f * rOut] * n)
-            per_group_lines.append(
-                f'// group {g} (n={n}): rOut={rOut:.2f}, hT={hT:.4f}, '
-                f'f={f:.3f} → rIn={f*rOut:.2f}'
-            )
-        radii_csv = ", ".join(f"{r:.4f}" for r in radii)
-        halfth_csv = ", ".join(f"{h:.6f}" for h in halfth)
-        hole_csv = ", ".join(f"{h:.4f}" for h in hole_radii)
-        group_block = "\n".join(per_group_lines)
-
-        return (
-            '#include "Offline/Mu2eG4/geom/geom_run1_a.txt"\n'
-            '\n// === bo_driver (foilsg mode, 12D 4-group) proposal ===\n'
-            f'// {self.N_FOILS} free foils in groups {self.GROUP_SIZES} (replaces deployed 37 baseline)\n'
-            f'// uniform z-spacing across deployed extent ({self.BASE_EXTENT_MM:.2f} mm)\n'
-            f'// deltaZ = {self.DELTA_Z_MM:.6f} mm; z0InMu2e pinned at {self.Z0_MM:.1f}\n'
-            + group_block + '\n'
-            'bool hasTSdA = false;\n'
-            'bool tsda.helical.build = false;\n'
-            f'double stoppingTarget.z0InMu2e = {self.Z0_MM:.4f};\n'
-            f'double stoppingTarget.deltaZ   = {self.DELTA_Z_MM:.6f};\n'
-            f'vector<double> stoppingTarget.radii          = {{ {radii_csv} }};\n'
-            f'vector<double> stoppingTarget.halfThicknesses = {{ {halfth_csv} }};\n'
-            # holeRadii vector requires the patched StoppingTargetMaker.cc.
-            # POISON-PILL scalar: an unpatched binary falls back to the
-            # scalar and must crash loudly (G4Tubs rMin>rMax on every foil)
-            # instead of silently building uniform-hole geometry. The
-            # "sensible scalar (mean)" emitted before 2026-06-12 is exactly
-            # how 62 leaderboard rows got built with the wrong geometry. See
-            # wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md.
-            f'double stoppingTarget.holeRadius = 1.0e6;\n'
-            f'vector<double> stoppingTarget.holeRadii      = {{ {hole_csv} }};\n'
-            '\n// Degrader parked at 120° (mmackenz hardware detent)\n'
-            'bool degrader.build = false;\n'
-            'double degrader.rotation = 120.0;\n'
-            'string ts.coll5.material1Name = "COL5Poly";\n'
-            '\n// TT_MidInner→DS2Vacuum fix (mirrors v111)\n'
-            'bool tracker.inDS2Vacuum = true;\n'
-            'double ds2.halfLength = 3825;\n'
-            'bool ds.hasServicePipes = false;\n'
-            '\n// Overlap-suppression (mirrors FoilsMode)\n'
-            'bool stoppingTarget.foilTarget_supportStructure = false;\n'
-            'double ds.lengthRail2 = 0.1;\n'
-            'double ds.lengthRail3 = 0.1;\n'
-        )
-
-    _RADII_RX = re.compile(
-        r"vector<double>\s+stoppingTarget\.radii\s*=\s*\{([^}]*)\}")
-    _HALFTH_RX = re.compile(
-        r"vector<double>\s+stoppingTarget\.halfThicknesses\s*=\s*\{([^}]*)\}")
-    _HOLE_VEC_RX = re.compile(
-        r"vector<double>\s+stoppingTarget\.holeRadii\s*=\s*\{([^}]*)\}")
-
-    def parse_geom(self, text: str):
-        """Recover the 12-D x by reading the first foil of each group.
-
-        Each group is a contiguous run of identical (rOut, hT, hole) entries,
-        so the first index of each group suffices: 0, 12, 25, 37.
-        """
-        m = self._RADII_RX.search(text)
-        mh = self._HALFTH_RX.search(text)
-        mv = self._HOLE_VEC_RX.search(text)
-        if not (m and mh and mv):
-            return None
-        radii = [float(v) for v in m.group(1).split(",")]
-        halfth = [float(v) for v in mh.group(1).split(",")]
-        hole = [float(v) for v in mv.group(1).split(",")]
-        if not (len(radii) == len(halfth) == len(hole) == self.N_FOILS):
-            raise ValueError(
-                f"FoilsGroupMode expects {self.N_FOILS}-entry vectors; "
-                f"got radii={len(radii)}, hT={len(halfth)}, holeRadii={len(hole)}"
-            )
-        offsets, acc = [], 0
-        for n in self.GROUP_SIZES:
-            offsets.append(acc)
-            acc += n
-        x = []
-        for off in offsets:
-            rOut = radii[off]
-            hT = halfth[off]
-            f = hole[off] / rOut if rOut > 0 else 0.0
-            x.extend([rOut, hT, f])
-        return x
-
-
-
-class ProdTargetMode(BOMode):
-    """BO over Stickman PS production target (MDC2025aq), profile mode (v0).
-
-    11D search (K=3 Lagrange quadratic profiles + N int):
-      r_ctrl  = (r0, r1, r2)         per-plate rOut profile      [mm]
-      t_ctrl  = (t0, t1, t2)         per-plate thickness profile [mm]
-      l_ctrl  = (l0, l1, l2)         per-plate lugThickness prof [mm]
-      N       = numberOfPlates       int
-
-    Profiles evaluated at u = i/(N-1) for i=0..N-1 (no extrapolation).
-    Material fixed Inconel718 in v0. Hard constraints in is_buildable +
-    forker:
-      lPlate[i] >= tPlate[i] + 0.5      (silent overlap; PTM.cc:419-438)
-      min(rOut) >= 3.0                  (beam clearance, sigma=1 mm)
-      Stickman envelope: halfStickmanLength recomputed each config
-        (= supportRingLength + 2*spacerHalfLength + sum(lPlate)/2)
-      productionTargetMotherHalfLength bumped to halfStickman + MARGIN
-
-    Objective: muons per POT at VD sid=8 (Coll5_Out, post-TS exit).
-    Stored in Point.sob; Point.calo unused (alpha=0 → obj = mu_per_POT).
-
-    See wiki/projects/bo-prodtarget.md for the full design rationale and
-    wiki/concepts/production-target-stickman.md for the per-plate semantics.
-    """
-    name = "prodtarget"
-    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_prodtarget_v0.tsv"
-    proposal_dir = ROOT / "bo_work" / "proposals" / "prodtarget"
-    preflight_dir = ROOT / "bo_work" / "preflight" / "prodtarget"
-
-
-    # Stickman defaults (from ProductionTarget_Stickman_v1_0.txt).
-    DEFAULT_N = 35
-    DEFAULT_ROUT_MM = 3.15
-    DEFAULT_PLATETHICK_MM = 5.0
-    DEFAULT_LUGTHICK_MM = 6.0
-    DEFAULT_MATERIAL = "Inconel718"
-
-    # Envelope identity constants (also in production-target-stickman wiki).
-    SUPPORT_RING_LEN_MM = 8.1
-    SPACER_HALFLEN_MM = 1.5
-    MOTHER_MARGIN_MM = 20.0  # mother >= halfStickman + margin (HALF units).
-    MOTHER_OUTER_R_MM = 200.0  # base file default; not searched
-
-    # Hard constraints.
-    LUG_OVER_THICK_MARGIN_MM = 0.5   # plateLugThickness >= plateThickness + 0.5
-    # Upper cap on (lug - plate) to keep the lug from protruding past the plate
-    # core's z-face into the SpacerNegZ/PosZ annular region (lug rIn=1.525,
-    # rOut=3.0 = spacer rIn=1.55, rOut=3.0 — overlap is guaranteed if the lug
-    # overhangs the plate). pt001 baseline has diff=1.0mm; ptX04R00_00 (passing)
-    # has max diff~1.5mm; ptX04R00_08 (failing, 150nm × 16 cases) has
-    # max diff~2.4mm. Cap at 1.0mm to match pt001.
-    # See wiki/incidents/prodtarget-spacer-supportring-overlap.md.
-    LUG_OVER_THICK_MAX_MM = 1.0      # plateLugThickness <= plateThickness + 1.0
-    MIN_ROUT_MM = 3.0                # >= 3 sigma of beamSpotSigma=1 mm
-
-    # Inconel718 density, g/cm^3 (Mu2e Offline material def + standard tables).
-    # Used to convert per-plate Edep [MeV] -> specific dose [Gy/POT].
-    RHO_INCONEL718_G_PER_CM3 = 8.19
-
-    def extract_metrics(self, summary: dict) -> tuple[float, float]:
-        # bo-prodtarget harvest writes `mu_per_POT`. Point.calo stays 0
-        # (DEFAULT_ALPHA=1e5 would otherwise drown sob); edep_per_POT_MeV
-        # is logged via Point.extras / format_row.
-        return summary["mu_per_POT"], 0.0
-
-    def extract_extras(self, summary: dict, x=None) -> dict | None:
-        import numpy as np
-        edep_stack = summary.get("edep_per_POT_MeV")
-        edep_arr = summary.get("edep_per_plate_MeV")
-        total_pot = summary.get("total_pot")
-        out: dict = {}
-        if edep_stack is not None:
-            out["edep_per_POT_MeV"] = float(edep_stack)
-        # Compute peak specific dose [Gy/POT] = max_i (Edep_i / mass_i).
-        # Needs per-plate edep array + x (so we know rOut[i], tPlate[i] per
-        # plate; ProductionTargetMaker reads these length-N vectors). MeV->J
-        # = 1.602176634e-13; g->kg = 1e-3. Length units mm -> cm via /10.
-        # Guarding on _expand's N makes this method work unchanged for
-        # ProdTarget6DMode (whose _expand returns FIXED_N) — no override.
-        if x is not None and edep_arr and total_pot:
-            rOut, tPlate, _, N = self._expand(x)
-            if len(edep_arr) == N:
-                # Volume_i = pi * rOut^2 * tPlate (mm^3 -> cm^3 by /1000).
-                vol_cm3 = np.pi * (rOut ** 2) * tPlate / 1000.0
-                mass_g = vol_cm3 * self.RHO_INCONEL718_G_PER_CM3
-                # edep_arr is per-plate Edep_total [MeV] summed across the job.
-                # Per-plate per-POT dose [Gy/POT] = (Edep_i / total_pot [MeV/POT])
-                #   * 1.602e-13 J/MeV / (mass_i [g] * 1e-3 kg/g).
-                edep_per_pot = np.asarray(edep_arr, dtype=float) / float(total_pot)
-                dose_per_pot_Gy = (edep_per_pot * 1.602176634e-13
-                                   / (mass_g * 1e-3))
-                out["peak_dose_Gy_per_POT"] = float(dose_per_pot_Gy.max())
-                out["peak_dose_plate_idx"] = int(np.argmax(dose_per_pot_Gy))
-        return out or None
-
-    @staticmethod
-    def _parse_pt_extras(row: dict) -> dict:
-        """Shared leaderboard extras parse for prodtarget/prodtarget6d
-        load_history_row (was duplicated verbatim in both)."""
-        extras: dict = {}
-        edep = row.get("edep_per_POT_MeV")
-        if edep not in (None, "", "nan"):
-            extras["edep_per_POT_MeV"] = float(edep)
-        peak = row.get("peak_dose_Gy_per_POT")
-        if peak not in (None, "", "nan"):
-            extras["peak_dose_Gy_per_POT"] = float(peak)
-        idx = row.get("peak_plate_idx")
-        if idx not in (None, "", "nan"):
-            try:
-                extras["peak_dose_plate_idx"] = int(idx)
-            except (ValueError, TypeError):
-                pass
-        return extras
-
-    def load_priors(self):
-        # No external priors in v0; baseline lands via the first evaluation.
-        return []
-
-    # r{0,1,2}=rOut / t{0,1,2}=thickness / l{0,1,2}=lugThickness quadratic
-    # profile control knots [mm] + N=numberOfPlates (Integer). Names, fmts,
-    # and bounds (roughly ±30-60% around defaults) all live in
-    # modes.SPECS["prodtarget"]; the lug range (4,12) pairs with _expand's
-    # per-plate lPlate clip that pre-projects silent spacer overlaps away
-    # (wiki/incidents/prodtarget-spacer-supportring-overlap).
-
-    @staticmethod
-    def _profile(c, N):
-        """Lagrange quadratic through (c0,c1,c2) at u=0,0.5,1; eval at N points
-        in u in [0,1]. No extrapolation; first/last sample hit c0/c2 exactly."""
-        import numpy as np
-        u = np.linspace(0.0, 1.0, N)
-        c0, c1, c2 = c
-        return c0*(1-2*u)*(1-u) + c1*4*u*(1-u) + c2*u*(2*u-1)
-
-    def _expand(self, x):
-        """Return (rOut[N], tPlate[N], lPlate[N], N) after profile expansion
-        and per-plate constraint projection."""
-        import numpy as np
-        r_ctrl = (x[0], x[1], x[2])
-        t_ctrl = (x[3], x[4], x[5])
-        l_ctrl = (x[6], x[7], x[8])
-        N = int(x[9])
-        rOut = np.asarray(self._profile(r_ctrl, N))
-        tPlate = np.asarray(self._profile(t_ctrl, N))
-        lPlate = np.asarray(self._profile(l_ctrl, N))
-        # Per-plate silent-overlap guard: lug must be >= thickness + floor (so the
-        # lug actually contains the plate-core junction) but <= thickness + max
-        # (so the lug doesn't overhang the plate into the spacer's annular region).
-        lPlate = np.clip(lPlate,
-                         tPlate + self.LUG_OVER_THICK_MARGIN_MM,
-                         tPlate + self.LUG_OVER_THICK_MAX_MM)
-        return rOut, tPlate, lPlate, N
-
-    def is_buildable(self, x) -> bool:
-        rOut, _, _, _ = self._expand(x)
-        if float(rOut.min()) < self.MIN_ROUT_MM:
-            return False
-        return True
-
-    def _geom_text(self, x) -> str:
-        rOut, tPlate, lPlate, N = self._expand(x)
-        # Envelope identity (from ProductionTarget.cc:230 + constructTargetPS.cc:1659).
-        halfStickman = (self.SUPPORT_RING_LEN_MM
-                        + 2.0 * self.SPACER_HALFLEN_MM
-                        + float(lPlate.sum()) / 2.0)
-        motherHalf = halfStickman + self.MOTHER_MARGIN_MM
-        material_vec = [self.DEFAULT_MATERIAL] * N
-        rOut_csv = ", ".join(f"{v:.4f}" for v in rOut)
-        tPlate_csv = ", ".join(f"{v:.4f}" for v in tPlate)
-        lPlate_csv = ", ".join(f"{v:.4f}" for v in lPlate)
-        mat_csv = ", ".join(f'"{m}"' for m in material_vec)
-        # Fin angles vector is sized to nStickmanFins, not N — pass through default.
-        return (
-            '#include "Offline/Mu2eG4/geom/geom_run1_a_stickman.txt"\n'
-            '\n// === bo_driver (prodtarget mode v0, 11D) proposal ===\n'
-            f'// N={N} plates, profile-mode K=3 quadratic Lagrange (no extrapolation)\n'
-            f'// rOut control:  ({x[0]:.3f}, {x[1]:.3f}, {x[2]:.3f}) mm\n'
-            f'// thick control: ({x[3]:.3f}, {x[4]:.3f}, {x[5]:.3f}) mm\n'
-            f'// lug control:   ({x[6]:.3f}, {x[7]:.3f}, {x[8]:.3f}) mm\n'
-            f'// Material fixed = {self.DEFAULT_MATERIAL}\n'
-            '// Per-plate constraint applied: '
-            f'tPlate[i] + {self.LUG_OVER_THICK_MARGIN_MM} <= lPlate[i] <= '
-            f'tPlate[i] + {self.LUG_OVER_THICK_MAX_MM} mm.\n'
-            f'int targetPS_numberOfPlates = {N};\n'
-            f'double targetPS_halfStickmanLength = {halfStickman:.4f};\n'
-            f'double targetPS_productionTargetMotherHalfLength = {motherHalf:.4f};\n'
-            f'double targetPS_productionTargetMotherOuterRadius = {self.MOTHER_OUTER_R_MM};\n'
-            f'vector<string> targetPS_plateMaterial = {{ {mat_csv} }};\n'
-            f'vector<double> targetPS_rOut = {{ {rOut_csv} }};\n'
-            f'vector<double> targetPS_plateThickness = {{ {tPlate_csv} }};\n'
-            f'vector<double> targetPS_plateLugThickness = {{ {lPlate_csv} }};\n'
-        )
-
-    _N_RX = re.compile(r"targetPS_numberOfPlates\s*=\s*(\d+)")
-    _ROUT_RX = re.compile(r"vector<double>\s+targetPS_rOut\s*=\s*\{([^}]*)\}")
-    _TPLATE_RX = re.compile(
-        r"vector<double>\s+targetPS_plateThickness\s*=\s*\{([^}]*)\}")
-    _LPLATE_RX = re.compile(
-        r"vector<double>\s+targetPS_plateLugThickness\s*=\s*\{([^}]*)\}")
-
-    def parse_geom(self, text: str):
-        """Recover (r_ctrl, t_ctrl, l_ctrl, N) approximately from a rendered
-        geom file. Control points are read at indices 0, N//2, N-1 of the
-        expanded vectors — exact roundtrip for v0 quadratic profiles."""
-        mN = self._N_RX.search(text)
-        mR = self._ROUT_RX.search(text)
-        mT = self._TPLATE_RX.search(text)
-        mL = self._LPLATE_RX.search(text)
-        if not (mN and mR and mT and mL):
-            raise ValueError("prodtarget parse_geom: missing required vectors")
-        N = int(mN.group(1))
-        def _vec(m):
-            return [float(s) for s in m.group(1).split(",")]
-        rOut = _vec(mR); tPlate = _vec(mT); lPlate = _vec(mL)
-        if not (len(rOut) == len(tPlate) == len(lPlate) == N):
-            raise ValueError(
-                f"prodtarget parse_geom: vector length mismatch "
-                f"(N={N}, |rOut|={len(rOut)}, |t|={len(tPlate)}, |l|={len(lPlate)})")
-        mid = N // 2
-        return [rOut[0], rOut[mid], rOut[-1],
-                tPlate[0], tPlate[mid], tPlate[-1],
-                lPlate[0], lPlate[mid], lPlate[-1],
-                N]
-
-    # Row machinery shared by the ProdTarget family (mu_per_POT/edep/peak-dose
-    # metric columns, extras side-channel). Subclasses supply only the knob
-    # cells: ProdTarget6D drops l0-l2 and the integer N.
-    def _knob_cells(self, x) -> str:
-        r0, r1, r2, t0, t1, t2, l0, l1, l2, N = x
-        return (f"{r0:.4f}\t{r1:.4f}\t{r2:.4f}"
-                f"\t{t0:.4f}\t{t1:.4f}\t{t2:.4f}"
-                f"\t{l0:.4f}\t{l1:.4f}\t{l2:.4f}"
-                f"\t{int(N)}")
-
-    def _knob_x(self, row: dict) -> list:
-        return [float(row["r0"]), float(row["r1"]), float(row["r2"]),
-                float(row["t0"]), float(row["t1"]), float(row["t2"]),
-                float(row["l0"]), float(row["l1"]), float(row["l2"]),
-                int(float(row["N"]))]
-
-    def format_row(self, p: Point, alpha: float) -> tuple[str, str]:
-        header = ("config\t" + "\t".join(self.KNOB_NAMES)
-                  + "\t" + "\t".join(_modes.SPECS[self.name].metric_cols)
-                  + "\n")
-        ex = p.extras or {}
-        edep = ex.get("edep_per_POT_MeV", float("nan"))
-        peak = ex.get("peak_dose_Gy_per_POT", float("nan"))
-        idx = ex.get("peak_dose_plate_idx", -1)
-        line = (f"{p.cfg}\t{self._knob_cells(p.x)}"
-                f"\t{p.sob:.6e}\t{edep:.6e}"
-                f"\t{peak:.6e}\t{int(idx)}"
-                f"\t{p.obj(alpha):.6e}\n")
-        return header, line
-
-    def load_history_row(self, row: dict) -> Point:
-        extras = self._parse_pt_extras(row)
-        return Point(cfg=row["config"], x=self._knob_x(row),
-                     sob=float(row["mu_per_POT"]), calo=0.0,
-                     extras=extras or None)
-
-
-
-class ProdTarget6DMode(ProdTargetMode):
-    """6D simplification of ProdTargetMode for faster BO convergence.
-
-    Drops the 3 lug knobs (l0/l1/l2 are post-clipped to a 0.5mm window
-    around tPlate anyway — see wiki/projects/bo-prodtarget.md "Lug dims
-    are effectively redundant") and the integer N (pinned at Stickman
-    default 35 to dodge the thick-plate-regime overlap class for stack
-    ends — wiki/incidents/prodtarget-spacer-supportring-overlap.md).
-
-    6D search:  (r0, r1, r2, t0, t1, t2)
-    Fixed:      N = 35; lPlate[i] = tPlate[i] + LUG_MID_OFFSET_MM (0.75)
-    """
-    name = "prodtarget6d"
-    leaderboard = ROOT / "leaderboards" / "leaderboard_bo_prodtarget6d_v0.tsv"
-    proposal_dir = ROOT / "bo_work" / "proposals" / "prodtarget6d"
-    preflight_dir = ROOT / "bo_work" / "preflight" / "prodtarget6d"
-
-    # Mid-window: (LUG_OVER_THICK_MARGIN_MM + LUG_OVER_THICK_MAX_MM)/2 = 0.75
-    LUG_MID_OFFSET_MM = 0.75
-    FIXED_N = 35  # Stickman v1.0 default; well-tested at this plate count.
-
-    # 6D rOut+thickness profile only (N fixed at 35, lug derived). Names,
-    # fmts, and bounds in modes.SPECS["prodtarget6d"]; t upper was 7→8
-    # (2026-06-15) after the end-plate lug clamp shipped.
-
-    def _expand(self, x):
-        import numpy as np
-        r_ctrl = (x[0], x[1], x[2])
-        t_ctrl = (x[3], x[4], x[5])
-        N = int(self.FIXED_N)
-        rOut = np.asarray(self._profile(r_ctrl, N))
-        tPlate = np.asarray(self._profile(t_ctrl, N))
-        lPlate = tPlate + self.LUG_MID_OFFSET_MM
-        # 2026-06-15: clamp end-plate lug to zero overhang. Fourth mode
-        # in prodtarget-spacer-supportring-overlap: upstream-lug
-        # overhang into SpacerNegZ × Plate00 (and mirror at Plate_last
-        # × SpacerPosZ) is real ~250-500 µm overlap — 4 OOM above the
-        # stickmanMagicOffset precision artifact. Setting end-plate
-        # lug = plate thickness removes the overhang without source patch.
-        lPlate[0] = tPlate[0]
-        lPlate[-1] = tPlate[-1]
-        return rOut, tPlate, lPlate, N
-
-    # extract_extras: inherited from ProdTargetMode — its guard uses
-    # _expand()'s N, which is FIXED_N here, so the parent body is exact.
-
-    def _geom_text(self, x) -> str:
-        rOut, tPlate, lPlate, N = self._expand(x)
-        halfStickman = (self.SUPPORT_RING_LEN_MM
-                        + 2.0 * self.SPACER_HALFLEN_MM
-                        + float(lPlate.sum()) / 2.0)
-        motherHalf = halfStickman + self.MOTHER_MARGIN_MM
-        material_vec = [self.DEFAULT_MATERIAL] * N
-        rOut_csv = ", ".join(f"{v:.4f}" for v in rOut)
-        tPlate_csv = ", ".join(f"{v:.4f}" for v in tPlate)
-        lPlate_csv = ", ".join(f"{v:.4f}" for v in lPlate)
-        mat_csv = ", ".join(f'"{m}"' for m in material_vec)
-        return (
-            '#include "Offline/Mu2eG4/geom/geom_run1_a_stickman.txt"\n'
-            '\n// === bo_driver (prodtarget6d mode v0, 6D) proposal ===\n'
-            f'// N={N} plates (FIXED), profile-mode K=3 quadratic Lagrange\n'
-            f'// rOut control:  ({x[0]:.3f}, {x[1]:.3f}, {x[2]:.3f}) mm\n'
-            f'// thick control: ({x[3]:.3f}, {x[4]:.3f}, {x[5]:.3f}) mm\n'
-            f'// lug derived = tPlate + {self.LUG_MID_OFFSET_MM} mm (mid of [0.5, 1.0] cap window)\n'
-            f'// Material fixed = {self.DEFAULT_MATERIAL}\n'
-            f'int targetPS_numberOfPlates = {N};\n'
-            f'double targetPS_halfStickmanLength = {halfStickman:.4f};\n'
-            f'double targetPS_productionTargetMotherHalfLength = {motherHalf:.4f};\n'
-            f'double targetPS_productionTargetMotherOuterRadius = {self.MOTHER_OUTER_R_MM};\n'
-            f'vector<string> targetPS_plateMaterial = {{ {mat_csv} }};\n'
-            f'vector<double> targetPS_rOut = {{ {rOut_csv} }};\n'
-            f'vector<double> targetPS_plateThickness = {{ {tPlate_csv} }};\n'
-            f'vector<double> targetPS_plateLugThickness = {{ {lPlate_csv} }};\n'
-        )
-
-    def parse_geom(self, text: str):
-        mN = self._N_RX.search(text)
-        mR = self._ROUT_RX.search(text)
-        mT = self._TPLATE_RX.search(text)
-        if not (mN and mR and mT):
-            raise ValueError("prodtarget6d parse_geom: missing required vectors")
-        N = int(mN.group(1))
-        if N != self.FIXED_N:
-            raise ValueError(f"prodtarget6d parse_geom: N={N} != FIXED_N={self.FIXED_N}")
-        def _vec(m):
-            return [float(s) for s in m.group(1).split(",")]
-        rOut = _vec(mR); tPlate = _vec(mT)
-        mid = N // 2
-        return [rOut[0], rOut[mid], rOut[-1],
-                tPlate[0], tPlate[mid], tPlate[-1]]
-
-    def _knob_cells(self, x) -> str:
-        r0, r1, r2, t0, t1, t2 = x
-        return (f"{r0:.4f}\t{r1:.4f}\t{r2:.4f}"
-                f"\t{t0:.4f}\t{t1:.4f}\t{t2:.4f}")
-
-    def _knob_x(self, row: dict) -> list:
-        return [float(row["r0"]), float(row["r1"]), float(row["r2"]),
-                float(row["t0"]), float(row["t1"]), float(row["t2"])]
-
+        return self.leaderboard_io().pending_remove(name)
 
 
 class JsonMode(BOMode):
     """The single driver class behind every JSON-defined mode.
 
-    All the leaderboard/search-space behaviour is inherited: BOMode reads
-    KNOB_NAMES, KNOB_FMTS, CALO_COL, format_row and build_space straight from
-    modes.SPECS, so a JSON spec gets them with no code. Only the three abstract
-    methods need filling, and two of them are deliberately empty:
-    priors (a new line has none -- botorch Sobol cold-starts) and parse_geom
-    (geometry round-trip is out of scope by design decision).
+    All the leaderboard/search-space/priors/x-recovery behaviour is
+    inherited: BOMode reads KNOB_NAMES, KNOB_FMTS and build_space straight
+    from modes.SPECS, and leaderboard_io() builds a core/leaderboard.py
+    Leaderboard from the same spec, so a JSON spec gets them with no code.
+    Only the one abstract method needs filling.
     """
 
     def __init__(self, name: str):
@@ -1160,37 +241,8 @@ class JsonMode(BOMode):
         self.proposal_dir = ROOT / "bo_work" / "proposals" / name
         self.preflight_dir = ROOT / "bo_work" / "preflight" / name
 
-    def load_priors(self) -> list[Point]:
-        return []
-
     def _geom_text(self, x) -> str:
         return _modes.SPECS[self.name].geom.render(x)
-
-    def parse_geom(self, text: str):
-        raise NotImplementedError(
-            f"{self.name}: JSON-defined modes do not support geometry "
-            f"round-trip (parse_geom). It is out of scope by design; see "
-            f"docs/superpowers/specs/2026-07-25-json-configurable-modes-design.md")
-
-    def x_for_evaluate(self, config_name: str, geom_text: str):
-        """Recover x from the pending TSV instead of parsing the geometry.
-
-        append_pending wrote the exact proposed x as JSON at propose time and
-        cmd_evaluate clears pending only after this call, so the row is still
-        there. An absent config is a HARD refusal: a partial or guessed x
-        would put a real (sob, calo) measurement at the wrong coordinates and
-        train the GP on a point that was never evaluated.
-        """
-        for name, x in self.load_pending():
-            if name == config_name:
-                return list(x)
-        raise SystemExit(
-            f"[{self.name}] cannot recover x for {config_name!r}: no such row "
-            f"in {self.pending_path()}. JSON-defined modes have no geometry "
-            f"parser, so the pending TSV is the ONLY record of the proposed "
-            f"x; it is written by propose and cleared by a SUCCESSFUL "
-            f"evaluate. Re-running evaluate for an already-recorded config "
-            f"hits this. Refusing to append a row rather than guess x.")
 
     @staticmethod
     def _resolve_metric(summary: dict, keys) -> tuple:
@@ -1243,17 +295,11 @@ class JsonMode(BOMode):
         return sob, second
 
 
-MODES: dict[str, BOMode] = {
-    "foils":        FoilsMode(),
-    "foilsf":       FoilsFracMode(),
-    "foilsg":       FoilsGroupMode(),
-    "prodtarget":   ProdTargetMode(),
-    "prodtarget6d": ProdTarget6DMode(),
-}
+MODES: dict[str, BOMode] = {}
 
-# JSON-defined modes: one JsonMode per spec carrying a geom template. The six
-# Python modes are already in MODES above and are never replaced -- the loader
-# in core/mode_json.py has already rejected any name collision.
+# JSON-defined modes: one JsonMode per spec carrying a geom template. Every
+# mode is JSON-defined; the Python adapters were archived 2026-08-08, see
+# docs/superpowers/specs/2026-08-08-leaderboard-module-design.md.
 for _name, _spec in _modes.SPECS.items():
     if _spec.geom is not None:
         MODES[_name] = JsonMode(_name)
@@ -1890,11 +936,24 @@ def cmd_preflight(args):
     return rc
 
 
+def cmd_pending_prune(args):
+    mode = MODES[args.mode]
+    removed = mode.leaderboard_io().pending_prune(
+        older_than_h=args.older_than_hours)
+    if removed:
+        print(f"[{mode.name}] pruned {len(removed)} stale pending row(s): "
+              + ", ".join(removed))
+    else:
+        print(f"[{mode.name}] nothing stale "
+              f"(threshold {args.older_than_hours:.0f}h)")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=list(MODES.keys()), default="foils",
-                    help="Search-space mode (default: foils)")
+    ap.add_argument("--mode", choices=list(MODES.keys()), required=True,
+                    help="Search-space mode")
     ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA,
                     help=f"Scalarization weight (default {DEFAULT_ALPHA})")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1920,6 +979,13 @@ def main():
                        help="Write the typed verdict JSON to this path "
                             "(graph seam; tmp+rename atomic)")
     p_pre.set_defaults(func=cmd_preflight)
+
+    p_prune = sub.add_parser(
+        "pending-prune",
+        help="Delete pending rows older than a threshold (never automatic; "
+             "this is the command the stale-row warning points at)")
+    p_prune.add_argument("--older-than-hours", type=float, default=48.0)
+    p_prune.set_defaults(func=cmd_pending_prune)
 
     args = ap.parse_args()
     sys.exit(args.func(args))

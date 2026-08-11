@@ -67,6 +67,16 @@ def _submit_lock(stage: str):
 # --- Paths fixed at the code-repo level (config-independent) ---
 TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 
+# graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
+# "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —
+# that file is out of scope here (graph/ stays untouched by the 2026-08-08
+# Python-mode archive cut). "foils" no longer exists in modes.SPECS, so an
+# unset AUTORESEARCH_MODE would KeyError inside `from config import` below.
+# Real launches (graph/run.py, graph/closed_loop.py) always stamp
+# AUTORESEARCH_MODE before importing config, so setdefault is a no-op for
+# them; a bare `import pipeline` (tests, ad-hoc scripts) gets a live JSON
+# mode instead of the dead "foils" default.
+os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from config import (  # noqa: E402
     GRID_DATA_ROOT as DATA_ROOT,
@@ -109,7 +119,7 @@ import modes as _modes  # noqa: E402
 # mechanism behind the foilsflash-tarball-mode-key-omission incident — is
 # gone: an unknown mode is now a loud KeyError at import.
 MUSE_BASE_TARBALL = Path(
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")].grid_tarball)
+    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilsflash")].grid_tarball)
 USER = os.environ["USER"]
 OUTSTAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/workflow/default/outstage")
 
@@ -130,8 +140,8 @@ def _bind_config(cfg: str) -> None:
     STATE = ROOT / "state"
     GEOM_FILE = ROOT / "geom" / f"autoresearch_{cfg}_geom.txt"
     # DSCONF default reflects the dominant musing (Run1Bak — michael/helical/
-    # foils). Per-stage override via STAGES[s]["dsconf_musing"] for modes
-    # backing a different Musing (e.g. pot_only -> MDC2025aq).
+    # foils). Per-stage override via STAGES[s]["dsconf_musing"] for a stage
+    # backing a different Musing than the config's default.
     DSCONF = f"Run1Bak_{cfg}"
     PNFS_STAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/autoresearch_grid/{cfg}/staged")
 
@@ -226,27 +236,6 @@ STAGES = {
         "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
         "memory_mb": 3000,
     },
-    # Single-stage POT + ReadVirtualDetector for bo-prodtarget. Ships
-    # the MDC2025aq backing-only tarball (no patched libs); geom overlay
-    # carries the Stickman knob substitution. Muon counts harvested from
-    # pot_vd.root TTree; exact POT denominator from genCountLogger TH1D.
-    # VmHWM 2.83 GB measured locally -> 3000 MB request matches mustops_ce
-    # headroom.
-    "pot_only": {
-        "desc_fmt": "POT_{cfg}",
-        "njobs": STAGE_TARGETS["pot_only"],
-        # 2026-06-19: 5000→2500, paired with STAGE_TARGETS["pot_only"] 100→200
-        # (constant 500k total events → 3% noise budget preserved); halves
-        # per-job wall + doubles parallelism. Mirrors mustops_ce. First: pt6d10.
-        "events_per_job": 2500,
-        "run_number": 1700,
-        "ships_geom": True,
-        "code_tarball": _modes.SPECS["prodtarget"].grid_tarball,
-        "dsconf_musing": "MDC2025aq",
-        "default_loc": "disk",
-        "output_glob": "nts.*.POT_vd.*.root",
-        "memory_mb": 3000,
-    },
 }
 
 # There is NO mode-specific tuning block here. Per-stage tuning for the flash
@@ -295,7 +284,7 @@ def _apply_stage_tuning(stages: dict, tuning: dict) -> None:
 # JSON mode that sets it.
 _apply_stage_tuning(
     STAGES,
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")].stage_tuning)
+    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilsflash")].stage_tuning)
 
 
 # EleBeamCat resampler normalization: each resampled electron corresponds to
@@ -347,44 +336,13 @@ def _check_stage_config_sha(stage: str) -> None:
         )
 
 
-def _parse_n_plates_from_geom() -> int:
-    """Return targetPS_numberOfPlates from the per-config geom file.
-
-    Returns 0 if the file or key is absent (e.g. non-Stickman geom). The
-    caller decides whether 0 plates is fatal for the stage.
-    """
-    if not GEOM_FILE.exists():
-        return 0
-    for line in GEOM_FILE.read_text().splitlines():
-        s = line.strip()
-        if s.startswith("int targetPS_numberOfPlates"):
-            return int(s.split("=", 1)[1].rstrip(";").strip())
-    return 0
-
-
-def _render_pt_plate_names_csv(n_plates: int) -> str:
-    """Return CSV of quoted ProductionTargetPlate<NN> names for N Stickman PT
-    plates. Empty string if n_plates == 0. Used for both
-    g4run.SDConfig.sensitiveVolumes and ProductionTargetEdepHist.instanceNames
-    (same volume list — one CSV serves both).
-    """
-    if n_plates <= 0:
-        return ""
-    names = [f"ProductionTargetPlate{i:02d}" for i in range(n_plates)]
-    return ", ".join(f'"{n}"' for n in names)
-
-
 def _materialize_template(stage: str) -> Path:
-    """Read pipeline_templates/<stage>/template.fcl, substitute __GEOM_FILE__
-    and (for pot_only) the __PT_PLATE_NAMES__ token; write to
-    <STATE>/<stage>_template_materialized.fcl and return that path.
+    """Read pipeline_templates/<stage>/template.fcl, substitute __GEOM_FILE__;
+    write to <STATE>/<stage>_template_materialized.fcl and return that path.
     """
     src = TEMPLATES_ROOT / stage / "template.fcl"
     text = src.read_text()
     text = text.replace("__GEOM_FILE__", GEOM_FILE.name)
-    if "__PT_PLATE_NAMES__" in text:
-        n = _parse_n_plates_from_geom()
-        text = text.replace("__PT_PLATE_NAMES__", _render_pt_plate_names_csv(n))
     # Stamp-aware concat-less decision: the Eval's own stage-chain stamp wins
     # (written by cmd_submit before materialization); the env-derived global
     # is only the fallback for pre-stamp legacy configs.
@@ -515,9 +473,9 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
     The base tarball's setup.sh handles all framework setup via `muse setup`,
     so local libs win by link/path order (no LD_PRELOAD).
 
-    base_tarball overrides MUSE_BASE_TARBALL — used by stages whose backing
-    musing differs from the default helical-patched Run1Bak tree (e.g.
-    pot_only ships the MDC2025aq backing-only tarball).
+    base_tarball overrides MUSE_BASE_TARBALL — used by a stage whose backing
+    musing differs from the default helical-patched Run1Bak tree (via
+    STAGES[stage]["code_tarball"]).
     """
     if base_tarball is None:
         base_tarball = MUSE_BASE_TARBALL
@@ -1185,88 +1143,6 @@ def _count_events_art(art_path: Path, env: dict, harvest_dir: Path) -> int:
     return int(m.group(1))
 
 
-def cmd_harvest_pot_only(args):
-    """Aggregate pot_only outputs into mu_per_POT + per-plate edep via uproot.
-
-    Reads nts.*.POT_vd.*.root files listed in STATE/pot_only_outputs.txt:
-      - readVD/ntvd                 -> mu count (|pdg|==13, sid==8)
-      - genCountLogger/numEvents    -> exact POT per job
-      - ptEdepHist/ptEdepHist/edep_MeV         -> per-plate total energy deposit (TH1D)
-      - ptEdepHist/ptEdepHist/nielEdep_MeV     -> per-plate non-ionizing edep (TH1D)
-
-    The per-plate TH1Ds are emitted by the custom ProductionTargetEdepHist
-    analyzer in autoresearch_muse_prodtarget (uproot-readable; avoids the
-    StepPointMC memberwise wall — wiki/incidents/
-    steppointmcdumper-no-edep.md). edep histograms are missing on rows
-    submitted before that wiring landed; those rows degrade to
-    edep_per_POT_MeV=None (mu half still lands).
-    """
-    import numpy as np
-    import uproot
-
-    _check_stage_config_sha("pot_only")
-    outputs_file = STATE / "pot_only_outputs.txt"
-    if not outputs_file.exists():
-        raise SystemExit(f"missing {outputs_file}; run list-outputs pot_only first")
-    files = [Path(p) for p in outputs_file.read_text().splitlines() if p.strip()]
-    if not files:
-        raise SystemExit("pot_only outputs file is empty")
-
-    harvest_dir = ROOT / "harvest"
-    harvest_dir.mkdir(parents=True, exist_ok=True)
-
-    total_mu = 0
-    total_pot = 0
-    edep_per_plate_MeV = None  # numpy array, allocated lazily on first hit
-    niel_per_plate_MeV = None
-    files_seen = 0
-    files_with_edep = 0
-    files_skipped = []
-    for path in files:
-        try:
-            with uproot.open(path) as f:
-                tree = f["readVD/ntvd"]
-                arrs = tree.arrays(["sid", "pdg"], library="np")
-                total_mu += int(((np.abs(arrs["pdg"]) == 13) & (arrs["sid"] == 8)).sum())
-                total_pot += int(f["genCountLogger/numEvents"].values()[0])
-                # Per-plate edep histograms (optional — pre-wiring files
-                # lack ptEdepHist/). uproot's TH1D.values() drops the
-                # under/overflow bins, so the length matches N_plates.
-                if "ptEdepHist/ptEdepHist/edep_MeV" in f:
-                    e = f["ptEdepHist/ptEdepHist/edep_MeV"].values()
-                    n = f["ptEdepHist/ptEdepHist/nielEdep_MeV"].values()
-                    if edep_per_plate_MeV is None:
-                        edep_per_plate_MeV = np.zeros_like(e, dtype=float)
-                        niel_per_plate_MeV = np.zeros_like(n, dtype=float)
-                    edep_per_plate_MeV += e
-                    niel_per_plate_MeV += n
-                    files_with_edep += 1
-                files_seen += 1
-        except Exception as e:  # noqa: BLE001
-            print(f"WARN skipping {path}: {e}")
-            files_skipped.append(str(path))
-
-    total_edep_MeV = float(edep_per_plate_MeV.sum()) if edep_per_plate_MeV is not None else 0.0
-    total_niel_MeV = float(niel_per_plate_MeV.sum()) if niel_per_plate_MeV is not None else 0.0
-    summary = {
-        "config": CONFIG,
-        "mu_per_POT": (total_mu / total_pot) if total_pot else None,
-        "edep_per_POT_MeV": (total_edep_MeV / total_pot) if (total_pot and files_with_edep) else None,
-        "niel_per_POT_MeV": (total_niel_MeV / total_pot) if (total_pot and files_with_edep) else None,
-        "total_mu": total_mu,
-        "total_edep_MeV": total_edep_MeV,
-        "total_niel_MeV": total_niel_MeV,
-        "total_pot": total_pot,
-        "edep_per_plate_MeV": edep_per_plate_MeV.tolist() if edep_per_plate_MeV is not None else None,
-        "niel_per_plate_MeV": niel_per_plate_MeV.tolist() if niel_per_plate_MeV is not None else None,
-        "files_seen": files_seen,
-        "files_with_edep": files_with_edep,
-        "files_skipped": files_skipped,
-    }
-    (harvest_dir / "summary.json").write_text(json.dumps(summary, indent=2))
-    print("\n" + json.dumps(summary, indent=2))
-
-
 def _note_degraded(sec, stage, degraded):
     """Record a fail-softed secondary-metric extraction (identical across the
     calo/trk/flash steps): echo the error and stamp degraded[stage]."""
@@ -1464,10 +1340,6 @@ def main():
 
     p_harv = sub.add_parser("harvest", help="Aggregate stage outputs into summary.json")
     p_harv.set_defaults(func=cmd_harvest)
-
-    p_hpo = sub.add_parser("harvest-pot-only",
-                           help="Aggregate pot_only outputs into mu_per_POT (uproot)")
-    p_hpo.set_defaults(func=cmd_harvest_pot_only)
 
     args = p.parse_args()
     _bind_config(args.config)

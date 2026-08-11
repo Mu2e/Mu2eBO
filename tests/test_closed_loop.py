@@ -14,6 +14,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "graph"))
 sys.path.insert(0, str(PROJECT_ROOT / "core"))  # BO/pipeline modules (2026-07-17 reorg)
 
+# graph/closed_loop.py's own presniff_mode() only stamps AUTORESEARCH_MODE
+# when "--mode" is present in sys.argv (real launches always pass it); under
+# `-m unittest` there is no such flag, so graph/config.py's module-level
+# `_modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")]` would KeyError
+# at the `from config import (...)` below now that "foils" no longer exists
+# in modes.SPECS (archived 2026-08-08). setdefault so an explicitly-set env
+# (e.g. a real launch's own --mode) always wins.
+os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
 import closed_loop as cl  # noqa: E402
 
 
