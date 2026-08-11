@@ -15,7 +15,7 @@ from paths import REPO_ROOT as PROJECT_ROOT  # noqa: E402  (see core/paths.py)
 # Runtime logs/forensics live off the /app repo on /data (2026-07-17), so the
 # repo root stays clean and grid-log churn doesn't eat the /app quota. Single
 # seam: everything (parent logs, closed_loop_logs/, STOP_FLAG) derives from here.
-GRAPH_DATA = Path("/exp/mu2e/data/users/oksuzian/autoresearch_graph_data")
+from paths import GRAPH_DATA  # noqa: E402  (per-operator; see core/paths.py)
 # CHECKPOINT_DB moved off CephFS to node-local /tmp on 2026-06-09: SQLite's
 # WAL mmap is incoherent across processes on CephFS (sqlite.org/wal.html §1, §7),
 # which crashed foilsf08R00 10/10 children with "file is not a database" /
@@ -32,7 +32,7 @@ BO_DRIVER = PROJECT_ROOT / "core" / "bo_driver.py"
 PIPELINE_DRIVER = PROJECT_ROOT / "core" / "pipeline.py"
 
 # Per-config grid work tree lives under here; harvest/summary.json gets written here.
-GRID_DATA_ROOT = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
+from paths import GRID_DATA_ROOT  # noqa: E402  (per-operator)
 
 # Mu2e environment sources. Sourced by every preflight/grid invocation.
 SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
@@ -156,8 +156,7 @@ CLOSED_LOOP_BARRIER_POLL_SEC = 300
 # pipeline.py's per-stage cap_hours). 1440 = 24h. Tripping this is rare
 # and always worth investigating.
 CLOSED_LOOP_BARRIER_MAX_MIN = 1440
-# Operator stop file. `touch $GRAPH_DATA/STOP_CLOSED_LOOP`
-# (/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP) and the next
+# Operator stop file. `touch ($GRAPH_DATA/STOP_CLOSED_LOOP)` and the next
 # barrier-poll iteration or decide_next will exit cleanly without affecting
 # in-flight children.
 STOP_FLAG = GRAPH_DATA / "STOP_CLOSED_LOOP"

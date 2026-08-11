@@ -44,7 +44,7 @@ from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
     Leaderboard, Point, to_py_scalars,   # are public API of this module)
     _flock_ex, _flock_sh, _lock_path)
 
-from paths import REPO_ROOT as ROOT  # single root resolver, see core/paths.py
+from paths import REPO_ROOT as ROOT, GRID_DATA_ROOT  # single root resolver, see core/paths.py
 
 # graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
 # "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —
@@ -425,7 +425,7 @@ def _cmd_propose_locked(args, mode, names):
         geom = mode.render_proposal(name, x)
         # Auto-stage geom into the parametric pipeline's per-config work tree
         # (see wiki/incidents/template-fcl-staleness.md).
-        work_geom_dir = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid") / name / "geom"
+        work_geom_dir = GRID_DATA_ROOT / name / "geom"
         work_geom_dir.mkdir(parents=True, exist_ok=True)
         work_geom = work_geom_dir / f"autoresearch_{name}_geom.txt"
         shutil.copy(geom, work_geom)
@@ -830,8 +830,7 @@ def _cmd_preflight_impl(args):
               f"verified against as-built GDML (rIn/rOut/thickness)")
         # Preserve the verified as-built GDML alongside the config's grid
         # artifacts (the /tmp workdir is node-local and tmpwatch-cleaned).
-        keep_dir = (Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
-                    / name / "geom")
+        keep_dir = GRID_DATA_ROOT / name / "geom"
         keep_dir.mkdir(parents=True, exist_ok=True)
         keep_path = keep_dir / f"asbuilt_{name}.gdml"
         shutil.copyfile(gdml_path, keep_path)
@@ -847,8 +846,7 @@ def _cmd_preflight_impl(args):
                   f"{PREFLIGHT_GDML_NAME} not produced — cannot preserve "
                   f"as-built geometry (writeGDML missing from env?)")
             return 1
-        keep_dir = (Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
-                    / name / "geom")
+        keep_dir = GRID_DATA_ROOT / name / "geom"
         keep_dir.mkdir(parents=True, exist_ok=True)
         keep_path = keep_dir / f"asbuilt_{name}.gdml"
         shutil.copyfile(gdml_path, keep_path)

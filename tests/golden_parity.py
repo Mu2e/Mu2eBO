@@ -40,6 +40,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 import bo_driver as bo  # noqa: E402
+import paths  # noqa: E402
 
 GOLDENS = ROOT / "tests" / "goldens"
 FROZEN_LB = GOLDENS / "leaderboard_bo_foilsflash.frozen.tsv"
@@ -111,7 +112,7 @@ def section_b():
 
 def _pick_replay_config():
     mode = bo.MODES["foilsflash"]
-    grid = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
+    grid = paths.GRID_DATA_ROOT
     for p in reversed(mode.load_history()):
         geom = mode.proposal_dir / f"{p.cfg}_geom.txt"
         summary = grid / p.cfg / "harvest" / "summary.json"

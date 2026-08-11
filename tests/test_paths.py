@@ -165,5 +165,30 @@ class TestEveryModuleAgreesOnTheRoot(unittest.TestCase):
         self.assertEqual(config.PROJECT_ROOT, paths.REPO_ROOT)
 
 
+class TestDataRootsHaveOneDefinition(unittest.TestCase):
+    """bo_driver.py used to carry three private copies of the grid-data root
+    that could drift from graph/config.py's. After the rewiring there is one
+    definition and every consumer agrees with it."""
+
+    def tearDown(self):
+        importlib.reload(paths)
+
+    def test_config_data_roots_come_from_the_resolver(self):
+        sys.path.insert(0, str(ROOT / "graph"))
+        import config
+        self.assertEqual(config.GRID_DATA_ROOT, paths.GRID_DATA_ROOT)
+        self.assertEqual(config.GRAPH_DATA, paths.GRAPH_DATA)
+
+    def test_bo_driver_no_longer_carries_its_own_grid_root(self):
+        src = (ROOT / "core" / "bo_driver.py").read_text()
+        self.assertNotIn("/exp/mu2e/data/users/", src)
+        self.assertIn("GRID_DATA_ROOT", src)
+
+    def test_grid_root_tracks_a_data_root_override(self):
+        p = reload_with(AUTORESEARCH_DATA_ROOT="/scratch/d")
+        self.assertEqual(p.GRID_DATA_ROOT,
+                         Path("/scratch/d/autoresearch_grid"))
+
+
 if __name__ == "__main__":
     unittest.main()
