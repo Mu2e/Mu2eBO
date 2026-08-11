@@ -46,7 +46,7 @@ The explicit `+cpu` local version from the pytorch CPU index pre-satisfies
 that dependency.
 
 ```bash
-VENV=/exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv   # keep it OFF /exp/mu2e/app
+VENV=/exp/mu2e/data/users/$USER/autoresearch_venvs/.venv   # keep it OFF /exp/mu2e/app
 uv venv --python 3.11 "$VENV"
 uv pip install --python "$VENV/bin/python" \
   --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu
@@ -57,8 +57,8 @@ ln -s "$VENV" .venv
 The venv lives on the `/data` volume and is *symlinked* into the repo
 deliberately: it is far too large for the `/exp/mu2e/app` quota, and moving
 it across volumes afterwards is painfully slow on CephFS
-(`wiki/incidents/venv-relocated-to-data-volume.md`). Adjust `$VENV` for your
-own account; only the symlink name `.venv` is load-bearing.
+(`wiki/incidents/venv-relocated-to-data-volume.md`). `$VENV` is free choice;
+only the symlink name `.venv` is load-bearing.
 
 Verify with the test suite. The leading blank `PYTHONPATH=` is required: it
 clears any `PYTHONPATH` inherited from a sourced Mu2e/cvmfs environment, so
@@ -72,6 +72,17 @@ To A/B a different picker stack (say a newer botorch), build a second venv
 the same way and point `AUTORESEARCH_BOTORCH_VENV` at it; the picker
 subprocess resolves that env var against the repo root, so the orchestrator
 keeps running on `.venv`.
+
+**Portability caveat.** Building the venv under your own `$USER` is not
+enough to run this repo as another account. The project root and the three
+off-repo data volumes are currently **hardcoded** — roughly 20 literal
+`/exp/mu2e/{app,data}/users/oksuzian/...` paths across 9 modules, including
+`core/bo_driver.py:47` (`ROOT`) and `graph/config.py:7,16,33`
+(`PROJECT_ROOT`, `GRAPH_DATA`, `GRID_DATA_ROOT`). Every absolute path
+elsewhere in this README reflects that deployment rather than a convention
+you can substitute into. Making the tree multi-user means routing those
+through one configurable root first; until then, treat this as a
+single-account deployment.
 
 ## Running an optimization campaign
 
