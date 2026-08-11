@@ -2,8 +2,8 @@
   "name": "ipaovr",
   "note": "IPA A/B arm C: today's Run1Bap code with the historical tracker.inDS2Vacuum + ds2.halfLength=3825 override pair RESTORED. Isolates that pair from the Offline version bump as the source of the +4.9% sob shift. Throwaway measurement mode -- DELETE after the A/B lands.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
   },
   "run": {
     "stages": [

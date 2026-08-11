@@ -309,6 +309,42 @@ class TestRejections(unittest.TestCase):
             d["knobs"][0]["name"] = "n"
         self._expect_error(mutate, "knobs[0]", "reserved")
 
+    # -- Task 4: ${ARTIFACT} token in software.musing/grid_tarball -----------
+    def test_artifact_token_expands_against_the_artifact_root(self):
+        import paths
+        doc = _valid_doc()
+        doc["software"]["musing"] = "${ARTIFACT}/MyBuild/setup_local.sh"
+        with tempfile.TemporaryDirectory() as td:
+            p = _write(Path(td), "demo", doc)
+            spec = load_mode_file(p)
+        self.assertEqual(spec.musing,
+                         str(paths.ARTIFACT_ROOT / "MyBuild/setup_local.sh"))
+
+    def test_unknown_variable_token_is_rejected(self):
+        self._expect_error(
+            lambda d: d["software"].update({"musing": "${HOME}/x/setup.sh"}),
+            "ARTIFACT")
+
+    def test_personal_absolute_path_is_rejected(self):
+        self._expect_error(
+            lambda d: d["software"].update(
+                {"musing": "/exp/mu2e/app/users/somebody/x/setup.sh"}),
+            "${ARTIFACT}")
+
+    def test_leaderboards_colliding_on_basename_are_rejected(self):
+        # The live tree is flat, so a/x.tsv and b/x.tsv would become one
+        # file even though their declarations differ.
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            for i, rel in enumerate(("a/lb_dup.tsv", "b/lb_dup.tsv")):
+                doc = _valid_doc()
+                doc["name"] = f"dupmode{i}"
+                doc["leaderboard"]["file"] = rel
+                _write(d, f"dupmode{i}", doc)
+            with self.assertRaises(ValueError) as cm:
+                load_mode_dir(d, {})
+        self.assertIn("basename", str(cm.exception).lower())
+
     # F13 ("pot_only chain with a foreign tarball rejected") removed
     # 2026-08-08: the _POT_ONLY_STAGE guard it pinned was deleted from
     # core/mode_json.py along with the harvest-pot-only verb and the

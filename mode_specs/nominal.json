@@ -2,8 +2,8 @@
   "name": "nominal",
   "note": "Deployed 37-foil stopping target under Run1Bap, in the foilsflash environment. Baseline for 'does the optimised target beat deployed'. The 6 knobs are INERT here -- no geometry line references them. Throwaway measurement mode -- DELETE after the A/B lands.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
   },
   "run": {
     "stages": [

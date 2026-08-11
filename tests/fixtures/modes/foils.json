@@ -3,8 +3,8 @@
   "note": "6D extra-foil geometry vs Run1B calo-stop background, S/sqrt(B) preserved. REFERENCE FIXTURE: reproduces the live foils line; the acceptance test compares this against FoilsMode at default env.",
 
   "software": {
-    "musing":       "/exp/mu2e/app/users/oksuzian/Offline_helical/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helical_holeradii.tar.bz2"
+    "musing":       "${ARTIFACT}/Offline_helical/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_helical_holeradii.tar.bz2"
   },
 
   "run": {
