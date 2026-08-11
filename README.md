@@ -90,8 +90,14 @@ The standard entrypoint is the multi-round closed loop. It launches `q`
 single-evaluation children in parallel, waits at a barrier, refits the GP on
 the updated leaderboard, and picks the next batch:
 
+This path is deliberately literal, not `$USER`: the project root is a
+hardcoded constant in the code (`core/bo_driver.py:47`,
+`graph/config.py:7`), so running the same commands from a clone elsewhere
+would execute your code against *these* leaderboards and data volumes. See
+the [portability caveat](#building-the-environment).
+
 ```bash
-cd /exp/mu2e/app/users/oksuzian/autoresearch
+cd /exp/mu2e/app/users/oksuzian/autoresearch    # literal: see note above
 source .venv/bin/activate
 export AUTORESEARCH_CHECKPOINT_DIR=/tmp/$USER/<prefix>   # SQLite checkpoints off CephFS
 
