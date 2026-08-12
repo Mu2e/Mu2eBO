@@ -464,6 +464,18 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         if "=" not in line:
             continue
         k, _, v = line.partition("=")
+        # Drop exported shell functions. `env` prints them across MULTIPLE
+        # lines ("BASH_FUNC_muse%%=() {  source ...\n}"), and this parser is
+        # line-based, so it captures a body with no closing brace. Every child
+        # shell then rejects the malformed definition:
+        #   sh: muse: line 1: syntax error: unexpected end of file
+        #   sh: error importing function definition for `muse'
+        # ~10 of those per shell spawn, hundreds per job log -- they buried
+        # both real failures found by the first local smoke run (a missing
+        # geom on MU2E_SEARCH_PATH, and an expired bearer token). Nothing is
+        # lost: a truncated definition never defined the function anyway.
+        if k.startswith("BASH_FUNC_"):
+            continue
         env[k] = v
     return env
 
@@ -1010,6 +1022,25 @@ def cmd_local_build(args):
           f"{STATE / 'fcl'}/{stage}_00000.fcl then 'local-run {stage}'")
 
 
+def local_job_env() -> dict:
+    """sourced_env() plus the per-config geom dir on MU2E_SEARCH_PATH.
+
+    The FCL names the geom by BASENAME (services.GeometryService.inputFile:
+    "autoresearch_<cfg>_geom.txt"), which only resolves via MU2E_SEARCH_PATH.
+    On the grid that path is extended by Code/setup_post.sh, written into
+    Code.tar.bz2 by write_code_tarball and sourced when the worker unpacks it.
+    Nothing unpacks that tarball locally, so without this the job runs to
+    "Can't find file ... _geom.txt" -- with a rc=1 whose real cause is buried
+    ~200 lines deep in the log, under the harmless exported-function noise.
+    Mirror setup_post.sh rather than inventing a second mechanism.
+    """
+    env = sourced_env()
+    geom_dir = str(GEOM_FILE.parent)
+    for var in ("MU2E_SEARCH_PATH", "FHICL_FILE_PATH"):
+        env[var] = f"{geom_dir}:{env[var]}" if env.get(var) else geom_dir
+    return env
+
+
 def cmd_local_run(args):
     """Execute the FCLs already on disk, then list outputs."""
     stage = args.stage
@@ -1033,8 +1064,15 @@ def cmd_local_run(args):
     # 24h cap on a /pnfs dir that will never appear).
     local_marker(stage).write_text(f"{runid}\n")
     (STATE / f"{stage}_cluster.txt").write_text(f"{runid}\n")
+    # A local job reads its resampler inputs over xrootd exactly as a grid
+    # worker does, so it needs a live bearer token exactly as much -- an
+    # expired one surfaces as "Auth failed: No protocols left to try" inside
+    # a FatalRootError, ~300 lines into the job log. No _submit_lock here:
+    # the lock exists to serialize condor_vault_storer against concurrent
+    # submits, and a local run makes none.
+    _maybe_refresh_token(stage)
     res = lx.run_jobs_local(stage, CONFIG, runid, STATE, njobs, events,
-                            sourced_env(), pool=pool)
+                            local_job_env(), pool=pool)
     stamp_local_events(stage, events)
     lx.list_outputs_local(stage, CONFIG, runid,
                           STAGES[stage]["output_glob"], STATE)

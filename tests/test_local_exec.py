@@ -580,6 +580,41 @@ class TestPipelineLocalWiring(unittest.TestCase):
                     stage=stage, local_njobs=None, local_events=None,
                     local_pool=None))
 
+    def test_sourced_env_drops_truncated_exported_shell_functions(self):
+        # `env` prints an exported bash function across multiple lines, so a
+        # line-based parser captures a body with no closing brace. Passing
+        # that to a child yields "syntax error: unexpected end of file" ~10x
+        # per shell spawn -- hundreds of lines per job log, which is what hid
+        # the two real failures the first local smoke run turned up.
+        out = ("PATH=/usr/bin\n"
+               "BASH_FUNC_muse%%=() {  source ${MUSE_DIR}/bin/muse\n"
+               "}\n"
+               "MU2E_SEARCH_PATH=/cvmfs/x\n")
+        with mock.patch.object(pipeline, "run_sourced_bash",
+                               return_value=SimpleNamespace(
+                                   returncode=0, stdout=out, stderr="")):
+            env = pipeline.sourced_env()
+        self.assertEqual(env["PATH"], "/usr/bin")
+        self.assertEqual(env["MU2E_SEARCH_PATH"], "/cvmfs/x")
+        self.assertEqual([k for k in env if k.startswith("BASH_FUNC_")], [])
+
+    def test_local_job_env_puts_the_geom_dir_on_the_search_path(self):
+        # The FCL names the geom by basename; it resolves only via
+        # MU2E_SEARCH_PATH. On the grid Code/setup_post.sh extends that path
+        # when the worker unpacks Code.tar.bz2 -- nothing unpacks it locally.
+        # Without this the job dies "Can't find file ..._geom.txt" after
+        # producing zero events. Found by the first real local run, not a mock.
+        with tempfile.TemporaryDirectory() as tmp:
+            geom = Path(tmp) / "geom" / "autoresearch_cfg001_geom.txt"
+            geom.parent.mkdir(parents=True)
+            geom.write_text("x")
+            with mock.patch.object(pipeline, "GEOM_FILE", geom), \
+                 mock.patch.object(pipeline, "sourced_env",
+                                   return_value={"MU2E_SEARCH_PATH": "/pre"}):
+                env = pipeline.local_job_env()
+            self.assertEqual(env["MU2E_SEARCH_PATH"], f"{geom.parent}:/pre")
+            self.assertEqual(env["FHICL_FILE_PATH"], str(geom.parent))
+
     def test_poll_is_a_noop_on_the_marker_alone_without_the_env_var(self):
         # `submit --local` is a flag, not an env var, so a later poll runs in a
         # process where AUTORESEARCH_LOCAL is unset. The marker must carry it,
