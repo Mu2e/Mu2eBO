@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import shlex
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from paths import DATA_ROOT
@@ -104,3 +105,45 @@ def edited_fcls(state_dir, stage: str) -> list[str]:
         if not rec.exists() or rec.read_text().strip() != _sha256(f.read_text()):
             edited.append(f.name)
     return edited
+
+
+DEFAULT_POOL = 4
+
+
+def _run_one(stage: str, config: str, runid: int, state_dir: Path,
+             index: int, events: int, env: dict) -> tuple[int, int]:
+    d = job_dir(config, runid, index)
+    d.mkdir(parents=True, exist_ok=True)
+    cmd = ["mu2e", "-c", str(fcl_path(state_dir, stage, index)),
+           "-n", str(events)]
+    log = d / f"{stage}_{index:05d}.log"
+    proc = subprocess.run(cmd, cwd=str(d), env=env,
+                          capture_output=True, text=True)
+    log.write_text(proc.stdout + proc.stderr)
+    return index, proc.returncode
+
+
+def run_jobs_local(stage: str, config: str, runid: int, state_dir: Path,
+                   njobs: int, events: int, env: dict,
+                   pool: int = DEFAULT_POOL) -> dict:
+    """Execute njobs local mu2e jobs, at most `pool` at a time.
+
+    Threads, not processes: each unit of work is a subprocess, so the GIL is
+    irrelevant and threads keep the failure reporting simple.
+    """
+    print(f"[{stage}] local: {njobs} job(s) x {events} events, pool={pool}",
+          flush=True)
+    ok, failed = 0, []
+    with ThreadPoolExecutor(max_workers=pool) as ex:
+        futures = [ex.submit(_run_one, stage, config, runid, state_dir,
+                             i, events, env) for i in range(njobs)]
+        for fut in as_completed(futures):
+            index, rc = fut.result()
+            if rc == 0:
+                ok += 1
+            else:
+                failed.append(index)
+                print(f"[{stage}] job {index:05d} FAILED rc={rc}", flush=True)
+    failed.sort()
+    print(f"[{stage}] local done: {ok} ok, {len(failed)} failed", flush=True)
+    return {"ok": ok, "failed": failed}

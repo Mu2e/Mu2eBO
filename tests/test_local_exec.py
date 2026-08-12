@@ -86,3 +86,55 @@ class TestFclProvenance(unittest.TestCase):
             (state / "fcl" / "mubeam_00000.fcl.sha256").unlink()
             self.assertEqual(local_exec.edited_fcls(state, "mubeam"),
                              ["mubeam_00000.fcl"])
+
+
+class TestLocalExecution(unittest.TestCase):
+    def test_runs_one_mu2e_per_job_in_its_own_dir_and_never_calls_grid_tools(self):
+        seen = []
+
+        def fake_run(cmd, **kw):
+            seen.append((cmd, kw.get("cwd")))
+            Path(kw["cwd"], "sim.x.TargetStops.0.art").write_text("x")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            (state / "fcl").mkdir(parents=True)
+            for i in range(3):
+                local_exec.fcl_path(state, "mubeam", i).write_text("x")
+            with mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)), \
+                 mock.patch.object(local_exec.subprocess, "run", fake_run):
+                res = local_exec.run_jobs_local(
+                    "mubeam", "cfg001", 1, state, 3, 200, {}, pool=2)
+
+        self.assertEqual(res["ok"], 3)
+        self.assertEqual(res["failed"], [])
+        self.assertEqual(len(seen), 3)
+        for cmd, cwd in seen:
+            self.assertEqual(cmd[0], "mu2e")
+            self.assertIn("-n", cmd)
+            self.assertEqual(cmd[cmd.index("-n") + 1], "200")
+            self.assertTrue(cwd.endswith(("00000", "00001", "00002")))
+        # The point of the whole design: no grid tooling, ever.
+        flat = [tok for cmd, _ in seen for tok in cmd]
+        self.assertNotIn("mu2ejobsub", flat)
+        self.assertNotIn("jobsub_q", flat)
+
+    def test_a_failing_job_is_reported_not_raised(self):
+        def fake_run(cmd, **kw):
+            idx = int(Path(kw["cwd"]).name)
+            return mock.Mock(returncode=0 if idx == 0 else 1,
+                             stdout="", stderr="boom")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            (state / "fcl").mkdir(parents=True)
+            for i in range(2):
+                local_exec.fcl_path(state, "mubeam", i).write_text("x")
+            with mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)), \
+                 mock.patch.object(local_exec.subprocess, "run", fake_run):
+                res = local_exec.run_jobs_local(
+                    "mubeam", "cfg001", 1, state, 2, 200, {}, pool=2)
+
+        self.assertEqual(res["ok"], 1)
+        self.assertEqual(res["failed"], [1])
