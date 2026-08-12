@@ -189,3 +189,28 @@ class TestLocalExecution(unittest.TestCase):
         self.assertEqual(res["ok"], 6)
         self.assertLessEqual(max_running, 2)
         self.assertGreater(max_running, 1)
+
+
+class TestScaleDials(unittest.TestCase):
+    def test_none_gives_the_default(self):
+        self.assertEqual(local_exec.resolve_scale(None, 1, "mubeam"), 1)
+
+    def test_bare_value_applies_to_every_stage(self):
+        self.assertEqual(local_exec.resolve_scale(["4"], 1, "mubeam"), 4)
+        self.assertEqual(local_exec.resolve_scale(["4"], 1, "concat"), 4)
+
+    def test_per_stage_override_wins_regardless_of_order(self):
+        self.assertEqual(
+            local_exec.resolve_scale(["1", "elebeam_flash=4"], 1,
+                                     "elebeam_flash"), 4)
+        self.assertEqual(
+            local_exec.resolve_scale(["elebeam_flash=4", "1"], 1,
+                                     "elebeam_flash"), 4)
+        self.assertEqual(
+            local_exec.resolve_scale(["1", "elebeam_flash=4"], 1, "mubeam"), 1)
+
+    def test_a_malformed_entry_is_a_loud_error(self):
+        with self.assertRaises(ValueError):
+            local_exec.resolve_scale(["notanumber"], 1, "mubeam")
+        with self.assertRaises(ValueError):
+            local_exec.resolve_scale(["mubeam=x"], 1, "mubeam")

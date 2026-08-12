@@ -151,3 +151,26 @@ def run_jobs_local(stage: str, config: str, runid: int, state_dir: Path,
     failed.sort()
     print(f"[{stage}] local done: {ok} ok, {len(failed)} failed", flush=True)
     return {"ok": ok, "failed": failed}
+
+
+def resolve_scale(values, default: int, stage: str) -> int:
+    """Resolve one repeatable --local-njobs/--local-events flag for a stage."""
+    if not values:
+        return default
+    bare, per_stage = default, {}
+    for raw in values:
+        item = str(raw)
+        if "=" in item:
+            key, _, val = item.partition("=")
+            try:
+                per_stage[key] = int(val)
+            except ValueError:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected <stage>=<int>")
+        else:
+            try:
+                bare = int(item)
+            except ValueError:
+                raise ValueError(
+                    f"bad value {item!r}: expected an int or <stage>=<int>")
+    return per_stage.get(stage, bare)
