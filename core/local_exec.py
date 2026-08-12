@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import shlex
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -75,13 +76,31 @@ def build_fcls(stage: str, cnf_name: str, stage_dir: Path, state_dir: Path,
     """
     out_dir = Path(state_dir) / "fcl"
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Prune this stage's previous set first. A build of 4 followed by a build
+    # (or run) of 1 otherwise leaves indices 1-3 on disk, where edited_fcls'
+    # unbounded glob reports them as hand-edited although nothing executed
+    # them -- provenance that describes a run that did not happen.
+    for stale in sorted(out_dir.glob(f"{stage}_*.fcl")) + \
+            sorted(out_dir.glob(f"{stage}_*.fcl.sha256")):
+        stale.unlink()
     written = []
     for index in range(njobs):
         cmd = ["mu2ejobfcl", "--jobdef", cnf_name, "--index", str(index),
                "--default-proto", "root", "--default-loc", default_loc]
         print(f"$ (cd {stage_dir} && {shlex.join(cmd)})", flush=True)
-        proc = subprocess.run(cmd, cwd=str(stage_dir), env=env, check=True,
-                              capture_output=True, text=True)
+        try:
+            proc = subprocess.run(cmd, cwd=str(stage_dir), env=env, check=True,
+                                  capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            # check=True raises with stdout/stderr CAPTURED, and str(exc) omits
+            # both -- so an rc!=0 here would be as opaque as the two incidents
+            # this repo already has of that shape
+            # (jobsub-disk-quota-stderr-swallowed, sourced-env-stderr-swallowed).
+            # Same handling submit_stage gives mu2ejobsub.
+            print(e.stdout or "")
+            print("MU2EJOBFCL STDERR:\n" + (e.stderr or "(empty)"),
+                  file=sys.stderr)
+            raise
         target = fcl_path(state_dir, stage, index)
         target.write_text(proc.stdout)
         target.with_suffix(".fcl.sha256").write_text(_sha256(proc.stdout))

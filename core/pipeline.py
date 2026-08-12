@@ -990,11 +990,19 @@ def cmd_local_build(args):
     dsconf = _stage_dsconf(stage)
     desc = _stage_desc(stage)
     cnf = stage_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
-    if not cnf.exists():
-        jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
-                             events_per_job=events)
-        print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
-        subprocess.run(jobdef, cwd=str(stage_dir), env=env, check=True)
+    # Rebuild unconditionally, exactly as submit_stage does. Reusing whatever
+    # cnf happens to be on disk silently ignores --local-events and any
+    # template edit -- and that cnf is as likely as not one a GRID submit
+    # built, at the configured 5000 events/job. The spec's guarantee that
+    # `submit --local` always rebuilds is only true if this is the code that
+    # rebuilds.
+    if cnf.exists():
+        print(f"[{stage}] removing existing cnf: {cnf.name}")
+        cnf.unlink()
+    jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
+                         events_per_job=events)
+    print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
+    subprocess.run(jobdef, cwd=str(stage_dir), env=env, check=True)
     lx.build_fcls(stage, cnf.name, stage_dir, STATE, njobs,
                   STAGES[stage]["default_loc"], env)
     stamp_local_events(stage, events)
@@ -1519,9 +1527,15 @@ def main():
                        help="Re-submit even if state/<stage>_cluster.txt exists.")
     p_sub.add_argument("--local", action="store_true",
                        help="run this stage locally instead of submitting")
-    p_sub.add_argument("--local-njobs", action="append")
-    p_sub.add_argument("--local-events", action="append")
-    p_sub.add_argument("--local-pool", type=int, default=None)
+    p_sub.add_argument("--local-njobs", action="append",
+                       help="--local only: int, or <stage>=<int>; repeatable "
+                            "(default 1)")
+    p_sub.add_argument("--local-events", action="append",
+                       help="--local only: int, or <stage>=<int>; repeatable "
+                            "(default 200)")
+    p_sub.add_argument("--local-pool", type=int, default=None,
+                       help="--local only: max concurrent local jobs "
+                            "(default 4)")
     p_sub.set_defaults(func=cmd_submit)
 
     p_poll = sub.add_parser("poll", help="Poll a stage's cluster until quorum or cap")

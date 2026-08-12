@@ -1,4 +1,6 @@
 """Local executor tests: no grid contact anywhere. Every path is a tmpdir."""
+import contextlib
+import io
 import os
 import subprocess
 import sys
@@ -82,6 +84,54 @@ class TestFclProvenance(unittest.TestCase):
             paths[1].write_text("# I changed this by hand\n")
             self.assertEqual(local_exec.edited_fcls(state, "mubeam"),
                              ["mubeam_00001.fcl"])
+
+    def test_a_failing_mu2ejobfcl_surfaces_its_stderr(self):
+        # check=True raises with stderr CAPTURED and str(exc) omits it, so
+        # without this handling an rc!=0 is completely opaque -- the shape of
+        # jobsub-disk-quota-stderr-swallowed and sourced-env-stderr-swallowed.
+        def fake_run(cmd, **kw):
+            raise subprocess.CalledProcessError(
+                1, cmd, output="partial stdout",
+                stderr="mu2ejobfcl: no such jobdef cnf.tar")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            err = io.StringIO()
+            with mock.patch.object(local_exec.subprocess, "run", fake_run), \
+                 contextlib.redirect_stderr(err), \
+                 contextlib.redirect_stdout(io.StringIO()) as out:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    local_exec.build_fcls("mubeam", "cnf.tar", Path(tmp),
+                                          state, 1, "tape", {})
+        self.assertIn("no such jobdef", err.getvalue())
+        self.assertIn("partial stdout", out.getvalue())
+
+    def test_a_smaller_rebuild_prunes_the_larger_previous_set(self):
+        # Build 4, then build 1: indices 1-3 must not survive. edited_fcls
+        # globs ALL <stage>_*.fcl, so a survivor with a matching sidecar is
+        # merely noise, but one whose sidecar was clobbered reads as
+        # "hand-edited" for a job that never ran.
+        with tempfile.TemporaryDirectory() as tmp:
+            state, _, _ = self._build(tmp, n=4)
+            self.assertTrue((state / "fcl" / "mubeam_00003.fcl").exists())
+            self._build(tmp, n=1)
+            fcls = sorted(p.name for p in (state / "fcl").glob("mubeam_*.fcl"))
+            self.assertEqual(fcls, ["mubeam_00000.fcl"])
+            self.assertEqual(
+                sorted(p.name for p in
+                       (state / "fcl").glob("mubeam_*.fcl.sha256")),
+                ["mubeam_00000.fcl.sha256"])
+            self.assertEqual(local_exec.edited_fcls(state, "mubeam"), [])
+
+    def test_pruning_leaves_another_stages_fcls_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            (state / "fcl").mkdir(parents=True)
+            other = local_exec.fcl_path(state, "elebeam_flash", 0)
+            other.write_text("keep me")
+            self._build(tmp, n=1)
+            self.assertTrue(other.exists())
 
     def test_a_missing_hash_record_counts_as_edited(self):
         # Deleting the sidecar must not silently read as "unmodified".
@@ -282,6 +332,43 @@ class TestPipelineLocalWiring(unittest.TestCase):
         self.assertNotIn("mu2ejobsub", flat)
         self.assertNotIn("jobsub_q", flat)
         self.assertIn("mu2ejobfcl", flat)
+
+    def test_local_build_rebuilds_an_existing_cnf_instead_of_reusing_it(self):
+        # submit_stage unlinks and rebuilds unconditionally; so must this. The
+        # cnf on disk is as likely as not one a GRID submit built at the
+        # configured 5000 events/job, and reusing it silently discards
+        # --local-events and every template edit -- while local-build still
+        # prints that it built something.
+        seen = []
+
+        def fake_run(cmd, **kw):
+            seen.append(cmd)
+            return mock.Mock(returncode=0, stdout="# fcl\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (Path(tmp) / "mubeam").mkdir()
+            cnf = (Path(tmp) / "mubeam" /
+                   f"cnf.{pipeline.USER}.{pipeline._stage_desc('mubeam')}."
+                   f"{pipeline._stage_dsconf('mubeam')}.0.tar")
+            cnf.write_text("a stale cnf built at 5000 events/job")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=Path(tmp) / "t.fcl"), \
+                 mock.patch.object(pipeline.subprocess, "run", fake_run):
+                pipeline.cmd_local_build(SimpleNamespace(
+                    stage="mubeam", local_njobs=["1"], local_events=["200"]))
+            self.assertFalse(cnf.exists(),
+                             "the stale cnf survived local-build")
+        jobdefs = [c for c in seen if c and c[0] == "mu2ejobdef"]
+        self.assertEqual(len(jobdefs), 1)
+        self.assertEqual(
+            jobdefs[0][jobdefs[0].index("--events-per-job") + 1], "200")
 
     def test_submit_stage_still_stamps_the_configured_events_per_job(self):
         # The grid stamp had to survive the _jobdef_cmd extraction, and nothing
