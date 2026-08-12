@@ -36,7 +36,7 @@ source .venv/bin/activate && source setup.sh                 # <- every new shel
   as spelling it out:
 
   ```bash
-  ./setup.sh --venv /exp/mu2e/data/users/<operator>/autoresearch_venvs/.venv
+  ./setup.sh --venv /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv   # personal-path-ok: the site venv, spelled out so the line runs as-is
   ```
 
   It echoes what it linked, and `--venv -r` unlinks. Any operator's venv works;
