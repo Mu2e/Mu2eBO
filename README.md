@@ -116,14 +116,14 @@ falling through to a **backing** link for anything you have not built
 yourself — the same local-wins-then-backing rule as `muse backing`:
 
 ```bash
-./setup.sh --backing /exp/mu2e/app/users/<operator>   # borrow an existing build
-./setup.sh --status                                   # what am I running against?
+./setup.sh --backing /exp/mu2e/app/users/oksuzian   # personal-path-ok: the build every campaign so far has run on
+./setup.sh --status                                 # what am I running against?
 ```
 
-`<operator>` is anyone who already has the patched Offline build and the
-grid tarballs. Until the build recipes live in this repo, that means asking
-a colleague who has run a campaign — the artifacts are world-readable, so a
-backing link is all you need and you build nothing.
+Any operator who already has the patched Offline build and the grid tarballs
+works, not just the one above. Until the build recipes live in this repo that
+means asking a colleague who has run a campaign — the artifacts are
+world-readable, so a backing link is all you need and you build nothing.
 
 A fresh clone has no backing and no local artifacts, so campaign launch
 fails immediately, naming the command above. That is deliberate: running
