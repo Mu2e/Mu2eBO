@@ -184,10 +184,19 @@ pipeline.py --config X local-run   mubeam    # execute what is on disk
 pipeline.py --config X submit mubeam --local # both
 ```
 
-`local-build` then `local-run` is the study loop. `submit --local` always
-rebuilds — `cmd_local_build` unlinks any existing cnf and rebuilds it
-unconditionally, exactly as `submit_stage` does, so the canonical path cannot
-inherit a stale edit or a cnf a *grid* submit left behind at 5,000 events/job.
+`local-build` then `local-run` is the study loop. `submit --local` rebuilds —
+`cmd_local_build` unlinks any existing cnf and rebuilds it unconditionally,
+exactly as `submit_stage` does, so the canonical path cannot inherit a stale
+edit or a cnf a *grid* submit left behind at 5,000 events/job.
+
+That holds on the first `submit --local` for a stage, or on a `--force`d one. A
+repeat without `--force` never reaches `cmd_local_build` at all: `cmd_submit`'s
+idempotency guard sees the cluster file the previous local run wrote and skips,
+printing `already submitted`. The skip is loud and leaves the marker and runid
+consistent, so `poll` and `list-outputs` still serve the previous run's outputs
+correctly — but it means a repeated `submit --local` does not pick up an edited
+template. Use `local-build` + `local-run` for the study loop, which is what it
+is for, or pass `--force`.
 
 ### 4. The FCL edit loop
 
@@ -217,8 +226,11 @@ may be **repeated** with `<stage>=<value>` to override one stage, and a repeat
 wins over the bare form:
 
 ```
---local-njobs 1 --local-njobs elebeam_flash=4
+--local-njobs 1 --local-njobs mubeam=4
 ```
+
+(The per-stage form is general, but `mubeam` is the only stage the executor
+accepts today, so it is the only one worth naming in an example.)
 
 Two explicit dials, not a scale factor: a multiplier reads clever and then
 nobody can say what actually ran. Values must parse as integers ≥ 1; anything
