@@ -444,3 +444,31 @@ class TestPipelineLocalWiring(unittest.TestCase):
             lo.assert_not_called()
             self.assertEqual(
                 (state / "mubeam_outputs.txt").read_text().strip(), "")
+
+
+class TestLocalRowDestination(unittest.TestCase):
+    def test_local_board_is_a_separate_file_from_the_production_board(self):
+        live = Path("/tmp/boards")
+        p = local_exec.local_board_path("foilspfbpz", live)
+        self.assertEqual(p, live / "leaderboard_local_foilspfbpz.tsv")
+        self.assertNotIn("leaderboard_bo_", p.name)
+
+    def test_eval_summary_carries_the_edited_fcl_record(self):
+        sys.path.insert(
+            0, str(Path(__file__).resolve().parent.parent / "core"))
+        import harvest as hv
+        s = hv.EvalSummary(
+            config="cfg001", ce_seen=1, muminus_stops=1, mubeam_sim_total=1,
+            ce_simulated_events=1, stopping_factor=1.0, ce_abs_eff=1.0,
+            s_over_sqrt_b=1.0, muminus_source="mubeam",
+            fcl_edited=["mubeam_00000.fcl"])
+        self.assertIn("fcl_edited", s.to_json())
+        self.assertEqual(s.fcl_edited, ["mubeam_00000.fcl"])
+
+    def test_eval_summary_default_is_none_so_grid_rows_are_unchanged(self):
+        import harvest as hv
+        s = hv.EvalSummary(
+            config="cfg001", ce_seen=1, muminus_stops=1, mubeam_sim_total=1,
+            ce_simulated_events=1, stopping_factor=1.0, ce_abs_eff=1.0,
+            s_over_sqrt_b=1.0, muminus_source="mubeam")
+        self.assertIsNone(s.fcl_edited)

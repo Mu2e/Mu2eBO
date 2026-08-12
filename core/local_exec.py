@@ -186,3 +186,13 @@ def resolve_scale(values, default: int, stage: str) -> int:
                     f"bad value {item!r}: expected an int >= 1")
             bare = parsed
     return per_stage.get(stage, bare)
+
+
+def local_board_path(mode: str, live_root: Path) -> Path:
+    """Local rows never share a file with grid rows.
+
+    A local run is at 1/1250-1/5000 of campaign statistics, so its sigma is
+    tens of percent against the 0.4% the pickers assume. One such row in a
+    production board is enough to move a GP fit.
+    """
+    return Path(live_root) / f"leaderboard_local_{mode}.tsv"

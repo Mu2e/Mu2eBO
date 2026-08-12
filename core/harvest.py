@@ -354,6 +354,9 @@ class EvalSummary:
     flash_edep_events: Optional[int] = None
     flash_n_input: Optional[int] = None
     flash_edep_tag: Optional[str] = None
+    # local-executor provenance: basenames of FCLs hand-edited before the run.
+    # None on every grid row; a list (possibly empty) on a local one.
+    fcl_edited: Optional[list] = None
     # artifact pointers
     nts_path: str = ""
     edep_log: str = ""
