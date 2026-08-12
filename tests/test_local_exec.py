@@ -475,6 +475,12 @@ class TestPipelineLocalWiring(unittest.TestCase):
 
         Everything else -- marker write, cluster write, run pool, events
         stamp, output listing -- is the shipping code path.
+
+        _maybe_refresh_token is stubbed because it stats the MACHINE's real
+        bearer-token file and, when that is older than TOKEN_REFRESH_AGE_S,
+        shells out to getToken. That made these four tests pass or fail on
+        how recently the operator had submitted anything -- the suite is
+        green on a fresh token and errors on a stale one.
         """
         state = Path(tmp) / "state"
         (state / "fcl").mkdir(parents=True)
@@ -487,6 +493,7 @@ class TestPipelineLocalWiring(unittest.TestCase):
              mock.patch.object(pipeline, "STATE", state), \
              mock.patch.object(pipeline, "CONFIG", "cfg001"), \
              mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(pipeline, "_maybe_refresh_token"), \
              mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)), \
              mock.patch.object(local_exec.subprocess, "run", fake_run):
             os.environ.pop("AUTORESEARCH_LOCAL", None)
@@ -810,3 +817,185 @@ class TestPipelineLocalWiring(unittest.TestCase):
             lo.assert_not_called()
             self.assertEqual(
                 (state / "mubeam_outputs.txt").read_text().strip(), "")
+
+
+class TestLocalScaleEnvSeam(unittest.TestCase):
+    """The graph runner shells out to `pipeline.py submit` and cannot pass
+    --local-njobs/--local-events, so without an env seam every local campaign
+    is pinned to the argparse defaults (1 job x 200 events per stage)."""
+
+    def test_env_var_supplies_the_default(self):
+        with mock.patch.dict(os.environ,
+                             {"AUTORESEARCH_LOCAL_EVENTS": "5000"}):
+            self.assertEqual(
+                local_exec.scale_default("AUTORESEARCH_LOCAL_EVENTS", 200),
+                5000)
+
+    def test_unset_or_blank_falls_back(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("AUTORESEARCH_LOCAL_EVENTS", None)
+            self.assertEqual(
+                local_exec.scale_default("AUTORESEARCH_LOCAL_EVENTS", 200), 200)
+            os.environ["AUTORESEARCH_LOCAL_EVENTS"] = "   "
+            self.assertEqual(
+                local_exec.scale_default("AUTORESEARCH_LOCAL_EVENTS", 200), 200)
+
+    def test_a_junk_or_zero_value_raises_rather_than_silently_defaulting(self):
+        # Silently falling back would run 200 events while the operator
+        # believed they had asked for 5000 -- and every metric harvest
+        # computes is scaled by that number.
+        for bad in ("5k", "0", "-3", "2.5"):
+            with self.subTest(bad=bad):
+                with mock.patch.dict(os.environ,
+                                     {"AUTORESEARCH_LOCAL_EVENTS": bad}):
+                    with self.assertRaises(ValueError):
+                        local_exec.scale_default(
+                            "AUTORESEARCH_LOCAL_EVENTS", 200)
+
+    def test_an_explicit_flag_still_beats_the_env_var(self):
+        with mock.patch.dict(os.environ,
+                             {"AUTORESEARCH_LOCAL_EVENTS": "5000"}):
+            njobs, events = pipeline._local_scale(
+                SimpleNamespace(local_njobs=None, local_events=["77"]),
+                "mubeam")
+        self.assertEqual((njobs, events), (1, 77))
+
+    def test_both_verbs_resolve_the_scale_identically(self):
+        # local-build writes N FCLs and local-run executes M; a drift between
+        # the two runs a subset or dies on a missing index.
+        src = Path(pipeline.__file__).read_text()
+        self.assertEqual(src.count("_local_scale(args, stage)"), 2)
+
+
+class TestLocalRefusesToClobberAGridCluster(unittest.TestCase):
+    def test_a_real_cluster_id_with_no_marker_is_refused(self):
+        # Both verbs overwrite <stage>_cluster.txt AND the events-per-job
+        # stamp harvest divides by, so running local over a finished grid
+        # stage rewrites that Eval's provenance and loses the cluster id.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("70314159\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"):
+                with self.assertRaises(SystemExit) as cm:
+                    pipeline._require_local_stage("mubeam")
+        self.assertIn("70314159", str(cm.exception))
+
+    def test_a_local_runid_is_re_runnable(self):
+        # Marker present => the int is a runid this executor wrote. Re-running
+        # local is ordinary (it allocates the next runid), not a clobber.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("1\n")
+            (state / "mubeam_local.txt").write_text("1\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"):
+                pipeline._require_local_stage("mubeam")  # must not raise
+
+
+class TestSourcedEnvRefusesAPreSourcedShell(unittest.TestCase):
+    def test_muse_already_set_up_fails_fast_instead_of_retrying(self):
+        # `muse setup` is one-shot per shell and run_sourced_bash inherits
+        # this env, so the prelude fails with "Muse already setup for
+        # directory" -- then burns all four retries (~50s) on a condition no
+        # retry can fix, surfacing as a bare CalledProcessError.
+        with mock.patch.dict(os.environ,
+                             {"MUSE_WORK_DIR": "/somewhere/Offline"}), \
+             mock.patch.object(pipeline, "run_sourced_bash") as rsb:
+            with self.assertRaises(SystemExit) as cm:
+                pipeline.sourced_env()
+        rsb.assert_not_called()
+        self.assertIn("fresh shell", str(cm.exception))
+
+
+class TestLocalScaleEnvSeam(unittest.TestCase):
+    """The graph runner shells out to `pipeline.py submit` and cannot pass
+    --local-njobs/--local-events, so without an env seam every local campaign
+    is pinned to the argparse defaults (1 job x 200 events per stage)."""
+
+    def test_env_var_supplies_the_default(self):
+        with mock.patch.dict(os.environ,
+                             {"AUTORESEARCH_LOCAL_EVENTS": "5000"}):
+            self.assertEqual(
+                local_exec.scale_default("AUTORESEARCH_LOCAL_EVENTS", 200),
+                5000)
+
+    def test_unset_or_blank_falls_back(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("AUTORESEARCH_LOCAL_EVENTS", None)
+            self.assertEqual(
+                local_exec.scale_default("AUTORESEARCH_LOCAL_EVENTS", 200), 200)
+            os.environ["AUTORESEARCH_LOCAL_EVENTS"] = "   "
+            self.assertEqual(
+                local_exec.scale_default("AUTORESEARCH_LOCAL_EVENTS", 200), 200)
+
+    def test_a_junk_or_zero_value_raises_rather_than_silently_defaulting(self):
+        # Silently falling back would run 200 events while the operator
+        # believed they had asked for 5000 -- and harvest scales every metric
+        # it computes by that number.
+        for bad in ("5k", "0", "-3", "2.5"):
+            with self.subTest(bad=bad):
+                with mock.patch.dict(os.environ,
+                                     {"AUTORESEARCH_LOCAL_EVENTS": bad}):
+                    with self.assertRaises(ValueError):
+                        local_exec.scale_default(
+                            "AUTORESEARCH_LOCAL_EVENTS", 200)
+
+    def test_an_explicit_flag_still_beats_the_env_var(self):
+        with mock.patch.dict(os.environ,
+                             {"AUTORESEARCH_LOCAL_EVENTS": "5000"}):
+            njobs, events = pipeline._local_scale(
+                SimpleNamespace(local_njobs=None, local_events=["77"]),
+                "mubeam")
+        self.assertEqual((njobs, events), (1, 77))
+
+    def test_both_verbs_resolve_the_scale_identically(self):
+        # local-build writes N FCLs and local-run executes M of them; a drift
+        # between the two silently runs a subset or dies on a missing index.
+        src = Path(pipeline.__file__).read_text()
+        self.assertEqual(src.count("_local_scale(args, stage)"), 2)
+
+
+class TestLocalRefusesToClobberAGridCluster(unittest.TestCase):
+    def test_a_real_cluster_id_with_no_marker_is_refused(self):
+        # Both verbs overwrite <stage>_cluster.txt AND the events-per-job
+        # stamp harvest divides by, so running local over a finished grid
+        # stage rewrites that Eval's provenance and loses the cluster id.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("70314159\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"):
+                with self.assertRaises(SystemExit) as cm:
+                    pipeline._require_local_stage("mubeam")
+        self.assertIn("70314159", str(cm.exception))
+
+    def test_a_local_runid_is_re_runnable(self):
+        # Marker present => the int is a runid this executor wrote. Re-running
+        # local is ordinary (it allocates the next runid), not a clobber.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("1\n")
+            (state / "mubeam_local.txt").write_text("1\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"):
+                pipeline._require_local_stage("mubeam")  # must not raise
+
+
+class TestSourcedEnvRefusesAPreSourcedShell(unittest.TestCase):
+    def test_muse_already_set_up_fails_fast_instead_of_retrying(self):
+        # `muse setup` is one-shot per shell and run_sourced_bash inherits
+        # this process's env, so the prelude fails with "Muse already setup
+        # for directory" -- then burns all four retries (~50s) on a condition
+        # no retry can fix, surfacing as a bare CalledProcessError.
+        with mock.patch.dict(os.environ,
+                             {"MUSE_WORK_DIR": "/somewhere/Offline"}), \
+             mock.patch.object(pipeline, "run_sourced_bash") as rsb:
+            with self.assertRaises(SystemExit) as cm:
+                pipeline.sourced_env()
+        rsb.assert_not_called()
+        self.assertIn("fresh shell", str(cm.exception))

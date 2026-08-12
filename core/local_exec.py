@@ -220,6 +220,29 @@ def resolve_scale(values, default: int, stage: str) -> int:
     return per_stage.get(stage, bare)
 
 
+def scale_default(env_var: str, fallback: int) -> int:
+    """Default for a --local-njobs/--local-events/--local-pool flag.
+
+    The graph runner cannot pass those flags: it shells out to `pipeline.py
+    submit`, which dispatches local via $AUTORESEARCH_LOCAL. Without an env
+    seam a whole local campaign is pinned to the argparse defaults -- 1 job x
+    200 events per stage, a plumbing check rather than a measurement. The env
+    var is inherited by the graph child exactly as AUTORESEARCH_LOCAL is.
+
+    An explicit flag still wins: this only supplies resolve_scale's default.
+    """
+    raw = os.environ.get(env_var)
+    if raw is None or not raw.strip():
+        return fallback
+    try:
+        val = int(raw.strip())
+    except ValueError:
+        raise ValueError(f"${env_var}={raw!r}: expected an int >= 1")
+    if val < 1:
+        raise ValueError(f"${env_var}={raw!r}: expected an int >= 1")
+    return val
+
+
 def local_farm(stage: str, config: str, sources: list, state_dir) -> tuple:
     """Hard-link a prior stage's local outputs into ONE dir, as the grid path
     hard-links them into one /pnfs dir.

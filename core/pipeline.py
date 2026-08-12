@@ -387,6 +387,18 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
     step, which needs the EdepAna module built into our own autoresearch_muse
     work area (mmackenz's copy went away at his p094→p101 bump, 2026-06-26).
     """
+    # `muse setup` is ONE-SHOT per shell, and run_sourced_bash inherits this
+    # process's env, so a launching shell that already ran it makes every
+    # prelude below fail with "ERROR - Muse already setup for directory" --
+    # then burn all four retries (~50 s) on a condition no retry can fix,
+    # and surface as a bare CalledProcessError with the cause 500 lines up.
+    # The README says not to pre-source; this is that rule, enforced.
+    if os.environ.get("MUSE_WORK_DIR"):
+        raise SystemExit(
+            f"muse is already set up in this shell "
+            f"(MUSE_WORK_DIR={os.environ['MUSE_WORK_DIR']}).\n"
+            f"pipeline.py sources its own environment per stage, and muse "
+            f"setup cannot run twice in one shell. Start a fresh shell.")
     if with_muse:
         # Use our own autoresearch_muse work area (same one that produces the
         # base Code.tar.bz2). `-q p094` is required: without it muse picks
@@ -987,6 +999,19 @@ def _require_local_stage(stage: str) -> None:
         raise SystemExit(
             f"[{stage}] no config bound -- pass --config, or call "
             f"_bind_config() first. STATE would otherwise resolve to cwd.")
+    # A cluster file with no marker holds a REAL ClusterId. Both verbs go on
+    # to overwrite it (and <stage>_events_per_job.txt, which harvest divides
+    # by), so running local over a finished grid stage would silently rewrite
+    # that Eval's provenance -- the events-per-job-mid-flight-edit failure
+    # with a worse blast radius, since the true cluster id is then
+    # unrecoverable. cmd_submit's idempotency guard covers its own path; the
+    # bare verbs had nothing.
+    cluster_file = STATE / f"{stage}_cluster.txt"
+    if cluster_file.exists() and not local_marker(stage).exists():
+        raise SystemExit(
+            f"[{stage}] {cluster_file} holds grid cluster "
+            f"{cluster_file.read_text().strip()} -- refusing to overwrite it "
+            f"with a local runid. Use a different --config.")
 
 
 def _local_stage_inputs(stage: str) -> tuple:
@@ -1061,12 +1086,28 @@ def _is_local_stage(stage: str) -> bool:
     return local_marker(stage).exists()
 
 
+def _local_scale(args, stage: str) -> tuple:
+    """(njobs, events) for one stage: flag, else env seam, else the default.
+
+    ONE resolver for both verbs. They must agree -- local-build writes N FCLs
+    and local-run executes M of them, so a drift between the two silently
+    runs a subset (or dies on a missing index).
+    """
+    return (
+        lx.resolve_scale(getattr(args, "local_njobs", None),
+                         lx.scale_default("AUTORESEARCH_LOCAL_NJOBS", 1),
+                         stage),
+        lx.resolve_scale(getattr(args, "local_events", None),
+                         lx.scale_default("AUTORESEARCH_LOCAL_EVENTS", 200),
+                         stage),
+    )
+
+
 def cmd_local_build(args):
     """Build this stage's per-index FCLs and stop. Nothing is executed."""
     stage = args.stage
     _require_local_stage(stage)
-    njobs = lx.resolve_scale(getattr(args, "local_njobs", None), 1, stage)
-    events = lx.resolve_scale(getattr(args, "local_events", None), 200, stage)
+    njobs, events = _local_scale(args, stage)
     env = sourced_env()
     stage_dir = ROOT / stage
     stage_dir.mkdir(parents=True, exist_ok=True)
@@ -1120,9 +1161,9 @@ def cmd_local_run(args):
     """Execute the FCLs already on disk, then list outputs."""
     stage = args.stage
     _require_local_stage(stage)
-    njobs = lx.resolve_scale(getattr(args, "local_njobs", None), 1, stage)
-    events = lx.resolve_scale(getattr(args, "local_events", None), 200, stage)
-    pool = getattr(args, "local_pool", None) or lx.DEFAULT_POOL
+    njobs, events = _local_scale(args, stage)
+    pool = (getattr(args, "local_pool", None)
+            or lx.scale_default("AUTORESEARCH_LOCAL_POOL", lx.DEFAULT_POOL))
     # Console-only for now. The persisted form (a state file, and an
     # fcl_edited field on the row) belongs with the phase that produces local
     # rows; until then it would be a schema field nothing can ever set.
