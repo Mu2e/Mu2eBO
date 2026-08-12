@@ -448,7 +448,6 @@ def node_launch_children(state: RoundState) -> dict:
         x = rec["x_point"]
         log_path = Path(rec["log"])
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_fh = open(log_path, "w")
         # Per-launch unique thread_id: prevents SqliteSaver checkpoint collision
         # with prior `python -m graph.run --thread-id <name>` sessions sharing
         # the same name (e.g. manual smokes named graph001). config_name stays
@@ -470,14 +469,22 @@ def node_launch_children(state: RoundState) -> dict:
             "--x-point", ",".join(f"{v:.6f}" for v in x),
         ]
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                cwd=str(PROJECT_ROOT),
-            )
+            # The parent must drop its own copy of this handle. Popen dups the
+            # descriptor into the child, which keeps it for its whole ~3-6h
+            # run; leaving the parent's copy open leaks one fd per launched
+            # child for the lifetime of the campaign, and a rolling campaign
+            # launches hundreds. Opening inside the try also turns an
+            # unwritable log path into a recorded launch failure instead of an
+            # uncaught raise that would abandon the remaining pending children.
+            with open(log_path, "w") as log_fh:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_fh,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    cwd=str(PROJECT_ROOT),
+                )
             rec["pid"] = proc.pid
             rec["started_at"] = time.time()
             print(f"[closed_loop] launched {name} pid={proc.pid} log={log_path}", flush=True)

@@ -26,7 +26,7 @@ Copy-paste. About two minutes; nothing is built.
 ```bash
 git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
 ./setup.sh --venv                                           # link the shared venv
-PYTHONPATH= .venv/bin/python -m unittest discover -s tests   # expect OK, ~40 s
+PYTHONPATH= .venv/bin/python -m unittest discover -s tests -t .   # expect OK, under a minute
 # ./setup.sh --backing /exp/mu2e/app/users/oksuzian   # personal-path-ok: uncomment on purpose - see below
 source .venv/bin/activate && source setup.sh                 # <- every new shell
 ./setup.sh --status                                          # confirm before submitting
@@ -95,7 +95,7 @@ uv pip install --python "$VENV/bin/python" -r requirements.txt
 ln -s "$VENV" .venv     # `.venv` is the load-bearing name; $VENV itself is free choice
 ```
 
-Then verify: `PYTHONPATH= .venv/bin/python -m unittest discover -s tests`.
+Then verify: `PYTHONPATH= .venv/bin/python -m unittest discover -s tests -t .`.
 
 The venv lives on the `/data` volume and is symlinked into the repo
 deliberately: it is far too large for the `/exp/mu2e/app` quota, and moving
@@ -287,10 +287,10 @@ Off-repo data volumes (all under `$AUTORESEARCH_DATA_ROOT`, default `/exp/mu2e/d
 ## Tests
 
 ```bash
-PYTHONPATH= .venv/bin/python -m unittest discover -s tests -v
+PYTHONPATH= .venv/bin/python -m unittest discover -s tests -t . -v
 ```
 
-465 tests, no grid contact. The golden geometry-parity harness (renders
+471 tests, no grid contact. The golden geometry-parity harness (renders
 every registered mode and diffs against `tests/fixtures/golden_geom/`) runs
 separately:
 
