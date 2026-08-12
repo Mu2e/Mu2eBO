@@ -19,6 +19,55 @@ foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw   # BO li
 ipa625 ipafix ipaovr nominal                                            # fixed A/B reference arms
 ```
 
+## First-time setup
+
+The order matters; each step links to the section that explains it. Steps 1-3
+are one-time, step 4 is per shell.
+
+1. **Clone it anywhere you like.** The project root is derived from the code's
+   own location, so no path is baked in — `/exp/mu2e/app/users/$USER/autoresearch`
+   is conventional, not required.
+
+   ```bash
+   git clone <repo-url> autoresearch && cd autoresearch
+   ```
+
+2. **Build the venv and symlink it** — see
+   [Building the environment](#building-the-environment). Install the CPU torch
+   wheel *first*; that section explains why. Verify with the test suite it gives
+   you before going further: a green suite means the Python side is sound
+   without `/exp/mu2e` being involved at all.
+
+3. **Point at the build artifacts** — see [Artifacts](#artifacts). A fresh clone
+   has none, so a campaign launch will refuse until you either build your own or
+   link someone else's:
+
+   ```bash
+   ./setup.sh --backing /exp/mu2e/app/users/<operator>
+   ```
+
+4. **Load the roots into your shell**, then confirm what you are running
+   against. Do this in every new shell, before launching anything:
+
+   ```bash
+   source .venv/bin/activate
+   source setup.sh
+   ./setup.sh --status
+   ```
+
+   `--status` prints the four resolved roots and where each came from
+   (`default ($USER)`, `env`, or `backing`). If any line surprises you, stop and
+   fix it before submitting jobs — that is what this command is for.
+
+5. **Smoke-test the chain** with a single mock evaluation before spending grid
+   time — see [Running a single evaluation](#running-a-single-evaluation) and
+   use `--mock`.
+
+Then read [Running an optimization campaign](#running-an-optimization-campaign).
+If a launch fails, the error names both the offending path and the command that
+fixes it; the [Artifacts](#artifacts) section explains the backing rule behind
+those messages.
+
 ## Prerequisites
 
 - **Python env**: the project venv is `.venv` at the repo root (a symlink to
