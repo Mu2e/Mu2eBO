@@ -37,6 +37,10 @@ from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT / "core"))
+import paths  # noqa: E402
+
 N_WORKERS = 11
 CELL_DURATION_S = 15 * 60
 MIN_WRITE_INTERVAL_S = 10
@@ -210,7 +214,7 @@ def main() -> int:
     user = os.environ.get("USER", "unknown")
     # CephFS path for the WAL-incoherence repro; /data is CephFS too (graph_data
     # relocated off /app 2026-07-17), so the production-config intent is preserved.
-    ceph_db = Path("/exp/mu2e/data/users/oksuzian/autoresearch_graph_data/stress_test/test_ceph.sqlite")
+    ceph_db = paths.GRAPH_DATA / "stress_test" / "test_ceph.sqlite"
     tmp_root = Path(f"/tmp/{user}/stress_test")
     tmp_db = tmp_root / "test_tmp.sqlite"
 

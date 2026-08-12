@@ -15,14 +15,63 @@ defined as JSON specs in `mode_specs/` (legacy lines are Python classes in
 `core/bo_driver.py`). Currently registered:
 
 ```
-foils foilsf foilsflash foilsg foilspf foilspf2k prodtarget prodtarget6d   # BO lines
-ipa625 ipafix ipaovr nominal                                              # fixed A/B reference arms
+foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw   # BO lines
+ipa625 ipafix ipaovr nominal                                            # fixed A/B reference arms
 ```
+
+## First-time setup
+
+The order matters; each step links to the section that explains it. Steps 1-3
+are one-time, step 4 is per shell.
+
+1. **Clone it anywhere you like.** The project root is derived from the code's
+   own location, so no path is baked in — `/exp/mu2e/app/users/$USER/autoresearch`
+   is conventional, not required.
+
+   ```bash
+   git clone <repo-url> autoresearch && cd autoresearch
+   ```
+
+2. **Build the venv and symlink it** — see
+   [Building the environment](#building-the-environment). Install the CPU torch
+   wheel *first*; that section explains why. Verify with the test suite it gives
+   you before going further: a green suite means the Python side is sound
+   without `/exp/mu2e` being involved at all.
+
+3. **Point at the build artifacts** — see [Artifacts](#artifacts). A fresh clone
+   has none, so a campaign launch will refuse until you either build your own or
+   link someone else's:
+
+   ```bash
+   ./setup.sh --backing /exp/mu2e/app/users/<operator>
+   ```
+
+4. **Load the roots into your shell**, then confirm what you are running
+   against. Do this in every new shell, before launching anything:
+
+   ```bash
+   source .venv/bin/activate
+   source setup.sh
+   ./setup.sh --status
+   ```
+
+   `--status` prints the four resolved roots and where each came from
+   (`default ($USER)`, `env`, or `backing`). If any line surprises you, stop and
+   fix it before submitting jobs — that is what this command is for.
+
+5. **Smoke-test the chain** with a single mock evaluation before spending grid
+   time — see [Running a single evaluation](#running-a-single-evaluation) and
+   use `--mock`.
+
+Then read [Running an optimization campaign](#running-an-optimization-campaign).
+If a launch fails, the error names both the offending path and the command that
+fixes it; the [Artifacts](#artifacts) section explains the backing rule behind
+those messages.
 
 ## Prerequisites
 
 - **Python env**: the project venv is `.venv` at the repo root (a symlink to
-  `/exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv`). Use
+  `/exp/mu2e/data/users/$USER/autoresearch_venvs/.venv`). Use
   `source .venv/bin/activate` or call `.venv/bin/python` directly. If it
   doesn't exist yet, see [Building the environment](#building-the-environment).
 - **Kerberos**: a fresh ticket before launch. Mid-run expiry kills chains at
@@ -73,16 +122,37 @@ the same way and point `AUTORESEARCH_BOTORCH_VENV` at it; the picker
 subprocess resolves that env var against the repo root, so the orchestrator
 keeps running on `.venv`.
 
-**Portability caveat.** Building the venv under your own `$USER` is not
-enough to run this repo as another account. The project root and the three
-off-repo data volumes are currently **hardcoded** — roughly 20 literal
-`/exp/mu2e/{app,data}/users/oksuzian/...` paths across 9 modules, including
-`core/bo_driver.py:47` (`ROOT`) and `graph/config.py:7,16,33`
-(`PROJECT_ROOT`, `GRAPH_DATA`, `GRID_DATA_ROOT`). Every absolute path
-elsewhere in this README reflects that deployment rather than a convention
-you can substitute into. Making the tree multi-user means routing those
-through one configurable root first; until then, treat this as a
-single-account deployment.
+### Artifacts
+
+Grid stages need a patched Offline build and a prebuilt `Code_*.tar.bz2`.
+Modes reference them as `${ARTIFACT}/...`, resolved against
+`$AUTORESEARCH_ARTIFACT_ROOT` (default `/exp/mu2e/app/users/$USER`) and
+falling through to a **backing** link for anything you have not built
+yourself — the same local-wins-then-backing rule as `muse backing`:
+
+```bash
+./setup.sh --backing /exp/mu2e/app/users/<operator>   # borrow an existing build
+./setup.sh --status                                   # what am I running against?
+```
+
+`<operator>` is anyone who already has the patched Offline build and the
+grid tarballs. Until the build recipes live in this repo, that means asking
+a colleague who has run a campaign — the artifacts are world-readable, so a
+backing link is all you need and you build nothing.
+
+A fresh clone has no backing and no local artifacts, so campaign launch
+fails immediately, naming the command above. That is deliberate: running
+against someone else's build should be something you said, not something
+that happened.
+
+### Where your results go
+
+- **Live rows** append to `$AUTORESEARCH_DATA_ROOT/autoresearch_leaderboards/`
+  (default `/exp/mu2e/data/users/$USER/...`), one flat directory.
+- **The committed `leaderboards/`** are a read-only archive of past
+  campaigns. Every operator starts warm from them; nobody writes to them
+  except by a reviewed git commit.
+- Grid work trees and logs likewise live under your own `$AUTORESEARCH_DATA_ROOT`.
 
 ## Running an optimization campaign
 
@@ -91,8 +161,9 @@ single-evaluation children in parallel, waits at a barrier, refits the GP on
 the updated leaderboard, and picks the next batch:
 
 ```bash
-cd /exp/mu2e/app/users/oksuzian/autoresearch
+cd /exp/mu2e/app/users/$USER/autoresearch    # wherever you cloned it
 source .venv/bin/activate
+source setup.sh   # exports AUTORESEARCH_DATA_ROOT / AUTORESEARCH_ARTIFACT_ROOT used below
 export AUTORESEARCH_CHECKPOINT_DIR=/tmp/$USER/<prefix>   # SQLite checkpoints off CephFS
 
 nohup python -m graph.closed_loop \
@@ -101,7 +172,7 @@ nohup python -m graph.closed_loop \
   --q 10 \
   --rolling --max-evals 20 \
   --name-prefix foilspf05 \
-  > /exp/mu2e/data/users/oksuzian/autoresearch_graph_data/foilspf05_parent.log 2>&1 &
+  > "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/foilspf05_parent.log" 2>&1 &
 echo "PID=$!"
 ```
 
@@ -126,13 +197,17 @@ Key flags (`python -m graph.closed_loop --help` for the full list):
 4. **Don't edit `core/`, `graph/`, or `core/pipeline_templates/` while
    children are in flight** — children re-execute the working tree.
 
-**Stopping**: `touch /exp/mu2e/data/users/oksuzian/autoresearch_graph_data/STOP_CLOSED_LOOP`
+**Stopping**: `source setup.sh` (if not already done in this shell), then
+`touch "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/STOP_CLOSED_LOOP"`
 for a clean stop at the next round boundary (remove the file afterwards).
 
 **Monitoring**: parent log (path in the launch line above); per-child logs at
 `<graph_data>/closed_loop_logs/<child>.log`; grid queue via
 `jobsub_q -G mu2e --user=$USER`; results via
-`tail leaderboards/leaderboard_bo_<mode>.tsv`.
+`tail "$AUTORESEARCH_DATA_ROOT/autoresearch_leaderboards/leaderboard_bo_<mode>.tsv"`
+(again, `source setup.sh` first if needed — the repo's `leaderboards/` is the
+frozen archive of past campaigns, not where a running campaign's new rows
+land).
 
 ## Running a single evaluation
 
@@ -165,7 +240,7 @@ row if broken) → evaluate (append leaderboard row) → END
 
 Wall time is ~3–6 h per evaluation, dominated by grid stages. Per-config
 artifacts (geometry, FCL, cluster files, harvest `summary.json`, logs) live
-under `/exp/mu2e/data/users/oksuzian/autoresearch_grid/<config>/`.
+under `$AUTORESEARCH_DATA_ROOT/autoresearch_grid/<config>/`.
 
 Lower-level entrypoints, normally not needed: `core/bo_driver.py
 propose | evaluate | preflight` (the per-step CLI the graph wraps) and
@@ -188,6 +263,8 @@ autoresearch/
 ├── core/                    # mode definitions + per-evaluation machinery
 │   ├── modes.py             #   ModeSpec registry: every per-mode fact in one
 │   │                        #   pure-data table, no silent defaults (ADR-0002)
+│   ├── paths.py             #   the ONLY module that knows a filesystem
+│   │                        #   layout: repo/data/artifact roots + backing
 │   ├── mode_json.py         #   JSON spec loader/validator (mode_specs/ → SPECS)
 │   ├── bo_driver.py         #   propose | evaluate | preflight CLI; BOMode classes
 │   ├── botorch_predict.py   #   GP fit + acquisition (all pickers), ask/tell seam
@@ -213,11 +290,12 @@ autoresearch/
 ├── wiki/                    # persistent knowledge base (OKF bundle): concepts,
 │                            #   drivers, and 50+ root-caused incidents — read before
 │                            #   debugging anything grid-related
+├── setup.sh                 # --status / --backing; sourced, exports the roots
 ├── CONTEXT.md               # domain glossary
 └── CLAUDE.md                # agent/session instructions
 ```
 
-Off-repo data volumes (all under `/exp/mu2e/data/users/oksuzian/`):
+Off-repo data volumes (all under `$AUTORESEARCH_DATA_ROOT`, default `/exp/mu2e/data/users/$USER/`):
 `autoresearch_grid/` (per-config artifacts), `autoresearch_graph_data/`
 (logs, state, checkpoints), `autoresearch_venvs/` (the real venv).
 

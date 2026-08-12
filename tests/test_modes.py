@@ -137,7 +137,8 @@ class TestBoundsLockstep(unittest.TestCase):
                     path=Path(td) / f"leaderboard_bo_{name}.tsv", name=name,
                     knob_names=spec_lb.knob_names,
                     knob_fmts=spec_lb.knob_fmts,
-                    metric_cols=spec_lb.metric_cols)
+                    metric_cols=spec_lb.metric_cols,
+                    archive_path=None)
                 lb.append(p, alpha=1.0e5)
                 [back] = lb.load()
             self.assertEqual(back.cfg, "RT01", name)

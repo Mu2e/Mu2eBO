@@ -7,22 +7,26 @@ campaign. STDLIB ONLY (see core/modes.py:1-8).
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Dict, Tuple
 
-# Mirror our own package-qualification when importing the sibling module: if
+# Mirror our own package-qualification when importing sibling modules: if
 # we were loaded as `core.mode_json` (repo-root imports, __package__=="core"),
-# resolve GeomTemplate the same way; if we were loaded as bare `mode_json`
-# (bo_driver.py subprocess path, core/ alone on sys.path, __package__==""),
-# resolve it bare too. A hardcoded qualified import breaks the bare path
-# outright (no `core` package to find); a hardcoded bare import would, under
-# the qualified path, load core/geom_template.py a SECOND time under a
-# different sys.modules key -- reproducing the two-non-identical-classes bug
-# Task 4 fixed for this exact class (see core/modes.py's tail comment).
+# resolve GeomTemplate and paths the same way; if we were loaded as bare
+# `mode_json` (bo_driver.py subprocess path, core/ alone on sys.path,
+# __package__==""), resolve them bare too. A hardcoded qualified import
+# breaks the bare path outright (no `core` package to find); a hardcoded
+# bare import would, under the qualified path, load core/geom_template.py a
+# SECOND time under a different sys.modules key -- reproducing the
+# two-non-identical-classes bug Task 4 fixed for this exact class (see
+# core/modes.py's tail comment).
 if __package__:
+    from core import paths
     from core.geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                     _validate_fmt)
 else:
+    import paths
     from geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                _validate_fmt)
 
@@ -94,6 +98,34 @@ def _normalize_leaderboard_rel(rel: str, where: str) -> str:
             f"{rel!r}); it escapes the repo root and defeats the "
             f"leaderboard-uniqueness check across modes")
     return p.as_posix()
+
+
+_ARTIFACT_TOKEN = "${ARTIFACT}/"
+
+
+def _expand_artifact(value: str, field: str, where: str) -> str:
+    """Expand the one supported token, `${ARTIFACT}/`, through
+    paths.artifact() -- local artifact wins, backing fills in, a miss
+    returns the intended local path (paths.verify() is what turns a miss
+    into a failure, so spec loading stays safe in a bare environment).
+
+    A bare absolute path under someone's user area is refused: that is how
+    the tree acquired ~20 personal literals in the first place.
+    """
+    if value.startswith(_ARTIFACT_TOKEN):
+        return str(paths.artifact(value[len(_ARTIFACT_TOKEN):]))
+    if "${" in value:
+        raise ValueError(
+            f"{where}[software.{field}]: unknown variable in {value!r}. "
+            f"The only supported token is '${{ARTIFACT}}/', which resolves "
+            f"against this operator's artifact root (or the `backing` link).")
+    if re.match(r"^/exp/mu2e/(app|data)/users/[^/]+/", value):
+        raise ValueError(
+            f"{where}[software.{field}]: {value!r} hardcodes a personal user "
+            f"area, so this mode would only run for that account. Use "
+            f"'${{ARTIFACT}}/<rest-of-path>' instead; see "
+            f"docs/superpowers/specs/2026-08-11-portable-paths-design.md.")
+    return value
 
 
 def _need(d: dict, keys, where: str) -> None:
@@ -395,8 +427,9 @@ def load_mode_file(path: Path) -> "object":
 
     spec = ModeSpec(
         name=doc["name"],
-        musing=software["musing"],
-        grid_tarball=software["grid_tarball"],
+        musing=_expand_artifact(software["musing"], "musing", where),
+        grid_tarball=_expand_artifact(software["grid_tarball"],
+                                      "grid_tarball", where),
         grid_stages=tuple(stages),
         harvest_verb=run["harvest"],
         stage_target_overrides=jobs_per_stage,
@@ -452,13 +485,17 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
         # column, so each mode's load_history() happily parses the other's
         # rows as its own evals. The realistic path is a copy-pasted spec
         # whose leaderboard line was never edited -- it looks plausible.
-        lb = spec.leaderboard_rel
+        # Keyed on the BASENAME, not the relative path: live boards are a
+        # flat per-operator directory (paths.leaderboard_live flattens to
+        # the name), so 'a/x.tsv' and 'b/x.tsv' would become one file even
+        # though the declarations differ.
+        lb = Path(spec.leaderboard_rel).name
         if lb in seen_leaderboards:
             raise ValueError(
-                f"{path}: leaderboard {lb!r} is already declared by "
+                f"{path}: leaderboard basename {lb!r} is already declared by "
                 f"{seen_leaderboards[lb]}. Two modes sharing one leaderboard "
                 f"silently cross-contaminate their GP history; give each mode "
-                f"its own leaderboards/*.tsv.")
+                f"its own leaderboards/*.tsv with a distinct filename.")
         seen_leaderboards[lb] = path
         out[spec.name] = spec
     return out

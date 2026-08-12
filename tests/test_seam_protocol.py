@@ -90,8 +90,10 @@ class TestCmdEvaluateEmit(unittest.TestCase):
     def _tmp_mode(self, tmp):
         mode = bo.MODES["foilsflash"]
         patches = [
-            mock.patch.object(mode, "leaderboard",
-                              Path(tmp) / "leaderboard_bo_foilsflash.tsv"),
+            mock.patch.multiple(
+                mode,
+                leaderboard=Path(tmp) / "leaderboard_bo_foilsflash.tsv",
+                leaderboard_archive=None),
             mock.patch.object(mode, "proposal_dir", Path(tmp) / "proposals"),
         ]
         return mode, patches

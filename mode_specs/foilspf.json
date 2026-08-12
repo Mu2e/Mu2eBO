@@ -2,8 +2,8 @@
   "name": "foilspf",
   "note": "10D all-foils stopping target: three Lagrange-quadratic profiles (rOut, halfThickness, hole fraction) across 49 foils plus a stack-length knob, vs the foilsflash sob+flash objective. Replaces the deployed 37-foil base entirely -- there is no pinned baseline. Design: docs/superpowers/specs/2026-07-27-foilspf-profile-stopping-target-design.md EXTENT is 400-1100, the original design range. It was briefly capped to 400-800 on 2026-07-28 because Offline placed the proton absorber RELATIVE to the target's downstream end, so a longer stack dragged the absorber (and its support wires) out of DS2Vacuum. That headroom problem, not the cap, was the real constraint: the absorber is now held at its own absolute position (protonabsorber.zStartInMu2e=6901.02, with the distFromTargetEnd expression kept as an exact fail-safe for a stale/unpatched lib -- docs/superpowers/specs/2026-07-31-ipa-absolute-position-design.md), which is what reopened the full 400-1100 range.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
   },
   "run": {
     "stages": ["mubeam", "mustops_ce", "elebeam_flash"],

@@ -2,8 +2,8 @@
   "name": "foilsflash",
   "note": "6D extra-foil geometry vs early-flash tracker edep (DS-on), S/sqrt(B) preserved. Defines the live foilsflash line: replaced the Python FoilsFlashMode class 2026-07-26 after grid validation (ffjson01). Geometry parity against the retired class is frozen in tests/fixtures/golden_geom/foilsflash_*.txt.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
   },
   "run": {
     "stages": [

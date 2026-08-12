@@ -853,6 +853,10 @@ def main() -> int:
     if args.dry_run:
         return _dry_run(args)
 
+    import paths as _paths
+    import modes as _modes_verify
+    _paths.verify(_modes_verify.SPECS.values())
+
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
     conn = _open_saver_conn()
     saver = SqliteSaver(conn)

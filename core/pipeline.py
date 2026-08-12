@@ -10,7 +10,7 @@ template into <work_root>/<cfg>/state/<stage>_template_materialized.fcl
 before handing it to mu2ejobdef.
 
 Per-config working tree (auto-created):
-  /exp/mu2e/data/users/oksuzian/autoresearch_grid/<cfg>/
+  <DATA_ROOT>/autoresearch_grid/<cfg>/
     geom/autoresearch_<cfg>_geom.txt   (placed by bo_driver.py propose)
     <stage>/                           (cnf tarballs, Code.tar.bz2)
     state/                             (cluster IDs, output lists, materialized FCL)
@@ -99,7 +99,7 @@ import harvest as hv  # noqa: E402
 import modes as _modes  # noqa: E402
 
 # Canonical muse-built Code.tar.bz2 produced by `muse tarball` from
-# /exp/mu2e/app/users/oksuzian/autoresearch_muse/ (mgit Mu2eG4 sparse
+# <ARTIFACT_ROOT>/autoresearch_muse/ (mgit Mu2eG4 sparse
 # checkout of v13_12_10 + helical-plug.patch, backed by SimJob/Run1Bak).
 # Contains Code/setup.sh that does `muse setup $CODE_DIR -q e29 prof p094`,
 # so the local libs (incl. patched libmu2e_Mu2eG4.so with mu2e::makeHelicalPlug)
@@ -399,9 +399,11 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # build/al9-prof-e29-p094/Run1BAna/lib/librun1bana_workflows_EdepAna_module.so`.
         # 2026-06-26: switched off mmackenz's hardcoded path after he bumped
         # p094→p101 and deleted it. See wiki/incidents/mmackenz-edepana-lib-qualifier-bump.md.
-        mmlib = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/build/al9-prof-e29-p094/Run1BAna/lib"
+        import paths  # see core/paths.py
+        _muse = paths.artifact("autoresearch_muse")
+        mmlib = str(_muse / "build/al9-prof-e29-p094/Run1BAna/lib")
         prelude = (
-            "cd /exp/mu2e/app/users/oksuzian/autoresearch_muse && "
+            f"cd {_muse} && "
             f"source {SETUPMU2E} >/dev/null 2>&1 && "
             "muse setup -q p094  >/dev/null 2>&1 && "
             f"export CET_PLUGIN_PATH={mmlib}:$CET_PLUGIN_PATH && "
@@ -962,7 +964,7 @@ def cmd_list_outputs(args):
 RUN1A_MUBEAM_INPUT_CORRECTION = hv.RUN1A_MUBEAM_INPUT_CORRECTION  # single source in harvest.py
 
 # Path to the autoresearch repo so we can find the EdepAna fcl + ROOT macro.
-AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
+from paths import REPO_ROOT as AUTORESEARCH  # see core/paths.py
 
 # EdepAna / sensitivity-macro Steps 1+4 (incl. the sci-notation count fix,
 # and EDEP_FCL/SENSITIVITY_MACRO path consts) live in harvest.py:

@@ -2,8 +2,8 @@
   "name": "foilspfbp",
   "note": "9D SHAPE-ONLY sibling of foilspf at the DEPLOYED (baseline) foil pitch: identical geometry model, but `extent` is PINNED at 1066.666667 mm = 48 gaps x the baseline 22.2222 mm pitch (deployed target: 37 foils / 36 gaps over 800 mm), so the search is purely over the three quadratic profiles while keeping the baseline foil-to-foil spacing -- support/frame engineering carries over from the deployed design. Created 2026-08-04 (operator: 'fix the gap between the foils to the baseline design and run shape optimization') after the designed extent scan CLOSED the extent question: the length gain is resolution->window->cosmic economics (Run-1-scoped, flattening by 1400-1700), and shapes optimized at ~2000 are only TRANSPLANTS at shorter extent -- shape at baseline pitch has never been searched, and the exit-path self-absorption mechanism says the optimum should move at tighter pitch. 1066.67 sits INSIDE the original certified zero-overlap corridor (worst-corner PASS at 1100, measured 2026-08-02), and ipa_dist lands at 491.6667 = the measured ipafix absolute position. Seeded with the 13 foilspf rows at extent in [1000,1100] (max extent-induced sob bias +-0.25% from the measured extent-scan slope, well under the 0.6% noise; includes SCANA1100/SCANB1100, the two 2000-optimized shapes measured at exactly 1100). foilspf and foilspf2k are UNCHANGED and keep their records.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
   },
   "run": {
     "stages": [
