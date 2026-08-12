@@ -27,7 +27,7 @@ Copy-paste. About two minutes; nothing is built.
 git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
 ./setup.sh --venv                                           # link the shared venv
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests   # expect OK, ~40 s
-./setup.sh --backing /exp/mu2e/app/users/<operator>          # borrow the Offline build
+# ./setup.sh --backing /exp/mu2e/app/users/oksuzian   # personal-path-ok: uncomment on purpose - see below
 source .venv/bin/activate && source setup.sh                 # <- every new shell
 ./setup.sh --status                                          # confirm before submitting
 ```
@@ -44,9 +44,11 @@ source .venv/bin/activate && source setup.sh                 # <- every new shel
   changing a pin — [Building the environment](#building-the-environment).
 - **The blank `PYTHONPATH=`** is required: it clears whatever a sourced
   Mu2e/cvmfs environment left behind.
-- **`--backing` is not optional.** A fresh clone has no patched Offline build,
-  and a campaign launch refuses until you link one. `<operator>` is anyone who
-  has already run a campaign — [Artifacts](#artifacts).
+- **`--backing` is commented on purpose.** A fresh clone has no patched Offline
+  build, so a campaign launch refuses until you link one — but running on
+  someone else's build should be a thing you decided, not a thing a paste did
+  to you. Uncomment it once you have read [Artifacts](#artifacts). Any operator
+  who has run a campaign works; the artifacts are world-readable.
 - **The `source` line is the only per-shell step.** Everything above it is once.
 - **`--status`** prints the resolved roots and the venv with where each came
   from. If a line surprises you, stop before submitting jobs.
