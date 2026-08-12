@@ -21,47 +21,90 @@ ipa625 ipafix ipaovr nominal                                            # fixed 
 
 ## First-time setup
 
-The order matters; each step links to the section that explains it. Steps 1-3
-are one-time, step 4 is per shell.
+Run these in order. Steps 1-3 are one-time; step 4 is once per shell.
 
-1. **Clone it anywhere you like.** The project root is derived from the code's
-   own location, so no path is baked in — `/exp/mu2e/app/users/$USER/autoresearch`
-   is conventional, not required.
+**1. Clone it anywhere you like.** The project root is derived from the code's
+own location, so no path is baked in — `/exp/mu2e/app/users/$USER/autoresearch`
+is conventional, not required.
 
-   ```bash
-   git clone <repo-url> autoresearch && cd autoresearch
-   ```
+```bash
+git clone <repo-url> autoresearch && cd autoresearch
+```
 
-2. **Build the venv and symlink it** — see
-   [Building the environment](#building-the-environment). Install the CPU torch
-   wheel *first*; that section explains why. Verify with the test suite it gives
-   you before going further: a green suite means the Python side is sound
-   without `/exp/mu2e` being involved at all.
+**2. Build the venv.** A fresh clone has no `.venv` — you create it here. It is
+a *symlink* into `/data` because the real venv is far too large for the
+`/exp/mu2e/app` quota. Install the CPU torch wheel **first, before anything
+else**: `botorch` and `gpytorch` both depend on torch, so if pip resolves it for
+them you get the CUDA build — gigabytes of wheels no grid node can use.
 
-3. **Point at the build artifacts** — see [Artifacts](#artifacts). A fresh clone
-   has none, so a campaign launch will refuse until you either build your own or
-   link someone else's:
+```bash
+VENV=/exp/mu2e/data/users/$USER/autoresearch_venvs/.venv   # keep it OFF /exp/mu2e/app
+uv venv --python 3.11 "$VENV"
+uv pip install --python "$VENV/bin/python" \
+  --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu
+uv pip install --python "$VENV/bin/python" -r requirements.txt
+ln -s "$VENV" .venv     # `.venv` is the load-bearing name; $VENV itself is free choice
+```
 
-   ```bash
-   ./setup.sh --backing /exp/mu2e/app/users/<operator>
-   ```
+*Or borrow one — the faster start.* Operator venvs are world-readable, so you
+can link an existing one instead of building. With no path it links the site
+venv (this deployment's reference build), which is usually what you want:
 
-4. **Load the roots into your shell**, then confirm what you are running
-   against. Do this in every new shell, before launching anything:
+```bash
+./setup.sh --venv           # link the site venv
+./setup.sh --venv PATH      # or a specific one
+./setup.sh --venv -r        # unlink, e.g. before building your own
+```
 
-   ```bash
-   source .venv/bin/activate
-   source setup.sh
-   ./setup.sh --status
-   ```
+You get read-only use — running and importing work, `pip install` into it does
+not, and the owner can rebuild it out from under you, so build your own before
+you change a pin. The command refuses if a `.venv` already exists rather than
+replacing it. Another deployment sets its own default with
+`$AUTORESEARCH_SITE_VENV`.
 
-   `--status` prints the four resolved roots and where each came from
-   (`default ($USER)`, `env`, or `backing`). If any line surprises you, stop and
-   fix it before submitting jobs — that is what this command is for.
+Either way, verify next — a green suite means the Python side is sound without
+`/exp/mu2e` being involved at all, and it matters more when you borrowed than
+when you built. The leading blank `PYTHONPATH=` is required: it clears anything
+inherited from a sourced Mu2e/cvmfs environment.
 
-5. **Smoke-test the chain** with a single mock evaluation before spending grid
-   time — see [Running a single evaluation](#running-a-single-evaluation) and
-   use `--mock`.
+```bash
+PYTHONPATH= .venv/bin/python -m unittest discover -s tests
+```
+
+Background on why the venv lives where it does:
+[Building the environment](#building-the-environment).
+
+**3. Point at the build artifacts.** A fresh clone has none, so a campaign
+launch refuses until you either build your own or link someone else's.
+`<operator>` is anyone who has already run a campaign — see
+[Artifacts](#artifacts).
+
+```bash
+./setup.sh --backing /exp/mu2e/app/users/<operator>
+```
+
+**4. Load the roots into your shell.** Do this in every new shell, before
+launching anything:
+
+```bash
+source .venv/bin/activate    # puts the project `python` on PATH
+source setup.sh              # exports AUTORESEARCH_DATA_ROOT + AUTORESEARCH_ARTIFACT_ROOT
+```
+
+Then confirm what you are running against — optional, but this is the command
+that catches a wrong backing before it costs you grid time:
+
+```bash
+./setup.sh --status
+```
+
+It prints the resolved roots and the venv, with where each came from
+(`default ($USER)`, `env`, or `symlink`). If any line surprises you, stop and
+fix it before submitting jobs.
+
+**5. Smoke-test the chain** with a single mock evaluation before spending grid
+time — see [Running a single evaluation](#running-a-single-evaluation) and use
+`--mock`.
 
 Then read [Running an optimization campaign](#running-an-optimization-campaign).
 If a launch fails, the error names both the offending path and the command that
@@ -72,8 +115,8 @@ those messages.
 
 - **Python env**: the project venv is `.venv` at the repo root (a symlink to
   `/exp/mu2e/data/users/$USER/autoresearch_venvs/.venv`). Use
-  `source .venv/bin/activate` or call `.venv/bin/python` directly. If it
-  doesn't exist yet, see [Building the environment](#building-the-environment).
+  `source .venv/bin/activate` or call `.venv/bin/python` directly. A fresh
+  clone has none — create it in [First-time setup](#first-time-setup) step 2.
 - **Kerberos**: a fresh ticket before launch. Mid-run expiry kills chains at
   grid submission (see `wiki/incidents/kerberos-mid-run-expiry.md`).
 - **Mu2e environment** is sourced by the pipeline itself per stage; do not
@@ -83,39 +126,22 @@ those messages.
 
 ### Building the environment
 
+The recipe is [First-time setup](#first-time-setup) step 2; this section is
+the *why* behind it.
+
 One venv serves everything — orchestrator, botorch picker, and plot
 renderers (consolidated 2026-07-18 from three separate venvs). Python 3.11,
 built with [uv](https://github.com/astral-sh/uv); pinned in
 `requirements.txt`, whose header is the authoritative recipe.
 
-**Install the CPU torch wheel FIRST, before anything else.** `botorch` and
-`gpytorch` both depend on torch, so if pip resolves it for them you get the
-default CUDA build — gigabytes of unusable wheels on a CPU-only grid node.
-The explicit `+cpu` local version from the pytorch CPU index pre-satisfies
-that dependency.
+The `+cpu` local version pulled from the pytorch CPU index pre-satisfies the
+torch dependency that `botorch` and `gpytorch` would otherwise resolve to the
+CUDA build — hence the install-torch-first ordering.
 
-```bash
-VENV=/exp/mu2e/data/users/$USER/autoresearch_venvs/.venv   # keep it OFF /exp/mu2e/app
-uv venv --python 3.11 "$VENV"
-uv pip install --python "$VENV/bin/python" \
-  --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu
-uv pip install --python "$VENV/bin/python" -r requirements.txt
-ln -s "$VENV" .venv
-```
-
-The venv lives on the `/data` volume and is *symlinked* into the repo
+The venv lives on the `/data` volume and is symlinked into the repo
 deliberately: it is far too large for the `/exp/mu2e/app` quota, and moving
 it across volumes afterwards is painfully slow on CephFS
-(`wiki/incidents/venv-relocated-to-data-volume.md`). `$VENV` is free choice;
-only the symlink name `.venv` is load-bearing.
-
-Verify with the test suite. The leading blank `PYTHONPATH=` is required: it
-clears any `PYTHONPATH` inherited from a sourced Mu2e/cvmfs environment, so
-the tests resolve imports against the venv alone.
-
-```bash
-PYTHONPATH= .venv/bin/python -m unittest discover -s tests
-```
+(`wiki/incidents/venv-relocated-to-data-volume.md`).
 
 To A/B a different picker stack (say a newer botorch), build a second venv
 the same way and point `AUTORESEARCH_BOTORCH_VENV` at it; the picker
@@ -282,8 +308,8 @@ autoresearch/
 │   ├── pipeline_io.py       #   proposal/leaderboard file I/O, name allocation
 │   └── presniff.py / sourced_bash.py   # log classification; env-sourcing subprocess helper
 ├── mode_specs/              # JSON mode definitions (see its README)
-├── leaderboards/            # results: leaderboard_bo_<mode>.tsv (BO lines),
-│                            #   leaderboard_ab_<arm>.tsv (fixed reference arms)
+├── leaderboards/            # READ-ONLY archive of past campaigns; live rows go
+│                            #   to $AUTORESEARCH_DATA_ROOT (see Where your results go)
 ├── tests/                   # unittest suite + golden-geometry fixtures
 ├── tools/                   # capture_golden_geom.py (golden parity capture)
 ├── docs/                    # talks, specs, plans, ADRs (docs/adr/)
@@ -305,7 +331,7 @@ Off-repo data volumes (all under `$AUTORESEARCH_DATA_ROOT`, default `/exp/mu2e/d
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests -v
 ```
 
-~200 tests, no grid contact. The golden geometry-parity harness (renders
+465 tests, no grid contact. The golden geometry-parity harness (renders
 every registered mode and diffs against `tests/fixtures/golden_geom/`) runs
 separately:
 
