@@ -7,10 +7,12 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import local_exec  # noqa: E402
+import pipeline  # noqa: E402
 
 
 class TestLocalRoots(unittest.TestCase):
@@ -234,3 +236,88 @@ class TestScaleDials(unittest.TestCase):
     def test_negative_per_stage_value_raises(self):
         with self.assertRaises(ValueError):
             local_exec.resolve_scale(["mubeam=-1"], 1, "mubeam")
+
+
+class TestPipelineLocalWiring(unittest.TestCase):
+    def test_events_stamp_carries_the_local_value_not_the_configured_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state):
+                pipeline.stamp_local_events("mustops_ce", 200)
+            self.assertEqual(
+                (state / "mustops_ce_events_per_job.txt").read_text().strip(),
+                "200")
+
+    def test_concat_merge_factor_clamps_to_available_inputs(self):
+        self.assertEqual(pipeline.clamp_merge_factor(200, 1), 1)
+        self.assertEqual(pipeline.clamp_merge_factor(200, 350), 200)
+        self.assertEqual(pipeline.clamp_merge_factor(200, 200), 200)
+
+    def test_local_build_never_invokes_grid_tools(self):
+        seen = []
+
+        def fake_run(cmd, **kw):
+            seen.append(cmd)
+            return mock.Mock(returncode=0, stdout="# fcl\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=Path(tmp) / "t.fcl"), \
+                 mock.patch.object(pipeline.subprocess, "run", fake_run):
+                pipeline.cmd_local_build(SimpleNamespace(
+                    stage="mubeam", local_njobs=["2"], local_events=["200"]))
+
+        flat = [tok for cmd in seen for tok in cmd]
+        self.assertNotIn("mu2ejobsub", flat)
+        self.assertNotIn("jobsub_q", flat)
+        self.assertIn("mu2ejobfcl", flat)
+
+    def test_local_jobdef_matches_the_grid_jobdef_except_events_per_job(self):
+        # The whole point of extracting _jobdef_cmd: local and grid build the
+        # SAME cnf. If these ever diverge, a local run stops predicting
+        # anything about the grid run it is supposed to stand in for.
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp) / "t.fcl"
+            t.write_text("x")
+            with mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_grid_setup_sh",
+                                   return_value="/setup.sh"):
+                grid = pipeline._jobdef_cmd("mubeam", t, "dsc", "dsc-desc",
+                                            Path(tmp))
+                local = pipeline._jobdef_cmd("mubeam", t, "dsc", "dsc-desc",
+                                             Path(tmp), events_per_job=200)
+        self.assertEqual(len(grid), len(local))
+        i = local.index("--events-per-job")
+        self.assertEqual(local[i + 1], "200")
+        self.assertEqual(
+            grid[i + 1], str(pipeline.STAGES["mubeam"]["events_per_job"]))
+        # Everything OTHER than the events value is byte-identical.
+        self.assertEqual(grid[:i + 1] + grid[i + 2:],
+                         local[:i + 1] + local[i + 2:])
+
+    def test_local_build_refuses_a_stage_it_cannot_stage_inputs_for(self):
+        # Better a loud refusal than a cnf with no --inputs: mu2ejobdef would
+        # accept that, and the job would then read nothing and report success.
+        for stage in ("concat", "mustops_ce"):
+            with self.subTest(stage=stage), self.assertRaises(SystemExit):
+                pipeline.cmd_local_build(SimpleNamespace(
+                    stage=stage, local_njobs=None, local_events=None))
+
+    def test_poll_is_a_noop_in_local_mode(self):
+        # run_jobs_local is synchronous, so by the time poll could run every
+        # job is done. Without this guard a graph-driven chain would feed the
+        # runid in <stage>_cluster.txt to jobsub_q as if it were a cluster id.
+        with mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
+             mock.patch.object(pipeline, "poll_cluster") as pc:
+            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
+                                              cap_hours=24.0))
+        pc.assert_not_called()

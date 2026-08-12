@@ -97,6 +97,8 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 import harvest as hv  # noqa: E402
 # ModeSpec registry (ADR-0002): per-mode grid-tarball facts.
 import modes as _modes  # noqa: E402
+# Local executor: local counterparts to the three grid-contact functions.
+import local_exec as lx  # noqa: E402
 
 # Canonical muse-built Code.tar.bz2 produced by `muse tarball` from
 # <ARTIFACT_ROOT>/autoresearch_muse/ (mgit Mu2eG4 sparse
@@ -671,6 +673,60 @@ def _maybe_refresh_token(stage: str) -> None:
             tok.returncode, "getToken", output=tok.stdout, stderr=tok.stderr)
 
 
+def stamp_local_events(stage: str, events: int) -> Path:
+    """Stamp the LOCAL events-per-job so harvest scales by what actually ran.
+
+    harvest reads this file, not STAGES[stage]["events_per_job"]. Stamping the
+    configured value while running fewer events biases every derived metric by
+    the ratio -- the failure class of events-per-job-mid-flight-edit.
+    """
+    out = STATE / f"{stage}_events_per_job.txt"
+    out.write_text(f"{events}\n")
+    return out
+
+
+def clamp_merge_factor(configured: int, n_inputs: int) -> int:
+    """concat merges 200 files on the grid; a local run may have produced 1."""
+    return max(1, min(configured, n_inputs))
+
+
+def _jobdef_cmd(stage: str, template_fcl: Path, dsconf: str, desc: str,
+                stage_dir: Path, *, inputs_file: Path | None = None,
+                events_per_job: int | None = None) -> list[str]:
+    """Build the mu2ejobdef argv for a stage.
+
+    Single source of truth for both the grid path (submit_stage) and the local
+    path (cmd_local_build). Extracted rather than duplicated: a second copy of
+    these conditionals is exactly how the grid tarball drifted from the local
+    env in foilsflash-tarball-mode-key-omission, where preflight passed locally
+    while every grid job died.
+
+    events_per_job overrides STAGES[stage]["events_per_job"] so a local build
+    can request 200 events where the grid config says 5000.
+    """
+    cfg = STAGES[stage]
+    jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER,
+              "--desc", desc, "--embed", str(template_fcl)]
+    if cfg["ships_geom"]:
+        base = Path(cfg["code_tarball"]) if "code_tarball" in cfg else None
+        tarball = write_code_tarball(stage_dir, base_tarball=base)
+        jobdef += ["--code", str(tarball)]
+    else:
+        jobdef += ["--setup", _grid_setup_sh()]
+    if "events_per_job" in cfg:
+        epj = cfg["events_per_job"] if events_per_job is None else events_per_job
+        jobdef += ["--run-number", str(cfg["run_number"]),
+                   "--events-per-job", str(epj)]
+    if "merge_factor" in cfg:
+        if inputs_file is None:
+            raise SystemExit(f"[{stage}] needs --inputs file but none provided")
+        jobdef += ["--inputs", str(inputs_file),
+                   "--merge-factor", str(cfg["merge_factor"])]
+    if "auxinput" in cfg:
+        jobdef += [f"--auxinput={cfg['auxinput']}"]
+    return jobdef
+
+
 def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
                  staged_input_dir: Path | None = None, dry_run: bool = False) -> int | None:
     """Build cnf via mu2ejobdef, smoke-test with mu2ejobfcl, submit via mu2ejobsub.
@@ -691,17 +747,9 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
         print(f"[{stage}] removing existing cnf: {cnf.name}")
         cnf.unlink()
 
-    jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER, "--desc", desc,
-              "--embed", str(template_fcl)]
-    if cfg["ships_geom"]:
-        base = Path(cfg["code_tarball"]) if "code_tarball" in cfg else None
-        tarball = write_code_tarball(stage_dir, base_tarball=base)
-        jobdef += ["--code", str(tarball)]
-    else:
-        jobdef += ["--setup", _grid_setup_sh()]
+    jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
+                         inputs_file=inputs_file)
     if "events_per_job" in cfg:
-        jobdef += ["--run-number", str(cfg["run_number"]),
-                   "--events-per-job", str(cfg["events_per_job"])]
         # Stamp the per-stage events_per_job at submit time so harvest reads
         # the actual value used, not the current (possibly edited) dict.
         # Without this, editing STAGES[*]["events_per_job"] between submit
@@ -710,12 +758,6 @@ def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
         (STATE / f"{stage}_events_per_job.txt").write_text(
             f"{cfg['events_per_job']}\n"
         )
-    if "merge_factor" in cfg:
-        if inputs_file is None:
-            raise SystemExit(f"[{stage}] needs --inputs file but none provided")
-        jobdef += ["--inputs", str(inputs_file), "--merge-factor", str(cfg["merge_factor"])]
-    if "auxinput" in cfg:
-        jobdef += [f"--auxinput={cfg['auxinput']}"]
 
     # mu2ejobdef writes cnf.* in cwd
     print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
@@ -885,6 +927,68 @@ def list_outputs(stage: str, cluster: int) -> list[Path]:
     return files
 
 
+# Stages the local executor can build today. A local `mubeam` needs no input
+# staging; every downstream stage does -- cmd_submit builds a /pnfs hardlink
+# farm (stage_hardlink_farm) so concat/mustops_ce can resolve input basenames,
+# and that has no local analogue yet. Refuse loudly rather than emit a cnf with
+# no inputs, which mu2ejobdef would accept and which would then produce a job
+# that silently reads nothing.
+LOCAL_SUPPORTED_STAGES = ("mubeam",)
+
+
+def cmd_local_build(args):
+    """Build this stage's per-index FCLs and stop. Nothing is executed."""
+    stage = args.stage
+    if stage not in LOCAL_SUPPORTED_STAGES:
+        raise SystemExit(
+            f"[{stage}] the local executor supports "
+            f"{', '.join(LOCAL_SUPPORTED_STAGES)} only. Stages that consume a "
+            f"previous stage's outputs need the input staging cmd_submit does "
+            f"on /pnfs, which has no local path yet.")
+    njobs = lx.resolve_scale(getattr(args, "local_njobs", None), 1, stage)
+    events = lx.resolve_scale(getattr(args, "local_events", None), 200, stage)
+    env = sourced_env()
+    stage_dir = ROOT / stage
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    template_fcl = _materialize_template(stage)
+    dsconf = _stage_dsconf(stage)
+    desc = _stage_desc(stage)
+    cnf = stage_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
+    if not cnf.exists():
+        jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
+                             events_per_job=events)
+        print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
+        subprocess.run(jobdef, cwd=str(stage_dir), env=env, check=True)
+    lx.build_fcls(stage, cnf.name, stage_dir, STATE, njobs,
+                  STAGES[stage]["default_loc"], env)
+    stamp_local_events(stage, events)
+    print(f"[{stage}] local-build done; edit "
+          f"{STATE / 'fcl'}/{stage}_00000.fcl then 'local-run {stage}'")
+
+
+def cmd_local_run(args):
+    """Execute the FCLs already on disk, then list outputs."""
+    stage = args.stage
+    njobs = lx.resolve_scale(getattr(args, "local_njobs", None), 1, stage)
+    events = lx.resolve_scale(getattr(args, "local_events", None), 200, stage)
+    pool = getattr(args, "local_pool", None) or lx.DEFAULT_POOL
+    edited = lx.edited_fcls(STATE, stage)
+    for name in edited:
+        print(f"[{stage}] FCL hand-edited: {name}")
+    (STATE / f"{stage}_fcl_edited.txt").write_text(
+        "\n".join(edited) + "\n" if edited else "")
+    runid = lx.next_runid(CONFIG)
+    (STATE / f"{stage}_cluster.txt").write_text(f"{runid}\n")
+    res = lx.run_jobs_local(stage, CONFIG, runid, STATE, njobs, events,
+                            sourced_env(), pool=pool)
+    stamp_local_events(stage, events)
+    lx.list_outputs_local(stage, CONFIG, runid,
+                          STAGES[stage]["output_glob"], STATE)
+    if res["failed"]:
+        print(f"[{stage}] WARNING: {len(res['failed'])} job(s) failed: "
+              f"{res['failed']}")
+
+
 def cmd_submit(args):
     # Idempotency guard: if a prior submit already produced a cluster file,
     # treat re-entry as a no-op so a killed-and-resumed graph node doesn't
@@ -894,6 +998,10 @@ def cmd_submit(args):
         cid = cluster_file.read_text().strip()
         print(f"[{args.stage}] already submitted (cluster={cid}); skip submit "
               f"(use --force to override)")
+        return
+    if getattr(args, "local", False) or os.environ.get("AUTORESEARCH_LOCAL"):
+        cmd_local_build(args)
+        cmd_local_run(args)
         return
     # Stage-chain stamp: record THIS Eval's chain at first submit so harvest
     # and template materialization never re-interpret an old config under the
@@ -935,6 +1043,9 @@ def cmd_submit(args):
 
 
 def cmd_poll(args):
+    if os.environ.get("AUTORESEARCH_LOCAL"):
+        print(f"[{args.stage}] local mode: jobs already complete; poll is a no-op")
+        return
     _check_stage_config_sha(args.stage)
     cluster_file = STATE / f"{args.stage}_cluster.txt"
     cluster = int(cluster_file.read_text().strip())
@@ -1324,6 +1435,11 @@ def main():
     p_sub.add_argument("--dry-run", action="store_true")
     p_sub.add_argument("--force", action="store_true",
                        help="Re-submit even if state/<stage>_cluster.txt exists.")
+    p_sub.add_argument("--local", action="store_true",
+                       help="run this stage locally instead of submitting")
+    p_sub.add_argument("--local-njobs", action="append")
+    p_sub.add_argument("--local-events", action="append")
+    p_sub.add_argument("--local-pool", type=int, default=None)
     p_sub.set_defaults(func=cmd_submit)
 
     p_poll = sub.add_parser("poll", help="Poll a stage's cluster until quorum or cap")
@@ -1342,6 +1458,18 @@ def main():
 
     p_harv = sub.add_parser("harvest", help="Aggregate stage outputs into summary.json")
     p_harv.set_defaults(func=cmd_harvest)
+
+    for verb, fn in (("local-build", cmd_local_build),
+                     ("local-run", cmd_local_run)):
+        p_l = sub.add_parser(verb, help=f"{verb}: local executor")
+        p_l.add_argument("stage", choices=list(STAGES))
+        p_l.add_argument("--local-njobs", action="append",
+                         help="int, or <stage>=<int>; repeatable (default 1)")
+        p_l.add_argument("--local-events", action="append",
+                         help="int, or <stage>=<int>; repeatable (default 200)")
+        p_l.add_argument("--local-pool", type=int, default=None,
+                         help="max concurrent local jobs (default 4)")
+        p_l.set_defaults(func=fn)
 
     args = p.parse_args()
     _bind_config(args.config)
