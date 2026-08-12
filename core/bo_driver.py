@@ -694,8 +694,13 @@ def write_json_atomic(path: Path, payload: dict) -> None:
 def _cmd_preflight_impl(args):
     mode = MODES[args.mode]
 
+    import harvest as _harvest
     import paths as _paths
-    _paths.verify([_modes.SPECS[mode.name]], make_dirs=False)
+    # Preflight is the first thing every chain runs, so it is where a missing
+    # backing has to surface -- including harvest's Run1BAna artifacts, which
+    # no earlier step touches and which a fresh clone does not have.
+    _paths.verify([_modes.SPECS[mode.name]],
+                  extra=_harvest.REQUIRED_ARTIFACTS, make_dirs=False)
 
     name = args.config_name
     geom = mode.proposal_dir / f"{name}_geom.txt"

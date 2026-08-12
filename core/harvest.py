@@ -61,9 +61,31 @@ def parse_s_over_sqrt_b(stdout: str) -> float:
 # (harvest.py stays stdlib-only; runner(cmd, cwd) is a proc-like the CALLER
 # binds env for — see pipeline.py's _mu2e_runner / _root_runner.)
 
-from paths import REPO_ROOT as AUTORESEARCH  # see core/paths.py
-EDEP_FCL = AUTORESEARCH / "Run1BAna/workflows/fcl/edep.fcl"
-SENSITIVITY_MACRO = AUTORESEARCH / "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C"
+# Run1BAna (github.com/michaelmackenzie/Run1BAna) supplies EdepAna's FCL and
+# the sensitivity macro. It is an ARTIFACT, not source -- gitignored, never
+# tracked here -- so it resolves through artifact()/backing exactly like the
+# muse work area that holds EdepAna's built lib (pipeline.py's `_muse`, the
+# same `autoresearch_muse` root). Resolving it from REPO_ROOT instead meant a
+# fresh clone had no Run1BAna at all and died here, after every stage had run.
+#
+# Anchoring on MUSE_WORKAREA also makes the #include below honest: harvest
+# runs with that work area on FHICL_FILE_PATH, so the workarea-relative string
+# is what actually resolves the file. The old form derived that same string
+# from REPO_ROOT while FHiCL resolved it from the work area.
+from paths import artifact  # see core/paths.py
+
+MUSE_WORKAREA = artifact("autoresearch_muse")
+EDEP_FCL = MUSE_WORKAREA / "Run1BAna/workflows/fcl/edep.fcl"
+SENSITIVITY_MACRO = (MUSE_WORKAREA /
+                     "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C")
+
+# Checked by paths.verify() at preflight so a missing backing fails in the
+# first minute rather than after the last stage. Not per-mode ModeSpec fields:
+# every mode's harvest needs both.
+REQUIRED_ARTIFACTS = (
+    (EDEP_FCL, "EdepAna FCL (Run1BAna)"),
+    (SENSITIVITY_MACRO, "sensitivity macro (Run1BAna)"),
+)
 
 
 def run_edepana(harvest_dir: Path, ce_files: Sequence[Path], *, runner):
@@ -80,7 +102,7 @@ def run_edepana(harvest_dir: Path, ce_files: Sequence[Path], *, runner):
     nts_path = harvest_dir / "nts.ce.root"
     wrapper = harvest_dir / "edep_wrapper.fcl"
     wrapper.write_text(
-        f'#include "{EDEP_FCL.relative_to(AUTORESEARCH).as_posix()}"\n'
+        f'#include "{EDEP_FCL.relative_to(MUSE_WORKAREA).as_posix()}"\n'
         f'services.TFileService.fileName: "{nts_path.name}"\n'
     )
     edep_log = harvest_dir / "edep.log"
