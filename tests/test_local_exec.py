@@ -380,6 +380,41 @@ class TestPipelineLocalWiring(unittest.TestCase):
                                                   cap_hours=24.0))
         pc.assert_not_called()
 
+    def test_a_forced_grid_submit_clears_the_local_runid_not_just_its_marker(self):
+        # submit_stage rewrites <stage>_cluster.txt only AFTER mu2ejobsub
+        # parses a cluster id, so every grid path that never gets there must
+        # not leave the local runid behind unmarked -- a later poll would hand
+        # that small int to jobsub_q and wait out the 24h cap. --dry-run is the
+        # cheapest such path; a raise anywhere before the submit has the same
+        # shape. Asserted on the CLUSTER FILE, not the marker: a test that
+        # checks only the marker passes against the bug this pins.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("3\n")     # as local-run
+            (state / "mubeam_cluster.txt").write_text("3\n")   # ... a runid
+            with mock.patch.dict(os.environ), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=Path(tmp) / "t.fcl"), \
+                 mock.patch.object(pipeline, "_probe_input_urls"), \
+                 mock.patch.object(pipeline.subprocess, "run",
+                                   return_value=mock.Mock(returncode=0,
+                                                          stdout="# fcl\n",
+                                                          stderr="")):
+                os.environ.pop("AUTORESEARCH_LOCAL", None)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=True, dry_run=True, local=False))
+            self.assertFalse(
+                (state / "mubeam_cluster.txt").exists(),
+                "the local runid survived a forced grid submit that never "
+                "reached mu2ejobsub -- poll would send it to jobsub_q")
+            self.assertFalse((state / "mubeam_local.txt").exists())
+
     def test_list_outputs_never_reaches_the_grid_lister_in_local_mode(self):
         # Without the marker check this is safe only by accident (the
         # idempotency guard happens to match the local paths local-run wrote).

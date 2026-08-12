@@ -1008,10 +1008,16 @@ def cmd_local_run(args):
     (STATE / f"{stage}_fcl_edited.txt").write_text(
         "\n".join(edited) + "\n" if edited else "")
     runid = lx.next_runid(CONFIG)
-    (STATE / f"{stage}_cluster.txt").write_text(f"{runid}\n")
-    # Written next to the cluster file, and only ever together with it: the
-    # marker is what tells a later poll/list-outputs that this int is a runid.
+    # INVARIANT (write half): the runid and its marker are written together
+    # and cleared together, so a runid can never be present without its
+    # marker -- that is the whole basis on which poll/list-outputs decide the
+    # int in the cluster file is a runid and not a ClusterId.
+    # Marker FIRST: if the process dies between these two writes, the residue
+    # is a marker with no cluster file (poll no-ops; harmless) rather than a
+    # runid nothing distinguishes from a real cluster id (poll hangs the full
+    # 24h cap on a /pnfs dir that will never appear).
     local_marker(stage).write_text(f"{runid}\n")
+    (STATE / f"{stage}_cluster.txt").write_text(f"{runid}\n")
     res = lx.run_jobs_local(stage, CONFIG, runid, STATE, njobs, events,
                             sourced_env(), pool=pool)
     stamp_local_events(stage, events)
@@ -1039,6 +1045,16 @@ def cmd_submit(args):
     # A real submit invalidates any marker a prior `--local` run left behind:
     # the cluster file is about to hold a genuine cluster id again, and a stale
     # marker would no-op the poll of a live grid cluster.
+    # INVARIANT (clear half): drop the runid and its marker TOGETHER, runid
+    # first. submit_stage only rewrites <stage>_cluster.txt AFTER mu2ejobsub
+    # parses a cluster id, so unlinking the marker alone would leave the local
+    # runid behind, unmarked, on every path that never reaches that write:
+    # --dry-run returns early, and mu2ejobdef / mu2ejobfcl / _probe_input_urls
+    # / token refresh / mu2ejobsub can each raise before it. A later poll would
+    # then take that runid for a ClusterId -- the exact 24h-cap hang the marker
+    # exists to prevent, reintroduced by the marker's own cleanup.
+    if local_marker(args.stage).exists():
+        cluster_file.unlink(missing_ok=True)
     local_marker(args.stage).unlink(missing_ok=True)
     # Stage-chain stamp: record THIS Eval's chain at first submit so harvest
     # and template materialization never re-interpret an old config under the
