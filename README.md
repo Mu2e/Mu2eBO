@@ -46,21 +46,26 @@ uv pip install --python "$VENV/bin/python" -r requirements.txt
 ln -s "$VENV" .venv     # `.venv` is the load-bearing name; $VENV itself is free choice
 ```
 
-*Or borrow one.* Operator venvs are world-readable, so you can point at an
-existing one instead of building, and skip straight to the verify step below:
+*Or borrow one — the faster start.* Operator venvs are world-readable, so you
+can link an existing one instead of building. With no path it links the site
+venv (this deployment's reference build), which is usually what you want:
 
 ```bash
-ln -s /exp/mu2e/data/users/<operator>/autoresearch_venvs/.venv .venv
+./setup.sh --venv           # link the site venv
+./setup.sh --venv PATH      # or a specific one
+./setup.sh --venv -r        # unlink, e.g. before building your own
 ```
 
-You get read-only use of it — running and importing work, `pip install` into it
-does not, and the owner can rebuild it out from under you. Build your own once
-you need to change a pin. Same borrow-a-colleague's-build idea as
-[Artifacts](#artifacts), and it costs nothing to undo (`rm .venv`, then build).
+You get read-only use — running and importing work, `pip install` into it does
+not, and the owner can rebuild it out from under you, so build your own before
+you change a pin. The command refuses if a `.venv` already exists rather than
+replacing it. Another deployment sets its own default with
+`$AUTORESEARCH_SITE_VENV`.
 
-Verify before going further. A green suite means the Python side is sound
-without `/exp/mu2e` being involved at all. The leading blank `PYTHONPATH=` is
-required — it clears anything inherited from a sourced Mu2e/cvmfs environment.
+Either way, verify next — a green suite means the Python side is sound without
+`/exp/mu2e` being involved at all, and it matters more when you borrowed than
+when you built. The leading blank `PYTHONPATH=` is required: it clears anything
+inherited from a sourced Mu2e/cvmfs environment.
 
 ```bash
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests
@@ -93,9 +98,9 @@ that catches a wrong backing before it costs you grid time:
 ./setup.sh --status
 ```
 
-It prints the four resolved roots and where each came from (`default ($USER)`,
-`env`, or `symlink`). If any line surprises you, stop and fix it before
-submitting jobs.
+It prints the resolved roots and the venv, with where each came from
+(`default ($USER)`, `env`, or `symlink`). If any line surprises you, stop and
+fix it before submitting jobs.
 
 **5. Smoke-test the chain** with a single mock evaluation before spending grid
 time — see [Running a single evaluation](#running-a-single-evaluation) and use
