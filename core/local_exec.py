@@ -9,6 +9,7 @@ plus core.paths.
 from __future__ import annotations
 
 import hashlib
+import os
 import shlex
 import subprocess
 import sys
@@ -65,6 +66,17 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def default_proto_for(default_loc: str) -> str:
+    """xroot for /pnfs, plain file for a local dir.
+
+    mu2ejobfcl refuses to build a root:// URL for a path outside /pnfs
+    ("root protocol requested but a file pathname does not start with
+    /pnfs"), which is every path in a local input farm.
+    """
+    return "file" if default_loc.startswith("dir:/") \
+        and not default_loc.startswith("dir:/pnfs") else "root"
+
+
 def build_fcls(stage: str, cnf_name: str, stage_dir: Path, state_dir: Path,
                njobs: int, default_loc: str, env: dict) -> list[Path]:
     """Resolve one FCL per job index and record each one's hash.
@@ -86,7 +98,8 @@ def build_fcls(stage: str, cnf_name: str, stage_dir: Path, state_dir: Path,
     written = []
     for index in range(njobs):
         cmd = ["mu2ejobfcl", "--jobdef", cnf_name, "--index", str(index),
-               "--default-proto", "root", "--default-loc", default_loc]
+               "--default-proto", default_proto_for(default_loc),
+               "--default-loc", default_loc]
         print(f"$ (cd {stage_dir} && {shlex.join(cmd)})", flush=True)
         try:
             proc = subprocess.run(cmd, cwd=str(stage_dir), env=env, check=True,
@@ -205,3 +218,53 @@ def resolve_scale(values, default: int, stage: str) -> int:
                     f"bad value {item!r}: expected an int >= 1")
             bare = parsed
     return per_stage.get(stage, bare)
+
+
+def local_farm(stage: str, config: str, sources: list, state_dir) -> tuple:
+    """Hard-link a prior stage's local outputs into ONE dir, as the grid path
+    hard-links them into one /pnfs dir.
+
+    mu2ejobdef's --inputs accepts BASENAMES only, and --default-loc dir:DIR
+    then assumes every one of them lives in DIR. A local stage's outputs are
+    spread one-dir-per-job-index (<runid>/00/00000, .../00001, ...), so they
+    need collecting exactly as the grid ones do -- same constraint, different
+    filesystem. See pipeline.stage_hardlink_farm, which this mirrors.
+
+    Hard links, not symlinks, and not copies: the .art files are large, and a
+    hard link costs nothing. Falls back to a symlink across a device boundary,
+    which is fine locally -- the xrootd-door restriction that forces hard
+    links on /pnfs does not apply to a POSIX read.
+
+    The farm lives beside the run tree at <local_outstage>/staged/<stage>.
+    next_runid only counts digit-named children, so "staged" cannot be
+    mistaken for a run id.
+    """
+    staged = local_outstage(config) / "staged" / stage
+    if staged.is_dir():
+        for p in staged.iterdir():
+            p.unlink()
+    staged.mkdir(parents=True, exist_ok=True)
+    names = []
+    for src in sources:
+        src = Path(src)
+        link = staged / src.name
+        try:
+            os.link(src, link)
+        except OSError:
+            link.symlink_to(src)
+        names.append(src.name)
+    basenames_file = Path(state_dir) / f"{stage}_basenames.txt"
+    basenames_file.write_text("\n".join(names) + "\n")
+    print(f"[{stage}] staged {len(names)} local input(s) -> {staged}")
+    return staged, basenames_file
+
+
+def clamp_merge_factor(configured: int, n_inputs: int) -> int:
+    """concat merges 200 files on the grid; a local run may have produced 1.
+
+    mu2ejobdef emits ZERO jobs when the merge factor exceeds the input count,
+    and a zero-job cnf is not an error -- local-run would then report "0 ok, 0
+    failed" and list no outputs, which reads exactly like a stage that ran and
+    found nothing.
+    """
+    return max(1, min(configured, n_inputs))

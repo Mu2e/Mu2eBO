@@ -699,7 +699,8 @@ def stamp_local_events(stage: str, events: int) -> Path:
 
 def _jobdef_cmd(stage: str, template_fcl: Path, dsconf: str, desc: str,
                 stage_dir: Path, *, inputs_file: Path | None = None,
-                events_per_job: int | None = None) -> list[str]:
+                events_per_job: int | None = None,
+                merge_factor: int | None = None) -> list[str]:
     """Build the mu2ejobdef argv for a stage.
 
     Single source of truth for both the grid path (submit_stage) and the local
@@ -709,7 +710,10 @@ def _jobdef_cmd(stage: str, template_fcl: Path, dsconf: str, desc: str,
     while every grid job died.
 
     events_per_job overrides STAGES[stage]["events_per_job"] so a local build
-    can request 200 events where the grid config says 5000.
+    can request 200 events where the grid config says 5000. merge_factor
+    likewise: concat merges 200 files on the grid, but a local mubeam at
+    njobs=1 produced one, and mu2ejobdef yields ZERO jobs when the merge
+    factor exceeds the input count.
     """
     cfg = STAGES[stage]
     jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER,
@@ -727,8 +731,8 @@ def _jobdef_cmd(stage: str, template_fcl: Path, dsconf: str, desc: str,
     if "merge_factor" in cfg:
         if inputs_file is None:
             raise SystemExit(f"[{stage}] needs --inputs file but none provided")
-        jobdef += ["--inputs", str(inputs_file),
-                   "--merge-factor", str(cfg["merge_factor"])]
+        mf = cfg["merge_factor"] if merge_factor is None else merge_factor
+        jobdef += ["--inputs", str(inputs_file), "--merge-factor", str(mf)]
     if "auxinput" in cfg:
         jobdef += [f"--auxinput={cfg['auxinput']}"]
     return jobdef
@@ -934,13 +938,32 @@ def list_outputs(stage: str, cluster: int) -> list[Path]:
     return files
 
 
-# Stages the local executor can build today. A local `mubeam` needs no input
-# staging; every downstream stage does -- cmd_submit builds a /pnfs hardlink
-# farm (stage_hardlink_farm) so concat/mustops_ce can resolve input basenames,
-# and that has no local analogue yet. Refuse loudly rather than emit a cnf with
-# no inputs, which mu2ejobdef would accept and which would then produce a job
+# Stages the local executor can build today.
+#
+# mubeam and elebeam_flash resample an EXTERNAL dataset through a static
+# auxinput filelist (MuBeamCat.txt / EleBeamCat.txt) and consume no prior
+# stage's output -- cmd_submit passes them inputs_file=None, so there is
+# nothing to stage and they need no local analogue of anything.
+#
+# concat and mustops_ce do consume a prior stage: cmd_submit hard-links its
+# outputs into one /pnfs dir (stage_hardlink_farm) because mu2ejobdef's
+# --inputs takes basenames only. STAGE_INPUT_SOURCE below is the local
+# analogue; a stage absent from BOTH tuples is refused rather than handed a
+# cnf with no inputs, which mu2ejobdef accepts and which then yields a job
 # that silently reads nothing.
-LOCAL_SUPPORTED_STAGES = ("mubeam",)
+LOCAL_SUPPORTED_STAGES = ("mubeam", "run1b_mubeam", "elebeam_flash",
+                          "concat", "mustops_ce")
+
+# Stage -> the stage whose outputs it consumes. mustops_ce is resolved at call
+# time: a concat-less chain resamples mubeam's mu--pure TargetStops directly.
+# Stamp-first (hv.concatless), so a concat-era config re-run under a
+# concat-less env keeps staging its concat outputs -- same rule cmd_submit
+# follows.
+STAGE_INPUT_SOURCE = {
+    "concat": lambda: "mubeam",
+    "mustops_ce": lambda: ("mubeam" if hv.concatless(STATE, CONCATLESS)
+                           else "concat"),
+}
 
 
 def _require_local_stage(stage: str) -> None:
@@ -954,9 +977,58 @@ def _require_local_stage(stage: str) -> None:
     if stage not in LOCAL_SUPPORTED_STAGES:
         raise SystemExit(
             f"[{stage}] the local executor supports "
-            f"{', '.join(LOCAL_SUPPORTED_STAGES)} only. Stages that consume a "
-            f"previous stage's outputs need the input staging cmd_submit does "
-            f"on /pnfs, which has no local path yet.")
+            f"{', '.join(LOCAL_SUPPORTED_STAGES)} only.")
+    # STATE's unbound default is Path(), i.e. the CURRENT DIRECTORY -- so a
+    # caller that skipped _bind_config writes <stage>_cluster.txt and friends
+    # into cwd instead of the config's state dir. main() always binds, but a
+    # test or a future caller need not: this cost a scatter of state files in
+    # the repo root the first time these verbs were reached unbound.
+    if not CONFIG:
+        raise SystemExit(
+            f"[{stage}] no config bound -- pass --config, or call "
+            f"_bind_config() first. STATE would otherwise resolve to cwd.")
+
+
+def _local_stage_inputs(stage: str) -> tuple:
+    """Stage a consuming stage's inputs from the PREVIOUS stage's local run.
+
+    Returns (inputs_file, default_loc, merge_factor) -- (None, configured
+    default_loc, None) for a stage that consumes nothing.
+
+    The prior stage must have run LOCALLY: its outputs.txt would otherwise
+    list /pnfs paths that this job would have to reach over xrootd, which is
+    a grid chain wearing a local hat. Refuse instead of half-doing it.
+    """
+    if stage not in STAGE_INPUT_SOURCE:
+        return None, STAGES[stage]["default_loc"], None
+    prev = STAGE_INPUT_SOURCE[stage]()
+    if not local_marker(prev).exists():
+        raise SystemExit(
+            f"[{stage}] consumes {prev}, which has no local run "
+            f"({local_marker(prev)} missing). Run '--config {CONFIG} "
+            f"local-build {prev}' and 'local-run {prev}' first.")
+    prev_outputs = STATE / f"{prev}_outputs.txt"
+    sources = [Path(p) for p in prev_outputs.read_text().split() if p.strip()]
+    if not sources:
+        raise SystemExit(
+            f"[{stage}] {prev_outputs.name} is empty -- the local {prev} run "
+            f"produced no output. Check its job log before rebuilding.")
+    staged, basenames = lx.local_farm(stage, CONFIG, sources, STATE)
+    mf = None
+    if "merge_factor" in STAGES[stage]:
+        mf = lx.clamp_merge_factor(STAGES[stage]["merge_factor"], len(sources))
+        if mf != STAGES[stage]["merge_factor"]:
+            print(f"[{stage}] merge factor clamped "
+                  f"{STAGES[stage]['merge_factor']} -> {mf} "
+                  f"({len(sources)} local input(s))")
+    if stage == "mustops_ce":
+        # Resamples the staged files through TargetStopResampler rather than
+        # merging them, so it takes auxinput and NOT --inputs -- exactly the
+        # split cmd_submit makes (it passes inputs_file=None here too).
+        STAGES[stage]["auxinput"] = (
+            f"1:physics.filters.TargetStopResampler.fileNames:{basenames}")
+        return None, f"dir:{staged}", mf
+    return basenames, f"dir:{staged}", mf
 
 
 def local_marker(stage: str) -> Path:
@@ -1011,12 +1083,15 @@ def cmd_local_build(args):
     if cnf.exists():
         print(f"[{stage}] removing existing cnf: {cnf.name}")
         cnf.unlink()
+    inputs_file, default_loc, merge_factor = _local_stage_inputs(stage)
     jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
-                         events_per_job=events)
+                         inputs_file=inputs_file, events_per_job=events,
+                         merge_factor=merge_factor)
     print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
     subprocess.run(jobdef, cwd=str(stage_dir), env=env, check=True)
-    lx.build_fcls(stage, cnf.name, stage_dir, STATE, njobs,
-                  STAGES[stage]["default_loc"], env)
+    # default_loc is dir:<local farm> for a consuming stage, so mu2ejobfcl
+    # resolves the staged basenames to local paths instead of xrootd URLs.
+    lx.build_fcls(stage, cnf.name, stage_dir, STATE, njobs, default_loc, env)
     stamp_local_events(stage, events)
     print(f"[{stage}] local-build done; edit "
           f"{STATE / 'fcl'}/{stage}_00000.fcl then 'local-run {stage}'")

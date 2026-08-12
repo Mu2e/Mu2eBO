@@ -311,6 +311,7 @@ class TestPipelineLocalWiring(unittest.TestCase):
             state.mkdir()
             with mock.patch.object(pipeline, "STATE", state), \
                  mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
                  mock.patch.object(pipeline, "sourced_env", return_value={}), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
@@ -349,22 +350,26 @@ class TestPipelineLocalWiring(unittest.TestCase):
             state = Path(tmp) / "state"
             state.mkdir()
             (Path(tmp) / "mubeam").mkdir()
-            cnf = (Path(tmp) / "mubeam" /
-                   f"cnf.{pipeline.USER}.{pipeline._stage_desc('mubeam')}."
-                   f"{pipeline._stage_dsconf('mubeam')}.0.tar")
-            cnf.write_text("a stale cnf built at 5000 events/job")
             with mock.patch.object(pipeline, "STATE", state), \
                  mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
                  mock.patch.object(pipeline, "sourced_env", return_value={}), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
                  mock.patch.object(pipeline, "_materialize_template",
                                    return_value=Path(tmp) / "t.fcl"), \
                  mock.patch.object(pipeline.subprocess, "run", fake_run):
+                # Built INSIDE the patch: _stage_desc formats with CONFIG, so
+                # the name only matches the one cmd_local_build computes if
+                # CONFIG is already bound here.
+                cnf = (Path(tmp) / "mubeam" /
+                       f"cnf.{pipeline.USER}.{pipeline._stage_desc('mubeam')}."
+                       f"{pipeline._stage_dsconf('mubeam')}.0.tar")
+                cnf.write_text("a stale cnf built at 5000 events/job")
                 pipeline.cmd_local_build(SimpleNamespace(
                     stage="mubeam", local_njobs=["1"], local_events=["200"]))
-            self.assertFalse(cnf.exists(),
-                             "the stale cnf survived local-build")
+                self.assertFalse(cnf.exists(),
+                                 "the stale cnf survived local-build")
         jobdefs = [c for c in seen if c and c[0] == "mu2ejobdef"]
         self.assertEqual(len(jobdefs), 1)
         self.assertEqual(
@@ -570,15 +575,79 @@ class TestPipelineLocalWiring(unittest.TestCase):
                         local_events=["200"], local_pool=1))
         self.assertNotIn("hand-edited", out.getvalue())
 
-    def test_local_run_refuses_the_same_stages_local_build_does(self):
-        # local-run writes state/<stage>_cluster.txt. A runid parked in
-        # concat_cluster.txt trips cmd_submit's idempotency guard, so a stray
-        # `local-run concat` would silently suppress a REAL grid submit.
-        for stage in ("concat", "mustops_ce"):
-            with self.subTest(stage=stage), self.assertRaises(SystemExit):
-                pipeline.cmd_local_run(SimpleNamespace(
-                    stage=stage, local_njobs=None, local_events=None,
-                    local_pool=None))
+    def test_both_verbs_refuse_a_stage_the_local_executor_does_not_support(self):
+        # Every stage in STAGES is supported today, so pin the GATE rather
+        # than a particular stage -- a stage added to STAGES later must be
+        # opted in deliberately, not inherited. This matters because
+        # local-run writes state/<stage>_cluster.txt: a runid parked there
+        # trips cmd_submit's idempotency guard and silently suppresses a REAL
+        # grid submit of that stage.
+        for verb in (pipeline.cmd_local_build, pipeline.cmd_local_run):
+            with self.subTest(verb=verb.__name__), \
+                 mock.patch.object(pipeline, "LOCAL_SUPPORTED_STAGES",
+                                   ("mubeam",)), \
+                 self.assertRaises(SystemExit):
+                verb(SimpleNamespace(stage="concat", local_njobs=None,
+                                     local_events=None, local_pool=None))
+
+    def test_the_local_verbs_refuse_when_no_config_is_bound(self):
+        # STATE's unbound default is Path() -- the CURRENT DIRECTORY. Reaching
+        # these verbs without _bind_config scatters <stage>_cluster.txt,
+        # _local.txt, _outputs.txt and a materialized template into cwd, which
+        # is how they first landed in the repo root.
+        for verb in (pipeline.cmd_local_build, pipeline.cmd_local_run):
+            with self.subTest(verb=verb.__name__), \
+                 mock.patch.object(pipeline, "CONFIG", ""), \
+                 self.assertRaises(SystemExit) as cm:
+                verb(SimpleNamespace(stage="mubeam", local_njobs=None,
+                                     local_events=None, local_pool=None))
+            self.assertIn("no config bound", str(cm.exception))
+
+    def test_a_consuming_stage_refuses_when_its_input_stage_never_ran_local(self):
+        # concat's inputs must come from a LOCAL mubeam run. Without the
+        # marker, mubeam_outputs.txt holds /pnfs paths, and building against
+        # those is a grid chain wearing a local hat.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state), \
+                 self.assertRaises(SystemExit) as cm:
+                pipeline._local_stage_inputs("concat")
+            self.assertIn("no local run", str(cm.exception))
+
+    def test_concat_merge_factor_clamps_to_the_local_input_count(self):
+        # mu2ejobdef emits ZERO jobs when the merge factor exceeds the input
+        # count, and a zero-job cnf is not an error -- local-run would report
+        # "0 ok, 0 failed", indistinguishable from a stage that found nothing.
+        self.assertEqual(local_exec.clamp_merge_factor(200, 1), 1)
+        self.assertEqual(local_exec.clamp_merge_factor(200, 350), 200)
+        self.assertEqual(local_exec.clamp_merge_factor(200, 0), 1)
+
+    def test_local_farm_collects_spread_outputs_into_one_dir(self):
+        # --inputs takes basenames only and --default-loc dir:DIR assumes they
+        # all live in DIR, but a local stage's outputs are spread one dir per
+        # job index. Same constraint the /pnfs hardlink farm exists for.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            srcs = []
+            for i in (0, 1):
+                d = Path(tmp) / f"0000{i}"
+                d.mkdir()
+                f = d / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                srcs.append(f)
+            with mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)):
+                staged, basenames = local_exec.local_farm(
+                    "concat", "cfg001", srcs, state)
+            self.assertEqual(sorted(p.name for p in staged.iterdir()),
+                             ["sim.x.TargetStops.0.art",
+                              "sim.x.TargetStops.1.art"])
+            self.assertEqual(basenames.read_text().split(),
+                             ["sim.x.TargetStops.0.art",
+                              "sim.x.TargetStops.1.art"])
+            # "staged" must not read as a run id
+            self.assertEqual(local_exec.next_runid("cfg001"), 1)
 
     def test_sourced_env_drops_truncated_exported_shell_functions(self):
         # `env` prints an exported bash function across multiple lines, so a
