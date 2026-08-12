@@ -32,9 +32,16 @@ source .venv/bin/activate && source setup.sh                 # <- every new shel
 ./setup.sh --status                                          # confirm before submitting
 ```
 
-- **`--venv`** links this deployment's reference venv; `--venv PATH` picks a
-  specific one, `--venv -r` unlinks. You get read-only use, so build your own
-  before changing a pin — [Building the environment](#building-the-environment).
+- **`--venv`** with no path links this deployment's reference venv — the same
+  as spelling it out:
+
+  ```bash
+  ./setup.sh --venv /exp/mu2e/data/users/<operator>/autoresearch_venvs/.venv
+  ```
+
+  It echoes what it linked, and `--venv -r` unlinks. Any operator's venv works;
+  they are world-readable. You get read-only use, so build your own before
+  changing a pin — [Building the environment](#building-the-environment).
 - **The blank `PYTHONPATH=`** is required: it clears whatever a sourced
   Mu2e/cvmfs environment left behind.
 - **`--backing` is not optional.** A fresh clone has no patched Offline build,
