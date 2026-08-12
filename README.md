@@ -232,6 +232,55 @@ propose | evaluate | preflight` (the per-step CLI the graph wraps) and
 `core/pipeline.py` (per-stage `submit | poll | list-outputs`, used directly
 only to recover stalled chains).
 
+## Running without the grid
+
+Set `AUTORESEARCH_LOCAL=1` and the same entrypoints run every stage as local
+`mu2e` processes instead of grid jobs — no `jobsub`, no `/pnfs`, no Kerberos:
+
+```bash
+AUTORESEARCH_LOCAL=1 python -m graph.run \
+  --mode foilspf --config-name mytest01 --thread-id mytest01 --no-mock
+```
+
+`pipeline.py submit` dispatches on that variable, so a graph child inherits it
+without any extra flag. Everything downstream is unchanged: local outputs land
+under `$AUTORESEARCH_DATA_ROOT/autoresearch_local/<config>/<runid>/00/<index>/`,
+which mirrors the `/pnfs` outstage layout, so `harvest` reads them as-is and a
+row lands in the usual leaderboard.
+
+Scale defaults to **1 job × 200 events per stage** — a plumbing check, not a
+measurement. Raise it with:
+
+| variable | default | meaning |
+|---|---|---|
+| `AUTORESEARCH_LOCAL_NJOBS` | 1 | jobs per stage |
+| `AUTORESEARCH_LOCAL_EVENTS` | 200 | events per job |
+| `AUTORESEARCH_LOCAL_POOL` | 4 | jobs running concurrently |
+
+Supported stages: `mubeam`, `run1b_mubeam`, `concat`, `mustops_ce`,
+`elebeam_flash`. A stage outside that set is refused rather than half-run.
+
+### Studying an FCL by hand
+
+To see (and edit) the FCL a job will run, drive the stage verbs directly —
+`local-build` stops before execution:
+
+```bash
+CFG=mytest01
+python core/pipeline.py --config $CFG local-build mubeam
+$EDITOR $AUTORESEARCH_DATA_ROOT/autoresearch_grid/$CFG/state/fcl/mubeam_00000.fcl
+python core/pipeline.py --config $CFG local-run   mubeam
+```
+
+`local-build` records a SHA-256 per FCL, so `local-run` names any file you
+edited. `--local-njobs` / `--local-events` / `--local-pool` take a bare int or
+repeatable `<stage>=<int>`.
+
+Both verbs refuse a config whose `state/<stage>_cluster.txt` holds a real grid
+cluster id: they overwrite that file and the events-per-job stamp `harvest`
+divides by, so pointing them at a finished grid Eval would rewrite its
+provenance. Use a fresh `--config`.
+
 ## Defining a new optimization line
 
 Copy `tests/fixtures/modes/template.json` to `mode_specs/<name>.json` and
@@ -290,7 +339,7 @@ Off-repo data volumes (all under `$AUTORESEARCH_DATA_ROOT`, default `/exp/mu2e/d
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests -t . -v
 ```
 
-471 tests, no grid contact. The golden geometry-parity harness (renders
+527 tests, no grid contact. The golden geometry-parity harness (renders
 every registered mode and diffs against `tests/fixtures/golden_geom/`) runs
 separately:
 
