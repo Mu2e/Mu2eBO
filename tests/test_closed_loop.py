@@ -389,6 +389,34 @@ class TestUniqueThreadIdPerLaunch(unittest.TestCase):
             },
         }
 
+    def test_parent_closes_its_copy_of_each_child_log(self):
+        """One leaked fd per child would exhaust the parent's ulimit over a
+        long rolling campaign. The child keeps its own dup; the parent must
+        not keep a second one open for hours."""
+        seen = []
+
+        def _popen(cmd, **kwargs):
+            fh = kwargs["stdout"]
+            seen.append(fh)
+            self.assertFalse(fh.closed,
+                             "child must receive an OPEN handle to write to")
+
+            class _P:
+                pid = 999
+            return _P()
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
+                 mock.patch.object(cl.subprocess, "Popen", _popen), \
+                 mock.patch.object(cl, "_child_in_leaderboard", return_value=False):
+                cl.node_launch_children(self._state(tmp))
+        self.assertEqual(len(seen), 2, "both children should have launched")
+        for fh in seen:
+            self.assertTrue(fh.closed,
+                            "parent leaked its copy of a child log handle")
+
     def test_thread_id_unique_per_child(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
