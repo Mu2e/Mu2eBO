@@ -1,0 +1,14 @@
+Disables Jekyll/Liquid processing for the GitHub Pages site published from
+this directory.
+
+docs/ is a static archive of rendered talks (.html from Marp, .pdf, .png).
+Nothing here is a Jekyll source. But Pages defaults to running Jekyll, which
+expands Liquid tags in EVERY .md it finds -- including inside fenced code
+blocks -- so a plan or spec containing `{{` fails the whole deployment:
+
+  Liquid Exception: Liquid syntax error (line 691): Variable '{{ {body}' was
+  not properly terminated ... in superpowers/plans/2026-07-25-json-configurable-modes.md
+
+Three files under docs/superpowers/plans/ hit this, and any future one would
+too. The presence of this file (contents irrelevant) makes Pages serve the
+directory as-is.
