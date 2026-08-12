@@ -122,6 +122,26 @@ class TestSetupSh(unittest.TestCase):
             self.assertIn("bin/python", r.stderr)
             self.assertFalse((repo / ".venv").is_symlink())
 
+    def test_venv_points_at_the_containing_dir_and_is_told_so(self):
+        # Real near-miss: `--venv .../autoresearch_venvs/` instead of
+        # `.../autoresearch_venvs/.venv`.
+        with tempfile.TemporaryDirectory() as td:
+            repo, parent = Path(td) / "repo", Path(td) / "venvs"
+            repo.mkdir()
+            (parent / ".venv" / "bin").mkdir(parents=True)
+            (parent / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
+            (parent / ".venv" / "bin" / "python").chmod(0o755)
+            (repo / "setup.sh").write_bytes(SETUP.read_bytes())
+            (repo / "setup.sh").chmod(0o755)
+            e = dict(os.environ)
+            e.pop("PYTHONPATH", None)
+            r = subprocess.run([str(repo / "setup.sh"), "--venv", f"{parent}/"],
+                               capture_output=True, text=True, env=e,
+                               cwd=str(repo))
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("did you mean", r.stderr)
+            self.assertIn(f"{parent}/.venv", r.stderr)
+
     def test_sourcing_does_not_leak_shell_options(self):
         # `set -u`/`pipefail` applied while sourced would persist in the
         # operator's interactive shell for the rest of the session.

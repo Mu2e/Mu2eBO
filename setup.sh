@@ -161,6 +161,12 @@ _venv() {
     fi
     if [[ ! -x "$target/bin/python" ]]; then
         echo "ERROR - not a usable venv (no bin/python): $target" >&2
+        # The venvs live one level down, so pointing at the containing
+        # directory is the obvious near-miss. Name the fix rather than
+        # making the operator guess at the tree.
+        if [[ -x "$target/.venv/bin/python" ]]; then
+            echo "       did you mean ${target%/}/.venv ?" >&2
+        fi
         return 1
     fi
     target="$(cd "$target" && pwd)"

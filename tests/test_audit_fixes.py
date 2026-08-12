@@ -444,21 +444,31 @@ class TestRunSourcedBash(unittest.TestCase):
         sleep.assert_not_called()
 
     def test_retries_then_succeeds(self):
+        # log= captured, not printed: these rc=127 banners are the first
+        # thing a new operator sees when they run the suite from a fresh
+        # clone, and a mocked failure must not look like a real one.
         seq = [self._proc(127), self._proc(127), self._proc(0)]
+        log = io.StringIO()
         with mock.patch.object(self.sb.subprocess, "run", side_effect=seq) as m, \
              mock.patch.object(self.sb.time, "sleep") as sleep:
-            r = self.sb.run_sourced_bash("flaky", backoffs=(1, 2, 3))
+            r = self.sb.run_sourced_bash("flaky", backoffs=(1, 2, 3), log=log)
         self.assertEqual(r.returncode, 0)
         self.assertEqual(m.call_count, 3)
         self.assertEqual(sleep.call_count, 2)  # slept before attempts 2 and 3
+        self.assertEqual(log.getvalue().count("retrying in"), 2)
+        self.assertIn("rc=127", log.getvalue())
 
     def test_exhausts_and_returns_last_failure(self):
+        log = io.StringIO()
         with mock.patch.object(self.sb.subprocess, "run",
                                return_value=self._proc(127, err="boom")) as m, \
              mock.patch.object(self.sb.time, "sleep"):
-            r = self.sb.run_sourced_bash("always-fail", backoffs=(1, 2, 3))
+            r = self.sb.run_sourced_bash("always-fail", backoffs=(1, 2, 3),
+                                         log=log)
         self.assertEqual(r.returncode, 127)    # returned, NOT raised
         self.assertEqual(m.call_count, 4)      # len(backoffs)+1 attempts
+        # One banner per retry, none after the final attempt.
+        self.assertEqual(log.getvalue().count("retrying in"), 3)
 
     def test_should_retry_predicate_banner_blocks_retry(self):
         # Preflight predicate: nonzero rc but a Geant4 banner -> genuine

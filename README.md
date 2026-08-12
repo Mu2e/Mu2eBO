@@ -19,90 +19,48 @@ foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw   # BO li
 ipa625 ipafix ipaovr nominal                                            # fixed A/B reference arms
 ```
 
-## First-time setup
+## Quick start
 
-Run these in order. Steps 1-3 are one-time; step 4 is once per shell.
-
-**1. Clone it anywhere you like.** The project root is derived from the code's
-own location, so no path is baked in — `/exp/mu2e/app/users/$USER/autoresearch`
-is conventional, not required.
+Copy-paste. About two minutes; nothing is built.
 
 ```bash
-git clone <repo-url> autoresearch && cd autoresearch
+git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
+./setup.sh --venv                                           # link the shared venv
+PYTHONPATH= .venv/bin/python -m unittest discover -s tests   # expect OK, ~40 s
+./setup.sh --backing /exp/mu2e/app/users/<operator>          # borrow the Offline build
+source .venv/bin/activate && source setup.sh                 # <- every new shell
+./setup.sh --status                                          # confirm before submitting
 ```
 
-**2. Link the venv.** A fresh clone has no `.venv`. With no path given, this
-links the site venv — this deployment's reference build, which is what you want
-unless you have a reason to differ:
+- **`--venv`** with no path links this deployment's reference venv — the same
+  as spelling it out:
 
-```bash
-./setup.sh --venv           # link the site venv
-./setup.sh --venv PATH      # or a specific one
-./setup.sh --venv -r        # unlink, e.g. before building your own
-```
+  ```bash
+  ./setup.sh --venv /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv   # personal-path-ok: the site venv, spelled out so the line runs as-is
+  ```
 
-Operator venvs are world-readable, so you get read-only use: running and
-importing work, `pip install` into it does not, and the owner can rebuild it
-out from under you. The command refuses if a `.venv` already exists rather than
-replacing it. `./setup.sh --status` shows which one you ended up on, and
-`$AUTORESEARCH_SITE_VENV` changes the default for another deployment.
+  It echoes what it linked, and `--venv -r` unlinks. Any operator's venv works;
+  they are world-readable. You get read-only use, so build your own before
+  changing a pin — [Building the environment](#building-the-environment).
+- **The blank `PYTHONPATH=`** is required: it clears whatever a sourced
+  Mu2e/cvmfs environment left behind.
+- **`--backing` is not optional.** A fresh clone has no patched Offline build,
+  and a campaign launch refuses until you link one. `<operator>` is anyone who
+  has already run a campaign — [Artifacts](#artifacts).
+- **The `source` line is the only per-shell step.** Everything above it is once.
+- **`--status`** prints the resolved roots and the venv with where each came
+  from. If a line surprises you, stop before submitting jobs.
 
-Verify — a green suite means the Python side is sound without `/exp/mu2e` being
-involved at all, and it matters more when you borrowed than when you built. The
-leading blank `PYTHONPATH=` is required: it clears anything inherited from a
-sourced Mu2e/cvmfs environment.
-
-```bash
-PYTHONPATH= .venv/bin/python -m unittest discover -s tests
-```
-
-Building your own is optional and takes about twenty minutes — do it when you
-need to change a pin, or when you want a copy nobody else can rebuild under
-you. Recipe and rationale: [Building the environment](#building-the-environment).
-
-**3. Point at the build artifacts.** A fresh clone has none, so a campaign
-launch refuses until you either build your own or link someone else's.
-`<operator>` is anyone who has already run a campaign — see
-[Artifacts](#artifacts).
-
-```bash
-./setup.sh --backing /exp/mu2e/app/users/<operator>
-```
-
-**4. Load the roots into your shell.** Do this in every new shell, before
-launching anything:
-
-```bash
-source .venv/bin/activate    # puts the project `python` on PATH
-source setup.sh              # exports AUTORESEARCH_DATA_ROOT + AUTORESEARCH_ARTIFACT_ROOT
-```
-
-Then confirm what you are running against — optional, but this is the command
-that catches a wrong backing before it costs you grid time:
-
-```bash
-./setup.sh --status
-```
-
-It prints the resolved roots and the venv, with where each came from
-(`default ($USER)`, `env`, or `symlink`). If any line surprises you, stop and
-fix it before submitting jobs.
-
-**5. Smoke-test the chain** with a single mock evaluation before spending grid
-time — see [Running a single evaluation](#running-a-single-evaluation) and use
-`--mock`.
-
-Then read [Running an optimization campaign](#running-an-optimization-campaign).
-If a launch fails, the error names both the offending path and the command that
-fixes it; the [Artifacts](#artifacts) section explains the backing rule behind
-those messages.
+Next: smoke-test one chain with `--mock`
+([Running a single evaluation](#running-a-single-evaluation)), then
+[Running an optimization campaign](#running-an-optimization-campaign).
 
 ## Prerequisites
 
 - **Python env**: the project venv is `.venv` at the repo root — a symlink to a
   real venv on `/data`, either the site one or your own build. Use
   `source .venv/bin/activate` or call `.venv/bin/python` directly. A fresh
-  clone has none — link it in [First-time setup](#first-time-setup) step 2.
+  clone has none — link it in the [Quick start](#quick-start).
 - **Kerberos**: a fresh ticket before launch. Mid-run expiry kills chains at
   grid submission (see `wiki/incidents/kerberos-mid-run-expiry.md`).
 - **Mu2e environment** is sourced by the pipeline itself per stage; do not
@@ -112,8 +70,8 @@ those messages.
 
 ### Building the environment
 
-Optional — [First-time setup](#first-time-setup) step 2 links an existing venv
-in one command, and that is the normal path. Build your own when you need to
+Optional — the [Quick start](#quick-start) links an existing venv in one
+command, and that is the normal path. Build your own when you need to
 change a pin, or want one nobody else can rebuild under you.
 
 One venv serves everything — orchestrator, botorch picker, and plot
@@ -135,7 +93,7 @@ uv pip install --python "$VENV/bin/python" -r requirements.txt
 ln -s "$VENV" .venv     # `.venv` is the load-bearing name; $VENV itself is free choice
 ```
 
-Then verify, as in step 2: `PYTHONPATH= .venv/bin/python -m unittest discover -s tests`.
+Then verify: `PYTHONPATH= .venv/bin/python -m unittest discover -s tests`.
 
 The venv lives on the `/data` volume and is symlinked into the repo
 deliberately: it is far too large for the `/exp/mu2e/app` quota, and moving
