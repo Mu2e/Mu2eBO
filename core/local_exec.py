@@ -117,8 +117,12 @@ def _run_one(stage: str, config: str, runid: int, state_dir: Path,
     cmd = ["mu2e", "-c", str(fcl_path(state_dir, stage, index)),
            "-n", str(events)]
     log = d / f"{stage}_{index:05d}.log"
-    proc = subprocess.run(cmd, cwd=str(d), env=env,
-                          capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, cwd=str(d), env=env,
+                              capture_output=True, text=True)
+    except Exception as exc:
+        log.write_text(f"{type(exc).__name__}: {exc}")
+        return index, 1
     log.write_text(proc.stdout + proc.stderr)
     return index, proc.returncode
 

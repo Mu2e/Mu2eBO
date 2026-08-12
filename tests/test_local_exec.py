@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -138,3 +140,52 @@ class TestLocalExecution(unittest.TestCase):
 
         self.assertEqual(res["ok"], 1)
         self.assertEqual(res["failed"], [1])
+
+    def test_a_subprocess_raise_is_reported_not_raised(self):
+        def fake_run(cmd, **kw):
+            idx = int(Path(kw["cwd"]).name)
+            if idx == 1:
+                raise FileNotFoundError("mu2e: not found")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            (state / "fcl").mkdir(parents=True)
+            for i in range(2):
+                local_exec.fcl_path(state, "mubeam", i).write_text("x")
+            with mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)), \
+                 mock.patch.object(local_exec.subprocess, "run", fake_run):
+                res = local_exec.run_jobs_local(
+                    "mubeam", "cfg001", 1, state, 2, 200, {}, pool=2)
+
+        self.assertEqual(res["ok"], 1)
+        self.assertEqual(res["failed"], [1])
+
+    def test_pool_bounds_concurrency(self):
+        running = 0
+        max_running = 0
+        lock = threading.Lock()
+
+        def fake_run(cmd, **kw):
+            nonlocal running, max_running
+            with lock:
+                running += 1
+                max_running = max(max_running, running)
+            time.sleep(0.01)
+            with lock:
+                running -= 1
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            (state / "fcl").mkdir(parents=True)
+            for i in range(6):
+                local_exec.fcl_path(state, "mubeam", i).write_text("x")
+            with mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)), \
+                 mock.patch.object(local_exec.subprocess, "run", fake_run):
+                res = local_exec.run_jobs_local(
+                    "mubeam", "cfg001", 1, state, 6, 200, {}, pool=2)
+
+        self.assertEqual(res["ok"], 6)
+        self.assertLessEqual(max_running, 2)
+        self.assertGreater(max_running, 1)
