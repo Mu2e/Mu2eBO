@@ -338,15 +338,44 @@ class TestPipelineLocalWiring(unittest.TestCase):
                 pipeline.cmd_local_build(SimpleNamespace(
                     stage=stage, local_njobs=None, local_events=None))
 
-    def test_poll_is_a_noop_in_local_mode(self):
-        # run_jobs_local is synchronous, so by the time poll could run every
-        # job is done. Without this guard a graph-driven chain would feed the
-        # runid in <stage>_cluster.txt to jobsub_q as if it were a cluster id.
-        with mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
-             mock.patch.object(pipeline, "poll_cluster") as pc:
-            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
-                                              cap_hours=24.0))
-        pc.assert_not_called()
+    def test_the_env_var_alone_does_not_make_poll_skip_a_live_grid_cluster(self):
+        # AUTORESEARCH_LOCAL is an ACTIVATION switch (cmd_submit reads it to
+        # choose local mode), never a DETECTION signal. An operator who
+        # exported it for a study and then launched a campaign from the same
+        # shell must still get a real poll: with the env var in
+        # _is_local_stage, this poll silently no-ops on a LIVE cluster and the
+        # chain marches on to harvest jobs that have not finished.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("70314159\n")  # a real one
+            # ... and NO mubeam_local.txt.
+            with mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "_check_stage_config_sha"), \
+                 mock.patch.object(pipeline, "poll_cluster") as pc:
+                pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
+                                                  cap_hours=24.0))
+        pc.assert_called_once()
+        self.assertEqual(pc.call_args[0][1], 70314159)
+
+    def test_the_env_var_alone_does_not_divert_list_outputs_to_the_local_tree(self):
+        # Same failure, other verb: without a marker, list-outputs must glob
+        # /pnfs. Diverted, it writes an EMPTY <stage>_outputs.txt from a local
+        # tree that was never populated -- and an empty file is exactly what
+        # the next stage's --inputs reads.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("70314159\n")
+            with mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "_check_stage_config_sha"), \
+                 mock.patch.object(pipeline, "list_outputs") as lo:
+                pipeline.cmd_list_outputs(SimpleNamespace(stage="mubeam",
+                                                          force=False))
+        lo.assert_called_once_with("mubeam", 70314159)
+        self.assertFalse((state / "mubeam_outputs.txt").exists())
 
     def test_local_run_refuses_the_same_stages_local_build_does(self):
         # local-run writes state/<stage>_cluster.txt. A runid parked in
@@ -409,6 +438,51 @@ class TestPipelineLocalWiring(unittest.TestCase):
                 "the local runid survived a forced grid submit that never "
                 "reached mu2ejobsub -- poll would send it to jobsub_q")
             self.assertFalse((state / "mubeam_local.txt").exists())
+
+    def test_an_unforced_grid_submit_after_a_local_run_really_submits(self):
+        # The un-forced path is the one a graph child takes. cmd_submit's
+        # idempotency guard cannot tell a runid from a ClusterId, so with the
+        # marker-clear placed after it a plain `submit mubeam` following any
+        # local run printed "already submitted (cluster=1)" and did NOTHING --
+        # the exact residue the marker was introduced to prevent, surviving in
+        # the one verb that owns the marker. --force is not the fix; it is the
+        # workaround nobody types.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")     # as local-run
+            (state / "mubeam_cluster.txt").write_text("1\n")   # ... a runid
+            with mock.patch.dict(os.environ), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "submit_stage") as ss:
+                os.environ.pop("AUTORESEARCH_LOCAL", None)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=False, local=False))
+            ss.assert_called_once()
+            self.assertFalse((state / "mubeam_local.txt").exists())
+
+    def test_a_local_submit_does_not_clear_its_own_marker(self):
+        # The clear is gated on "this is a GRID submit". A `submit --local`
+        # re-entry must leave the marker alone, or the window between the
+        # clear and cmd_local_run's rewrite is a runid-shaped cluster file
+        # with no marker -- the state the invariant forbids.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            (state / "mubeam_cluster.txt").write_text("1\n")
+            with mock.patch.dict(os.environ), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "cmd_local_build"), \
+                 mock.patch.object(pipeline, "cmd_local_run"), \
+                 mock.patch.object(pipeline, "submit_stage") as ss:
+                os.environ.pop("AUTORESEARCH_LOCAL", None)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=True, dry_run=False, local=True))
+            ss.assert_not_called()
+            self.assertTrue((state / "mubeam_local.txt").exists())
 
     def test_list_outputs_never_reaches_the_grid_lister_in_local_mode(self):
         # Without the marker check this is safe only by accident (the

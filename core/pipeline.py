@@ -962,7 +962,19 @@ def local_marker(stage: str) -> Path:
 
 
 def _is_local_stage(stage: str) -> bool:
-    return bool(os.environ.get("AUTORESEARCH_LOCAL")) or local_marker(stage).exists()
+    """DETECTION: did THIS stage actually run locally? Marker file only.
+
+    Deliberately NOT `or os.environ.get("AUTORESEARCH_LOCAL")`. The env var is
+    an ACTIVATION switch (cmd_submit reads it to choose local mode) and every
+    path that runs local jobs -- `local-run`, `submit --local`, `submit` under
+    the env var -- goes through cmd_local_run, which always writes the marker.
+    So the disjunct added no capability and one failure mode: an operator who
+    exports AUTORESEARCH_LOCAL=1 for a study and later launches a campaign
+    from that shell would make cmd_poll a no-op on a LIVE GRID CLUSTER, and
+    cmd_list_outputs write an empty <stage>_outputs.txt from a nonexistent
+    local tree, for stages that never went near the local executor.
+    """
+    return local_marker(stage).exists()
 
 
 def cmd_local_build(args):
@@ -1024,22 +1036,23 @@ def cmd_local_run(args):
 
 
 def cmd_submit(args):
-    # Idempotency guard: if a prior submit already produced a cluster file,
-    # treat re-entry as a no-op so a killed-and-resumed graph node doesn't
-    # double-submit. --force overrides.
     cluster_file = STATE / f"{args.stage}_cluster.txt"
-    if cluster_file.exists() and not getattr(args, "force", False):
-        cid = cluster_file.read_text().strip()
-        print(f"[{args.stage}] already submitted (cluster={cid}); skip submit "
-              f"(use --force to override)")
-        return
-    if getattr(args, "local", False) or os.environ.get("AUTORESEARCH_LOCAL"):
-        cmd_local_build(args)
-        cmd_local_run(args)
-        return
-    # A real submit invalidates any marker a prior `--local` run left behind:
+    # ACTIVATION (as opposed to _is_local_stage's detection): --local, or the
+    # env var so a graph-runner child inherits local mode without every call
+    # site growing a flag.
+    want_local = bool(getattr(args, "local", False)) or bool(
+        os.environ.get("AUTORESEARCH_LOCAL"))
+    # A grid submit invalidates any marker a prior `--local` run left behind:
     # the cluster file is about to hold a genuine cluster id again, and a stale
     # marker would no-op the poll of a live grid cluster.
+    #
+    # This runs BEFORE the idempotency guard, and that ordering is the point.
+    # The guard cannot tell a runid from a ClusterId, so with the clear placed
+    # after it a plain (un-forced) `submit mubeam` following any local run
+    # printed "already submitted (cluster=1)" and silently did nothing -- on
+    # the exact path a graph child takes. --force happened to work; the path
+    # that matters did not.
+    #
     # INVARIANT (clear half): drop the runid and its marker TOGETHER, runid
     # first. submit_stage only rewrites <stage>_cluster.txt AFTER mu2ejobsub
     # parses a cluster id, so unlinking the marker alone would leave the local
@@ -1048,9 +1061,21 @@ def cmd_submit(args):
     # / token refresh / mu2ejobsub can each raise before it. A later poll would
     # then take that runid for a ClusterId -- the exact 24h-cap hang the marker
     # exists to prevent, reintroduced by the marker's own cleanup.
-    if local_marker(args.stage).exists():
+    if not want_local and local_marker(args.stage).exists():
         cluster_file.unlink(missing_ok=True)
-    local_marker(args.stage).unlink(missing_ok=True)
+        local_marker(args.stage).unlink(missing_ok=True)
+    # Idempotency guard: if a prior submit already produced a cluster file,
+    # treat re-entry as a no-op so a killed-and-resumed graph node doesn't
+    # double-submit. --force overrides.
+    if cluster_file.exists() and not getattr(args, "force", False):
+        cid = cluster_file.read_text().strip()
+        print(f"[{args.stage}] already submitted (cluster={cid}); skip submit "
+              f"(use --force to override)")
+        return
+    if want_local:
+        cmd_local_build(args)
+        cmd_local_run(args)
+        return
     # Stage-chain stamp: record THIS Eval's chain at first submit so harvest
     # and template materialization never re-interpret an old config under the
     # current env's chain (the ff11R00_07 +1.5% sob bias class). One owner:
