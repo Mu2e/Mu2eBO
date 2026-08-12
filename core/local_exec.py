@@ -8,6 +8,9 @@ plus core.paths.
 """
 from __future__ import annotations
 
+import hashlib
+import shlex
+import subprocess
 from pathlib import Path
 
 from paths import DATA_ROOT
@@ -50,3 +53,54 @@ def list_outputs_local(stage: str, config: str, runid: int,
     out_list.write_text("\n".join(str(f) for f in files) + "\n")
     print(f"[{stage}] {len(files)} local output file(s) -> {out_list}")
     return files
+
+
+def fcl_path(state_dir: Path, stage: str, index: int) -> Path:
+    return Path(state_dir) / "fcl" / f"{stage}_{index:05d}.fcl"
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def build_fcls(stage: str, cnf_name: str, stage_dir: Path, state_dir: Path,
+               njobs: int, default_loc: str, env: dict) -> list[Path]:
+    """Resolve one FCL per job index and record each one's hash.
+
+    The hash sidecar is what lets `local-run` report an edited FCL as data
+    (fcl_edited in summary.json) instead of relying on the operator to
+    remember a flag. Compare template-fcl-staleness, where an edit meant for
+    one run silently persisted into later ones.
+    """
+    out_dir = Path(state_dir) / "fcl"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for index in range(njobs):
+        cmd = ["mu2ejobfcl", "--jobdef", cnf_name, "--index", str(index),
+               "--default-proto", "root", "--default-loc", default_loc]
+        print(f"$ (cd {stage_dir} && {shlex.join(cmd)})", flush=True)
+        proc = subprocess.run(cmd, cwd=str(stage_dir), env=env, check=True,
+                              capture_output=True, text=True)
+        target = fcl_path(state_dir, stage, index)
+        target.write_text(proc.stdout)
+        target.with_suffix(".fcl.sha256").write_text(_sha256(proc.stdout))
+        written.append(target)
+    print(f"[{stage}] built {len(written)} FCL(s) -> {out_dir}")
+    return written
+
+
+def edited_fcls(state_dir, stage: str) -> list[str]:
+    """Basenames whose content differs from the hash recorded at build time.
+
+    A missing sidecar counts as edited: absence of evidence is not evidence
+    the file is pristine.
+    """
+    out_dir = Path(state_dir) / "fcl"
+    if not out_dir.is_dir():
+        return []
+    edited = []
+    for f in sorted(out_dir.glob(f"{stage}_[0-9]*.fcl")):
+        rec = f.with_suffix(".fcl.sha256")
+        if not rec.exists() or rec.read_text().strip() != _sha256(f.read_text()):
+            edited.append(f.name)
+    return edited
