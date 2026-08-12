@@ -685,11 +685,6 @@ def stamp_local_events(stage: str, events: int) -> Path:
     return out
 
 
-def clamp_merge_factor(configured: int, n_inputs: int) -> int:
-    """concat merges 200 files on the grid; a local run may have produced 1."""
-    return max(1, min(configured, n_inputs))
-
-
 def _jobdef_cmd(stage: str, template_fcl: Path, dsconf: str, desc: str,
                 stage_dir: Path, *, inputs_file: Path | None = None,
                 events_per_job: int | None = None) -> list[str]:
@@ -1002,11 +997,11 @@ def cmd_local_run(args):
     njobs = lx.resolve_scale(getattr(args, "local_njobs", None), 1, stage)
     events = lx.resolve_scale(getattr(args, "local_events", None), 200, stage)
     pool = getattr(args, "local_pool", None) or lx.DEFAULT_POOL
-    edited = lx.edited_fcls(STATE, stage)
-    for name in edited:
+    # Console-only for now. The persisted form (a state file, and an
+    # fcl_edited field on the row) belongs with the phase that produces local
+    # rows; until then it would be a schema field nothing can ever set.
+    for name in lx.edited_fcls(STATE, stage):
         print(f"[{stage}] FCL hand-edited: {name}")
-    (STATE / f"{stage}_fcl_edited.txt").write_text(
-        "\n".join(edited) + "\n" if edited else "")
     runid = lx.next_runid(CONFIG)
     # INVARIANT (write half): the runid and its marker are written together
     # and cleared together, so a runid can never be present without its

@@ -68,10 +68,10 @@ def build_fcls(stage: str, cnf_name: str, stage_dir: Path, state_dir: Path,
                njobs: int, default_loc: str, env: dict) -> list[Path]:
     """Resolve one FCL per job index and record each one's hash.
 
-    The hash sidecar is what lets `local-run` report an edited FCL as data
-    (fcl_edited in summary.json) instead of relying on the operator to
-    remember a flag. Compare template-fcl-staleness, where an edit meant for
-    one run silently persisted into later ones.
+    The hash sidecar is what lets `local-run` report an edited FCL without
+    relying on the operator to remember a flag. Compare
+    template-fcl-staleness, where an edit meant for one run silently persisted
+    into later ones.
     """
     out_dir = Path(state_dir) / "fcl"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -186,13 +186,3 @@ def resolve_scale(values, default: int, stage: str) -> int:
                     f"bad value {item!r}: expected an int >= 1")
             bare = parsed
     return per_stage.get(stage, bare)
-
-
-def local_board_path(mode: str, live_root: Path) -> Path:
-    """Local rows never share a file with grid rows.
-
-    A local run is at 1/1250-1/5000 of campaign statistics, so its sigma is
-    tens of percent against the 0.4% the pickers assume. One such row in a
-    production board is enough to move a GP fit.
-    """
-    return Path(live_root) / f"leaderboard_local_{mode}.tsv"
