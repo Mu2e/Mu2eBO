@@ -464,6 +464,112 @@ class TestPipelineLocalWiring(unittest.TestCase):
         lo.assert_called_once_with("mubeam", 70314159)
         self.assertFalse((state / "mubeam_outputs.txt").exists())
 
+    @contextlib.contextmanager
+    def _local_run_env(self, tmp):
+        """Drive the REAL cmd_local_run with only subprocess mocked out.
+
+        Everything else -- marker write, cluster write, run pool, events
+        stamp, output listing -- is the shipping code path.
+        """
+        state = Path(tmp) / "state"
+        (state / "fcl").mkdir(parents=True)
+
+        def fake_run(cmd, **kw):
+            Path(kw["cwd"], "sim.x.TargetStops.0.art").write_text("x")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        with mock.patch.dict(os.environ), \
+             mock.patch.object(pipeline, "STATE", state), \
+             mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+             mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)), \
+             mock.patch.object(local_exec.subprocess, "run", fake_run):
+            os.environ.pop("AUTORESEARCH_LOCAL", None)
+            yield state
+
+    def test_local_run_writes_the_marker_BEFORE_the_cluster_file(self):
+        # The ordering invariant, asserted on the WRITE half -- until now only
+        # the clearing half was pinned, so the two lines could be swapped with
+        # the whole suite still green. If the process dies between them, the
+        # residue must be a marker with no cluster file (poll no-ops;
+        # harmless), never a runid that nothing distinguishes from a real
+        # ClusterId (poll hands it to jobsub_q and waits out the 24h cap on a
+        # /pnfs dir that will never appear).
+        order = []
+        real_write_text = Path.write_text
+
+        def spy(self, data, *a, **kw):
+            order.append(self.name)
+            return real_write_text(self, data, *a, **kw)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self._local_run_env(tmp) as state, \
+                 mock.patch.object(Path, "write_text", spy):
+                pipeline.cmd_local_run(SimpleNamespace(
+                    stage="mubeam", local_njobs=["1"], local_events=["200"],
+                    local_pool=1))
+
+            marker = state / "mubeam_local.txt"
+            cluster = state / "mubeam_cluster.txt"
+            self.assertTrue(marker.exists(), "no marker: poll would jobsub_q "
+                                             "the runid as a ClusterId")
+            self.assertTrue(cluster.exists())
+            self.assertEqual(marker.read_text().strip(),
+                             cluster.read_text().strip())
+            # ... and the whole point of the invariant: which came first.
+            self.assertIn("mubeam_local.txt", order)
+            self.assertIn("mubeam_cluster.txt", order)
+            self.assertLess(order.index("mubeam_local.txt"),
+                            order.index("mubeam_cluster.txt"),
+                            "the runid was written before its marker")
+
+    def test_local_run_stamps_the_local_events_and_lists_the_local_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self._local_run_env(tmp) as state:
+                pipeline.cmd_local_run(SimpleNamespace(
+                    stage="mubeam", local_njobs=["2"], local_events=["200"],
+                    local_pool=1))
+            self.assertEqual(
+                (state / "mubeam_events_per_job.txt").read_text().strip(),
+                "200")
+            listed = [p for p in
+                      (state / "mubeam_outputs.txt").read_text().splitlines()
+                      if p.strip()]
+            self.assertEqual(len(listed), 2)
+            runid = (state / "mubeam_cluster.txt").read_text().strip()
+            for p in listed:
+                self.assertIn(f"/autoresearch_local/cfg001/{runid}/00/", p)
+
+    def test_local_run_warns_about_a_hand_edited_fcl(self):
+        # Spec test 5, at the verb rather than the edited_fcls unit: the
+        # warning is the feature's headline, and nothing asserted that
+        # cmd_local_run actually prints it.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with self._local_run_env(tmp) as state:
+                f = local_exec.fcl_path(state, "mubeam", 0)
+                f.write_text("# resolved by mu2ejobfcl\n")
+                f.with_suffix(".fcl.sha256").write_text("0" * 64)  # stale hash
+                with contextlib.redirect_stdout(out):
+                    pipeline.cmd_local_run(SimpleNamespace(
+                        stage="mubeam", local_njobs=["1"],
+                        local_events=["200"], local_pool=1))
+        self.assertIn("FCL hand-edited: mubeam_00000.fcl", out.getvalue())
+
+    def test_local_run_is_silent_about_an_untouched_fcl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with self._local_run_env(tmp) as state:
+                f = local_exec.fcl_path(state, "mubeam", 0)
+                f.write_text("# resolved by mu2ejobfcl\n")
+                f.with_suffix(".fcl.sha256").write_text(
+                    local_exec._sha256(f.read_text()))
+                with contextlib.redirect_stdout(out):
+                    pipeline.cmd_local_run(SimpleNamespace(
+                        stage="mubeam", local_njobs=["1"],
+                        local_events=["200"], local_pool=1))
+        self.assertNotIn("hand-edited", out.getvalue())
+
     def test_local_run_refuses_the_same_stages_local_build_does(self):
         # local-run writes state/<stage>_cluster.txt. A runid parked in
         # concat_cluster.txt trips cmd_submit's idempotency guard, so a stray
