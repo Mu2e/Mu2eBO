@@ -46,6 +46,18 @@ uv pip install --python "$VENV/bin/python" -r requirements.txt
 ln -s "$VENV" .venv     # `.venv` is the load-bearing name; $VENV itself is free choice
 ```
 
+*Or borrow one.* Operator venvs are world-readable, so you can point at an
+existing one instead of building, and skip straight to the verify step below:
+
+```bash
+ln -s /exp/mu2e/data/users/<operator>/autoresearch_venvs/.venv .venv
+```
+
+You get read-only use of it — running and importing work, `pip install` into it
+does not, and the owner can rebuild it out from under you. Build your own once
+you need to change a pin. Same borrow-a-colleague's-build idea as
+[Artifacts](#artifacts), and it costs nothing to undo (`rm .venv`, then build).
+
 Verify before going further. A green suite means the Python side is sound
 without `/exp/mu2e` being involved at all. The leading blank `PYTHONPATH=` is
 required — it clears anything inherited from a sourced Mu2e/cvmfs environment.
@@ -291,8 +303,8 @@ autoresearch/
 │   ├── pipeline_io.py       #   proposal/leaderboard file I/O, name allocation
 │   └── presniff.py / sourced_bash.py   # log classification; env-sourcing subprocess helper
 ├── mode_specs/              # JSON mode definitions (see its README)
-├── leaderboards/            # results: leaderboard_bo_<mode>.tsv (BO lines),
-│                            #   leaderboard_ab_<arm>.tsv (fixed reference arms)
+├── leaderboards/            # READ-ONLY archive of past campaigns; live rows go
+│                            #   to $AUTORESEARCH_DATA_ROOT (see Where your results go)
 ├── tests/                   # unittest suite + golden-geometry fixtures
 ├── tools/                   # capture_golden_geom.py (golden parity capture)
 ├── docs/                    # talks, specs, plans, ADRs (docs/adr/)
@@ -314,7 +326,7 @@ Off-repo data volumes (all under `$AUTORESEARCH_DATA_ROOT`, default `/exp/mu2e/d
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests -v
 ```
 
-~200 tests, no grid contact. The golden geometry-parity harness (renders
+465 tests, no grid contact. The golden geometry-parity harness (renders
 every registered mode and diffs against `tests/fixtures/golden_geom/`) runs
 separately:
 
