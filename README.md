@@ -27,7 +27,7 @@ Copy-paste. About two minutes; nothing is built.
 git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
 ./setup.sh --venv                                           # link the shared venv
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests   # expect OK, ~40 s
-./setup.sh --backing /exp/mu2e/app/users/<operator>          # borrow the Offline build
+# ./setup.sh --backing /exp/mu2e/app/users/oksuzian   # personal-path-ok: uncomment on purpose - see below
 source .venv/bin/activate && source setup.sh                 # <- every new shell
 ./setup.sh --status                                          # confirm before submitting
 ```
@@ -44,9 +44,11 @@ source .venv/bin/activate && source setup.sh                 # <- every new shel
   changing a pin — [Building the environment](#building-the-environment).
 - **The blank `PYTHONPATH=`** is required: it clears whatever a sourced
   Mu2e/cvmfs environment left behind.
-- **`--backing` is not optional.** A fresh clone has no patched Offline build,
-  and a campaign launch refuses until you link one. `<operator>` is anyone who
-  has already run a campaign — [Artifacts](#artifacts).
+- **`--backing` is commented on purpose.** A fresh clone has no patched Offline
+  build, so a campaign launch refuses until you link one — but running on
+  someone else's build should be a thing you decided, not a thing a paste did
+  to you. Uncomment it once you have read [Artifacts](#artifacts). Any operator
+  who has run a campaign works; the artifacts are world-readable.
 - **The `source` line is the only per-shell step.** Everything above it is once.
 - **`--status`** prints the resolved roots and the venv with where each came
   from. If a line surprises you, stop before submitting jobs.
@@ -114,14 +116,14 @@ falling through to a **backing** link for anything you have not built
 yourself — the same local-wins-then-backing rule as `muse backing`:
 
 ```bash
-./setup.sh --backing /exp/mu2e/app/users/<operator>   # borrow an existing build
-./setup.sh --status                                   # what am I running against?
+./setup.sh --backing /exp/mu2e/app/users/oksuzian   # personal-path-ok: the build every campaign so far has run on
+./setup.sh --status                                 # what am I running against?
 ```
 
-`<operator>` is anyone who already has the patched Offline build and the
-grid tarballs. Until the build recipes live in this repo, that means asking
-a colleague who has run a campaign — the artifacts are world-readable, so a
-backing link is all you need and you build nothing.
+Any operator who already has the patched Offline build and the grid tarballs
+works, not just the one above. Until the build recipes live in this repo that
+means asking a colleague who has run a campaign — the artifacts are
+world-readable, so a backing link is all you need and you build nothing.
 
 A fresh clone has no backing and no local artifacts, so campaign launch
 fails immediately, naming the command above. That is deliberate: running
