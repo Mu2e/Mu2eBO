@@ -936,15 +936,44 @@ def list_outputs(stage: str, cluster: int) -> list[Path]:
 LOCAL_SUPPORTED_STAGES = ("mubeam",)
 
 
-def cmd_local_build(args):
-    """Build this stage's per-index FCLs and stop. Nothing is executed."""
-    stage = args.stage
+def _require_local_stage(stage: str) -> None:
+    """Refuse a stage the local executor cannot stage inputs for.
+
+    ONE helper, both verbs, so they cannot drift: `local-run` needs this as
+    much as `local-build` does, because it writes state/<stage>_cluster.txt --
+    and a runid sitting in, say, concat_cluster.txt trips cmd_submit's
+    idempotency guard, silently skipping a REAL grid submit of that stage.
+    """
     if stage not in LOCAL_SUPPORTED_STAGES:
         raise SystemExit(
             f"[{stage}] the local executor supports "
             f"{', '.join(LOCAL_SUPPORTED_STAGES)} only. Stages that consume a "
             f"previous stage's outputs need the input staging cmd_submit does "
             f"on /pnfs, which has no local path yet.")
+
+
+def local_marker(stage: str) -> Path:
+    """Marker file: state/<stage>_cluster.txt holds a runid, NOT a cluster id.
+
+    Single source of truth for "this stage ran locally". AUTORESEARCH_LOCAL
+    alone cannot carry it: `submit --local` is a FLAG, so a later `poll` or
+    `list-outputs` in a fresh process (no env var) would take next_runid's
+    small int for a ClusterId -- handing it to jobsub_q and then polling a
+    nonexistent /pnfs/.../<runid>/00 for the full 24h cap (the
+    poll-deadlock-missing-outstage-dirs shape), or globbing the grid outstage
+    for a bogus cluster.
+    """
+    return STATE / f"{stage}_local.txt"
+
+
+def _is_local_stage(stage: str) -> bool:
+    return bool(os.environ.get("AUTORESEARCH_LOCAL")) or local_marker(stage).exists()
+
+
+def cmd_local_build(args):
+    """Build this stage's per-index FCLs and stop. Nothing is executed."""
+    stage = args.stage
+    _require_local_stage(stage)
     njobs = lx.resolve_scale(getattr(args, "local_njobs", None), 1, stage)
     events = lx.resolve_scale(getattr(args, "local_events", None), 200, stage)
     env = sourced_env()
@@ -969,6 +998,7 @@ def cmd_local_build(args):
 def cmd_local_run(args):
     """Execute the FCLs already on disk, then list outputs."""
     stage = args.stage
+    _require_local_stage(stage)
     njobs = lx.resolve_scale(getattr(args, "local_njobs", None), 1, stage)
     events = lx.resolve_scale(getattr(args, "local_events", None), 200, stage)
     pool = getattr(args, "local_pool", None) or lx.DEFAULT_POOL
@@ -979,6 +1009,9 @@ def cmd_local_run(args):
         "\n".join(edited) + "\n" if edited else "")
     runid = lx.next_runid(CONFIG)
     (STATE / f"{stage}_cluster.txt").write_text(f"{runid}\n")
+    # Written next to the cluster file, and only ever together with it: the
+    # marker is what tells a later poll/list-outputs that this int is a runid.
+    local_marker(stage).write_text(f"{runid}\n")
     res = lx.run_jobs_local(stage, CONFIG, runid, STATE, njobs, events,
                             sourced_env(), pool=pool)
     stamp_local_events(stage, events)
@@ -1003,6 +1036,10 @@ def cmd_submit(args):
         cmd_local_build(args)
         cmd_local_run(args)
         return
+    # A real submit invalidates any marker a prior `--local` run left behind:
+    # the cluster file is about to hold a genuine cluster id again, and a stale
+    # marker would no-op the poll of a live grid cluster.
+    local_marker(args.stage).unlink(missing_ok=True)
     # Stage-chain stamp: record THIS Eval's chain at first submit so harvest
     # and template materialization never re-interpret an old config under the
     # current env's chain (the ff11R00_07 +1.5% sob bias class). One owner:
@@ -1043,7 +1080,7 @@ def cmd_submit(args):
 
 
 def cmd_poll(args):
-    if os.environ.get("AUTORESEARCH_LOCAL"):
+    if _is_local_stage(args.stage):
         print(f"[{args.stage}] local mode: jobs already complete; poll is a no-op")
         return
     _check_stage_config_sha(args.stage)
@@ -1066,6 +1103,15 @@ def cmd_list_outputs(args):
             return
     cluster_file = STATE / f"{args.stage}_cluster.txt"
     cluster = int(cluster_file.read_text().strip())
+    if _is_local_stage(args.stage):
+        # Re-list from the LOCAL tree; never fall through to the grid glob.
+        # The guard above is not enough on its own: a local run that produced
+        # zero outputs leaves `paths` empty, the guard falls through, and
+        # list_outputs() would glob the /pnfs outstage for a runid-shaped
+        # "cluster" that no grid job ever wrote.
+        lx.list_outputs_local(args.stage, CONFIG, cluster,
+                              STAGES[args.stage]["output_glob"], STATE)
+        return
     list_outputs(args.stage, cluster)
 
 

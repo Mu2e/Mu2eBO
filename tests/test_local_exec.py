@@ -275,10 +275,41 @@ class TestPipelineLocalWiring(unittest.TestCase):
                 pipeline.cmd_local_build(SimpleNamespace(
                     stage="mubeam", local_njobs=["2"], local_events=["200"]))
 
+            # The stamp must be WIRED, not merely implemented: harvest scales
+            # every metric by this file, so a cmd_local_build that forgets to
+            # call stamp_local_events leaves the configured value in place and
+            # biases every local metric by the ratio.
+            self.assertEqual(
+                (state / "mubeam_events_per_job.txt").read_text().strip(),
+                "200")
+
         flat = [tok for cmd in seen for tok in cmd]
         self.assertNotIn("mu2ejobsub", flat)
         self.assertNotIn("jobsub_q", flat)
         self.assertIn("mu2ejobfcl", flat)
+
+    def test_submit_stage_still_stamps_the_configured_events_per_job(self):
+        # The grid stamp had to survive the _jobdef_cmd extraction, and nothing
+        # else in the suite covers it: test_pipeline_verbs mocks submit_stage
+        # wholesale. dry_run stops before mu2ejobsub, so no grid contact.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=Path(tmp) / "t.fcl"), \
+                 mock.patch.object(pipeline, "_probe_input_urls"), \
+                 mock.patch.object(pipeline.subprocess, "run",
+                                   return_value=mock.Mock(returncode=0,
+                                                          stdout="# fcl\n",
+                                                          stderr="")):
+                pipeline.submit_stage("mubeam", {}, dry_run=True)
+            self.assertEqual(
+                (state / "mubeam_events_per_job.txt").read_text().strip(),
+                str(pipeline.STAGES["mubeam"]["events_per_job"]))
 
     def test_local_jobdef_matches_the_grid_jobdef_except_events_per_job(self):
         # The whole point of extracting _jobdef_cmd: local and grid build the
@@ -321,3 +352,60 @@ class TestPipelineLocalWiring(unittest.TestCase):
             pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
                                               cap_hours=24.0))
         pc.assert_not_called()
+
+    def test_local_run_refuses_the_same_stages_local_build_does(self):
+        # local-run writes state/<stage>_cluster.txt. A runid parked in
+        # concat_cluster.txt trips cmd_submit's idempotency guard, so a stray
+        # `local-run concat` would silently suppress a REAL grid submit.
+        for stage in ("concat", "mustops_ce"):
+            with self.subTest(stage=stage), self.assertRaises(SystemExit):
+                pipeline.cmd_local_run(SimpleNamespace(
+                    stage=stage, local_njobs=None, local_events=None,
+                    local_pool=None))
+
+    def test_poll_is_a_noop_on_the_marker_alone_without_the_env_var(self):
+        # `submit --local` is a flag, not an env var, so a later poll runs in a
+        # process where AUTORESEARCH_LOCAL is unset. The marker must carry it,
+        # or the runid goes to jobsub_q as a ClusterId.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("1\n")
+            (state / "mubeam_local.txt").write_text("1\n")
+            with mock.patch.dict(os.environ), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "poll_cluster") as pc:
+                os.environ.pop("AUTORESEARCH_LOCAL", None)
+                pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
+                                                  cap_hours=24.0))
+        pc.assert_not_called()
+
+    def test_list_outputs_never_reaches_the_grid_lister_in_local_mode(self):
+        # Without the marker check this is safe only by accident (the
+        # idempotency guard happens to match the local paths local-run wrote).
+        # A local run with ZERO outputs empties that guard and would fall
+        # through to a /pnfs glob for a runid-shaped cluster.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("1\n")
+            (state / "mubeam_local.txt").write_text("1\n")
+            with mock.patch.dict(os.environ), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "list_outputs") as lo:
+                os.environ.pop("AUTORESEARCH_LOCAL", None)
+                d = local_exec.job_dir("cfg001", 1, 0)
+                d.mkdir(parents=True)
+                (d / "sim.x.TargetStops.0.art").write_text("x")
+                pipeline.cmd_list_outputs(SimpleNamespace(stage="mubeam",
+                                                          force=False))
+                # ... and again with the local tree EMPTY, the corner the
+                # idempotency guard cannot cover.
+                (d / "sim.x.TargetStops.0.art").unlink()
+                pipeline.cmd_list_outputs(SimpleNamespace(stage="mubeam",
+                                                          force=False))
+            lo.assert_not_called()
+            self.assertEqual(
+                (state / "mubeam_outputs.txt").read_text().strip(), "")
