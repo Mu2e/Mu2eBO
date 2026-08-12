@@ -654,6 +654,38 @@ class TestPipelineLocalWiring(unittest.TestCase):
         self.assertNotIn("jobsub_q", flat)
         self.assertIn("mu2ejobfcl", flat)
 
+    def test_local_jobdef_matches_the_grid_jobdef_except_events_per_job(self):
+        # The whole point of extracting _jobdef_cmd: local and grid build the
+        # SAME cnf. If these ever diverge, a local run stops predicting
+        # anything about the grid run it is supposed to stand in for.
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp) / "t.fcl"
+            t.write_text("x")
+            with mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_grid_setup_sh",
+                                   return_value="/setup.sh"):
+                grid = pipeline._jobdef_cmd("mubeam", t, "dsc", "dsc-desc",
+                                            Path(tmp))
+                local = pipeline._jobdef_cmd("mubeam", t, "dsc", "dsc-desc",
+                                             Path(tmp), events_per_job=200)
+        self.assertEqual(len(grid), len(local))
+        i = local.index("--events-per-job")
+        self.assertEqual(local[i + 1], "200")
+        self.assertEqual(
+            grid[i + 1], str(pipeline.STAGES["mubeam"]["events_per_job"]))
+        # Everything OTHER than the events value is byte-identical.
+        self.assertEqual(grid[:i + 1] + grid[i + 2:],
+                         local[:i + 1] + local[i + 2:])
+
+    def test_local_build_refuses_a_stage_it_cannot_stage_inputs_for(self):
+        # Better a loud refusal than a cnf with no --inputs: mu2ejobdef would
+        # accept that, and the job would then read nothing and report success.
+        for stage in ("concat", "mustops_ce"):
+            with self.subTest(stage=stage), self.assertRaises(SystemExit):
+                pipeline.cmd_local_build(SimpleNamespace(
+                    stage=stage, local_njobs=None, local_events=None))
+
     def test_poll_is_a_noop_in_local_mode(self):
         # run_jobs_local is synchronous, so by the time poll could run every
         # job is done. Without this guard a graph-driven chain would feed the
@@ -697,9 +729,61 @@ def clamp_merge_factor(configured: int, n_inputs: int) -> int:
     return max(1, min(configured, n_inputs))
 
 
+def _jobdef_cmd(stage: str, template_fcl: Path, dsconf: str, desc: str,
+                stage_dir: Path, *, inputs_file: Path | None = None,
+                events_per_job: int | None = None) -> list[str]:
+    """Build the mu2ejobdef argv for a stage.
+
+    Single source of truth for both the grid path (submit_stage) and the local
+    path (cmd_local_build). Extracted rather than duplicated: a second copy of
+    these conditionals is exactly how the grid tarball drifted from the local
+    env in foilsflash-tarball-mode-key-omission, where preflight passed locally
+    while every grid job died.
+
+    events_per_job overrides STAGES[stage]["events_per_job"] so a local build
+    can request 200 events where the grid config says 5000.
+    """
+    cfg = STAGES[stage]
+    jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER,
+              "--desc", desc, "--embed", str(template_fcl)]
+    if cfg["ships_geom"]:
+        base = Path(cfg["code_tarball"]) if "code_tarball" in cfg else None
+        tarball = write_code_tarball(stage_dir, base_tarball=base)
+        jobdef += ["--code", str(tarball)]
+    else:
+        jobdef += ["--setup", _grid_setup_sh()]
+    if "events_per_job" in cfg:
+        epj = cfg["events_per_job"] if events_per_job is None else events_per_job
+        jobdef += ["--run-number", str(cfg["run_number"]),
+                   "--events-per-job", str(epj)]
+    if "merge_factor" in cfg:
+        if inputs_file is None:
+            raise SystemExit(f"[{stage}] needs --inputs file but none provided")
+        jobdef += ["--inputs", str(inputs_file),
+                   "--merge-factor", str(cfg["merge_factor"])]
+    if "auxinput" in cfg:
+        jobdef += [f"--auxinput={cfg['auxinput']}"]
+    return jobdef
+
+
+# Stages the local executor can build today. A local `mubeam` needs no input
+# staging; every downstream stage does -- cmd_submit builds a /pnfs hardlink
+# farm (stage_hardlink_farm) so concat/mustops_ce can resolve input basenames,
+# and that has no local analogue yet. Refuse loudly rather than emit a cnf with
+# no inputs, which mu2ejobdef would accept and which would then produce a job
+# that silently reads nothing.
+LOCAL_SUPPORTED_STAGES = ("mubeam",)
+
+
 def cmd_local_build(args):
     """Build this stage's per-index FCLs and stop. Nothing is executed."""
     stage = args.stage
+    if stage not in LOCAL_SUPPORTED_STAGES:
+        raise SystemExit(
+            f"[{stage}] the local executor supports "
+            f"{', '.join(LOCAL_SUPPORTED_STAGES)} only. Stages that consume a "
+            f"previous stage's outputs need the input staging cmd_submit does "
+            f"on /pnfs, which has no local path yet.")
     njobs = lx.resolve_scale(getattr(args, "local_njobs", None), 1, stage)
     events = lx.resolve_scale(getattr(args, "local_events", None), 200, stage)
     env = sourced_env()
@@ -710,8 +794,9 @@ def cmd_local_build(args):
     desc = _stage_desc(stage)
     cnf = stage_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
     if not cnf.exists():
-        jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER,
-                  "--desc", desc, "--embed", str(template_fcl)]
+        jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
+                             events_per_job=events)
+        print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
         subprocess.run(jobdef, cwd=str(stage_dir), env=env, check=True)
     lx.build_fcls(stage, cnf.name, stage_dir, STATE, njobs,
                   STAGES[stage]["default_loc"], env)
@@ -746,6 +831,37 @@ def cmd_local_run(args):
 `CONFIG` is the module-level config name bound by `_bind_config()` at
 `core/pipeline.py:135` when `--config` is parsed. Use it directly; do not
 re-derive the name from `ROOT.name`.
+
+**Rewire `submit_stage` to call the extracted helper.** In `submit_stage`
+(`core/pipeline.py:692-716`), replace the inline `jobdef = [...]` list and the
+four conditional blocks that follow it with one call:
+
+```python
+    jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
+                         inputs_file=inputs_file)
+    if "events_per_job" in cfg:
+        # Stamp the per-stage events_per_job at submit time so harvest reads
+        # the actual value used, not the current (possibly edited) dict.
+        # Without this, editing STAGES[*]["events_per_job"] between submit
+        # and harvest mis-scales ce_simulated_events / mubeam_sim_total
+        # → biases sob (helicalP01 false high, 2026-05-21).
+        (STATE / f"{stage}_events_per_job.txt").write_text(
+            f"{cfg['events_per_job']}\n"
+        )
+```
+
+This is a pure extraction: the argv the grid path builds must be unchanged,
+flag for flag and in the same order. The events-per-job **stamp** stays in
+`submit_stage` — it is a side effect on `STATE`, not part of building an argv,
+and the local path stamps a different value through `stamp_local_events`. Keep
+the existing comment with the stamp; it records why the stamp exists.
+
+Run the existing pipeline tests after this edit and before writing anything
+else — `submit_stage` is the most load-bearing function in the file:
+
+```
+PYTHONPATH= .venv/bin/python -m unittest tests.test_pipeline_verbs -v
+```
 
 `cmd_poll` must also become a no-op under `--local`, because
 `run_jobs_local` is synchronous — when it returns, every job has already
@@ -803,7 +919,7 @@ In `cmd_submit`, immediately after the idempotency guard block ends
 PYTHONPATH= .venv/bin/python -m unittest tests.test_local_exec -v
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests -t .
 ```
-Expected: the file's 16 tests PASS and the full suite stays green.
+Expected: the file's 25 tests PASS and the full suite stays green.
 
 - [ ] **Step 5: Commit**
 
@@ -898,7 +1014,7 @@ In `core/harvest.py`, add to `EvalSummary` after `flash_edep_tag` (`:356`):
 PYTHONPATH= .venv/bin/python -m unittest tests.test_local_exec -v
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests -t .
 ```
-Expected: 19 tests in the file PASS; full suite green. `tests/test_harvest.py`
+Expected: 28 tests in the file PASS; full suite green. `tests/test_harvest.py`
 must still pass unchanged — the new field is optional precisely so it does not
 disturb existing summaries.
 
