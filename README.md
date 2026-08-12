@@ -31,24 +31,9 @@ is conventional, not required.
 git clone <repo-url> autoresearch && cd autoresearch
 ```
 
-**2. Build the venv.** A fresh clone has no `.venv` — you create it here. It is
-a *symlink* into `/data` because the real venv is far too large for the
-`/exp/mu2e/app` quota. Install the CPU torch wheel **first, before anything
-else**: `botorch` and `gpytorch` both depend on torch, so if pip resolves it for
-them you get the CUDA build — gigabytes of wheels no grid node can use.
-
-```bash
-VENV=/exp/mu2e/data/users/$USER/autoresearch_venvs/.venv   # keep it OFF /exp/mu2e/app
-uv venv --python 3.11 "$VENV"
-uv pip install --python "$VENV/bin/python" \
-  --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu
-uv pip install --python "$VENV/bin/python" -r requirements.txt
-ln -s "$VENV" .venv     # `.venv` is the load-bearing name; $VENV itself is free choice
-```
-
-*Or borrow one — the faster start.* Operator venvs are world-readable, so you
-can link an existing one instead of building. With no path it links the site
-venv (this deployment's reference build), which is usually what you want:
+**2. Link the venv.** A fresh clone has no `.venv`. With no path given, this
+links the site venv — this deployment's reference build, which is what you want
+unless you have a reason to differ:
 
 ```bash
 ./setup.sh --venv           # link the site venv
@@ -56,23 +41,24 @@ venv (this deployment's reference build), which is usually what you want:
 ./setup.sh --venv -r        # unlink, e.g. before building your own
 ```
 
-You get read-only use — running and importing work, `pip install` into it does
-not, and the owner can rebuild it out from under you, so build your own before
-you change a pin. The command refuses if a `.venv` already exists rather than
-replacing it. Another deployment sets its own default with
-`$AUTORESEARCH_SITE_VENV`.
+Operator venvs are world-readable, so you get read-only use: running and
+importing work, `pip install` into it does not, and the owner can rebuild it
+out from under you. The command refuses if a `.venv` already exists rather than
+replacing it. `./setup.sh --status` shows which one you ended up on, and
+`$AUTORESEARCH_SITE_VENV` changes the default for another deployment.
 
-Either way, verify next — a green suite means the Python side is sound without
-`/exp/mu2e` being involved at all, and it matters more when you borrowed than
-when you built. The leading blank `PYTHONPATH=` is required: it clears anything
-inherited from a sourced Mu2e/cvmfs environment.
+Verify — a green suite means the Python side is sound without `/exp/mu2e` being
+involved at all, and it matters more when you borrowed than when you built. The
+leading blank `PYTHONPATH=` is required: it clears anything inherited from a
+sourced Mu2e/cvmfs environment.
 
 ```bash
 PYTHONPATH= .venv/bin/python -m unittest discover -s tests
 ```
 
-Background on why the venv lives where it does:
-[Building the environment](#building-the-environment).
+Building your own is optional and takes about twenty minutes — do it when you
+need to change a pin, or when you want a copy nobody else can rebuild under
+you. Recipe and rationale: [Building the environment](#building-the-environment).
 
 **3. Point at the build artifacts.** A fresh clone has none, so a campaign
 launch refuses until you either build your own or link someone else's.
@@ -113,10 +99,10 @@ those messages.
 
 ## Prerequisites
 
-- **Python env**: the project venv is `.venv` at the repo root (a symlink to
-  `/exp/mu2e/data/users/$USER/autoresearch_venvs/.venv`). Use
+- **Python env**: the project venv is `.venv` at the repo root — a symlink to a
+  real venv on `/data`, either the site one or your own build. Use
   `source .venv/bin/activate` or call `.venv/bin/python` directly. A fresh
-  clone has none — create it in [First-time setup](#first-time-setup) step 2.
+  clone has none — link it in [First-time setup](#first-time-setup) step 2.
 - **Kerberos**: a fresh ticket before launch. Mid-run expiry kills chains at
   grid submission (see `wiki/incidents/kerberos-mid-run-expiry.md`).
 - **Mu2e environment** is sourced by the pipeline itself per stage; do not
@@ -126,17 +112,30 @@ those messages.
 
 ### Building the environment
 
-The recipe is [First-time setup](#first-time-setup) step 2; this section is
-the *why* behind it.
+Optional — [First-time setup](#first-time-setup) step 2 links an existing venv
+in one command, and that is the normal path. Build your own when you need to
+change a pin, or want one nobody else can rebuild under you.
 
 One venv serves everything — orchestrator, botorch picker, and plot
 renderers (consolidated 2026-07-18 from three separate venvs). Python 3.11,
 built with [uv](https://github.com/astral-sh/uv); pinned in
 `requirements.txt`, whose header is the authoritative recipe.
 
-The `+cpu` local version pulled from the pytorch CPU index pre-satisfies the
-torch dependency that `botorch` and `gpytorch` would otherwise resolve to the
-CUDA build — hence the install-torch-first ordering.
+**Install the CPU torch wheel FIRST, before anything else.** `botorch` and
+`gpytorch` both depend on torch, so if pip resolves it for them you get the
+CUDA build — 2.8 GB against the 692 MB of the `+cpu` wheel. The explicit
+`+cpu` local version from the pytorch CPU index pre-satisfies that dependency.
+
+```bash
+VENV=/exp/mu2e/data/users/$USER/autoresearch_venvs/.venv   # keep it OFF /exp/mu2e/app
+uv venv --python 3.11 "$VENV"
+uv pip install --python "$VENV/bin/python" \
+  --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu
+uv pip install --python "$VENV/bin/python" -r requirements.txt
+ln -s "$VENV" .venv     # `.venv` is the load-bearing name; $VENV itself is free choice
+```
+
+Then verify, as in step 2: `PYTHONPATH= .venv/bin/python -m unittest discover -s tests`.
 
 The venv lives on the `/data` volume and is symlinked into the repo
 deliberately: it is far too large for the `/exp/mu2e/app` quota, and moving
