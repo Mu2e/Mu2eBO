@@ -214,3 +214,23 @@ class TestScaleDials(unittest.TestCase):
             local_exec.resolve_scale(["notanumber"], 1, "mubeam")
         with self.assertRaises(ValueError):
             local_exec.resolve_scale(["mubeam=x"], 1, "mubeam")
+
+    def test_whitespace_around_equals_is_stripped(self):
+        self.assertEqual(
+            local_exec.resolve_scale(["mubeam = 4"], 1, "mubeam"), 4)
+
+    def test_empty_key_after_strip_raises(self):
+        with self.assertRaises(ValueError):
+            local_exec.resolve_scale(["=4"], 1, "mubeam")
+
+    def test_negative_bare_value_raises(self):
+        with self.assertRaises(ValueError):
+            local_exec.resolve_scale(["-4"], 1, "mubeam")
+
+    def test_zero_bare_value_raises(self):
+        with self.assertRaises(ValueError):
+            local_exec.resolve_scale(["0"], 1, "mubeam")
+
+    def test_negative_per_stage_value_raises(self):
+        with self.assertRaises(ValueError):
+            local_exec.resolve_scale(["mubeam=-1"], 1, "mubeam")

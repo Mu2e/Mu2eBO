@@ -162,15 +162,27 @@ def resolve_scale(values, default: int, stage: str) -> int:
         item = str(raw)
         if "=" in item:
             key, _, val = item.partition("=")
+            key = key.strip()
+            if not key:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected <stage>=<int>")
             try:
-                per_stage[key] = int(val)
+                parsed = int(val.strip())
             except ValueError:
                 raise ValueError(
                     f"bad per-stage value {item!r}: expected <stage>=<int>")
+            if parsed < 1:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected an int >= 1")
+            per_stage[key] = parsed
         else:
             try:
-                bare = int(item)
+                parsed = int(item)
             except ValueError:
                 raise ValueError(
                     f"bad value {item!r}: expected an int or <stage>=<int>")
+            if parsed < 1:
+                raise ValueError(
+                    f"bad value {item!r}: expected an int >= 1")
+            bare = parsed
     return per_stage.get(stage, bare)
