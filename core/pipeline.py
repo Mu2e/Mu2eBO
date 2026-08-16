@@ -374,6 +374,27 @@ def _materialize_template(stage: str) -> Path:
     return out
 
 
+def _cnf_build_env(env: dict, template_fcl: Path) -> dict:
+    """env for px.build_cnf's json2jobdef subprocess call.
+
+    json2jobdef writes its own wrapper `template.fcl` containing
+    `#include "<fcl_name>"` (a bare basename -- see render_entry's
+    fcl_name=template_fcl.name) and resolves that include via fhicl-get,
+    which consults ONLY $FHICL_FILE_PATH (confirmed empirically: fhicl-get
+    does NOT fall back to cwd, even though build_cnf's subprocess cwd is
+    the stage dir). sourced_env()'s `muse setup ops` has no way to know
+    about our per-config STATE dir, so its FHICL_FILE_PATH never includes
+    it -- without this, json2jobdef always dies inside fhicl-get with
+    "Can't find file <stage>_template_materialized.fcl", the Task 11
+    empirical-validation finding (.superpowers/sdd/
+    2026-08-16-prodtools-switch/task-11-report.md, finding 1). Prepending
+    template_fcl's own directory (STATE) is sufficient -- confirmed by
+    reproduction; MU2E_SEARCH_PATH is not consulted by this lookup.
+    """
+    return {**env, "FHICL_FILE_PATH":
+            f"{template_fcl.parent}:{env.get('FHICL_FILE_PATH', '')}"}
+
+
 def run(cmd, *, env=None, check=True, capture=True):
     """Run a shell command; print invocation; return CompletedProcess."""
     if isinstance(cmd, list):
@@ -793,7 +814,8 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
                else cfg.get("default_loc")),
         resampler_name=_resampler_name(stage))
     entry_path = px.write_entry(STATE, stage, entry)
-    cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf, env)
+    cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
+                       _cnf_build_env(env, template_fcl))
     if "events_per_job" in cfg:
         stamp_local_events(stage, cfg["events_per_job"])
     if dry_run:
@@ -1113,7 +1135,8 @@ def cmd_submit(args):
                   else cfg.get("default_loc")),
             resampler_name=_resampler_name(stage))
         entry_path = px.write_entry(STATE, stage, entry)
-        cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf, env)
+        cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
+                           _cnf_build_env(env, template_fcl))
         # INVARIANT (write half): marker FIRST, then the runid into
         # <stage>_cluster.txt. If the process dies between these two writes,
         # the residue is a marker with no cluster file (poll no-ops;

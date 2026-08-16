@@ -522,6 +522,60 @@ class TestSubmitStageProdtools(unittest.TestCase):
             self.assertEqual(entry["inloc"], f"dir:{staged_dir}")
             self.assertEqual(entry["resampler_name"], "TargetStopResampler")
 
+    def test_build_cnf_env_carries_template_dir_on_fhicl_file_path(self):
+        # Task 11 empirical finding (docs/superpowers/sdd/
+        # 2026-08-16-prodtools-switch/task-11-report.md, finding 1): real
+        # json2jobdef writes its own wrapper template.fcl containing
+        # `#include "<fcl_name>"` (a bare basename) and resolves it via
+        # fhicl-get, which consults ONLY $FHICL_FILE_PATH -- confirmed by
+        # direct reproduction that fhicl-get does NOT fall back to cwd, even
+        # though build_cnf's subprocess cwd is the stage dir. sourced_env()'s
+        # `muse setup ops` has no way to know about our per-config STATE
+        # dir, so without _cnf_build_env, json2jobdef always dies inside
+        # fhicl-get with "Can't find file <stage>_template_materialized.fcl".
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            template = state / "mubeam_template_materialized.fcl"
+            template.write_text("x")
+            seen_envs = []
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                seen_envs.append(env)
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            def fake_submit_cnf(*a, **kw):
+                return 1, "1@s"
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=template), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   side_effect=fake_submit_cnf):
+                pipeline.submit_stage_prodtools(
+                    "mubeam", {"FHICL_FILE_PATH": "/some/other/path"})
+
+            self.assertEqual(len(seen_envs), 1)
+            fcl_path = seen_envs[0]["FHICL_FILE_PATH"]
+            self.assertEqual(fcl_path.split(":")[0], str(state))
+            # the incoming env's own FHICL_FILE_PATH is preserved, not
+            # clobbered -- just prepended to.
+            self.assertIn("/some/other/path", fcl_path)
+
 
 class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
     """cmd_submit's grid concat/mustops_ce branches: stage_hardlink_farm is
@@ -1221,6 +1275,46 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
             self.assertEqual(
                 (state / "mubeam_events_per_job.txt").read_text().strip(),
                 "77")
+
+    def test_build_cnf_env_carries_template_dir_on_fhicl_file_path(self):
+        # Same Task 11 finding as TestSubmitStageProdtools's twin test, but
+        # for cmd_submit's --local branch, which builds its own env/build_cnf
+        # call independently of submit_stage_prodtools (see core/pipeline.py
+        # cmd_submit's `if want_local:` branch).
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            seen_envs = []
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                seen_envs.append(env)
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.parent.mkdir(parents=True, exist_ok=True)
+                cnf.touch()
+                return cnf
+
+            # _patches(tmp) supplies sourced_env()={"X": "1"} (no
+            # FHICL_FILE_PATH of its own) and _materialize_template ->
+            # Path(tmp)/"t.fcl", so the assertion below checks the fix adds
+            # the template's directory even when the incoming env had no
+            # FHICL_FILE_PATH to preserve.
+            patches = self._patches(tmp)
+            with mock.patch.object(pipeline, "STATE", state), \
+                 contextlib.ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
+                stack.enter_context(
+                    mock.patch.object(pipeline.px, "build_cnf",
+                                      side_effect=fake_build_cnf))
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=False, local=True,
+                    local_njobs=None, local_events=None, local_pool=None))
+
+            self.assertEqual(len(seen_envs), 1)
+            fcl_path = seen_envs[0]["FHICL_FILE_PATH"]
+            self.assertEqual(fcl_path.split(":")[0], str(Path(tmp)))
+            self.assertEqual(seen_envs[0]["X"], "1")
 
     def test_writes_marker_before_cluster_txt_with_the_literal_runid(self):
         order = []
