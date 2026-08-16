@@ -126,6 +126,37 @@ def build_cnf(stage_dir, entry_path, desc, dsconf, env,
     return cnf
 
 
+def run_runlocal(stage_dir, cnf, njobs, wait_json, env, *, code_tarball,
+                 inloc=None, pool=4, runner=subprocess.run) -> int:
+    """Run njobs jobs on THIS node via prodtools runlocal; return its rc.
+
+    The local counterpart of run_jobwait: runlocal builds the same cnf the
+    grid path builds and executes it here, writing the same wait.json shape
+    (see _WAIT_LOCAL in tests/test_prodtools_exec.py) so cmd_list_outputs is
+    executor-blind. The entry's events are already baked into the cnf (see
+    render_entry), so there is no --nevts flag here.
+
+    Same acceptance split as run_jobwait: a died-before-summary runlocal is
+    a tool failure (SystemExit -- nothing to read downstream); a completed
+    run with some jobs failed is a normal return, whose acceptance policy
+    belongs to the caller.
+    """
+    workdir = Path(stage_dir) / "local"
+    workdir.mkdir(parents=True, exist_ok=True)
+    cmd = [str(prodtools_root() / "bin" / "runlocal"),
+           "--jobdef", str(cnf), "--first", "0", "--num", str(njobs),
+           "-j", str(pool), "--workdir", str(workdir),
+           "--code", str(code_tarball), "--json", str(wait_json)]
+    if inloc is not None:
+        cmd += ["--inloc", str(inloc)]
+    res = runner(cmd, cwd=str(stage_dir), env=env)
+    if not Path(wait_json).exists():
+        raise SystemExit(
+            f"runlocal exited rc={res.returncode} without writing "
+            f"{wait_json} -- it died before finishing the local run")
+    return res.returncode
+
+
 def submit_cnf(stage_dir, entry_path, ledger_db, origin, env,
                runner=subprocess.run, dry_run=False) -> tuple[int, str]:
     """Submit a built cnf via core/prodtools_submit_driver.py; return

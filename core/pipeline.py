@@ -1214,20 +1214,85 @@ def _is_local_stage(stage: str) -> bool:
     return local_marker(stage).exists()
 
 
+def _resolve_scale(values, default: int, stage: str) -> int:
+    """One repeatable --local-njobs/--local-events flag for a stage.
+
+    Free-standing copy of the retired local_exec.resolve_scale (module dies
+    with the lx-based local executor; cmd_submit's runlocal branch must not
+    depend on it) -- same resolution semantics, byte-for-byte: a bare value
+    sets the default for every stage, a <stage>=<int> entry overrides it for
+    that stage only, entries are applied in order, and last-bare-value wins
+    over an earlier one.
+    """
+    if not values:
+        return default
+    bare, per_stage = default, {}
+    for raw in values:
+        item = str(raw)
+        if "=" in item:
+            key, _, val = item.partition("=")
+            key = key.strip()
+            if not key:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected <stage>=<int>")
+            try:
+                parsed = int(val.strip())
+            except ValueError:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected <stage>=<int>")
+            if parsed < 1:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected an int >= 1")
+            per_stage[key] = parsed
+        else:
+            try:
+                parsed = int(item)
+            except ValueError:
+                raise ValueError(
+                    f"bad value {item!r}: expected an int or <stage>=<int>")
+            if parsed < 1:
+                raise ValueError(f"bad value {item!r}: expected an int >= 1")
+            bare = parsed
+    return per_stage.get(stage, bare)
+
+
+def _scale_default(env_var: str, fallback: int) -> int:
+    """Default for a --local-njobs/--local-events/--local-pool flag.
+
+    Free-standing copy of the retired local_exec.scale_default -- see
+    _resolve_scale's docstring for why this can't just import lx. The graph
+    runner shells out to `pipeline.py submit` and cannot pass those flags, so
+    without this env seam a whole local campaign is pinned to the argparse
+    defaults. An explicit flag still wins: this only supplies
+    _resolve_scale's default.
+    """
+    raw = os.environ.get(env_var)
+    if raw is None or not raw.strip():
+        return fallback
+    try:
+        val = int(raw.strip())
+    except ValueError:
+        raise ValueError(f"${env_var}={raw!r}: expected an int >= 1")
+    if val < 1:
+        raise ValueError(f"${env_var}={raw!r}: expected an int >= 1")
+    return val
+
+
 def _local_scale(args, stage: str) -> tuple:
     """(njobs, events) for one stage: flag, else env seam, else the default.
 
-    ONE resolver for both verbs. They must agree -- local-build writes N FCLs
-    and local-run executes M of them, so a drift between the two silently
-    runs a subset (or dies on a missing index).
+    ONE resolver for every local-scale call site (local-build, local-run,
+    and submit --local's runlocal branch). They must agree -- diverging
+    scale resolution would build FCLs for N jobs and then run M of them, so
+    a drift here silently runs a subset (or dies on a missing index).
     """
     return (
-        lx.resolve_scale(getattr(args, "local_njobs", None),
-                         lx.scale_default("AUTORESEARCH_LOCAL_NJOBS", 1),
-                         stage),
-        lx.resolve_scale(getattr(args, "local_events", None),
-                         lx.scale_default("AUTORESEARCH_LOCAL_EVENTS", 200),
-                         stage),
+        _resolve_scale(getattr(args, "local_njobs", None),
+                       _scale_default("AUTORESEARCH_LOCAL_NJOBS", 1),
+                       stage),
+        _resolve_scale(getattr(args, "local_events", None),
+                       _scale_default("AUTORESEARCH_LOCAL_EVENTS", 200),
+                       stage),
     )
 
 
@@ -1363,8 +1428,71 @@ def cmd_submit(args):
               f"(use --force to override)")
         return
     if want_local:
-        cmd_local_build(args)
-        cmd_local_run(args)
+        stage = args.stage
+        # Scope split (2026-08-16 controller resolution): this branch wires
+        # local mode end-to-end for stages that consume nothing
+        # (input_data=None -- mubeam / run1b_mubeam / elebeam_flash). concat
+        # and mustops_ce need a local staged-input farm (the dir: inloc a
+        # consuming stage's cnf points at); that lands in the next task via
+        # local_input_farm. Refuse loudly rather than build a cnf with no
+        # inputs, which mu2ejobdef accepts and which then runs and finds
+        # nothing.
+        if stage in ("concat", "mustops_ce"):
+            raise SystemExit(
+                f"[{stage}] local staged-input farm not wired yet -- "
+                f"next task")
+        _require_local_stage(stage)
+        njobs, events = _local_scale(args, stage)
+        pool = (getattr(args, "local_pool", None)
+               or _scale_default("AUTORESEARCH_LOCAL_POOL", lx.DEFAULT_POOL))
+        cfg = STAGES[stage]
+        desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
+        stage_dir = ROOT / stage
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        env = sourced_env()
+        template_fcl = _materialize_template(stage)
+        # Same render/build sequence submit_stage_prodtools uses for the grid
+        # path (Code-mode ships the geom AND the template through the
+        # tarball's setup_post.sh search path -- runlocal unpacks it exactly
+        # as a grid worker does, so there is no local-only env mechanism to
+        # keep in sync with it), except njobs/events come from the LOCAL
+        # scale, not STAGES[stage].
+        tarball = write_code_tarball(
+            stage_dir,
+            base_tarball=(Path(cfg["code_tarball"])
+                         if "code_tarball" in cfg else None),
+            extra_files=[template_fcl])
+        entry = px.render_entry(
+            stage, cfg, config=CONFIG, dsconf=dsconf, desc=desc,
+            njobs=njobs, code_tarball=tarball, fcl_name=template_fcl.name,
+            events=events, run=cfg.get("run_number"),
+            memory_mb=cfg.get("memory_mb"),
+            input_data=_cat_input_data(stage),
+            inloc=cfg.get("default_loc"),
+            resampler_name=_resampler_name(stage))
+        entry_path = px.write_entry(STATE, stage, entry)
+        cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf, env)
+        # INVARIANT (write half, same as cmd_local_run's): marker FIRST, then
+        # the runid into <stage>_cluster.txt. If the process dies between
+        # these two writes, the residue is a marker with no cluster file
+        # (poll no-ops; harmless) rather than a runid nothing distinguishes
+        # from a real ClusterId (poll hands it to jobsub_q and waits out the
+        # 24h cap on a /pnfs dir that will never appear). With runlocal
+        # owning execution there is no run-numbering to manage -- the marker
+        # file is what carries "local"; the cluster file just needs a
+        # parseable int, so it is always the literal "1".
+        local_marker(stage).write_text("1\n")
+        (STATE / f"{stage}_cluster.txt").write_text("1\n")
+        stamp_local_events(stage, events)
+        # A local job resamples its beam/stop inputs over xrootd exactly as a
+        # grid worker does, so it needs a live bearer token exactly as much.
+        # No _submit_lock here: the lock exists to serialize
+        # condor_vault_storer against concurrent grid submits, and a local
+        # run makes none.
+        _maybe_refresh_token(stage)
+        px.run_runlocal(stage_dir, cnf, njobs,
+                        px.wait_json_path(STATE, stage), env,
+                        code_tarball=tarball, pool=pool)
         return
     # Stage-chain stamp: record THIS Eval's chain at first submit so harvest
     # and template materialization never re-interpret an old config under the

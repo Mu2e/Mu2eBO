@@ -342,6 +342,131 @@ class TestCmdPollViaJobwait(unittest.TestCase):
             self.assertEqual(rj.call_args[0][2], "777@jobsub02.fnal.gov")
 
 
+class TestRunRunlocal(unittest.TestCase):
+    """AUTORESEARCH_PRODTOOLS is unset in a bare test shell (see
+    TestProdtoolsRoot) -- every test here patches prodtools_root directly,
+    same convention as TestRunJobwait/TestBuildCnf."""
+
+    def test_command_shape(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            wait_json = Path(td) / "mubeam_wait.json"
+
+            def run(cmd, **kw):
+                self.last_cmd = cmd
+                self.last_kw = kw
+                wait_json.write_text(json.dumps(_WAIT_LOCAL))
+                return subprocess.CompletedProcess(cmd, 0)
+
+            rc = pex.run_runlocal(
+                Path(td), Path(td) / "cnf.t.tar", 2, wait_json, {"X": "1"},
+                code_tarball=Path(td) / "Code.tar.bz2", pool=3, runner=run)
+        self.assertEqual(rc, 0)
+        joined = " ".join(str(c) for c in self.last_cmd)
+        self.assertIn("runlocal", joined)
+        for flag, val in (("--jobdef", str(Path(td) / "cnf.t.tar")),
+                          ("--first", "0"),
+                          ("--num", "2"),
+                          ("-j", "3"),
+                          ("--workdir", str(Path(td) / "local")),
+                          ("--code", str(Path(td) / "Code.tar.bz2")),
+                          ("--json", str(wait_json))):
+            self.assertIn(flag, self.last_cmd)
+            self.assertEqual(self.last_cmd[self.last_cmd.index(flag) + 1],
+                             val)
+        self.assertNotIn("--inloc", self.last_cmd)
+        self.assertNotIn("--nevts", self.last_cmd)
+        self.assertEqual(self.last_kw["cwd"], str(td))
+        self.assertEqual(self.last_kw["env"], {"X": "1"})
+
+    def test_creates_the_workdir_before_invoking(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            wait_json = Path(td) / "mubeam_wait.json"
+            workdir = Path(td) / "local"
+
+            def run(cmd, **kw):
+                self.assertTrue(workdir.is_dir(),
+                               "runlocal invoked before --workdir existed")
+                wait_json.write_text(json.dumps(_WAIT_LOCAL))
+                return subprocess.CompletedProcess(cmd, 0)
+
+            pex.run_runlocal(Path(td), Path(td) / "cnf.t.tar", 1, wait_json,
+                             {}, code_tarball=Path(td) / "Code.tar.bz2",
+                             runner=run)
+
+    def test_inloc_appended_when_given(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            wait_json = Path(td) / "mustops_ce_wait.json"
+
+            def run(cmd, **kw):
+                self.last_cmd = cmd
+                wait_json.write_text(json.dumps(_WAIT_LOCAL))
+                return subprocess.CompletedProcess(cmd, 0)
+
+            pex.run_runlocal(Path(td), Path(td) / "cnf.t.tar", 1, wait_json,
+                             {}, code_tarball=Path(td) / "Code.tar.bz2",
+                             inloc="dir:/data/staged", runner=run)
+        i = self.last_cmd.index("--inloc")
+        self.assertEqual(self.last_cmd[i + 1], "dir:/data/staged")
+
+    def test_missing_wait_json_after_run_is_systemexit(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            wait_json = Path(td) / "mubeam_wait.json"  # never written
+            with self.assertRaises(SystemExit):
+                pex.run_runlocal(
+                    Path(td), Path(td) / "cnf.t.tar", 1, wait_json, {},
+                    code_tarball=Path(td) / "Code.tar.bz2",
+                    runner=lambda cmd, **kw:
+                        subprocess.CompletedProcess(cmd, 1))
+
+    def test_nonzero_rc_returns_not_raises(self):
+        # A partial local cluster (some jobs failed) is not a tool failure --
+        # same acceptance split run_jobwait makes.
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            wait_json = Path(td) / "mubeam_wait.json"
+
+            def run(cmd, **kw):
+                wait_json.write_text(json.dumps(_WAIT_LOCAL))
+                return subprocess.CompletedProcess(cmd, 5)
+
+            rc = pex.run_runlocal(Path(td), Path(td) / "cnf.t.tar", 1,
+                                  wait_json, {},
+                                  code_tarball=Path(td) / "Code.tar.bz2",
+                                  runner=run)
+        self.assertEqual(rc, 5)
+
+
+class TestListOutputsFromWaitLocal(unittest.TestCase):
+    """The runlocal-shaped wait.json (relative outputs + a job 'dir') must
+    read exactly like the grid one through cmd_list_outputs -- the whole
+    point of the shared contract (spec decision 5)."""
+
+    def test_outputs_txt_from_a_runlocal_shaped_wait_json(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
+             mock.patch.dict(pipeline.STAGES["mubeam"],
+                             {"output_glob": "sim.*.art"}):
+            pipeline._bind_config("cfg001")
+            pipeline.STATE.mkdir(parents=True)
+            (pipeline.STATE / "mubeam_wait.json").write_text(
+                json.dumps(_WAIT_LOCAL))
+            pipeline.cmd_list_outputs(
+                SimpleNamespace(stage="mubeam", force=False))
+            outputs_file = pipeline.STATE / "mubeam_outputs.txt"
+            lines = [p for p in outputs_file.read_text().splitlines()
+                     if p.strip()]
+        self.assertEqual(lines, ["/data/local/j0/sim.u.D.C.0.art"])
+
+
 class TestBuildCnf(unittest.TestCase):
     """AUTORESEARCH_PRODTOOLS is unset in a bare test shell (see
     TestProdtoolsRoot), so every test here patches prodtools_root
