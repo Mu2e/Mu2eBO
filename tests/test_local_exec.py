@@ -1,7 +1,9 @@
 """Local executor tests: no grid contact anywhere. Every path is a tmpdir."""
 import contextlib
+import errno
 import io
 import json
+import math
 import os
 import subprocess
 import sys
@@ -821,17 +823,178 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                                            else 0)),
         ]
 
-    def test_a_consuming_stage_is_refused_not_wired_yet(self):
-        # concat/mustops_ce need a local staged-input farm; that is the NEXT
-        # task's scope. A cnf with no --inputs is not the failure mode to
-        # court here (mu2ejobdef accepts it and the job finds nothing).
-        for stage in ("concat", "mustops_ce"):
+    def test_a_consuming_stage_refuses_when_its_input_stage_never_ran_local(self):
+        # concat/mustops_ce need the PREVIOUS stage's local marker -- the same
+        # refusal _local_stage_inputs made for the old mu2ejobdef-based local
+        # executor. Without it, <prev>_outputs.txt holds /pnfs paths, and
+        # farming those locally is a grid chain wearing a local hat.
+        for stage, prev in (("concat", "mubeam"), ("mustops_ce", "mubeam")):
             with self.subTest(stage=stage), \
+                 tempfile.TemporaryDirectory() as tmp, \
+                 mock.patch.object(pipeline, "STATE", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
                  self.assertRaises(SystemExit) as cm:
                 pipeline.cmd_submit(SimpleNamespace(
                     stage=stage, force=False, dry_run=False, local=True,
                     local_njobs=None, local_events=None, local_pool=None))
-            self.assertIn("not wired yet", str(cm.exception))
+            self.assertIn("no local run", str(cm.exception))
+            self.assertIn(prev, str(cm.exception))
+
+    def test_mustops_ce_refuses_when_prev_outputs_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 self.assertRaises(SystemExit) as cm:
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mustops_ce", force=False, dry_run=False,
+                    local=True, local_njobs=None, local_events=None,
+                    local_pool=None))
+            self.assertIn("mubeam_outputs.txt", str(cm.exception))
+
+    def test_mustops_ce_refuses_when_prev_outputs_file_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            (state / "mubeam_outputs.txt").write_text("")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 self.assertRaises(SystemExit) as cm:
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mustops_ce", force=False, dry_run=False,
+                    local=True, local_njobs=None, local_events=None,
+                    local_pool=None))
+            self.assertIn("empty", str(cm.exception))
+
+    def _consuming_stage_patches(self, tmp):
+        return [
+            mock.patch.object(pipeline, "ROOT", Path(tmp)),
+            mock.patch.object(pipeline, "CONFIG", "cfg001"),
+            mock.patch.object(pipeline, "sourced_env",
+                              return_value={"X": "1"}),
+            mock.patch.object(pipeline, "_maybe_refresh_token"),
+            mock.patch.object(pipeline, "write_code_tarball",
+                              return_value=Path(tmp) / "Code.tar.bz2"),
+            mock.patch.object(pipeline, "_materialize_template",
+                              return_value=Path(tmp) / "t.fcl"),
+            mock.patch.object(pipeline.px, "build_cnf",
+                              return_value=Path(tmp) / "x" / "cnf.x.tar"),
+            mock.patch.object(pipeline.px, "run_runlocal", return_value=0),
+        ]
+
+    def test_concat_stages_a_local_farm_and_scales_njobs_to_source_count(self):
+        # merge_factor patched small so 5 local sources yield njobs > 1 --
+        # otherwise the default merge_factor (200) always clamps to
+        # njobs=ceil(n/n)=1 and the scaling behavior is untestable.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            src_dir = Path(tmp) / "mubeam_out"
+            src_dir.mkdir()
+            sources = []
+            for i in range(5):
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            (state / "mubeam_outputs.txt").write_text(
+                "\n".join(str(s) for s in sources) + "\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.dict(pipeline.STAGES["concat"],
+                                 {"merge_factor": 2}), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                rr = stack.enter_context(
+                    mock.patch.object(pipeline.px, "run_runlocal",
+                                      return_value=0))
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="concat", force=False, dry_run=False, local=True,
+                    local_njobs=None, local_events=None, local_pool=None))
+
+            entry = json.loads((state / "concat_entry.json").read_text())[0]
+            merge = min(2, 5)  # clamped merge factor
+            self.assertEqual(entry["input_data"],
+                             {s.name: merge for s in sources})
+            farm_dir = Path(tmp) / "concat" / "local_inputs"
+            self.assertEqual(entry["inloc"], f"dir:{farm_dir}")
+            self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
+                             sorted(s.name for s in sources))
+            self.assertEqual(entry["njobs"], math.ceil(5 / merge))
+            call_args, _ = rr.call_args
+            self.assertEqual(call_args[2], math.ceil(5 / merge))
+
+    def test_concat_local_njobs_flag_overrides_the_computed_default(self):
+        # Operator wins: an explicit --local-njobs beats the
+        # ceil(len(sources)/merge) default this task adds.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            src_dir = Path(tmp) / "mubeam_out"
+            src_dir.mkdir()
+            sources = []
+            for i in range(5):
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            (state / "mubeam_outputs.txt").write_text(
+                "\n".join(str(s) for s in sources) + "\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.dict(pipeline.STAGES["concat"],
+                                 {"merge_factor": 2}), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="concat", force=False, dry_run=False, local=True,
+                    local_njobs=["9"], local_events=None, local_pool=None))
+
+            entry = json.loads((state / "concat_entry.json").read_text())[0]
+            self.assertEqual(entry["njobs"], 9)
+
+    def test_mustops_ce_stages_a_local_farm_with_merge_one_and_default_njobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            src_dir = Path(tmp) / "mubeam_out"
+            src_dir.mkdir()
+            sources = []
+            for i in range(3):
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            (state / "mubeam_outputs.txt").write_text(
+                "\n".join(str(s) for s in sources) + "\n")
+            # No stage-chain stamp exists (the local branch never writes
+            # one), so mustops_ce's prev-stage resolution falls back to the
+            # module-level CONCATLESS constant -- force it True (mubeam) so
+            # this test doesn't depend on which mode was live at import.
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mustops_ce", force=False, dry_run=False,
+                    local=True, local_njobs=None, local_events=None,
+                    local_pool=None))
+
+            entry = json.loads((state / "mustops_ce_entry.json").read_text())[0]
+            self.assertEqual(entry["input_data"], {s.name: 1 for s in sources})
+            farm_dir = Path(tmp) / "mustops_ce" / "local_inputs"
+            self.assertEqual(entry["inloc"], f"dir:{farm_dir}")
+            # njobs stays at the plain local-scale default (1) -- resolution
+            # #3 keeps mustops_ce's local njobs as-is, unlike concat's
+            # source-count scaling.
+            self.assertEqual(entry["njobs"], 1)
 
     def test_renders_and_stamps_with_the_local_scale_not_the_grid_cfg(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -953,6 +1116,104 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                     local_njobs=None, local_events=None, local_pool=2))
             _, call_kwargs = rr.call_args
         self.assertEqual(call_kwargs["pool"], 2)
+
+
+class TestLocalInputFarm(unittest.TestCase):
+    """pipeline.local_input_farm: the local analogue of stage_hardlink_farm
+    (kept verbatim for the grid). Flat farm at ROOT/<stage>/local_inputs,
+    hard-linking a prior local stage's spread-out outputs into one dir so
+    inloc: dir:<farm> can see them."""
+
+    def test_links_n_files_flat_and_returns_the_basenames_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src_dir = Path(tmp) / "src"
+            src_dir.mkdir()
+            sources = []
+            for i in range(3):
+                f = src_dir / f"sim.x.MuminusStopsCat.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES,
+                                 {"concat": {"merge_factor": 200}},
+                                 clear=True):
+                farm_dir, input_map = pipeline.local_input_farm(
+                    "concat", sources)
+            self.assertEqual(farm_dir,
+                             Path(tmp) / "root" / "concat" / "local_inputs")
+            self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
+                             sorted(s.name for s in sources))
+            # merge_factor (200) CLAMPED to the input count (3).
+            self.assertEqual(input_map, {s.name: 3 for s in sources})
+
+    def test_mustops_ce_map_values_are_all_one(self):
+        # mustops_ce has no merge_factor (TargetStopResampler, not a merge).
+        with tempfile.TemporaryDirectory() as tmp:
+            src_dir = Path(tmp) / "src"
+            src_dir.mkdir()
+            sources = []
+            for i in range(5):
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES, {"mustops_ce": {}},
+                                 clear=True):
+                _, input_map = pipeline.local_input_farm(
+                    "mustops_ce", sources)
+            self.assertEqual(set(input_map.values()), {1})
+            self.assertEqual(len(input_map), 5)
+
+    def test_falls_back_to_copy_across_a_device_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.art"
+            src.write_text("data")
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES,
+                                 {"concat": {"merge_factor": 200}},
+                                 clear=True), \
+                 mock.patch.object(
+                     pipeline.os, "link",
+                     side_effect=OSError(errno.EXDEV, "cross-device link")):
+                farm_dir, input_map = pipeline.local_input_farm(
+                    "concat", [src])
+            linked = farm_dir / "src.art"
+            self.assertFalse(linked.is_symlink())
+            self.assertEqual(linked.read_text(), "data")
+            self.assertEqual(input_map, {"src.art": 1})
+
+    def test_a_non_exdev_oserror_still_propagates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.art"
+            src.write_text("data")
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES,
+                                 {"concat": {"merge_factor": 200}},
+                                 clear=True), \
+                 mock.patch.object(
+                     pipeline.os, "link",
+                     side_effect=OSError(errno.EACCES, "permission denied")):
+                with self.assertRaises(OSError):
+                    pipeline.local_input_farm("concat", [src])
+
+    def test_a_second_call_clears_the_prior_farm_contents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src_dir = Path(tmp) / "src"
+            src_dir.mkdir()
+            a = src_dir / "a.art"
+            a.write_text("a")
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES, {"mustops_ce": {}},
+                                 clear=True):
+                farm_dir, _ = pipeline.local_input_farm("mustops_ce", [a])
+                b = src_dir / "b.art"
+                b.write_text("b")
+                farm_dir2, input_map = pipeline.local_input_farm(
+                    "mustops_ce", [b])
+            self.assertEqual(farm_dir, farm_dir2)
+            self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
+                             ["b.art"])
+            self.assertEqual(input_map, {"b.art": 1})
 
 
 class TestLocalScaleEnvSeam(unittest.TestCase):

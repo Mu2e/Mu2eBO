@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import errno
 import fcntl
 import hashlib
 import json
@@ -629,6 +630,52 @@ def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> tuple[Path, Pat
     basenames_file.write_text("\n".join(basenames) + "\n")
     print(f"[{stage}] hard-linked {len(basenames)} files into {staged_dir}")
     return staged_dir, basenames_file
+
+
+def local_input_farm(stage: str, sources: list[Path]) -> tuple[Path, dict]:
+    """Local analogue of stage_hardlink_farm: flat farm of a consuming
+    stage's local inputs at ROOT/<stage>/local_inputs.
+
+    The prodtools entry's `inloc: dir:<path>` assumes every input lives
+    directly in that one directory, and a local stage's previous-stage
+    outputs are spread one-dir-per-job-index -- the same constraint
+    stage_hardlink_farm collects for /pnfs, on a POSIX-local tree instead.
+
+    Hard links (cheap for large .art files), falling back to a copy across a
+    filesystem boundary (OSError EXDEV): unlike /pnfs, where every staged
+    path shares one dCache namespace, a local outstage tree and ROOT can
+    legitimately land on different filesystems. A symlink would also read
+    fine locally (the xrootd-door restriction that forces hard links on
+    /pnfs doesn't apply here), but the brief calls for a copy fallback, and
+    a copy also survives the source tree being cleaned up later.
+
+    Returns (farm_dir, {basename: merge_or_1}): the merge value is the
+    CLAMPED concat merge factor (min(configured, len(sources))) for a stage
+    with merge_factor, else 1 -- mu2ejobdef/prodtools both yield ZERO jobs
+    if a merge factor exceeds the input count (see clamp_merge_factor in
+    local_exec.py, which this mirrors for the prodtools-switch path).
+    """
+    farm_dir = ROOT / stage / "local_inputs"
+    if farm_dir.exists():
+        for p in farm_dir.iterdir():
+            p.unlink()
+    else:
+        farm_dir.mkdir(parents=True, exist_ok=True)
+    cfg = STAGES[stage]
+    merge = min(cfg["merge_factor"], len(sources)) if "merge_factor" in cfg else 1
+    input_map = {}
+    for src in sources:
+        src = Path(src)
+        link = farm_dir / src.name
+        try:
+            os.link(src, link)
+        except OSError as e:
+            if e.errno != errno.EXDEV:
+                raise
+            shutil.copy2(src, link)
+        input_map[src.name] = merge
+    print(f"[{stage}] local-farmed {len(input_map)} file(s) into {farm_dir}")
+    return farm_dir, input_map
 
 
 def _grid_setup_sh() -> str:
@@ -1429,20 +1476,14 @@ def cmd_submit(args):
         return
     if want_local:
         stage = args.stage
-        # Scope split (2026-08-16 controller resolution): this branch wires
-        # local mode end-to-end for stages that consume nothing
-        # (input_data=None -- mubeam / run1b_mubeam / elebeam_flash). concat
-        # and mustops_ce need a local staged-input farm (the dir: inloc a
-        # consuming stage's cnf points at); that lands in the next task via
-        # local_input_farm. Refuse loudly rather than build a cnf with no
-        # inputs, which mu2ejobdef accepts and which then runs and finds
-        # nothing.
-        if stage in ("concat", "mustops_ce"):
-            raise SystemExit(
-                f"[{stage}] local staged-input farm not wired yet -- "
-                f"next task")
+        # Scope split (2026-08-16 controller resolution): non-consuming
+        # stages (mubeam / run1b_mubeam / elebeam_flash) render with
+        # staged_inputs=None -- input_data is still the non-None static
+        # Cat-dataset dict from _cat_input_data, inloc is cfg["default_loc"].
+        # concat and mustops_ce consume a prior LOCAL stage's outputs, so
+        # they need a local_input_farm dir before render_entry can point
+        # inloc at it.
         _require_local_stage(stage)
-        njobs, events = _local_scale(args, stage)
         pool = (getattr(args, "local_pool", None)
                or _scale_default("AUTORESEARCH_LOCAL_POOL", lx.DEFAULT_POOL))
         cfg = STAGES[stage]
@@ -1451,6 +1492,56 @@ def cmd_submit(args):
         stage_dir.mkdir(parents=True, exist_ok=True)
         env = sourced_env()
         template_fcl = _materialize_template(stage)
+
+        # Base resolution through the ONE shared resolver (both verbs +
+        # this branch must agree -- see TestLocalScaleEnvSeam). njobs here
+        # is the plain default (1, or --local-njobs/env override); concat
+        # below recomputes it against the staged source count, but an
+        # explicit --local-njobs still wins either way (operator wins:
+        # _resolve_scale only falls back to a default when no override was
+        # passed, and it is re-consulted with the SAME args.local_njobs).
+        njobs, events = _local_scale(args, stage)
+
+        staged_inputs = None
+        if stage in ("concat", "mustops_ce"):
+            # Same previous-stage rule cmd_submit's grid staging follows:
+            # concat <- mubeam; mustops_ce <- mubeam-or-concat, stamp-first
+            # (hv.concatless) since the local branch never writes the
+            # stage-chain stamp itself (only the grid branch below does),
+            # so a legacy concat-era local config still falls back to the
+            # module-level CONCATLESS default correctly.
+            prev_stage = ("mubeam" if stage == "concat" else
+                         ("mubeam" if hv.concatless(STATE, CONCATLESS)
+                          else "concat"))
+            # Same refusal _local_stage_inputs made for the old
+            # mu2ejobdef-based local executor: the prior stage must have run
+            # LOCALLY, or <prev>_outputs.txt holds /pnfs paths and farming
+            # those locally is a grid chain wearing a local hat.
+            if not local_marker(prev_stage).exists():
+                raise SystemExit(
+                    f"[{stage}] consumes {prev_stage}, which has no local "
+                    f"run ({local_marker(prev_stage)} missing). Run "
+                    f"'--config {CONFIG} submit {prev_stage} --local' and "
+                    f"'list-outputs {prev_stage}' first.")
+            prev_outputs = STATE / f"{prev_stage}_outputs.txt"
+            if not prev_outputs.exists():
+                raise SystemExit(
+                    f"Run 'list-outputs {prev_stage}' first to populate "
+                    f"{prev_outputs.name}")
+            sources = [Path(p) for p in prev_outputs.read_text().splitlines()
+                      if p.strip()]
+            if not sources:
+                raise SystemExit(
+                    f"[{stage}] {prev_outputs.name} is empty -- the local "
+                    f"{prev_stage} run produced no output. Check its job "
+                    f"log before rebuilding.")
+            farm_dir, input_map = local_input_farm(stage, sources)
+            staged_inputs = (farm_dir, input_map)
+            if stage == "concat":
+                merge = min(STAGES["concat"]["merge_factor"], len(sources))
+                njobs_default = -(-len(sources) // merge)  # ceil division
+                njobs = _resolve_scale(getattr(args, "local_njobs", None),
+                                       njobs_default, stage)
         # Same render/build sequence submit_stage_prodtools uses for the grid
         # path (Code-mode ships the geom AND the template through the
         # tarball's setup_post.sh search path -- runlocal unpacks it exactly
@@ -1467,8 +1558,10 @@ def cmd_submit(args):
             njobs=njobs, code_tarball=tarball, fcl_name=template_fcl.name,
             events=events, run=cfg.get("run_number"),
             memory_mb=cfg.get("memory_mb"),
-            input_data=_cat_input_data(stage),
-            inloc=cfg.get("default_loc"),
+            input_data=(staged_inputs[1] if staged_inputs
+                       else _cat_input_data(stage)),
+            inloc=(f"dir:{staged_inputs[0]}" if staged_inputs
+                  else cfg.get("default_loc")),
             resampler_name=_resampler_name(stage))
         entry_path = px.write_entry(STATE, stage, entry)
         cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf, env)
@@ -1508,7 +1601,11 @@ def cmd_submit(args):
             raise SystemExit("Run 'list-outputs mubeam' first to populate mubeam_outputs.txt")
         sources = [Path(p) for p in mubeam_list.read_text().splitlines() if p.strip()]
         staged_dir, _ = stage_hardlink_farm("concat", sources)
-        merge_factor = STAGES["concat"]["merge_factor"]
+        # Clamped (Task 7 controller resolution #2): mu2ejobdef used to
+        # yield ZERO jobs when the merge factor exceeded the input count;
+        # prodtools' behavior at that corner is unvalidated, so this clamp
+        # is our guard, not just local_input_farm's.
+        merge_factor = min(STAGES["concat"]["merge_factor"], len(sources))
         staged_inputs = (staged_dir, {p.name: merge_factor for p in sources})
     elif args.stage == "mustops_ce":
         # Resamples concat MuminusStopsCat via TargetStopResampler.

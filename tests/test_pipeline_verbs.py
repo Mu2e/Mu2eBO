@@ -590,5 +590,58 @@ class TestSubmitStageProdtools(unittest.TestCase):
             self.assertEqual(entry["resampler_name"], "TargetStopResampler")
 
 
+class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
+    """cmd_submit's grid concat/mustops_ce branches: stage_hardlink_farm is
+    kept verbatim (mocked out here -- its own behavior is untested by this
+    class), but the input_map built around it must carry the CLAMPED merge
+    factor (Task 7 controller resolution #2): mu2ejobdef used to yield ZERO
+    jobs when the merge factor exceeded the input count, and prodtools'
+    behavior at that corner is unvalidated, so cmd_submit clamps as a guard.
+    """
+
+    def test_concat_input_map_clamps_merge_factor_to_source_count(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(pipeline, "STATE", Path(tmp)), \
+             mock.patch.object(pipeline, "GRID_STAGES",
+                               ("mubeam", "concat", "mustops_ce")), \
+             mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
+             mock.patch.object(pipeline, "stage_hardlink_farm",
+                               return_value=(Path("/pnfs/x/concat"),
+                                            None)) as farm:
+            sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(3)]
+            (Path(tmp) / "mubeam_outputs.txt").write_text(
+                "\n".join(sources) + "\n")
+            pipeline.cmd_submit(SimpleNamespace(stage="concat", force=False,
+                                                dry_run=False))
+            farm.assert_called_once()
+            _, kwargs = sub.call_args
+            staged_dir, input_map = kwargs["staged_inputs"]
+            self.assertEqual(staged_dir, Path("/pnfs/x/concat"))
+            # merge_factor is 200 by default; clamped to the 3 sources.
+            self.assertEqual(input_map,
+                             {Path(s).name: 3 for s in sources})
+
+    def test_mustops_ce_input_map_values_are_all_one(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(pipeline, "STATE", Path(tmp)), \
+             mock.patch.object(pipeline, "GRID_STAGES",
+                               ("mubeam", "concat", "mustops_ce")), \
+             mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
+             mock.patch.object(pipeline, "stage_hardlink_farm",
+                               return_value=(Path("/pnfs/x/mustops_ce"),
+                                            None)):
+            sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(4)]
+            (Path(tmp) / "concat_outputs.txt").write_text(
+                "\n".join(sources) + "\n")
+            pipeline.cmd_submit(SimpleNamespace(stage="mustops_ce",
+                                                force=False, dry_run=False))
+            _, kwargs = sub.call_args
+            _, input_map = kwargs["staged_inputs"]
+            self.assertEqual(set(input_map.values()), {1})
+            self.assertEqual(len(input_map), 4)
+
+
 if __name__ == "__main__":
     unittest.main()
