@@ -132,9 +132,20 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
         status = json.loads(verdict_path.read_text())["verdict"]
     except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
         status = "ambiguous"
+        # No verdict means the subprocess died BEFORE writing one, and a
+        # python death writes its traceback to STDERR -- which the tail above
+        # does not include. So the one message explaining the failure was
+        # discarded and the operator saw "ambiguous" three times and nothing
+        # else (mmackenz 2026-08-13: a missing backing, whose PathsError names
+        # the exact fix, was invisible). Same swallowed-stderr class as the
+        # jobsub-disk-quota-stderr-swallowed and sourced-env-stderr-swallowed
+        # incidents.
+        err = "\n".join(proc.stderr.splitlines()[-40:])
         tail = (f"(preflight verdict JSON missing/unparseable at "
                 f"{verdict_path}: {e!r}; rc={proc.returncode} — decoding as "
-                f"ambiguous)\n" + tail)
+                f"ambiguous)\n"
+                + (f"PREFLIGHT STDERR:\n{err}\n" if err.strip() else "")
+                + tail)
     return status, tail
 
 
