@@ -823,56 +823,14 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                                            else 0)),
         ]
 
-    def test_a_consuming_stage_refuses_when_its_input_stage_never_ran_local(self):
-        # concat/mustops_ce need the PREVIOUS stage's local marker -- the same
-        # refusal _local_stage_inputs made for the old mu2ejobdef-based local
-        # executor. Without it, <prev>_outputs.txt holds /pnfs paths, and
-        # farming those locally is a grid chain wearing a local hat.
-        for stage, prev in (("concat", "mubeam"), ("mustops_ce", "mubeam")):
-            with self.subTest(stage=stage), \
-                 tempfile.TemporaryDirectory() as tmp, \
-                 mock.patch.object(pipeline, "STATE", Path(tmp)), \
-                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
-                 mock.patch.object(pipeline, "CONCATLESS", True), \
-                 self.assertRaises(SystemExit) as cm:
-                pipeline.cmd_submit(SimpleNamespace(
-                    stage=stage, force=False, dry_run=False, local=True,
-                    local_njobs=None, local_events=None, local_pool=None))
-            self.assertIn("no local run", str(cm.exception))
-            self.assertIn(prev, str(cm.exception))
-
-    def test_mustops_ce_refuses_when_prev_outputs_file_is_missing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "state"
-            state.mkdir()
-            (state / "mubeam_local.txt").write_text("1\n")
-            with mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
-                 mock.patch.object(pipeline, "CONCATLESS", True), \
-                 self.assertRaises(SystemExit) as cm:
-                pipeline.cmd_submit(SimpleNamespace(
-                    stage="mustops_ce", force=False, dry_run=False,
-                    local=True, local_njobs=None, local_events=None,
-                    local_pool=None))
-            self.assertIn("mubeam_outputs.txt", str(cm.exception))
-
-    def test_mustops_ce_refuses_when_prev_outputs_file_is_empty(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "state"
-            state.mkdir()
-            (state / "mubeam_local.txt").write_text("1\n")
-            (state / "mubeam_outputs.txt").write_text("")
-            with mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
-                 mock.patch.object(pipeline, "CONCATLESS", True), \
-                 self.assertRaises(SystemExit) as cm:
-                pipeline.cmd_submit(SimpleNamespace(
-                    stage="mustops_ce", force=False, dry_run=False,
-                    local=True, local_njobs=None, local_events=None,
-                    local_pool=None))
-            self.assertIn("empty", str(cm.exception))
-
     def _consuming_stage_patches(self, tmp):
+        # cmd_submit's local branch calls sourced_env()/_materialize_template
+        # BEFORE the consuming-stage refusal checks (same order the old
+        # cmd_local_build had -- see submit_stage_prodtools's docstring),
+        # so even a refusal test needs these faked: sourced_env() for real
+        # shells out to setupmu2e-art.sh (~20s, and only succeeds in a
+        # pre-configured interactive shell), and an unmocked ROOT defaults
+        # to Path() (cwd), leaving stray <stage>/ dirs in the repo checkout.
         return [
             mock.patch.object(pipeline, "ROOT", Path(tmp)),
             mock.patch.object(pipeline, "CONFIG", "cfg001"),
@@ -887,6 +845,64 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                               return_value=Path(tmp) / "x" / "cnf.x.tar"),
             mock.patch.object(pipeline.px, "run_runlocal", return_value=0),
         ]
+
+    def test_a_consuming_stage_refuses_when_its_input_stage_never_ran_local(self):
+        # concat/mustops_ce need the PREVIOUS stage's local marker -- the same
+        # refusal _local_stage_inputs made for the old mu2ejobdef-based local
+        # executor. Without it, <prev>_outputs.txt holds /pnfs paths, and
+        # farming those locally is a grid chain wearing a local hat.
+        for stage, prev in (("concat", "mubeam"), ("mustops_ce", "mubeam")):
+            with tempfile.TemporaryDirectory() as tmp:
+                state = Path(tmp) / "state"
+                state.mkdir()
+                with self.subTest(stage=stage), \
+                     mock.patch.object(pipeline, "STATE", state), \
+                     mock.patch.object(pipeline, "CONCATLESS", True), \
+                     contextlib.ExitStack() as stack:
+                    for p in self._consuming_stage_patches(tmp):
+                        stack.enter_context(p)
+                    with self.assertRaises(SystemExit) as cm:
+                        pipeline.cmd_submit(SimpleNamespace(
+                            stage=stage, force=False, dry_run=False,
+                            local=True, local_njobs=None, local_events=None,
+                            local_pool=None))
+                self.assertIn("no local run", str(cm.exception))
+                self.assertIn(prev, str(cm.exception))
+
+    def test_mustops_ce_refuses_when_prev_outputs_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                with self.assertRaises(SystemExit) as cm:
+                    pipeline.cmd_submit(SimpleNamespace(
+                        stage="mustops_ce", force=False, dry_run=False,
+                        local=True, local_njobs=None, local_events=None,
+                        local_pool=None))
+            self.assertIn("mubeam_outputs.txt", str(cm.exception))
+
+    def test_mustops_ce_refuses_when_prev_outputs_file_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            (state / "mubeam_outputs.txt").write_text("")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                with self.assertRaises(SystemExit) as cm:
+                    pipeline.cmd_submit(SimpleNamespace(
+                        stage="mustops_ce", force=False, dry_run=False,
+                        local=True, local_njobs=None, local_events=None,
+                        local_pool=None))
+            self.assertIn("empty", str(cm.exception))
 
     def test_concat_stages_a_local_farm_and_scales_njobs_to_source_count(self):
         # merge_factor patched small so 5 local sources yield njobs > 1 --
