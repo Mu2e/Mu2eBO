@@ -1409,10 +1409,37 @@ def cmd_poll(args):
         print(f"[{args.stage}] local mode: jobs already complete; poll is a no-op")
         return
     _check_stage_config_sha(args.stage)
-    cluster_file = STATE / f"{args.stage}_cluster.txt"
-    cluster = int(cluster_file.read_text().strip())
-    quorum = args.quorum if args.quorum is not None else STAGES[args.stage].get("quorum", 0.9)
-    poll_cluster(args.stage, cluster, quorum=quorum, cap_hours=args.cap_hours)
+    if getattr(args, "cap_hours", None) is not None:
+        # jobwait has no internal timeout by design (the closed-loop
+        # barrier timeout is the backstop) -- --cap-hours is a no-op here.
+        # Kept accepted-but-ignored until Task 9 removes the flag so
+        # in-flight tooling that still passes it doesn't break mid-plan.
+        print(f"[{args.stage}] --cap-hours is deprecated and ignored "
+              f"(jobwait has no internal timeout; the closed-loop barrier "
+              f"timeout is the backstop)")
+    cfg = STAGES[args.stage]
+    stage_dir = ROOT / args.stage
+    jid_file = STATE / f"{args.stage}_jobsub_id.txt"
+    jobid = (jid_file.read_text().strip() if jid_file.exists()
+             else (STATE / f"{args.stage}_cluster.txt").read_text().strip())
+    cnf = stage_dir / f"cnf.{USER}.{_stage_desc(args.stage)}.{_stage_dsconf(args.stage)}.0.tar"
+    px.run_jobwait(stage_dir, cnf, jobid, cfg["njobs"],
+                   px.wait_json_path(STATE, args.stage), sourced_env())
+    # Acceptance is autoresearch policy, not the tool's (spec): a partial
+    # cluster proceeds -- harvest divides by the true ok count -- but a
+    # below-quorum stage is loud, and zero ok jobs fails the stage here
+    # (same behavior the old convergence gate's failure-aware exit had).
+    wait = px.read_wait(STATE, args.stage)
+    quorum = getattr(args, "quorum", None)
+    quorum = quorum if quorum is not None else cfg.get("quorum", 0.9)
+    target = max(1, int(cfg["njobs"] * quorum))
+    if wait["ok"] == 0:
+        raise SystemExit(
+            f"[{args.stage}] 0/{cfg['njobs']} jobs succeeded "
+            f"(failed={wait.get('failed')}, unknown={wait.get('unknown')})")
+    if wait["ok"] < target:
+        print(f"[{args.stage}] WARN: {wait['ok']}/{cfg['njobs']} ok "
+              f"(< quorum target {target}); proceeding with what landed")
 
 
 def cmd_list_outputs(args):
@@ -1821,7 +1848,11 @@ def main():
     p_poll.add_argument("--quorum", type=float, default=None,
                         help="Fraction of jobs required (default: per-stage "
                              "STAGES['quorum'] if set, else 0.9)")
-    p_poll.add_argument("--cap-hours", type=float, default=24.0)
+    p_poll.add_argument("--cap-hours", type=float, default=24.0,
+                        help="DEPRECATED, ignored: jobwait has no internal "
+                             "timeout by design (the closed-loop barrier "
+                             "timeout is the backstop). Kept accepted so "
+                             "in-flight tooling doesn't break mid-plan.")
     p_poll.set_defaults(func=cmd_poll)
 
     p_ls = sub.add_parser("list-outputs", help="Glob outstage and persist file list")

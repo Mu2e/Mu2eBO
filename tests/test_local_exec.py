@@ -442,14 +442,25 @@ class TestPipelineLocalWiring(unittest.TestCase):
             state.mkdir()
             (state / "mubeam_cluster.txt").write_text("70314159\n")  # a real one
             # ... and NO mubeam_local.txt.
+
+            def fake_run_jobwait(stage_dir, cnf, jobid, njobs, wait_json,
+                                 env, **kw):
+                Path(wait_json).write_text('{"ok": 999999, "failed": 0, '
+                                           '"unknown": [], "jobs": []}')
+                return 0
+
             with mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
                  mock.patch.object(pipeline, "STATE", state), \
                  mock.patch.object(pipeline, "_check_stage_config_sha"), \
-                 mock.patch.object(pipeline, "poll_cluster") as pc:
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline.px, "run_jobwait",
+                                   side_effect=fake_run_jobwait) as pc:
                 pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
                                                   cap_hours=24.0))
         pc.assert_called_once()
-        self.assertEqual(pc.call_args[0][1], 70314159)
+        # jobid arg (position 2) falls back to <stage>_cluster.txt when no
+        # <stage>_jobsub_id.txt exists.
+        self.assertEqual(pc.call_args[0][2], "70314159")
 
     @contextlib.contextmanager
     def _local_run_env(self, tmp):
@@ -684,7 +695,7 @@ class TestPipelineLocalWiring(unittest.TestCase):
             (state / "mubeam_local.txt").write_text("1\n")
             with mock.patch.dict(os.environ), \
                  mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.object(pipeline, "poll_cluster") as pc:
+                 mock.patch.object(pipeline.px, "run_jobwait") as pc:
                 os.environ.pop("AUTORESEARCH_LOCAL", None)
                 pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
                                                   cap_hours=24.0))

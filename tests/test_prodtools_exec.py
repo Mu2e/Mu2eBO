@@ -2,12 +2,14 @@
 
 Zero grid contact: every prodtools invocation is an injected fake runner.
 """
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -180,6 +182,164 @@ class TestListOutputsFromWait(unittest.TestCase):
             lines = [p for p in outputs_file.read_text().splitlines()
                      if p.strip()]
         self.assertEqual(lines, ["/pnfs/out/777/0/sim.u.D.C.0.art"])
+
+
+class TestRunJobwait(unittest.TestCase):
+    """AUTORESEARCH_PRODTOOLS is unset in a bare test shell (see
+    TestProdtoolsRoot) -- every test here patches prodtools_root directly,
+    same convention as TestBuildCnf."""
+
+    def test_command_shape(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            wait_json = Path(td) / "mubeam_wait.json"
+
+            def run(cmd, **kw):
+                self.last_cmd = cmd
+                self.last_kw = kw
+                wait_json.write_text(json.dumps(_WAIT_GRID))
+                return subprocess.CompletedProcess(cmd, 0)
+
+            rc = pex.run_jobwait(Path(td), Path(td) / "cnf.t.tar",
+                                 "777@jobsub01.fnal.gov", 200, wait_json,
+                                 {"X": "1"}, runner=run, poll_s=15)
+        self.assertEqual(rc, 0)
+        joined = " ".join(str(c) for c in self.last_cmd)
+        self.assertIn("jobwait", joined)
+        for flag, val in (("--jobdef", str(Path(td) / "cnf.t.tar")),
+                          ("--cluster", "777@jobsub01.fnal.gov"),
+                          ("--njobs", "200"),
+                          ("--outstage", pex.outstage_root()),
+                          ("--poll-s", "15"),
+                          ("--json", str(wait_json))):
+            self.assertIn(flag, self.last_cmd)
+            self.assertEqual(self.last_cmd[self.last_cmd.index(flag) + 1],
+                             val)
+        self.assertEqual(self.last_kw["cwd"], str(td))
+        self.assertEqual(self.last_kw["env"], {"X": "1"})
+
+    def test_nonzero_rc_returns_not_raises(self):
+        # jobwait's rc reflects the cluster outcome (partial ok), not a
+        # tool failure -- acceptance policy belongs to cmd_poll, not here.
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            wait_json = Path(td) / "mubeam_wait.json"
+
+            def run(cmd, **kw):
+                wait_json.write_text(json.dumps(_WAIT_GRID))
+                return subprocess.CompletedProcess(cmd, 7)
+
+            rc = pex.run_jobwait(Path(td), Path(td) / "cnf.t.tar", "777@s",
+                                 200, wait_json, {}, runner=run)
+        self.assertEqual(rc, 7)
+
+    def test_missing_wait_json_after_run_is_systemexit(self):
+        # jobwait died before writing its summary -- callers have nothing
+        # to read, so this IS a tool failure, unlike a plain nonzero rc.
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            wait_json = Path(td) / "mubeam_wait.json"  # never written
+            with self.assertRaises(SystemExit):
+                pex.run_jobwait(Path(td), Path(td) / "cnf.t.tar", "777@s",
+                                200, wait_json, {},
+                                runner=lambda cmd, **kw:
+                                    subprocess.CompletedProcess(cmd, 1))
+
+
+class TestCmdPollViaJobwait(unittest.TestCase):
+    """Pipeline-level: cmd_poll invokes prodtools jobwait (via a fake
+    runner standing in for the real binary) and applies autoresearch's
+    own quorum/zero-ok acceptance policy on the wait.json it writes."""
+
+    def _run(self, tmp, njobs, quorum, wait_body, jobwait_rc=0):
+        state = None
+
+        def fake_run_jobwait(stage_dir, cnf, jobid, njobs_, wait_json,
+                             env, **kw):
+            self.jobwait_call = dict(stage_dir=stage_dir, cnf=cnf,
+                                     jobid=jobid, njobs=njobs_,
+                                     wait_json=wait_json, env=env)
+            Path(wait_json).write_text(json.dumps(wait_body))
+            return jobwait_rc
+
+        with mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
+             mock.patch.dict(pipeline.STAGES["mubeam"],
+                             {"njobs": njobs, "quorum": quorum}), \
+             mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(pipeline.px, "run_jobwait",
+                               side_effect=fake_run_jobwait) as self.rj:
+            pipeline._bind_config("cfg001")
+            pipeline.STATE.mkdir(parents=True)
+            (pipeline.STATE / "mubeam_cluster.txt").write_text("777\n")
+            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
+                                              cap_hours=24.0))
+
+    def test_ok_meets_quorum_proceeds_silently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(tmp, njobs=3, quorum=0.9,
+                      wait_body={"jobdef": "cnf.t.tar", "jobs": [],
+                                 "ok": 3, "failed": [], "unknown": []})
+        self.rj.assert_called_once()
+
+    def test_zero_ok_is_systemexit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit) as cm:
+                self._run(tmp, njobs=3, quorum=0.9,
+                          wait_body={"jobdef": "cnf.t.tar", "jobs": [],
+                                     "ok": 0, "failed": [0, 1, 2],
+                                     "unknown": []})
+        self.assertIn("0/3", str(cm.exception))
+
+    def test_partial_below_quorum_warns_and_proceeds(self):
+        buf = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, \
+             redirect_stdout(buf):
+            # ok=1 < target=ceil(0.9*3)=2 -- below quorum but nonzero, so
+            # this must print WARN and return normally (no exception).
+            self._run(tmp, njobs=3, quorum=0.9,
+                      wait_body={"jobdef": "cnf.t.tar", "jobs": [],
+                                 "ok": 1, "failed": [1, 2], "unknown": []})
+        self.assertIn("WARN", buf.getvalue())
+        self.assertIn("1/3", buf.getvalue())
+
+    def test_local_marker_no_ops_without_invoking_the_runner(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
+             mock.patch.object(pipeline.px, "run_jobwait") as rj:
+            pipeline._bind_config("cfg001")
+            pipeline.STATE.mkdir(parents=True)
+            (pipeline.STATE / "mubeam_local.txt").write_text("1\n")
+            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
+                                              cap_hours=24.0))
+        rj.assert_not_called()
+
+    def test_jobsub_id_file_wins_over_cluster_txt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
+                 mock.patch.dict(pipeline.STAGES["mubeam"],
+                                 {"njobs": 3, "quorum": 0.9}), \
+                 mock.patch.object(pipeline, "sourced_env",
+                                   return_value={}), \
+                 mock.patch.object(pipeline.px, "run_jobwait") as rj:
+                pipeline._bind_config("cfg001")
+                pipeline.STATE.mkdir(parents=True)
+                (pipeline.STATE / "mubeam_cluster.txt").write_text("777\n")
+                (pipeline.STATE / "mubeam_jobsub_id.txt").write_text(
+                    "777@jobsub02.fnal.gov\n")
+
+                def fake(stage_dir, cnf, jobid, njobs_, wait_json, env,
+                         **kw):
+                    Path(wait_json).write_text(json.dumps(
+                        {"jobdef": "cnf.t.tar", "jobs": [], "ok": 3,
+                         "failed": [], "unknown": []}))
+                    return 0
+                rj.side_effect = fake
+                pipeline.cmd_poll(SimpleNamespace(
+                    stage="mubeam", quorum=None, cap_hours=24.0))
+            self.assertEqual(rj.call_args[0][2], "777@jobsub02.fnal.gov")
 
 
 class TestBuildCnf(unittest.TestCase):

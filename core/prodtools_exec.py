@@ -83,6 +83,29 @@ def read_wait(state_dir: Path, stage: str) -> dict:
     return json.loads(p.read_text())
 
 
+def run_jobwait(stage_dir, cnf, jobid, njobs, wait_json, env,
+                runner=subprocess.run, poll_s=300) -> int:
+    """Block on a submitted cluster via prodtools jobwait; return its rc.
+
+    jobwait has no internal timeout by design (the closed-loop barrier
+    timeout is the backstop) and its rc reflects the cluster outcome, NOT
+    a tool failure -- a partial cluster (some jobs failed) is a nonzero rc
+    that callers here still treat as a normal return; SystemExit is
+    reserved for the one true tool failure: jobwait dying before it wrote
+    its wait.json summary, which leaves callers with nothing to read.
+    """
+    cmd = [str(prodtools_root() / "bin" / "jobwait"),
+           "--jobdef", str(cnf), "--cluster", str(jobid),
+           "--njobs", str(njobs), "--outstage", outstage_root(),
+           "--poll-s", str(poll_s), "--json", str(wait_json)]
+    res = runner(cmd, cwd=str(stage_dir), env=env)
+    if not Path(wait_json).exists():
+        raise SystemExit(
+            f"jobwait exited rc={res.returncode} without writing "
+            f"{wait_json} -- it died before the cluster drained")
+    return res.returncode
+
+
 def build_cnf(stage_dir, entry_path, desc, dsconf, env,
              runner=subprocess.run) -> Path:
     """Build a cnf tarball via prodtools json2jobdef; return its path.
