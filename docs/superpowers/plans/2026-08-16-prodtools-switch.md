@@ -935,6 +935,58 @@ the Mu2e env; run on a mu2egpvm node. No jobs are submitted or run.
 
 ---
 
+### Task 13: Retire the stage templates — published FCL + `fcl_overrides` (operator-approved extension, 2026-08-16)
+
+**Decision record:** every `core/pipeline_templates/<stage>/template.fcl` is
+`#include <published Production FCL>` + flat overrides — exactly what a
+json2jobdef entry's `fcl` + `fcl_overrides` renders (prodtools
+`write_fcl_template`: `'#include'` override key supports extra includes;
+values go through `json.dumps`). The one FHiCL construct that cannot ride a
+JSON value is the `@sequence::`-bearing `outputCommands` lists in
+mubeam/run1b_mubeam — those blocks move to ONE tiny
+`autoresearch_<stage>_extras.fcl` shipped in the code tarball (geometry-style
+delivery) and pulled in via the `'#include'` override (option 1; no prodtools
+change). Depends on the Task-11 fix round: the prodtools `dir:`-resampler
+MaxEventsToSkip skip must be in place (mustops_ce's hand-tuned override must
+stand; for the Cat resampler stages the SAM-computed post_line replaces our
+frozen 319542 — validated numerically identical for MuBeamCat Run1Baa).
+
+**Files:**
+- Modify: `core/pipeline.py` (per-stage `fcl` + `fcl_overrides` data; `submit_stage_prodtools` + local branch stop materializing; delete `_materialize_template` + `__GEOM_FILE__` substitution), `core/prodtools_exec.py` (`render_entry` carries `fcl_overrides` through)
+- Create: `core/pipeline_templates/mubeam_extras.fcl`, `run1b_mubeam_extras.fcl` (the outputCommands blocks, verbatim)
+- Delete: the five `core/pipeline_templates/<stage>/template.fcl` (transcribed, then removed)
+- Test: `tests/test_prodtools_exec.py` / `tests/test_pipeline_verbs.py`
+
+**Rules for the transcription (binding):**
+- Each template's non-include lines move VERBATIM into that stage's `fcl_overrides` dict (same keys, same values — including output fileName placeholder strings); the second `#include` (epilog_1b) becomes the `'#include'` override key, FIRST in the dict; `@sequence` lists go to the extras fcl instead.
+- The load-bearing comments in the templates (physics-list A/B rationale, prescale reasoning, MaxEventsToSkip provenance — wiki-linked) move to Python comments beside the per-stage overrides dicts. Zero comment content may be dropped.
+- Geometry: `services.GeometryService.inputFile: "autoresearch_<cfg>_geom.txt"` rendered per config (replaces `__GEOM_FILE__`); concat gets NO geom key (no G4); the concat-less `MaxEventsToSkip: 8000` conditional from `_materialize_template` moves to the same conditional in the overrides assembly (`hv.concatless` stamp-first, unchanged rule).
+- Entry `fcl` = the published path (e.g. `Production/JobConfig/pileup/MuBeamResampler.fcl`).
+- `write_code_tarball` `extra_files` now ships the extras fcl (mubeam/run1b only) instead of materialized templates; digest cache stays.
+
+- [ ] **Step 1: Failing tests** — golden entry per stage now asserts `fcl` (published path) + key `fcl_overrides` entries (geom basename, physics list, `'#include'` key placement); a test asserting no `*_template_materialized.fcl` is written; mubeam entry test asserts the extras fcl rides `'#include'` and is in the tarball's extra_files.
+- [ ] **Step 2: Implement; full suite green; commit.**
+- [ ] **Step 3: Offline re-validation (Mu2e env, NO submission):** re-run the Task-11 mubeam + mustops_ce checks under the new shape; diff jobfcl job-0 output against the pre-retirement Task-11 captures — semantically identical FCL required (report any delta as a finding, do not paper over).
+
+### Task 14: Stage-entry JSON templates out of `STAGES` (operator-approved extension, 2026-08-16)
+
+Per-stage job description becomes checked-in JSON in json2jobdef's native
+schema; `STAGES` shrinks to orchestration residue.
+
+**Files:**
+- Create: `stage_entries/<stage>.json` for the five stages — full entry template: `fcl`, `fcl_overrides` (with `{cfg}`/`{geom}` placeholders in string values), `resampler_name`, static Cat `input_data`, `inloc`, `outloc`, `run`, `memory`, default `events`
+- Modify: `core/pipeline.py` (entry assembly loads + substitutes the JSON; `STAGES` keeps ONLY `desc_fmt`, `njobs`, `events_per_job`, `output_glob`, `quorum`, `merge_factor`, `dsconf_musing` — runtime/orchestration values that mode_specs `stage_tuning` and `STAGE_TARGETS` tune), `core/prodtools_exec.py` if the substitution helper lands there
+- Test: goldens re-pointed at the JSON files; a test proving `stage_tuning` overrides flow into the rendered entry; a test that an unknown placeholder in a stage JSON fails loudly (no silent `{typo}` passthrough)
+
+**Rules (binding):**
+- Substitution is explicit and closed: only `{cfg}` and `{geom}` placeholders, applied to string values recursively; anything else in braces raises. Runtime fields (njobs, events, memory, staged `input_data`/`inloc`) are merged in by the assembly code, never templated.
+- The rendered `state/<stage>_entry.json` stays the audit record — unchanged contract.
+- Python comments carrying the physics rationale stay beside the assembly code; the JSON files carry none (JSON has no comments) — each JSON gets a `"_comment"` key pointing at the pipeline.py comment block (json2jobdef ignores unknown keys — verify that assumption against `_reject_unknown`-style validation in prodtools jobdesc before relying on it; if entries are strictly validated, drop the `_comment` key and rely on the Python-side comments alone).
+
+- [ ] **Step 1: Failing tests; Step 2: implement, suite green, commit; Step 3: one offline mubeam re-validation (env, no submission) proving byte-identical rendered entry JSON vs Task 13's.**
+
+---
+
 ## Out of plan (operator-gated live validation, from the spec)
 
 1. 2-job grid smoke through `submit` + `jobwait` (verifies ExitCode passthrough for OUR jobs).
