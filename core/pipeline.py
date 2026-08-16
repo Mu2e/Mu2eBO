@@ -5,9 +5,11 @@ Parametric grid pipeline orchestrator for the BO loop.
 Single canonical pipeline.py. Pass --config CFG; ROOT, GEOM_FILE, DSCONF,
 PNFS_STAGE and per-stage `desc` fields are derived from CFG. Stage templates
 live next to this script under pipeline_templates/<stage>/template.fcl with
-the geom basename slot marked `__GEOM_FILE__`; submit_stage materializes the
-template into <work_root>/<cfg>/state/<stage>_template_materialized.fcl
-before handing it to mu2ejobdef.
+the geom basename slot marked `__GEOM_FILE__`; `_materialize_template`
+materializes the template into
+<work_root>/<cfg>/state/<stage>_template_materialized.fcl before handing it
+to prodtools (json2jobdef via submit_stage_prodtools / cmd_submit's local
+branch).
 
 Per-config working tree (auto-created):
   <DATA_ROOT>/autoresearch_grid/<cfg>/
@@ -22,7 +24,9 @@ Stages run in sequence at a fixed BO knob point:
 Each stage is its own subcommand so a failed stage can be re-run without redoing
 the earlier ones.
 
-Polling uses jobsub_q --user=$USER and direct /pnfs ls.
+Polling uses prodtools jobwait (core/prodtools_exec.py:run_jobwait), which
+itself polls jobsub_q/condor history; autoresearch applies its own
+quorum/zero-ok acceptance policy on the wait.json it writes.
 Outstage convention: /pnfs/mu2e/scratch/users/$USER/workflow/default/outstage/<CLUSTER>/00/<hash>/
 """
 from __future__ import annotations
@@ -43,7 +47,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-# Host-wide lock guarding the mu2ejobsub critical section. condor_vault_storer
+# Host-wide lock guarding the token-refresh + submit critical section
+# (originally mu2ejobsub, now prodtools' submit_entry). condor_vault_storer
 # races when N concurrent chains call submit within seconds; serializing the
 # token-refresh+submit block eliminates the "Failed to obtain weakened token"
 # crashes (see wiki/incidents/concurrent-token-contention.md).
@@ -98,8 +103,6 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 import harvest as hv  # noqa: E402
 # ModeSpec registry (ADR-0002): per-mode grid-tarball facts.
 import modes as _modes  # noqa: E402
-# Local executor: local counterparts to the three grid-contact functions.
-import local_exec as lx  # noqa: E402
 # Prodtools execution seam: entry rendering + the shared wait.json contract.
 import prodtools_exec as px  # noqa: E402
 
@@ -166,7 +169,7 @@ def _stage_dsconf(stage: str) -> str:
 
 # Per-stage knobs (config-invariant). desc_fmt and template path are derived
 # at submit time from CONFIG. Inputs that vary per config (geom basename) are
-# substituted into the template via __GEOM_FILE__ in submit_stage.
+# substituted into the template via __GEOM_FILE__ in _materialize_template.
 STAGES = {
     "mubeam": {
         "desc_fmt": "Run1A_MuBeam_{cfg}",
@@ -391,10 +394,11 @@ def run(cmd, *, env=None, check=True, capture=True):
 def sourced_env(extra="", *, with_muse=False) -> dict:
     """Return an env dict with setupmu2e-art.sh + Run1Bak musing + mu2egrid sourced.
 
-    Use for invoking mu2ejobdef / mu2ejobsub from Python so the child process
-    sees the right PATH, MU2E_*_PATH, etc. Set with_muse=True for the harvest
-    step, which needs the EdepAna module built into our own autoresearch_muse
-    work area (mmackenz's copy went away at his p094→p101 bump, 2026-06-26).
+    Use for invoking mu2e / the prodtools binaries (json2jobdef, runlocal,
+    jobwait, submit_entry) from Python so the child process sees the right
+    PATH, MU2E_*_PATH, etc. Set with_muse=True for the harvest step, which
+    needs the EdepAna module built into our own autoresearch_muse work area
+    (mmackenz's copy went away at his p094→p101 bump, 2026-06-26).
     """
     # `muse setup` is ONE-SHOT per shell, and run_sourced_bash inherits this
     # process's env, so a launching shell that already ran it makes every
@@ -433,10 +437,11 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
             f"export LD_LIBRARY_PATH={mmlib}:$LD_LIBRARY_PATH && "
         )
     else:
-        # `muse setup ops` (spack-native) provides the mu2egrid binaries
-        # (/cvmfs/.../artexternals/mu2egrid/v8_03_02/bin/{mu2ejobsub,
-        # mu2ejobdef,mu2eprodsys}) via the active Musing's env, replacing the
-        # legacy UPS `setup mu2egrid`.
+        # `muse setup ops` (spack-native) provides mu2e's grid/ops tooling
+        # (condor/jobsub_lite client bits prodtools' own binaries shell out
+        # to; historically also the mu2egrid mu2ejobsub/mu2ejobdef binaries,
+        # retired with the prodtools switch) via the active Musing's env,
+        # replacing the legacy UPS `setup mu2egrid`.
         # NOTE: this swap does NOT prevent rc=127. That failure comes from a
         # transient [Errno 5] inside setupmu2e-art.sh (cvmfs read flake OR
         # the NFSv4.0 seqid wedge on ~/.spack locks -- see wiki/incidents/
@@ -610,10 +615,12 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
 def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> tuple[Path, Path]:
     """Build a /pnfs hard-link farm so all input files appear in one dir.
 
-    Needed because mu2ejobdef's --inputs only accepts basenames, and
-    mu2ejobsub's --default-location dir:DIR assumes all files live in DIR.
-    Hard links (not symlinks): xrootd doors don't follow /pnfs symlinks, but
-    hard links share the same dCache namespace entry. Returns (staged_dir, basenames_file).
+    Needed because prodtools' entry input_data is keyed by BASENAME only
+    (same constraint the retired mu2ejobdef --inputs / mu2ejobsub
+    --default-location dir:DIR had), and the entry's `inloc` assumes every
+    one of them lives in one DIR. Hard links (not symlinks): xrootd doors
+    don't follow /pnfs symlinks, but hard links share the same dCache
+    namespace entry. Returns (staged_dir, basenames_file).
     """
     staged_dir = PNFS_STAGE / stage
     if staged_dir.exists():
@@ -678,86 +685,6 @@ def local_input_farm(stage: str, sources: list[Path]) -> tuple[Path, dict]:
     return farm_dir, input_map
 
 
-def _grid_setup_sh() -> str:
-    """Worker-visible setup script for stages submitted with --setup.
-
-    MUSING may point at a LOCAL patched workdir's setup_local.sh (preflight
-    parity with the patched grid tarball — see
-    wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md).
-    Grid workers cannot see /exp, and the --setup path is sourced ON the
-    worker (mu2ejobsub.sh) — handing it a local path kills the job at setup
-    (foilsgV01 concat, 2026-06-12). Stages that use --setup instead of
-    --code (concat) run no geometry code, so the workdir's cvmfs *backing*
-    Musing is always sufficient: resolve it from the `backing` symlink.
-    """
-    if MUSING.startswith("/cvmfs/"):
-        return MUSING
-    backing = Path(MUSING).parent / "backing"
-    target = Path(os.path.realpath(backing))
-    if not str(target).startswith("/cvmfs/"):
-        raise SystemExit(
-            f"MUSING {MUSING} is local and {backing} does not resolve to a "
-            f"/cvmfs Musing — cannot build a worker-visible --setup jobdef"
-        )
-    return str(target / "setup.sh")
-
-
-def _probe_input_urls(stage: str, fcl_text: str) -> None:
-    """Verify job-0's resolved input files are readable BEFORE submitting.
-
-    EleBeamCat migrated persistent→tape mid-campaign (2026-07-09) and every
-    elebeam job died at FileOpenError ~30 s in: the URL comes from OUR
-    --default-location flag ('disk'==persistent), not SAM, so a stale
-    location silently kills the whole cluster. Probing the resolved URLs
-    turns 2,000 dead jobs into one loud submit-time error.
-
-    This is the AUTHORITATIVE gate for the incident class (the scan patterns
-    in graph/pipeline_io.py stay report-only). FAIL-CLOSED (2026-07-11,
-    friction-survey FP-5): the original version skipped any URL that didn't
-    match one hardcoded door name — a door rename would have recreated the
-    wipeout with the probe green on zero probes. Now any xrootd URL whose
-    path can't be mapped to a /pnfs NFS probe is a submit-time error, not a
-    skip. Emergency bypass: AUTORESEARCH_SKIP_INPUT_PROBE=1.
-    A stage whose FCL has NO xrootd inputs (no auxinput) probes nothing.
-    """
-    if os.environ.get("AUTORESEARCH_SKIP_INPUT_PROBE") == "1":
-        print(f"[{stage}] input probe SKIPPED (AUTORESEARCH_SKIP_INPUT_PROBE=1)",
-              flush=True)
-        return
-    urls = list(dict.fromkeys(re.findall(r'"(x?root://[^"]+\.art)"', fcl_text)))
-    if not urls:
-        return
-    probes = []
-    unmapped = []
-    for u in urls:
-        m = re.match(r"x?root://[^/]+//pnfs/fnal\.gov/usr/mu2e/(.+)", u)
-        if m:
-            probes.append(Path("/pnfs/mu2e") / m.group(1))
-        else:
-            unmapped.append(u)
-    if unmapped:
-        raise SystemExit(
-            f"[{stage}] input probe cannot map {len(unmapped)} xrootd URL(s) "
-            f"to /pnfs for a liveness check (first: {unmapped[0]}). "
-            f"Refusing to submit blind — this fail-open path is how the "
-            f"EleBeamCat tape-wipeout recurs. Extend _probe_input_urls's "
-            f"mapping or set AUTORESEARCH_SKIP_INPUT_PROBE=1 to override.")
-    # Probes are independent — fan out so wall time is max(probe), not sum
-    # (each dd blocks up to 10 s on a sick pool).
-    procs = [(p, subprocess.Popen(
-        ["timeout", "10", "dd", f"if={p}", "of=/dev/null", "bs=64k", "count=1"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        for p in probes[:4]]
-    for p, proc in procs:
-        if proc.wait() != 0:
-            raise SystemExit(
-                f"[{stage}] input probe FAILED: {p} not readable — dataset "
-                f"moved (persistent→tape?) or wrong default_loc; fix "
-                f"STAGES['{stage}']['default_loc'] before submitting. "
-                f"See wiki elebeamcat-tape-migration-elebeam-wipeout.")
-        print(f"[{stage}] input probe OK: {p.name}", flush=True)
-
-
 TOKEN_REFRESH_AGE_S = 3600  # refresh the shared bearer token when >1h old
 
 
@@ -809,47 +736,6 @@ def stamp_local_events(stage: str, events: int) -> Path:
     out = STATE / f"{stage}_events_per_job.txt"
     out.write_text(f"{events}\n")
     return out
-
-
-def _jobdef_cmd(stage: str, template_fcl: Path, dsconf: str, desc: str,
-                stage_dir: Path, *, inputs_file: Path | None = None,
-                events_per_job: int | None = None,
-                merge_factor: int | None = None) -> list[str]:
-    """Build the mu2ejobdef argv for a stage.
-
-    Single source of truth for both the grid path (submit_stage) and the local
-    path (cmd_local_build). Extracted rather than duplicated: a second copy of
-    these conditionals is exactly how the grid tarball drifted from the local
-    env in foilsflash-tarball-mode-key-omission, where preflight passed locally
-    while every grid job died.
-
-    events_per_job overrides STAGES[stage]["events_per_job"] so a local build
-    can request 200 events where the grid config says 5000. merge_factor
-    likewise: concat merges 200 files on the grid, but a local mubeam at
-    njobs=1 produced one, and mu2ejobdef yields ZERO jobs when the merge
-    factor exceeds the input count.
-    """
-    cfg = STAGES[stage]
-    jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER,
-              "--desc", desc, "--embed", str(template_fcl)]
-    if cfg["ships_geom"]:
-        base = Path(cfg["code_tarball"]) if "code_tarball" in cfg else None
-        tarball = write_code_tarball(stage_dir, base_tarball=base)
-        jobdef += ["--code", str(tarball)]
-    else:
-        jobdef += ["--setup", _grid_setup_sh()]
-    if "events_per_job" in cfg:
-        epj = cfg["events_per_job"] if events_per_job is None else events_per_job
-        jobdef += ["--run-number", str(cfg["run_number"]),
-                   "--events-per-job", str(epj)]
-    if "merge_factor" in cfg:
-        if inputs_file is None:
-            raise SystemExit(f"[{stage}] needs --inputs file but none provided")
-        mf = cfg["merge_factor"] if merge_factor is None else merge_factor
-        jobdef += ["--inputs", str(inputs_file), "--merge-factor", str(mf)]
-    if "auxinput" in cfg:
-        jobdef += [f"--auxinput={cfg['auxinput']}"]
-    return jobdef
 
 
 # Static resampler wiring per stage (was mu2ejobdef --auxinput). Only the
@@ -925,241 +811,31 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
     return cluster
 
 
-def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
-                 staged_input_dir: Path | None = None, dry_run: bool = False) -> int | None:
-    """Build cnf via mu2ejobdef, smoke-test with mu2ejobfcl, submit via mu2ejobsub.
-
-    Returns the cluster id (or None for dry-run).
-    """
-    cfg = STAGES[stage]
-    desc = _stage_desc(stage)
-    stage_dir = ROOT / stage
-    stage_dir.mkdir(parents=True, exist_ok=True)
-
-    # Materialize the template (substitute geom basename) into state/.
-    template_fcl = _materialize_template(stage)
-
-    dsconf = _stage_dsconf(stage)
-    cnf = stage_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
-    if cnf.exists():
-        print(f"[{stage}] removing existing cnf: {cnf.name}")
-        cnf.unlink()
-
-    jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
-                         inputs_file=inputs_file)
-    if "events_per_job" in cfg:
-        # Stamp the per-stage events_per_job at submit time so harvest reads
-        # the actual value used, not the current (possibly edited) dict.
-        # Without this, editing STAGES[*]["events_per_job"] between submit
-        # and harvest mis-scales ce_simulated_events / mubeam_sim_total
-        # → biases sob (helicalP01 false high, 2026-05-21).
-        (STATE / f"{stage}_events_per_job.txt").write_text(
-            f"{cfg['events_per_job']}\n"
-        )
-
-    # mu2ejobdef writes cnf.* in cwd
-    print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
-    subprocess.run(jobdef, cwd=stage_dir, env=env, check=True)
-
-    # smoke-test: ask mu2ejobfcl to print job-0's resolved fcl, then probe
-    # that the resolved input URLs are actually readable (liveness gate).
-    default_loc = f"dir:{staged_input_dir}" if staged_input_dir else cfg["default_loc"]
-    fcl_check = ["mu2ejobfcl", "--jobdef", cnf.name, "--index", "0",
-                 "--default-proto", "root", "--default-loc", default_loc]
-    print(f"$ (cd {stage_dir} && {shlex.join(fcl_check)})", flush=True)
-    fcl_proc = subprocess.run(fcl_check, cwd=stage_dir, env=env, check=True,
-                              capture_output=True, text=True)
-    _probe_input_urls(stage, fcl_proc.stdout)
-
-    if dry_run:
-        print(f"[{stage}] DRY-RUN: would submit {cfg['njobs']} job(s)")
-        return None
-
-    # Host-wide serialization of the token-refresh + submit block. Under
-    # concurrent load condor_vault_storer races; the lock guarantees only one
-    # process at a time touches the bearer token + mu2ejobsub.
-    with _submit_lock(stage):
-        _maybe_refresh_token(stage)
-
-        submit = ["mu2ejobsub", "--jobdef", cnf.name,
-                  "--firstjob", "0", "--njobs", str(cfg["njobs"]),
-                  "--default-location", default_loc, "--default-protocol", "root",
-                  "--predefined-args=al9"]
-        if "memory_mb" in cfg:
-            submit += ["--memory", f"{cfg['memory_mb']}MB"]
-        print(f"[{stage}] submitting: {shlex.join(submit)}")
-        try:
-            out = subprocess.run(submit, cwd=stage_dir, env=env, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as e:
-            # check=True raises BEFORE the print lines below, and str(exc) omits
-            # stderr → every mu2ejobsub rc!=0 was opaque (see wiki
-            # jobsub-disk-quota-stderr-swallowed). Surface stdout+stderr into the
-            # submit log before re-raising so the real cause is diagnosable.
-            print(e.stdout or "")
-            print("MU2EJOBSUB STDERR:\n" + (e.stderr or "(empty)"), file=sys.stderr)
-            raise
-        print(out.stdout)
-        if out.stderr.strip():
-            print("STDERR:", out.stderr, file=sys.stderr)
-
-        # parse "<N> job(s) submitted to cluster <CLUSTER>."
-        m = re.search(r"submitted to cluster\s+(\d+)", out.stdout)
-        if not m:
-            raise SystemExit(f"[{stage}] could not parse cluster id from mu2ejobsub output")
-        cluster = int(m.group(1))
-        (STATE / f"{stage}_cluster.txt").write_text(f"{cluster}\n")
-        _stamp_stage_config_sha(stage)
-        print(f"[{stage}] cluster={cluster}")
-        return cluster
-
-
-def poll_cluster(stage: str, cluster: int, *, quorum: float = 0.9,
-                 cap_hours: float = 24.0, runner=None) -> None:
-    """Wait until stage-out convergence (or wall-clock cap).
-
-    Convergence = (jobs left queue >= target) AND (settled bare-form
-    outstage dirs >= target). Polling jobsub_q alone is a lying proxy:
-    jobs exit the queue when they *start finishing*, but stage-out
-    (worker -> /pnfs copy + jobsub_lite hash->bare rename) is async and
-    lags by minutes. Without the outstage check, list_outputs would race
-    with stage-out and SystemExit on a missing base or undercount on a
-    partial dir. By gating poll on the same /pnfs ls that list_outputs
-    ultimately reads, we make list_outputs's precondition structural,
-    not hopeful. See wiki/incidents/stage-out-lag.md.
-    """
-    cfg = STAGES[stage]
-    target = max(1, int(cfg["njobs"] * quorum))
-    base = OUTSTAGE / str(cluster) / "00"
-    deadline = time.time() + cap_hours * 3600
-    while time.time() < deadline:
-        out = (runner or subprocess.run)(
-            ["jobsub_q", "-G", "mu2e", f"--user={USER}",
-             "--constraint", f"ClusterId=={cluster}"],
-            capture_output=True, text=True,
-        )
-        if out.returncode != 0:
-            # Don't silently treat a jobsub_q failure as "queue is empty" - that
-            # let the poll claim 200/200 finished within seconds of submission.
-            print(f"WARN: jobsub_q rc={out.returncode}; will retry. stderr:\n{out.stderr}",
-                  file=sys.stderr)
-            time.sleep(60)
-            continue
-        in_queue = sum(1 for line in out.stdout.splitlines()
-                       if re.match(rf"^{cluster}\.\d+@", line))
-        finished_q = cfg["njobs"] - in_queue
-        if base.exists():
-            # settled = bare-form (`00000`) only. jobsub_lite stages into
-            # hash form (`00000.6d475c59`), then renames to bare ONCE THE
-            # JOB EXITS ZERO. A perma-hash dir is either rename-in-flight
-            # or a FAILED job that wrote only the log — counting it as
-            # settled risks declaring success on a cluster where every job
-            # crashed. See wiki/incidents/stage-out-rename-race.md and
-            # concat-xrootd-fileopen-postendjob.md.
-            settled = sum(1 for d in base.iterdir() if d.name.isdigit())
-            # all_dirs = bare + hash-suffix. If queue is drained AND every
-            # job has produced *some* dir (bare or hash), stage-out is done
-            # one way or another; let list_outputs sort it out (it drains
-            # the genuine rename-in-flight tail and warns on the rest).
-            all_dirs = sum(1 for d in base.iterdir()
-                           if d.name.split(".", 1)[0].isdigit())
-        else:
-            settled = 0
-            all_dirs = 0
-        ts = dt.datetime.now().strftime("%H:%M:%S")
-        print(f"[{ts}] [{stage} cluster={cluster}] "
-              f"queue:{finished_q}/{cfg['njobs']} settled:{settled}/{cfg['njobs']} "
-              f"(target={target})", flush=True)
-        if finished_q >= target and settled >= target:
-            print(f"[{stage}] converged (queue={finished_q}, settled={settled})")
-            return
-        # Failure-aware exit: queue fully drained AND every job left some
-        # outstage dir (bare or hash). Bare-count <target means jobs failed;
-        # break loudly so list_outputs + harvest surface the failure rather
-        # than hang forever waiting for a rename that will never happen.
-        if in_queue == 0 and all_dirs >= cfg["njobs"] and settled < target:
-            print(f"[{stage}] WARN: queue drained, all {cfg['njobs']} dirs "
-                  f"present but only {settled}/{target} settled (bare-form). "
-                  f"{all_dirs - settled} dir(s) stuck in hash form — likely "
-                  f"failed jobs (e.g. xrootd PostEndJob). Proceeding so "
-                  f"list_outputs + harvest fail loudly.")
-            return
-        time.sleep(120)
-    print(f"[{stage}] WARN: 24h cap hit, proceeding with whatever landed")
-
-
-def list_outputs(stage: str, cluster: int) -> list[Path]:
-    """Glob outstage for stage outputs; persist as <stage>_outputs.txt.
-
-    Precondition: poll_cluster has converged, so `base` exists with at
-    least `quorum * njobs` bare-form subdirs. /pnfs may still be renaming
-    a small tail of hash-suffix subdirs; we drain those before globbing
-    so bare-only enumeration doesn't undercount. See incidents
-    stage-out-lag and stage-out-rename-race.
-    """
-    cfg = STAGES[stage]
-    base = OUTSTAGE / str(cluster) / "00"
-    if not base.exists():
-        # poll_cluster's convergence gate is supposed to guarantee this.
-        # If it fires, the gate has a bug or the cap-hours warning path
-        # let us through with nothing on disk - either way, fail loudly.
-        raise SystemExit(f"[{stage}] outstage missing after poll converged: {base}")
-
-    pattern = f"[0-9][0-9][0-9][0-9][0-9]/{cfg['output_glob']}"
-    for attempt in range(20):  # 20 × 30s = 10 min cap
-        pending = [d.name for d in base.iterdir()
-                   if "." in d.name and d.name.split(".", 1)[0].isdigit()]
-        if not pending:
-            break
-        print(f"[{stage}] {len(pending)} job dir(s) still mid-rename "
-              f"(e.g. {pending[0]}); sleeping 30s "
-              f"(attempt {attempt + 1}/20)")
-        time.sleep(30)
-    else:
-        print(f"[{stage}] WARN: rename pass did not quiesce after 10 min; "
-              f"globbing bare form anyway (may undercount)")
-
-    files = sorted(base.glob(pattern))
-    out_list = STATE / f"{stage}_outputs.txt"
-    out_list.write_text("\n".join(str(f) for f in files) + "\n")
-    print(f"[{stage}] {len(files)} output file(s) -> {out_list}")
-    return files
-
-
-# Stages the local executor can build today.
+# Stages the local executor (cmd_submit's --local branch) can run today.
 #
 # mubeam and elebeam_flash resample an EXTERNAL dataset through a static
 # auxinput filelist (MuBeamCat.txt / EleBeamCat.txt) and consume no prior
-# stage's output -- cmd_submit passes them inputs_file=None, so there is
-# nothing to stage and they need no local analogue of anything.
+# stage's output -- cmd_submit's local branch renders staged_inputs=None for
+# them, so there is nothing to stage.
 #
-# concat and mustops_ce do consume a prior stage: cmd_submit hard-links its
-# outputs into one /pnfs dir (stage_hardlink_farm) because mu2ejobdef's
-# --inputs takes basenames only. STAGE_INPUT_SOURCE below is the local
-# analogue; a stage absent from BOTH tuples is refused rather than handed a
-# cnf with no inputs, which mu2ejobdef accepts and which then yields a job
-# that silently reads nothing.
+# concat and mustops_ce do consume a prior stage: cmd_submit's local branch
+# resolves the previous stage inline (mustops_ce via hv.concatless, same
+# stamp-first rule the grid branch follows) and stages its outputs through
+# local_input_farm before rendering the entry. A stage absent from
+# LOCAL_SUPPORTED_STAGES is refused by _require_local_stage rather than
+# handed an entry with no inputs, which prodtools would accept and which
+# would then yield a job that silently reads nothing.
 LOCAL_SUPPORTED_STAGES = ("mubeam", "run1b_mubeam", "elebeam_flash",
                           "concat", "mustops_ce")
-
-# Stage -> the stage whose outputs it consumes. mustops_ce is resolved at call
-# time: a concat-less chain resamples mubeam's mu--pure TargetStops directly.
-# Stamp-first (hv.concatless), so a concat-era config re-run under a
-# concat-less env keeps staging its concat outputs -- same rule cmd_submit
-# follows.
-STAGE_INPUT_SOURCE = {
-    "concat": lambda: "mubeam",
-    "mustops_ce": lambda: ("mubeam" if hv.concatless(STATE, CONCATLESS)
-                           else "concat"),
-}
 
 
 def _require_local_stage(stage: str) -> None:
     """Refuse a stage the local executor cannot stage inputs for.
 
-    ONE helper, both verbs, so they cannot drift: `local-run` needs this as
-    much as `local-build` does, because it writes state/<stage>_cluster.txt --
-    and a runid sitting in, say, concat_cluster.txt trips cmd_submit's
-    idempotency guard, silently skipping a REAL grid submit of that stage.
+    Called both by cmd_submit's --local branch and directly by callers that
+    need the same three refusals (stage support, config-bound, grid-cluster
+    overwrite) without going through a full submit -- keeping it as one
+    helper means there is nowhere for the checks to drift apart.
     """
     if stage not in LOCAL_SUPPORTED_STAGES:
         raise SystemExit(
@@ -1169,18 +845,18 @@ def _require_local_stage(stage: str) -> None:
     # caller that skipped _bind_config writes <stage>_cluster.txt and friends
     # into cwd instead of the config's state dir. main() always binds, but a
     # test or a future caller need not: this cost a scatter of state files in
-    # the repo root the first time these verbs were reached unbound.
+    # the repo root the first time this verb was reached unbound.
     if not CONFIG:
         raise SystemExit(
             f"[{stage}] no config bound -- pass --config, or call "
             f"_bind_config() first. STATE would otherwise resolve to cwd.")
-    # A cluster file with no marker holds a REAL ClusterId. Both verbs go on
-    # to overwrite it (and <stage>_events_per_job.txt, which harvest divides
-    # by), so running local over a finished grid stage would silently rewrite
-    # that Eval's provenance -- the events-per-job-mid-flight-edit failure
-    # with a worse blast radius, since the true cluster id is then
-    # unrecoverable. cmd_submit's idempotency guard covers its own path; the
-    # bare verbs had nothing.
+    # A cluster file with no marker holds a REAL ClusterId. A local submit
+    # goes on to overwrite it (and <stage>_events_per_job.txt, which harvest
+    # divides by), so running local over a finished grid stage would
+    # silently rewrite that Eval's provenance -- the
+    # events-per-job-mid-flight-edit failure with a worse blast radius,
+    # since the true cluster id is then unrecoverable. cmd_submit's
+    # idempotency guard covers its own (grid) path; this covers the local one.
     cluster_file = STATE / f"{stage}_cluster.txt"
     if cluster_file.exists() and not local_marker(stage).exists():
         raise SystemExit(
@@ -1189,58 +865,16 @@ def _require_local_stage(stage: str) -> None:
             f"with a local runid. Use a different --config.")
 
 
-def _local_stage_inputs(stage: str) -> tuple:
-    """Stage a consuming stage's inputs from the PREVIOUS stage's local run.
-
-    Returns (inputs_file, default_loc, merge_factor) -- (None, configured
-    default_loc, None) for a stage that consumes nothing.
-
-    The prior stage must have run LOCALLY: its outputs.txt would otherwise
-    list /pnfs paths that this job would have to reach over xrootd, which is
-    a grid chain wearing a local hat. Refuse instead of half-doing it.
-    """
-    if stage not in STAGE_INPUT_SOURCE:
-        return None, STAGES[stage]["default_loc"], None
-    prev = STAGE_INPUT_SOURCE[stage]()
-    if not local_marker(prev).exists():
-        raise SystemExit(
-            f"[{stage}] consumes {prev}, which has no local run "
-            f"({local_marker(prev)} missing). Run '--config {CONFIG} "
-            f"local-build {prev}' and 'local-run {prev}' first.")
-    prev_outputs = STATE / f"{prev}_outputs.txt"
-    sources = [Path(p) for p in prev_outputs.read_text().split() if p.strip()]
-    if not sources:
-        raise SystemExit(
-            f"[{stage}] {prev_outputs.name} is empty -- the local {prev} run "
-            f"produced no output. Check its job log before rebuilding.")
-    staged, basenames = lx.local_farm(stage, CONFIG, sources, STATE)
-    mf = None
-    if "merge_factor" in STAGES[stage]:
-        mf = lx.clamp_merge_factor(STAGES[stage]["merge_factor"], len(sources))
-        if mf != STAGES[stage]["merge_factor"]:
-            print(f"[{stage}] merge factor clamped "
-                  f"{STAGES[stage]['merge_factor']} -> {mf} "
-                  f"({len(sources)} local input(s))")
-    if stage == "mustops_ce":
-        # Resamples the staged files through TargetStopResampler rather than
-        # merging them, so it takes auxinput and NOT --inputs -- exactly the
-        # split cmd_submit makes (it passes inputs_file=None here too).
-        STAGES[stage]["auxinput"] = (
-            f"1:physics.filters.TargetStopResampler.fileNames:{basenames}")
-        return None, f"dir:{staged}", mf
-    return basenames, f"dir:{staged}", mf
-
-
 def local_marker(stage: str) -> Path:
     """Marker file: state/<stage>_cluster.txt holds a runid, NOT a cluster id.
 
     Single source of truth for "this stage ran locally". AUTORESEARCH_LOCAL
     alone cannot carry it: `submit --local` is a FLAG, so a later `poll` or
-    `list-outputs` in a fresh process (no env var) would take next_runid's
-    small int for a ClusterId -- handing it to jobsub_q and then polling a
-    nonexistent /pnfs/.../<runid>/00 for the full 24h cap (the
-    poll-deadlock-missing-outstage-dirs shape), or globbing the grid outstage
-    for a bogus cluster.
+    `list-outputs` in a fresh process (no env var) would take the literal "1"
+    written by a local submit for a real ClusterId -- handing it to
+    `px.run_jobwait` (which has no internal timeout by design) as a jobid
+    for a cluster that was never submitted to condor, or reading a
+    <stage>_wait.json that runlocal, not jobwait, actually wrote.
     """
     return STATE / f"{stage}_local.txt"
 
@@ -1325,13 +959,16 @@ def _scale_default(env_var: str, fallback: int) -> int:
     return val
 
 
+# Local job pool size default (--local-pool / $AUTORESEARCH_LOCAL_POOL),
+# matching the retired local_exec.DEFAULT_POOL.
+DEFAULT_LOCAL_POOL = 4
+
+
 def _local_scale(args, stage: str) -> tuple:
     """(njobs, events) for one stage: flag, else env seam, else the default.
 
-    ONE resolver for every local-scale call site (local-build, local-run,
-    and submit --local's runlocal branch). They must agree -- diverging
-    scale resolution would build FCLs for N jobs and then run M of them, so
-    a drift here silently runs a subset (or dies on a missing index).
+    THE resolver for local-scale resolution (submit --local's runlocal
+    branch, its only call site since local-build/local-run were retired).
     """
     return (
         _resolve_scale(getattr(args, "local_njobs", None),
@@ -1341,100 +978,6 @@ def _local_scale(args, stage: str) -> tuple:
                        _scale_default("AUTORESEARCH_LOCAL_EVENTS", 200),
                        stage),
     )
-
-
-def cmd_local_build(args):
-    """Build this stage's per-index FCLs and stop. Nothing is executed."""
-    stage = args.stage
-    _require_local_stage(stage)
-    njobs, events = _local_scale(args, stage)
-    env = sourced_env()
-    stage_dir = ROOT / stage
-    stage_dir.mkdir(parents=True, exist_ok=True)
-    template_fcl = _materialize_template(stage)
-    dsconf = _stage_dsconf(stage)
-    desc = _stage_desc(stage)
-    cnf = stage_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
-    # Rebuild unconditionally, exactly as submit_stage does. Reusing whatever
-    # cnf happens to be on disk silently ignores --local-events and any
-    # template edit -- and that cnf is as likely as not one a GRID submit
-    # built, at the configured 5000 events/job. The spec's guarantee that
-    # `submit --local` always rebuilds is only true if this is the code that
-    # rebuilds.
-    if cnf.exists():
-        print(f"[{stage}] removing existing cnf: {cnf.name}")
-        cnf.unlink()
-    inputs_file, default_loc, merge_factor = _local_stage_inputs(stage)
-    jobdef = _jobdef_cmd(stage, template_fcl, dsconf, desc, stage_dir,
-                         inputs_file=inputs_file, events_per_job=events,
-                         merge_factor=merge_factor)
-    print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
-    subprocess.run(jobdef, cwd=str(stage_dir), env=env, check=True)
-    # default_loc is dir:<local farm> for a consuming stage, so mu2ejobfcl
-    # resolves the staged basenames to local paths instead of xrootd URLs.
-    lx.build_fcls(stage, cnf.name, stage_dir, STATE, njobs, default_loc, env)
-    stamp_local_events(stage, events)
-    print(f"[{stage}] local-build done; edit "
-          f"{STATE / 'fcl'}/{stage}_00000.fcl then 'local-run {stage}'")
-
-
-def local_job_env() -> dict:
-    """sourced_env() plus the per-config geom dir on MU2E_SEARCH_PATH.
-
-    The FCL names the geom by BASENAME (services.GeometryService.inputFile:
-    "autoresearch_<cfg>_geom.txt"), which only resolves via MU2E_SEARCH_PATH.
-    On the grid that path is extended by Code/setup_post.sh, written into
-    Code.tar.bz2 by write_code_tarball and sourced when the worker unpacks it.
-    Nothing unpacks that tarball locally, so without this the job runs to
-    "Can't find file ... _geom.txt" -- with a rc=1 whose real cause is buried
-    ~200 lines deep in the log, under the harmless exported-function noise.
-    Mirror setup_post.sh rather than inventing a second mechanism.
-    """
-    env = sourced_env()
-    geom_dir = str(GEOM_FILE.parent)
-    for var in ("MU2E_SEARCH_PATH", "FHICL_FILE_PATH"):
-        env[var] = f"{geom_dir}:{env[var]}" if env.get(var) else geom_dir
-    return env
-
-
-def cmd_local_run(args):
-    """Execute the FCLs already on disk, then list outputs."""
-    stage = args.stage
-    _require_local_stage(stage)
-    njobs, events = _local_scale(args, stage)
-    pool = (getattr(args, "local_pool", None)
-            or lx.scale_default("AUTORESEARCH_LOCAL_POOL", lx.DEFAULT_POOL))
-    # Console-only for now. The persisted form (a state file, and an
-    # fcl_edited field on the row) belongs with the phase that produces local
-    # rows; until then it would be a schema field nothing can ever set.
-    for name in lx.edited_fcls(STATE, stage):
-        print(f"[{stage}] FCL hand-edited: {name}")
-    runid = lx.next_runid(CONFIG)
-    # INVARIANT (write half): the runid and its marker are written together
-    # and cleared together, so a runid can never be present without its
-    # marker -- that is the whole basis on which poll/list-outputs decide the
-    # int in the cluster file is a runid and not a ClusterId.
-    # Marker FIRST: if the process dies between these two writes, the residue
-    # is a marker with no cluster file (poll no-ops; harmless) rather than a
-    # runid nothing distinguishes from a real cluster id (poll hangs the full
-    # 24h cap on a /pnfs dir that will never appear).
-    local_marker(stage).write_text(f"{runid}\n")
-    (STATE / f"{stage}_cluster.txt").write_text(f"{runid}\n")
-    # A local job reads its resampler inputs over xrootd exactly as a grid
-    # worker does, so it needs a live bearer token exactly as much -- an
-    # expired one surfaces as "Auth failed: No protocols left to try" inside
-    # a FatalRootError, ~300 lines into the job log. No _submit_lock here:
-    # the lock exists to serialize condor_vault_storer against concurrent
-    # submits, and a local run makes none.
-    _maybe_refresh_token(stage)
-    res = lx.run_jobs_local(stage, CONFIG, runid, STATE, njobs, events,
-                            local_job_env(), pool=pool)
-    stamp_local_events(stage, events)
-    lx.list_outputs_local(stage, CONFIG, runid,
-                          STAGES[stage]["output_glob"], STATE)
-    if res["failed"]:
-        print(f"[{stage}] WARNING: {len(res['failed'])} job(s) failed: "
-              f"{res['failed']}")
 
 
 def cmd_submit(args):
@@ -1456,13 +999,15 @@ def cmd_submit(args):
     # that matters did not.
     #
     # INVARIANT (clear half): drop the runid and its marker TOGETHER, runid
-    # first. submit_stage only rewrites <stage>_cluster.txt AFTER mu2ejobsub
-    # parses a cluster id, so unlinking the marker alone would leave the local
-    # runid behind, unmarked, on every path that never reaches that write:
-    # --dry-run returns early, and mu2ejobdef / mu2ejobfcl / _probe_input_urls
-    # / token refresh / mu2ejobsub can each raise before it. A later poll would
-    # then take that runid for a ClusterId -- the exact 24h-cap hang the marker
-    # exists to prevent, reintroduced by the marker's own cleanup.
+    # first. submit_stage_prodtools only rewrites <stage>_cluster.txt AFTER
+    # submit_cnf parses a cluster id, so unlinking the marker alone would
+    # leave the local runid behind, unmarked, on every path that never
+    # reaches that write: --dry-run returns early, and template
+    # materialization / code-tarball build / json2jobdef (build_cnf) / token
+    # refresh / submit_entry (submit_cnf) can each raise before it. A later
+    # poll would then take that runid for a ClusterId and hand it to
+    # px.run_jobwait -- the exact confusion the marker exists to prevent,
+    # reintroduced by the marker's own cleanup.
     if not want_local and local_marker(args.stage).exists():
         cluster_file.unlink(missing_ok=True)
         local_marker(args.stage).unlink(missing_ok=True)
@@ -1485,7 +1030,7 @@ def cmd_submit(args):
         # inloc at it.
         _require_local_stage(stage)
         pool = (getattr(args, "local_pool", None)
-               or _scale_default("AUTORESEARCH_LOCAL_POOL", lx.DEFAULT_POOL))
+               or _scale_default("AUTORESEARCH_LOCAL_POOL", DEFAULT_LOCAL_POOL))
         cfg = STAGES[stage]
         desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
         stage_dir = ROOT / stage
@@ -1565,15 +1110,15 @@ def cmd_submit(args):
             resampler_name=_resampler_name(stage))
         entry_path = px.write_entry(STATE, stage, entry)
         cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf, env)
-        # INVARIANT (write half, same as cmd_local_run's): marker FIRST, then
-        # the runid into <stage>_cluster.txt. If the process dies between
-        # these two writes, the residue is a marker with no cluster file
-        # (poll no-ops; harmless) rather than a runid nothing distinguishes
-        # from a real ClusterId (poll hands it to jobsub_q and waits out the
-        # 24h cap on a /pnfs dir that will never appear). With runlocal
-        # owning execution there is no run-numbering to manage -- the marker
-        # file is what carries "local"; the cluster file just needs a
-        # parseable int, so it is always the literal "1".
+        # INVARIANT (write half): marker FIRST, then the runid into
+        # <stage>_cluster.txt. If the process dies between these two writes,
+        # the residue is a marker with no cluster file (poll no-ops;
+        # harmless) rather than a runid nothing distinguishes from a real
+        # ClusterId (poll hands it to px.run_jobwait as a jobid for a
+        # cluster that was never submitted). With runlocal owning execution
+        # there is no run-numbering to manage -- the marker file is what
+        # carries "local"; the cluster file just needs a parseable int, so
+        # it is always the literal "1".
         local_marker(stage).write_text("1\n")
         (STATE / f"{stage}_cluster.txt").write_text("1\n")
         stamp_local_events(stage, events)
@@ -1634,14 +1179,6 @@ def cmd_poll(args):
         print(f"[{args.stage}] local mode: jobs already complete; poll is a no-op")
         return
     _check_stage_config_sha(args.stage)
-    if getattr(args, "cap_hours", None) is not None:
-        # jobwait has no internal timeout by design (the closed-loop
-        # barrier timeout is the backstop) -- --cap-hours is a no-op here.
-        # Kept accepted-but-ignored until Task 9 removes the flag so
-        # in-flight tooling that still passes it doesn't break mid-plan.
-        print(f"[{args.stage}] --cap-hours is deprecated and ignored "
-              f"(jobwait has no internal timeout; the closed-loop barrier "
-              f"timeout is the backstop)")
     cfg = STAGES[args.stage]
     stage_dir = ROOT / args.stage
     jid_file = STATE / f"{args.stage}_jobsub_id.txt"
@@ -2068,16 +1605,11 @@ def main():
                             "(default 4)")
     p_sub.set_defaults(func=cmd_submit)
 
-    p_poll = sub.add_parser("poll", help="Poll a stage's cluster until quorum or cap")
+    p_poll = sub.add_parser("poll", help="Wait for a stage's cluster via prodtools jobwait")
     p_poll.add_argument("stage", choices=list(STAGES))
     p_poll.add_argument("--quorum", type=float, default=None,
                         help="Fraction of jobs required (default: per-stage "
                              "STAGES['quorum'] if set, else 0.9)")
-    p_poll.add_argument("--cap-hours", type=float, default=24.0,
-                        help="DEPRECATED, ignored: jobwait has no internal "
-                             "timeout by design (the closed-loop barrier "
-                             "timeout is the backstop). Kept accepted so "
-                             "in-flight tooling doesn't break mid-plan.")
     p_poll.set_defaults(func=cmd_poll)
 
     p_ls = sub.add_parser("list-outputs", help="Glob outstage and persist file list")
@@ -2088,18 +1620,6 @@ def main():
 
     p_harv = sub.add_parser("harvest", help="Aggregate stage outputs into summary.json")
     p_harv.set_defaults(func=cmd_harvest)
-
-    for verb, fn in (("local-build", cmd_local_build),
-                     ("local-run", cmd_local_run)):
-        p_l = sub.add_parser(verb, help=f"{verb}: local executor")
-        p_l.add_argument("stage", choices=list(STAGES))
-        p_l.add_argument("--local-njobs", action="append",
-                         help="int, or <stage>=<int>; repeatable (default 1)")
-        p_l.add_argument("--local-events", action="append",
-                         help="int, or <stage>=<int>; repeatable (default 200)")
-        p_l.add_argument("--local-pool", type=int, default=None,
-                         help="max concurrent local jobs (default 4)")
-        p_l.set_defaults(func=fn)
 
     args = p.parse_args()
     _bind_config(args.config)

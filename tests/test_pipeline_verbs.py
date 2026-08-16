@@ -1,11 +1,16 @@
 """Grid-verb tests for core/pipeline.py: submit idempotency, stamp-at-submit,
-poll exit conditions (via injected jobsub_q runner), list-outputs gating.
-No grid contact: STATE/STAGES/OUTSTAGE are patched to tmp dirs and the
-jobsub/subprocess boundary is faked."""
+list-outputs gating, submit_stage_prodtools state writes, the local
+executor (cmd_submit --local via prodtools runlocal), and the small
+free-standing helpers (_require_local_stage, stamp_local_events,
+sourced_env guards, local scale resolution, local_input_farm).
+No grid contact: STATE/STAGES/ROOT are patched to tmp dirs and the
+prodtools_exec (px) / subprocess boundary is faked."""
 import contextlib
 import copy
+import errno
 import io
 import json
+import math
 import os
 import subprocess
 import sys
@@ -20,14 +25,6 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import pipeline  # noqa: E402
 import harvest as hv  # noqa: E402
-
-
-def _q_result(rc=0, stdout=""):
-    return SimpleNamespace(returncode=rc, stdout=stdout, stderr="")
-
-
-def _queue_lines(cluster, n):
-    return "\n".join(f"{cluster}.{i}@jobsub01.fnal.gov" for i in range(n))
 
 
 class TestSubmitIdempotency(unittest.TestCase):
@@ -69,86 +66,22 @@ class TestSubmitIdempotency(unittest.TestCase):
             self.assertEqual(hv.stamped_stage_chain(Path(tmp)), ["oldchain"])
 
 
-class TestPollExitConditions(unittest.TestCase):
-    def _outstage(self, tmp, cluster, bare, hashed):
-        base = Path(tmp) / str(cluster) / "00"
-        base.mkdir(parents=True)
-        for i in range(bare):
-            (base / f"{i:05d}").mkdir()
-        for i in range(hashed):
-            (base / f"{bare + i:05d}.6d475c59").mkdir()
-
-    def test_returns_on_convergence_without_sleeping(self):
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.dict(pipeline.STAGES, {"poke": {"njobs": 4}}), \
-             mock.patch.object(pipeline, "OUTSTAGE", Path(tmp)), \
-             mock.patch.object(pipeline.time, "sleep",
-                               side_effect=AssertionError("slept")):
-            self._outstage(tmp, 123, bare=4, hashed=0)
-            runner = mock.Mock(return_value=_q_result(0, ""))  # queue drained
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                pipeline.poll_cluster("poke", 123, runner=runner)  # returns, no sleep
-            self.assertEqual(runner.call_count, 1)
-            self.assertIn("converged", buf.getvalue())
-
-    def test_failure_aware_exit_queue_drained_all_dirs_but_unsettled(self):
-        # 2 bare + 2 perma-hash = all 4 dirs present, settled < target=3:
-        # must return (WARN) so list_outputs/harvest fail loudly, not hang.
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.dict(pipeline.STAGES, {"poke": {"njobs": 4}}), \
-             mock.patch.object(pipeline, "OUTSTAGE", Path(tmp)), \
-             mock.patch.object(pipeline.time, "sleep",
-                               side_effect=AssertionError("slept")):
-            self._outstage(tmp, 123, bare=2, hashed=2)
-            runner = mock.Mock(return_value=_q_result(0, ""))
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                pipeline.poll_cluster("poke", 123, runner=runner)
-            self.assertEqual(runner.call_count, 1)
-            output = buf.getvalue()
-            self.assertIn("stuck in hash form", output)
-            self.assertNotIn("converged", output)
-
-    def test_not_yet_converged_sleeps_then_retries(self):
-        # 2 still in queue: finished_q=2 < target=3 -> not converged; in_queue
-        # != 0 so the failure-aware exit can't fire either -> sleeps once,
-        # then the second poll sees a drained queue and converges.
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.dict(pipeline.STAGES, {"poke": {"njobs": 4}}), \
-             mock.patch.object(pipeline, "OUTSTAGE", Path(tmp)), \
-             mock.patch.object(pipeline.time, "sleep") as slept:
-            self._outstage(tmp, 123, bare=4, hashed=0)
-            runner = mock.Mock(side_effect=[_q_result(0, _queue_lines(123, 2)),
-                                            _q_result(0, "")])
-            pipeline.poll_cluster("poke", 123, runner=runner)
-            self.assertEqual(runner.call_count, 2)
-            slept.assert_called_once_with(120)
-
-    def test_jobsub_q_failure_is_retried_not_treated_as_empty_queue(self):
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.dict(pipeline.STAGES, {"poke": {"njobs": 4}}), \
-             mock.patch.object(pipeline, "OUTSTAGE", Path(tmp)), \
-             mock.patch.object(pipeline.time, "sleep") as slept:
-            self._outstage(tmp, 123, bare=4, hashed=0)
-            runner = mock.Mock(side_effect=[_q_result(1, ""),
-                                            _q_result(0, "")])
-            pipeline.poll_cluster("poke", 123, runner=runner)
-            self.assertEqual(runner.call_count, 2)
-            slept.assert_called_once_with(60)
-
-
 class TestListOutputsGating(unittest.TestCase):
     def test_noop_when_outputs_listed_and_resolvable(self):
+        # cmd_list_outputs' idempotency guard: when the listed paths already
+        # resolve, it must skip re-deriving from state/<stage>_wait.json
+        # (px.read_wait) entirely -- retired mu2ejobsub-era coverage used to
+        # assert this against the module-level `list_outputs` glob-walker,
+        # which cmd_list_outputs no longer calls at all (Task 3).
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.object(pipeline, "list_outputs") as lo:
+             mock.patch.object(pipeline.px, "read_wait") as rw:
             f = Path(tmp) / "some.art"
             f.write_text("x")
             (Path(tmp) / "poke_outputs.txt").write_text(f"{f}\n")
             pipeline.cmd_list_outputs(SimpleNamespace(stage="poke",
                                                       force=False))
-            lo.assert_not_called()
+            rw.assert_not_called()
 
     def test_reglobs_when_listed_paths_vanished(self):
         # Re-derivation now reads state/<stage>_wait.json (prodtools_exec,
@@ -526,7 +459,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
             # import time (foilsflash's tuning overrides the base 5000/1800
             # in a normal test run) -- assert against the live STAGES dict,
             # not the module's base literals, same convention as
-            # TestPipelineLocalWiring in test_local_exec.py.
+            # TestCmdSubmitLocalViaRunlocal below.
             self.assertEqual(entry["events"],
                              pipeline.STAGES["mubeam"]["events_per_job"])
             self.assertEqual(entry["run"],
@@ -641,6 +574,746 @@ class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
             _, input_map = kwargs["staged_inputs"]
             self.assertEqual(set(input_map.values()), {1})
             self.assertEqual(len(input_map), 4)
+
+
+class TestRequireLocalStage(unittest.TestCase):
+    """pipeline._require_local_stage: the three refusals shared by
+    cmd_submit's --local branch (its sole caller since local-build/
+    local-run were retired in the prodtools-switch deletion sweep) --
+    stage support, config-bound, and grid-cluster overwrite. Ported from
+    tests/test_local_exec.py (TestLocalRefusesToClobberAGridCluster plus
+    the two local-build/local-run refusal tests, now calling the helper
+    directly instead of through a dead verb)."""
+
+    def test_a_real_cluster_id_with_no_marker_is_refused(self):
+        # Both a local submit and a direct call overwrite <stage>_cluster.txt
+        # AND the events-per-job stamp harvest divides by, so running local
+        # over a finished grid stage rewrites that Eval's provenance and
+        # loses the cluster id.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("70314159\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"):
+                with self.assertRaises(SystemExit) as cm:
+                    pipeline._require_local_stage("mubeam")
+        self.assertIn("70314159", str(cm.exception))
+
+    def test_a_local_runid_is_re_runnable(self):
+        # Marker present => the int is a runid this executor wrote. Re-running
+        # local is ordinary (it allocates the next runid), not a clobber.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("1\n")
+            (state / "mubeam_local.txt").write_text("1\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"):
+                pipeline._require_local_stage("mubeam")  # must not raise
+
+    def test_unsupported_stage_is_refused(self):
+        # Every stage in STAGES is supported today, so pin the GATE rather
+        # than a particular stage -- a stage added to STAGES later must be
+        # opted in deliberately, not inherited. This matters because a local
+        # submit writes state/<stage>_cluster.txt: a runid parked there trips
+        # cmd_submit's idempotency guard and silently suppresses a REAL grid
+        # submit of that stage.
+        with mock.patch.object(pipeline, "LOCAL_SUPPORTED_STAGES",
+                               ("mubeam",)), \
+             self.assertRaises(SystemExit):
+            pipeline._require_local_stage("concat")
+
+    def test_refuses_when_no_config_is_bound(self):
+        # STATE's unbound default is Path() -- the CURRENT DIRECTORY. Reaching
+        # this without _bind_config scatters <stage>_cluster.txt, _local.txt,
+        # _outputs.txt and a materialized template into cwd, which is how
+        # they first landed in the repo root.
+        with mock.patch.object(pipeline, "CONFIG", ""), \
+             self.assertRaises(SystemExit) as cm:
+            pipeline._require_local_stage("mubeam")
+        self.assertIn("no config bound", str(cm.exception))
+
+
+class TestSourcedEnvGuards(unittest.TestCase):
+    """pipeline.sourced_env: shell-function parsing + the pre-sourced-shell
+    refusal. Ported verbatim from tests/test_local_exec.py."""
+
+    def test_sourced_env_drops_truncated_exported_shell_functions(self):
+        # `env` prints an exported bash function across multiple lines, so a
+        # line-based parser captures a body with no closing brace. Passing
+        # that to a child yields "syntax error: unexpected end of file" ~10x
+        # per shell spawn -- hundreds of lines per job log, which is what hid
+        # the two real failures the first local smoke run turned up.
+        out = ("PATH=/usr/bin\n"
+               "BASH_FUNC_muse%%=() {  source ${MUSE_DIR}/bin/muse\n"
+               "}\n"
+               "MU2E_SEARCH_PATH=/cvmfs/x\n")
+        with mock.patch.object(pipeline, "run_sourced_bash",
+                               return_value=SimpleNamespace(
+                                   returncode=0, stdout=out, stderr="")):
+            env = pipeline.sourced_env()
+        self.assertEqual(env["PATH"], "/usr/bin")
+        self.assertEqual(env["MU2E_SEARCH_PATH"], "/cvmfs/x")
+        self.assertEqual([k for k in env if k.startswith("BASH_FUNC_")], [])
+
+    def test_muse_already_set_up_fails_fast_instead_of_retrying(self):
+        # `muse setup` is one-shot per shell and run_sourced_bash inherits
+        # this process's env, so the prelude fails with "Muse already setup
+        # for directory" -- then burns all four retries (~50s) on a condition
+        # no retry can fix, surfacing as a bare CalledProcessError.
+        with mock.patch.dict(os.environ,
+                             {"MUSE_WORK_DIR": "/somewhere/Offline"}), \
+             mock.patch.object(pipeline, "run_sourced_bash") as rsb:
+            with self.assertRaises(SystemExit) as cm:
+                pipeline.sourced_env()
+        rsb.assert_not_called()
+        self.assertIn("fresh shell", str(cm.exception))
+
+
+class TestStampLocalEvents(unittest.TestCase):
+    def test_events_stamp_carries_the_local_value_not_the_configured_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state):
+                pipeline.stamp_local_events("mustops_ce", 200)
+            self.assertEqual(
+                (state / "mustops_ce_events_per_job.txt").read_text().strip(),
+                "200")
+
+
+class TestLocalScaleResolution(unittest.TestCase):
+    """pipeline._resolve_scale / _scale_default / _local_scale: the
+    free-standing scale-dial resolver (Task 6's lx-free rewrite) backing
+    cmd_submit's --local branch. Ported from tests/test_local_exec.py's
+    TestScaleDials/TestLocalScaleEnvSeam, which exercised the byte-for-byte
+    identical retired local_exec.resolve_scale/scale_default twins -- these
+    now point directly at the live functions so the validation logic (loud
+    ValueErrors on malformed/negative/zero input, order-independent
+    per-stage override) keeps coverage now that module is gone.
+
+    test_both_verbs_resolve_the_scale_identically (the "N call sites agree"
+    invariant, asserted by grepping pipeline.py's source for
+    `_local_scale(args, stage)`) is dropped rather than ported: its premise
+    was multiple verbs (local-build, local-run, submit --local) sharing one
+    resolver; with local-build/local-run retired there is exactly one call
+    site left, so the invariant it pinned no longer applies.
+    """
+
+    def test_none_gives_the_default(self):
+        self.assertEqual(pipeline._resolve_scale(None, 1, "mubeam"), 1)
+
+    def test_bare_value_applies_to_every_stage(self):
+        self.assertEqual(pipeline._resolve_scale(["4"], 1, "mubeam"), 4)
+        self.assertEqual(pipeline._resolve_scale(["4"], 1, "concat"), 4)
+
+    def test_per_stage_override_wins_regardless_of_order(self):
+        self.assertEqual(
+            pipeline._resolve_scale(["1", "elebeam_flash=4"], 1,
+                                    "elebeam_flash"), 4)
+        self.assertEqual(
+            pipeline._resolve_scale(["elebeam_flash=4", "1"], 1,
+                                    "elebeam_flash"), 4)
+        self.assertEqual(
+            pipeline._resolve_scale(["1", "elebeam_flash=4"], 1, "mubeam"), 1)
+
+    def test_a_malformed_entry_is_a_loud_error(self):
+        with self.assertRaises(ValueError):
+            pipeline._resolve_scale(["notanumber"], 1, "mubeam")
+        with self.assertRaises(ValueError):
+            pipeline._resolve_scale(["mubeam=x"], 1, "mubeam")
+
+    def test_whitespace_around_equals_is_stripped(self):
+        self.assertEqual(
+            pipeline._resolve_scale(["mubeam = 4"], 1, "mubeam"), 4)
+
+    def test_empty_key_after_strip_raises(self):
+        with self.assertRaises(ValueError):
+            pipeline._resolve_scale(["=4"], 1, "mubeam")
+
+    def test_negative_bare_value_raises(self):
+        with self.assertRaises(ValueError):
+            pipeline._resolve_scale(["-4"], 1, "mubeam")
+
+    def test_zero_bare_value_raises(self):
+        with self.assertRaises(ValueError):
+            pipeline._resolve_scale(["0"], 1, "mubeam")
+
+    def test_negative_per_stage_value_raises(self):
+        with self.assertRaises(ValueError):
+            pipeline._resolve_scale(["mubeam=-1"], 1, "mubeam")
+
+    def test_env_var_supplies_the_default(self):
+        with mock.patch.dict(os.environ,
+                             {"AUTORESEARCH_LOCAL_EVENTS": "5000"}):
+            self.assertEqual(
+                pipeline._scale_default("AUTORESEARCH_LOCAL_EVENTS", 200),
+                5000)
+
+    def test_unset_or_blank_falls_back(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("AUTORESEARCH_LOCAL_EVENTS", None)
+            self.assertEqual(
+                pipeline._scale_default("AUTORESEARCH_LOCAL_EVENTS", 200), 200)
+            os.environ["AUTORESEARCH_LOCAL_EVENTS"] = "   "
+            self.assertEqual(
+                pipeline._scale_default("AUTORESEARCH_LOCAL_EVENTS", 200), 200)
+
+    def test_a_junk_or_zero_value_raises_rather_than_silently_defaulting(self):
+        # Silently falling back would run 200 events while the operator
+        # believed they had asked for 5000 -- and harvest scales every metric
+        # it computes by that number.
+        for bad in ("5k", "0", "-3", "2.5"):
+            with self.subTest(bad=bad):
+                with mock.patch.dict(os.environ,
+                                     {"AUTORESEARCH_LOCAL_EVENTS": bad}):
+                    with self.assertRaises(ValueError):
+                        pipeline._scale_default(
+                            "AUTORESEARCH_LOCAL_EVENTS", 200)
+
+    def test_an_explicit_flag_still_beats_the_env_var(self):
+        with mock.patch.dict(os.environ,
+                             {"AUTORESEARCH_LOCAL_EVENTS": "5000"}):
+            njobs, events = pipeline._local_scale(
+                SimpleNamespace(local_njobs=None, local_events=["77"]),
+                "mubeam")
+        self.assertEqual((njobs, events), (1, 77))
+
+
+class TestLocalInputFarm(unittest.TestCase):
+    """pipeline.local_input_farm: the local analogue of stage_hardlink_farm
+    (kept verbatim for the grid). Flat farm at ROOT/<stage>/local_inputs,
+    hard-linking a prior local stage's spread-out outputs into one dir so
+    inloc: dir:<farm> can see them. Ported verbatim from
+    tests/test_local_exec.py."""
+
+    def test_links_n_files_flat_and_returns_the_basenames_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src_dir = Path(tmp) / "src"
+            src_dir.mkdir()
+            sources = []
+            for i in range(3):
+                f = src_dir / f"sim.x.MuminusStopsCat.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES,
+                                 {"concat": {"merge_factor": 200}},
+                                 clear=True):
+                farm_dir, input_map = pipeline.local_input_farm(
+                    "concat", sources)
+            self.assertEqual(farm_dir,
+                             Path(tmp) / "root" / "concat" / "local_inputs")
+            self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
+                             sorted(s.name for s in sources))
+            # merge_factor (200) CLAMPED to the input count (3).
+            self.assertEqual(input_map, {s.name: 3 for s in sources})
+
+    def test_mustops_ce_map_values_are_all_one(self):
+        # mustops_ce has no merge_factor (TargetStopResampler, not a merge).
+        with tempfile.TemporaryDirectory() as tmp:
+            src_dir = Path(tmp) / "src"
+            src_dir.mkdir()
+            sources = []
+            for i in range(5):
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES, {"mustops_ce": {}},
+                                 clear=True):
+                _, input_map = pipeline.local_input_farm(
+                    "mustops_ce", sources)
+            self.assertEqual(set(input_map.values()), {1})
+            self.assertEqual(len(input_map), 5)
+
+    def test_falls_back_to_copy_across_a_device_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.art"
+            src.write_text("data")
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES,
+                                 {"concat": {"merge_factor": 200}},
+                                 clear=True), \
+                 mock.patch.object(
+                     pipeline.os, "link",
+                     side_effect=OSError(errno.EXDEV, "cross-device link")):
+                farm_dir, input_map = pipeline.local_input_farm(
+                    "concat", [src])
+            linked = farm_dir / "src.art"
+            self.assertFalse(linked.is_symlink())
+            self.assertEqual(linked.read_text(), "data")
+            self.assertEqual(input_map, {"src.art": 1})
+
+    def test_a_non_exdev_oserror_still_propagates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.art"
+            src.write_text("data")
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES,
+                                 {"concat": {"merge_factor": 200}},
+                                 clear=True), \
+                 mock.patch.object(
+                     pipeline.os, "link",
+                     side_effect=OSError(errno.EACCES, "permission denied")):
+                with self.assertRaises(OSError):
+                    pipeline.local_input_farm("concat", [src])
+
+    def test_a_second_call_clears_the_prior_farm_contents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src_dir = Path(tmp) / "src"
+            src_dir.mkdir()
+            a = src_dir / "a.art"
+            a.write_text("a")
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
+                 mock.patch.dict(pipeline.STAGES, {"mustops_ce": {}},
+                                 clear=True):
+                farm_dir, _ = pipeline.local_input_farm("mustops_ce", [a])
+                b = src_dir / "b.art"
+                b.write_text("b")
+                farm_dir2, input_map = pipeline.local_input_farm(
+                    "mustops_ce", [b])
+            self.assertEqual(farm_dir, farm_dir2)
+            self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
+                             ["b.art"])
+            self.assertEqual(input_map, {"b.art": 1})
+
+
+class TestCmdSubmitLocalMarkerHandling(unittest.TestCase):
+    """cmd_submit's marker write/clear invariants around a local run,
+    exercised at the (grid-branch dry-run, grid-branch real) / (local-branch
+    re-entry) seams. Ported verbatim from tests/test_local_exec.py's
+    TestPipelineLocalWiring."""
+
+    def test_a_forced_grid_submit_clears_the_local_runid_not_just_its_marker(self):
+        # submit_stage_prodtools rewrites <stage>_cluster.txt only AFTER
+        # submit_cnf parses a cluster id, so every grid path that never gets
+        # there must not leave the local runid behind unmarked -- a later
+        # poll would hand that small int to px.run_jobwait as a bogus jobid.
+        # --dry-run is the cheapest such path (it still builds the cnf but
+        # returns before submit_cnf); a raise anywhere before the submit has
+        # the same shape. Asserted on the CLUSTER FILE, not the marker: a
+        # test that checks only the marker passes against the bug this pins.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("3\n")     # as local-run
+            (state / "mubeam_cluster.txt").write_text("3\n")   # ... a runid
+            with mock.patch.dict(os.environ), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=Path(tmp) / "t.fcl"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=Path(tmp) / "mubeam" / "cnf.x.tar"):
+                os.environ.pop("AUTORESEARCH_LOCAL", None)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=True, dry_run=True, local=False))
+            self.assertFalse(
+                (state / "mubeam_cluster.txt").exists(),
+                "the local runid survived a forced grid submit that never "
+                "reached submit_cnf -- poll would send it to run_jobwait")
+            self.assertFalse((state / "mubeam_local.txt").exists())
+
+    def test_an_unforced_grid_submit_after_a_local_run_really_submits(self):
+        # The un-forced path is the one a graph child takes. cmd_submit's
+        # idempotency guard cannot tell a runid from a ClusterId, so with the
+        # marker-clear placed after it a plain `submit mubeam` following any
+        # local run printed "already submitted (cluster=1)" and did NOTHING --
+        # the exact residue the marker was introduced to prevent, surviving in
+        # the one verb that owns the marker. --force is not the fix; it is the
+        # workaround nobody types.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")     # as local-run
+            (state / "mubeam_cluster.txt").write_text("1\n")   # ... a runid
+            with mock.patch.dict(os.environ), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "submit_stage_prodtools") as ss:
+                os.environ.pop("AUTORESEARCH_LOCAL", None)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=False, local=False))
+            ss.assert_called_once()
+            self.assertFalse((state / "mubeam_local.txt").exists())
+
+    def test_a_local_submit_does_not_clear_its_own_marker(self):
+        # The clear is gated on "this is a GRID submit". A `submit --local`
+        # re-entry must leave the marker alone, or the window between the
+        # clear and the runlocal branch's rewrite is a runid-shaped cluster
+        # file with no marker -- the state the invariant forbids.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            (state / "mubeam_cluster.txt").write_text("1\n")
+            with mock.patch.dict(os.environ), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=Path(tmp) / "t.fcl"), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=Path(tmp) / "mubeam" /
+                                   "cnf.x.tar"), \
+                 mock.patch.object(pipeline.px, "run_runlocal",
+                                   return_value=0), \
+                 mock.patch.object(pipeline, "submit_stage_prodtools") as ss:
+                os.environ.pop("AUTORESEARCH_LOCAL", None)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=True, dry_run=False, local=True,
+                    local_njobs=None, local_events=None, local_pool=None))
+            ss.assert_not_called()
+            self.assertTrue((state / "mubeam_local.txt").exists())
+
+
+class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
+    """`submit --local` on a non-consuming stage: same prodtools render/build
+    sequence the grid path uses, but at LOCAL njobs/events, executed here via
+    prodtools runlocal instead of submitted to the grid. Zero grid contact:
+    px.build_cnf and px.run_runlocal are mocked (real invocation is
+    prodtools_exec's own responsibility, covered in test_prodtools_exec.py).
+    Ported verbatim from tests/test_local_exec.py (added there in Task 6/7).
+    """
+
+    def _patches(self, tmp, *, build_cnf=None, run_runlocal=None):
+        cnf = build_cnf or (Path(tmp) / "mubeam" / "cnf.x.tar")
+        return [
+            mock.patch.object(pipeline, "ROOT", Path(tmp)),
+            mock.patch.object(pipeline, "CONFIG", "cfg001"),
+            mock.patch.object(pipeline, "sourced_env",
+                              return_value={"X": "1"}),
+            mock.patch.object(pipeline, "_maybe_refresh_token"),
+            mock.patch.object(pipeline, "write_code_tarball",
+                              return_value=Path(tmp) / "Code.tar.bz2"),
+            mock.patch.object(pipeline, "_materialize_template",
+                              return_value=Path(tmp) / "t.fcl"),
+            mock.patch.object(pipeline.px, "build_cnf", return_value=cnf),
+            mock.patch.object(pipeline.px, "run_runlocal",
+                              return_value=(run_runlocal
+                                           if run_runlocal is not None
+                                           else 0)),
+        ]
+
+    def _consuming_stage_patches(self, tmp):
+        # cmd_submit's local branch calls sourced_env()/_materialize_template
+        # BEFORE the consuming-stage refusal checks (same order the old
+        # cmd_local_build had -- see submit_stage_prodtools's docstring),
+        # so even a refusal test needs these faked: sourced_env() for real
+        # shells out to setupmu2e-art.sh (~20s, and only succeeds in a
+        # pre-configured interactive shell), and an unmocked ROOT defaults
+        # to Path() (cwd), leaving stray <stage>/ dirs in the repo checkout.
+        return [
+            mock.patch.object(pipeline, "ROOT", Path(tmp)),
+            mock.patch.object(pipeline, "CONFIG", "cfg001"),
+            mock.patch.object(pipeline, "sourced_env",
+                              return_value={"X": "1"}),
+            mock.patch.object(pipeline, "_maybe_refresh_token"),
+            mock.patch.object(pipeline, "write_code_tarball",
+                              return_value=Path(tmp) / "Code.tar.bz2"),
+            mock.patch.object(pipeline, "_materialize_template",
+                              return_value=Path(tmp) / "t.fcl"),
+            mock.patch.object(pipeline.px, "build_cnf",
+                              return_value=Path(tmp) / "x" / "cnf.x.tar"),
+            mock.patch.object(pipeline.px, "run_runlocal", return_value=0),
+        ]
+
+    def test_a_consuming_stage_refuses_when_its_input_stage_never_ran_local(self):
+        # concat/mustops_ce need the PREVIOUS stage's local marker -- the same
+        # refusal the retired mu2ejobdef-based local executor made. Without
+        # it, <prev>_outputs.txt holds /pnfs paths, and farming those locally
+        # is a grid chain wearing a local hat.
+        for stage, prev in (("concat", "mubeam"), ("mustops_ce", "mubeam")):
+            with tempfile.TemporaryDirectory() as tmp:
+                state = Path(tmp) / "state"
+                state.mkdir()
+                with self.subTest(stage=stage), \
+                     mock.patch.object(pipeline, "STATE", state), \
+                     mock.patch.object(pipeline, "CONCATLESS", True), \
+                     contextlib.ExitStack() as stack:
+                    for p in self._consuming_stage_patches(tmp):
+                        stack.enter_context(p)
+                    with self.assertRaises(SystemExit) as cm:
+                        pipeline.cmd_submit(SimpleNamespace(
+                            stage=stage, force=False, dry_run=False,
+                            local=True, local_njobs=None, local_events=None,
+                            local_pool=None))
+                self.assertIn("no local run", str(cm.exception))
+                self.assertIn(prev, str(cm.exception))
+
+    def test_mustops_ce_refuses_when_prev_outputs_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                with self.assertRaises(SystemExit) as cm:
+                    pipeline.cmd_submit(SimpleNamespace(
+                        stage="mustops_ce", force=False, dry_run=False,
+                        local=True, local_njobs=None, local_events=None,
+                        local_pool=None))
+            self.assertIn("mubeam_outputs.txt", str(cm.exception))
+
+    def test_mustops_ce_refuses_when_prev_outputs_file_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            (state / "mubeam_outputs.txt").write_text("")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                with self.assertRaises(SystemExit) as cm:
+                    pipeline.cmd_submit(SimpleNamespace(
+                        stage="mustops_ce", force=False, dry_run=False,
+                        local=True, local_njobs=None, local_events=None,
+                        local_pool=None))
+            self.assertIn("empty", str(cm.exception))
+
+    def test_concat_stages_a_local_farm_and_scales_njobs_to_source_count(self):
+        # merge_factor patched small so 5 local sources yield njobs > 1 --
+        # otherwise the default merge_factor (200) always clamps to
+        # njobs=ceil(n/n)=1 and the scaling behavior is untestable.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            src_dir = Path(tmp) / "mubeam_out"
+            src_dir.mkdir()
+            sources = []
+            for i in range(5):
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            (state / "mubeam_outputs.txt").write_text(
+                "\n".join(str(s) for s in sources) + "\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.dict(pipeline.STAGES["concat"],
+                                 {"merge_factor": 2}), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                rr = stack.enter_context(
+                    mock.patch.object(pipeline.px, "run_runlocal",
+                                      return_value=0))
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="concat", force=False, dry_run=False, local=True,
+                    local_njobs=None, local_events=None, local_pool=None))
+
+            entry = json.loads((state / "concat_entry.json").read_text())[0]
+            merge = min(2, 5)  # clamped merge factor
+            self.assertEqual(entry["input_data"],
+                             {s.name: merge for s in sources})
+            farm_dir = Path(tmp) / "concat" / "local_inputs"
+            self.assertEqual(entry["inloc"], f"dir:{farm_dir}")
+            self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
+                             sorted(s.name for s in sources))
+            self.assertEqual(entry["njobs"], math.ceil(5 / merge))
+            call_args, _ = rr.call_args
+            self.assertEqual(call_args[2], math.ceil(5 / merge))
+
+    def test_concat_local_njobs_flag_overrides_the_computed_default(self):
+        # Operator wins: an explicit --local-njobs beats the
+        # ceil(len(sources)/merge) default this task adds.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            src_dir = Path(tmp) / "mubeam_out"
+            src_dir.mkdir()
+            sources = []
+            for i in range(5):
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            (state / "mubeam_outputs.txt").write_text(
+                "\n".join(str(s) for s in sources) + "\n")
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.dict(pipeline.STAGES["concat"],
+                                 {"merge_factor": 2}), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="concat", force=False, dry_run=False, local=True,
+                    local_njobs=["9"], local_events=None, local_pool=None))
+
+            entry = json.loads((state / "concat_entry.json").read_text())[0]
+            self.assertEqual(entry["njobs"], 9)
+
+    def test_mustops_ce_stages_a_local_farm_with_merge_one_and_default_njobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_local.txt").write_text("1\n")
+            src_dir = Path(tmp) / "mubeam_out"
+            src_dir.mkdir()
+            sources = []
+            for i in range(3):
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
+                f.write_text("x")
+                sources.append(f)
+            (state / "mubeam_outputs.txt").write_text(
+                "\n".join(str(s) for s in sources) + "\n")
+            # No stage-chain stamp exists (the local branch never writes
+            # one), so mustops_ce's prev-stage resolution falls back to the
+            # module-level CONCATLESS constant -- force it True (mubeam) so
+            # this test doesn't depend on which mode was live at import.
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 contextlib.ExitStack() as stack:
+                for p in self._consuming_stage_patches(tmp):
+                    stack.enter_context(p)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mustops_ce", force=False, dry_run=False,
+                    local=True, local_njobs=None, local_events=None,
+                    local_pool=None))
+
+            entry = json.loads((state / "mustops_ce_entry.json").read_text())[0]
+            self.assertEqual(entry["input_data"], {s.name: 1 for s in sources})
+            farm_dir = Path(tmp) / "mustops_ce" / "local_inputs"
+            self.assertEqual(entry["inloc"], f"dir:{farm_dir}")
+            # njobs stays at the plain local-scale default (1) -- resolution
+            # #3 keeps mustops_ce's local njobs as-is, unlike concat's
+            # source-count scaling.
+            self.assertEqual(entry["njobs"], 1)
+
+    def test_renders_and_stamps_with_the_local_scale_not_the_grid_cfg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            patches = self._patches(tmp)
+            with mock.patch.object(pipeline, "STATE", state), \
+                 contextlib.ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=False, local=True,
+                    local_njobs=["3"], local_events=["77"],
+                    local_pool=None))
+
+            # render_entry got the LOCAL njobs/events, not STAGES["mubeam"]'s
+            # grid-scale 200 x 5000.
+            entry = json.loads(
+                (state / "mubeam_entry.json").read_text())[0]
+            self.assertEqual(entry["njobs"], 3)
+            self.assertEqual(entry["events"], 77)
+            self.assertNotEqual(entry["njobs"],
+                                pipeline.STAGES["mubeam"]["njobs"])
+
+            # harvest's stamp carries the LOCAL events value.
+            self.assertEqual(
+                (state / "mubeam_events_per_job.txt").read_text().strip(),
+                "77")
+
+    def test_writes_marker_before_cluster_txt_with_the_literal_runid(self):
+        order = []
+        real_write_text = Path.write_text
+
+        def spy(self, data, *a, **kw):
+            order.append(self.name)
+            return real_write_text(self, data, *a, **kw)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            patches = self._patches(tmp)
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(Path, "write_text", spy), \
+                 contextlib.ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=False, local=True,
+                    local_njobs=None, local_events=None, local_pool=None))
+
+            marker = state / "mubeam_local.txt"
+            cluster = state / "mubeam_cluster.txt"
+            self.assertTrue(marker.exists())
+            self.assertTrue(cluster.exists())
+            self.assertEqual(cluster.read_text().strip(), "1")
+            self.assertEqual(marker.read_text().strip(), "1")
+            self.assertIn("mubeam_local.txt", order)
+            self.assertIn("mubeam_cluster.txt", order)
+            self.assertLess(order.index("mubeam_local.txt"),
+                            order.index("mubeam_cluster.txt"),
+                            "the runid was written before its marker")
+
+    def test_run_runlocal_gets_the_built_cnf_local_njobs_and_shared_wait_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            cnf = Path(tmp) / "mubeam" / "cnf.x.tar"
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "sourced_env",
+                                   return_value={"X": "1"}), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=Path(tmp) / "t.fcl"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=cnf), \
+                 mock.patch.object(pipeline.px, "run_runlocal",
+                                   return_value=0) as rr:
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=False, local=True,
+                    local_njobs=["3"], local_events=["77"],
+                    local_pool=None))
+            call_args, call_kwargs = rr.call_args
+        self.assertEqual(call_args[0], Path(tmp) / "mubeam")   # stage_dir
+        self.assertEqual(call_args[1], cnf)
+        self.assertEqual(call_args[2], 3)                      # LOCAL njobs
+        # the SAME wait.json path the grid path (jobwait) writes -- what
+        # makes cmd_list_outputs executor-blind.
+        self.assertEqual(call_args[3],
+                         pipeline.px.wait_json_path(state, "mubeam"))
+        self.assertEqual(call_kwargs["code_tarball"],
+                         Path(tmp) / "Code.tar.bz2")
+        self.assertEqual(call_kwargs["pool"], 4)  # DEFAULT_LOCAL_POOL, unset flag
+
+    def test_local_pool_flag_overrides_the_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "sourced_env",
+                                   return_value={"X": "1"}), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=Path(tmp) / "t.fcl"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=Path(tmp) / "mubeam" /
+                                   "cnf.x.tar"), \
+                 mock.patch.object(pipeline.px, "run_runlocal",
+                                   return_value=0) as rr:
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=False, local=True,
+                    local_njobs=None, local_events=None, local_pool=2))
+            _, call_kwargs = rr.call_args
+        self.assertEqual(call_kwargs["pool"], 2)
 
 
 if __name__ == "__main__":

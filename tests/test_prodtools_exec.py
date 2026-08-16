@@ -318,6 +318,41 @@ class TestCmdPollViaJobwait(unittest.TestCase):
                                               cap_hours=24.0))
         rj.assert_not_called()
 
+    def test_the_env_var_alone_does_not_make_poll_skip_a_live_grid_cluster(self):
+        # AUTORESEARCH_LOCAL is an ACTIVATION switch (cmd_submit reads it to
+        # choose local mode), never a DETECTION signal. An operator who
+        # exported it for a study and then launched a campaign from the same
+        # shell must still get a real poll: if the env var alone made
+        # _is_local_stage true, this poll would silently no-op on a LIVE
+        # cluster and the chain would march on to harvest jobs that have not
+        # finished. Ported from tests/test_local_exec.py (added there before
+        # the prodtools switch's run_jobwait rewrite).
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "mubeam_cluster.txt").write_text("70314159\n")  # a real one
+            # ... and NO mubeam_local.txt.
+
+            def fake_run_jobwait(stage_dir, cnf, jobid, njobs, wait_json,
+                                 env, **kw):
+                Path(wait_json).write_text(json.dumps(
+                    {"jobdef": "cnf.t.tar", "jobs": [], "ok": 999999,
+                     "failed": [], "unknown": []}))
+                return 0
+
+            with mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "_check_stage_config_sha"), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline.px, "run_jobwait",
+                                   side_effect=fake_run_jobwait) as pc:
+                pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
+                                                  cap_hours=24.0))
+        pc.assert_called_once()
+        # jobid arg (position 2) falls back to <stage>_cluster.txt when no
+        # <stage>_jobsub_id.txt exists.
+        self.assertEqual(pc.call_args[0][2], "70314159")
+
     def test_jobsub_id_file_wins_over_cluster_txt(self):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \

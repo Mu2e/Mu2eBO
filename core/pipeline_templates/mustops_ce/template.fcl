@@ -2,8 +2,10 @@
 
 # Re-runs G4 on Ce primaries placed at resampled mu- stop positions.
 # Geometry-dependent, so the BO geom overlay travels with this stage via --code.
-# physics.filters.TargetStopResampler.fileNames is filled by mu2ejobdef
-# --auxinput=1:physics.filters.TargetStopResampler.fileNames:LIST.
+# physics.filters.TargetStopResampler.fileNames is filled by prodtools
+# json2jobdef from the entry's resampler_name/input_data/inloc fields (see
+# core/prodtools_exec.py render_entry; was mu2ejobdef --auxinput=... before
+# the prodtools switch).
 
 # FTFP_BERT physics list - extending the mubeam A/B result to the Ce signal
 # stage. This affects the sob numerator directly, so monitor the first
