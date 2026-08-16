@@ -500,6 +500,27 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
     return env
 
 
+def _extra_files_digest(extra_files: list[Path] | None) -> str:
+    """Order-independent content digest of (basename, bytes) for every
+    extra_file — the cache-staleness signal for write_code_tarball.
+
+    Content, not mtime: _materialize_template unconditionally write_text()s
+    the per-stage FCL on every call (even when its text is byte-identical
+    to what's already cached), so an mtime-based check is "now > cache"
+    every single time and can never observe a reuse. A content digest
+    reuses correctly on a same-content resubmit/retry and still forces a
+    rebuild the moment a stage's FCL text (or which stage's FCL is being
+    shipped) actually changes.
+    """
+    h = hashlib.sha256()
+    for f in sorted(extra_files or [], key=lambda p: p.name):
+        h.update(f.name.encode())
+        h.update(b"\0")
+        h.update(f.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
 def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
                        extra_files: list[Path] | None = None) -> Path:
     """Build Code.tar.bz2 for the --code path.
@@ -533,25 +554,32 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
         raise SystemExit(f"muse base tarball missing: {base_tarball}")
 
     # Per-config cache (2026-07-10): the tarball content is fully determined
-    # by (base_tarball, GEOM_FILE, extra_files), all identical across a
-    # config's stages EXCEPT extra_files (a fresh per-stage FCL rewritten by
-    # _materialize_template right before this call, so its mtime is always
-    # "now") — so build ONCE per config and reuse — was ~7-12 min of
-    # unpack+rebzip2 per stage per child, 2/3 of it redundant (~10 min/eval
-    # critical path + 3x disk churn; see bo-noise-budget tarball lever).
-    # Guard: cache must be newer than every input (a re-proposed geom, a
-    # rebuilt base, or a just-materialized stage FCL not yet baked into the
-    # cached tarball all invalidate) — without the extra_files leg, the
-    # cache built at stage A's first submit would be silently reused for
-    # every later stage, shipping A's FCL and never B's, C's, ... A config's
+    # by (base_tarball, GEOM_FILE, extra_files) — build ONCE per (config,
+    # extra_files content) and reuse — was ~7-12 min of unpack+rebzip2 per
+    # stage per child, 2/3 of it redundant (~10 min/eval critical path + 3x
+    # disk churn; see bo-noise-budget tarball lever).
+    #
+    # extra_files staleness is CONTENT-based (_extra_files_digest), not
+    # mtime: _materialize_template rewrites the per-stage FCL immediately
+    # before every write_code_tarball call, so its mtime is always "now" —
+    # an mtime check can never observe a same-content reuse and silently
+    # reintroduces the full rebuild cost on every single submit (found in
+    # review of the first cut of this fix). A digest sidecar file records
+    # what's actually baked into `cache`; a resubmit/retry with
+    # byte-identical FCL text reuses it, while a genuinely different stage
+    # (or edited FCL) invalidates it — without this leg at all, the cache
+    # built at stage A's first submit would be silently reused for every
+    # later stage, shipping A's FCL and never B's, C's, ... A config's
     # submits are serial (incl. the elebeam presubmit, which runs inside the
     # mubeam node), so no build race.
     cache = ROOT / f"Code.{base_tarball.stem.split('.')[0]}.tar.bz2"
+    digest_file = cache.parent / f"{cache.name}.extra_files_sha256"
+    current_digest = _extra_files_digest(extra_files)
     if (cache.exists()
             and cache.stat().st_mtime > GEOM_FILE.stat().st_mtime
             and cache.stat().st_mtime > base_tarball.stat().st_mtime
-            and all(cache.stat().st_mtime > f.stat().st_mtime
-                   for f in (extra_files or []))):
+            and digest_file.exists()
+            and digest_file.read_text().strip() == current_digest):
         print(f"[tarball] reusing cached {cache.name}", flush=True)
         return cache
 
@@ -573,6 +601,7 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
     tmp = cache.with_suffix(".tmp")
     shutil.move(tarball, tmp)
     tmp.rename(cache)  # atomic within ROOT: readers never see a partial file
+    digest_file.write_text(current_digest)
     shutil.rmtree(code_dir, ignore_errors=True)
     return cache
 

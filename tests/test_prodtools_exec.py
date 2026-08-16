@@ -282,3 +282,32 @@ class TestSubmitCnf(unittest.TestCase):
         self.assertIn("prodtools_submit_driver.py", joined)
         self.assertIn("--entry", joined)
         self.assertIn("--ledger", joined)
+
+    def test_cluster_id_present_but_jobsub_id_missing_is_systemexit(self):
+        # A cluster_id with no derivable schedd can't be jobwait'd -- must
+        # fail loudly here, at submit time, not silently degrade to a bare
+        # cluster number that only surfaces as a confusing jobwait failure
+        # later (review finding 2, 2026-08-16).
+        out = ('SUBMIT_RESULT {"cluster_id": 86123999, '
+               '"jobsub_id": null, "status": "submitted"}\n')
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            with self.assertRaises(SystemExit) as cm:
+                pex.submit_cnf(Path(td), Path(td) / "e.json",
+                               Path(td) / "l.db", "o", {},
+                               runner=self._runner(out))
+        self.assertIn("86123999", str(cm.exception))
+
+    def test_cluster_id_present_but_jobsub_id_malformed_is_systemexit(self):
+        # A non-empty jobsub_id with no "@schedd" (e.g. a bare cluster
+        # string, or garbage) is just as unusable as None -- same guard.
+        out = ('SUBMIT_RESULT {"cluster_id": 86123999, '
+               '"jobsub_id": "not-a-jobsub-id", "status": "submitted"}\n')
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            with self.assertRaises(SystemExit):
+                pex.submit_cnf(Path(td), Path(td) / "e.json",
+                               Path(td) / "l.db", "o", {},
+                               runner=self._runner(out))

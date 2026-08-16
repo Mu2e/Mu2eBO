@@ -358,8 +358,11 @@ class TestGetTokenMtimeGate(unittest.TestCase):
 class TestWriteCodeTarballExtraFiles(unittest.TestCase):
     """write_code_tarball's extra_files param (prodtools switch, Task 4):
     ships the per-stage materialized FCL beside the geom in Code/, the same
-    search-path mechanism the geom already uses. Real tar/bzip2 subprocess
-    calls only -- no grid contact."""
+    search-path mechanism the geom already uses. Staleness for extra_files
+    is CONTENT-based (_extra_files_digest), not mtime -- _materialize_template
+    always rewrites the FCL fresh right before this is called, so an
+    mtime-only gate can never observe a reuse (review finding 1, 2026-08-16).
+    Real tar/bzip2 subprocess calls only -- no grid contact."""
 
     def _make_base_tarball(self, tmp):
         src = Path(tmp) / "basesrc"
@@ -419,6 +422,41 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
             self.assertEqual(cnf_a, cnf_b)  # same shared per-config cache path
             listing = self._tar_listing(cnf_b)
         self.assertIn("Code/run1b_mubeam_template_materialized.fcl", listing)
+
+    def test_identical_extra_files_content_reuses_the_cache(self):
+        # The staleness signal must be CONTENT, not mtime:
+        # _materialize_template always rewrites the per-stage FCL fresh
+        # right before write_code_tarball is called, so its mtime is
+        # always "now" -- an mtime-only gate can never observe a reuse and
+        # silently reintroduces the full unpack+rebzip2 cost on every
+        # single submit, including a same-stage retry with byte-identical
+        # text (review finding 1, 2026-08-16). Proven here by spying on
+        # the module-level `run` helper (the only thing that shells out to
+        # tar/bzip2): a second call whose extra_files basename+bytes are
+        # byte-identical to the first must NOT invoke it again.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg"
+            stage_dir = root / "mubeam"
+            stage_dir.mkdir(parents=True)
+            geom = root / "geom.txt"
+            geom.write_text("geom\n")
+            extra = root / "mubeam_template_materialized.fcl"
+            extra.write_text('#include "geom.txt"\n')
+            base = self._make_base_tarball(tmp)
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom):
+                cnf_1 = pipeline.write_code_tarball(
+                    stage_dir, base_tarball=base, extra_files=[extra])
+                with mock.patch.object(pipeline, "run",
+                                       wraps=pipeline.run) as run_spy:
+                    # Same basename, same bytes -- exactly what a real
+                    # resubmit's _materialize_template call produces (a
+                    # fresh mtime, identical text).
+                    extra.write_text('#include "geom.txt"\n')
+                    cnf_2 = pipeline.write_code_tarball(
+                        stage_dir, base_tarball=base, extra_files=[extra])
+                run_spy.assert_not_called()
+            self.assertEqual(cnf_1, cnf_2)
 
 
 class TestSubmitStageProdtools(unittest.TestCase):

@@ -112,7 +112,11 @@ def submit_cnf(stage_dir, entry_path, ledger_db, origin, env,
 
     SystemExit (driver's stderr) if no cluster id came back -- the
     driver's submit_entry already closed the ledger reservation on
-    failure, so there is nothing here to unwind.
+    failure, so there is nothing here to unwind. Also SystemExit if
+    cluster_id came back but jobsub_id is missing/malformed (no "@schedd"
+    to parse): a bare cluster id can't be jobwait'd, so silently returning
+    one here would only surface as a confusing jobwait failure downstream
+    instead of a clear one at submit time.
     """
     driver = Path(__file__).resolve().parent / "prodtools_submit_driver.py"
     cmd = ["python3", str(driver),
@@ -128,11 +132,16 @@ def submit_cnf(stage_dir, entry_path, ledger_db, origin, env,
             data = json.loads(line[len("SUBMIT_RESULT "):])
             if data.get("cluster_id"):
                 jobsub = data.get("jobsub_id") or ""
-                # NNNN.P@schedd -> NNNN@schedd (what jobwait wants).
                 cluster = int(data["cluster_id"])
-                schedd = jobsub.split("@", 1)[1] if "@" in jobsub else ""
-                jid = f"{cluster}@{schedd}" if schedd else str(cluster)
-                return cluster, jid
+                if "@" not in jobsub:
+                    raise SystemExit(
+                        f"prodtools submitted cluster {cluster} but returned "
+                        f"no usable jobsub_id (got {jobsub!r}) -- cannot "
+                        f"derive a schedd for jobwait. Raw SUBMIT_RESULT: "
+                        f"{line.strip()}")
+                # NNNN.P@schedd -> NNNN@schedd (what jobwait wants).
+                schedd = jobsub.split("@", 1)[1]
+                return cluster, f"{cluster}@{schedd}"
     raise SystemExit(f"prodtools submit failed rc={res.returncode}:\n"
                      f"{res.stdout}\n{res.stderr}")
 
