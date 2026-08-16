@@ -44,7 +44,8 @@ from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
     Leaderboard, Point, to_py_scalars,   # are public API of this module)
     _flock_ex, _flock_sh, _lock_path)
 
-from paths import REPO_ROOT as ROOT, GRID_DATA_ROOT  # single root resolver, see core/paths.py
+from paths import REPO_ROOT as ROOT  # single root resolver, see core/paths.py
+from paths import BO_WORK, GRID_DATA_ROOT
 from paths import leaderboard_archive, leaderboard_live
 
 # graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
@@ -245,8 +246,8 @@ class JsonMode(BOMode):
         # leaderboards/ are read-only priors both operators start warm from.
         self.leaderboard = leaderboard_live(spec.leaderboard_rel)
         self.leaderboard_archive = leaderboard_archive(spec.leaderboard_rel)
-        self.proposal_dir = ROOT / "bo_work" / "proposals" / name
-        self.preflight_dir = ROOT / "bo_work" / "preflight" / name
+        self.proposal_dir = BO_WORK / "proposals" / name
+        self.preflight_dir = BO_WORK / "preflight" / name
 
     def _geom_text(self, x) -> str:
         return _modes.SPECS[self.name].geom.render(x)

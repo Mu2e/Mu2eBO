@@ -72,6 +72,17 @@ BACKING = _resolve_backing()
 GRID_DATA_ROOT = DATA_ROOT / "autoresearch_grid"
 GRAPH_DATA = DATA_ROOT / "autoresearch_graph_data"
 LEADERBOARD_LIVE = DATA_ROOT / "autoresearch_leaderboards"
+# propose/preflight scratch: candidate geom files and preflight G4 logs. This
+# is runtime OUTPUT, so it belongs on /data with everything else the runner
+# writes. It sat under REPO_ROOT until 2026-08-13, where it made `propose` die
+# with PermissionError for anyone running from a checkout they do not own
+# (mmackenz, running tools/run_local.sh out of another user's worktree).
+BO_WORK = DATA_ROOT / "autoresearch_bo_work"
+
+# A concrete path beats a "<them>" placeholder: the person hitting this
+# error is usually new and does not know whose area to name. Same value
+# the README's Quick start prints, so the two never disagree.
+_EXAMPLE_BACKING = "/exp/mu2e/app/users/oksuzian"  # personal-path-ok: the published artifact area, see README
 
 
 def _relative(rel: str, what: str) -> Path:
@@ -145,8 +156,11 @@ def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
                     f"mode {spec.name!r}: {field} not found at {p}\n"
                     f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
                     f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
-                    f"Point at an operator who has it:\n"
-                    f"    ./setup.sh --backing /exp/mu2e/app/users/<them>\n"
+                    f"Point at an operator who has it -- copy-paste "
+                    f"either line:\n"
+                    f"    ./setup.sh --backing {_EXAMPLE_BACKING}\n"
+                    f"    export AUTORESEARCH_BACKING={_EXAMPLE_BACKING}"
+                    f"   # if the checkout is not yours to write\n"
                     f"or build your own (see README, 'Artifacts').")
     for path, what in extra:
         p = Path(path)
@@ -155,9 +169,11 @@ def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
                 f"{what} not found at {p}\n"
                 f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
                 f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
-                f"Every mode's harvest needs it. Point at an operator who "
-                f"has it:\n"
-                f"    ./setup.sh --backing /exp/mu2e/app/users/<them>")
+                f"Every mode's harvest needs it. Point at an operator "
+                f"who has it -- copy-paste either line:\n"
+                f"    ./setup.sh --backing {_EXAMPLE_BACKING}\n"
+                f"    export AUTORESEARCH_BACKING={_EXAMPLE_BACKING}"
+                f"   # if the checkout is not yours to write")
     if make_dirs:
         for d in (GRID_DATA_ROOT, GRAPH_DATA, LEADERBOARD_LIVE):
             try:

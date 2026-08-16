@@ -243,6 +243,32 @@ class TestArchivePlusLive(unittest.TestCase):
         lb = self._lb()
         self.assertEqual(lb.pending_path().parent, self.live.parent)
 
+    def test_a_read_only_archive_dir_still_loads(self):
+        """Someone else's checkout is READ-ONLY to you.
+
+        Locking the archive created <its dir>/locks/<name>.lock, so merely
+        READING the committed priors needed WRITE access to the repo. That
+        died with PermissionError inside propose for a colleague running
+        run_local.sh out of another user's worktree (2026-08-13).
+        """
+        repo = self.tmp / "someone_elses_repo" / "leaderboards"
+        repo.mkdir(parents=True)
+        archive = repo / "archive.tsv"
+        lb = Leaderboard(path=self.live, name="m", archive_path=archive,
+                         knob_names=("a",), knob_fmts=("{:.3f}",),
+                         metric_cols=("sob", "calo", "alpha", "obj"))
+        archive.write_text(
+            lb.header()
+            + "prior\t2.000\t4.00000\t2.00000e-06\t0.000\t4.00000\n")
+        mode = repo.stat().st_mode
+        repo.chmod(0o500)                      # r-x: readable, NOT writable
+        try:
+            self.assertEqual([p.cfg for p in lb.load()], ["prior"])
+            self.assertFalse((repo / "locks").exists(),
+                             "reading the archive must not write to the repo")
+        finally:
+            repo.chmod(mode)                   # else tearDown cannot remove it
+
 
 if __name__ == "__main__":
     unittest.main()

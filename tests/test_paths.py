@@ -162,6 +162,25 @@ class TestEveryModuleAgreesOnTheRoot(unittest.TestCase):
         self.assertEqual(harvest.MUSE_WORKAREA,
                          paths.artifact("autoresearch_muse"))
 
+    def test_propose_and_preflight_scratch_is_not_in_the_repo(self):
+        """Runtime OUTPUT never anchors on REPO_ROOT.
+
+        proposal_dir/preflight_dir did until 2026-08-13, so `propose` wrote a
+        candidate geom into the checkout -- fine when you own it,
+        PermissionError when you are running someone else's (mmackenz, via
+        tools/run_local.sh). Writable roots must derive from DATA_ROOT, which
+        is per-operator by construction.
+        """
+        import bo_driver
+        for mode in bo_driver.MODES.values():
+            for d in (mode.proposal_dir, mode.preflight_dir):
+                self.assertFalse(
+                    str(d).startswith(str(paths.REPO_ROOT)),
+                    f"{mode.name}: {d} is inside the repo")
+                self.assertTrue(
+                    str(d).startswith(str(paths.DATA_ROOT)),
+                    f"{mode.name}: {d} is not under DATA_ROOT")
+
     def test_graph_modules_use_the_resolver(self):
         sys.path.insert(0, str(ROOT / "graph"))
         import config
