@@ -314,12 +314,17 @@ def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
 
     Primary source: `<state>/<stage>_outputs.txt` -- each .art path's parent
     dir already IS the per-worker outstage dir, so globbing *.log there
-    self-adapts to whichever backend wrote it. That only covers jobs that
-    produced an .art though, so it goes blind on a cluster where every job
-    died before output (nothing to scan for a root cause).
+    self-adapts to whichever backend wrote it. Once outputs.txt has
+    entries, this is authoritative and returned as-is (even if empty --
+    e.g. stage-out-lag/-rename-race means a job's .log hasn't landed next
+    to its .art yet; falling through to a cluster-wide glob there would
+    risk attributing an unrelated proc's log to this one).
 
-    Fallback: glob the cluster's outstage dir (`<state>/<stage>_cluster.txt`)
-    directly under both known worker-log shapes -- legacy mu2ejobsub
+    Fallback (outputs.txt missing/empty -- i.e. list-outputs hasn't run,
+    or every job in the cluster died before producing an .art, so there
+    is no per-worker dir to derive at all): glob the cluster's outstage
+    dir (`<state>/<stage>_cluster.txt`) directly under both known
+    worker-log shapes -- legacy mu2ejobsub
     (`<OUTSTAGE_ROOT>/<cluster>/00/<00000>/*.log`) first, then prodtools
     direct's flat layout (`<OUTSTAGE_ROOT>/<cluster>/<proc>/*.log`) -- and
     return whichever is non-empty. A cluster submitted pre-switch can only
@@ -335,8 +340,7 @@ def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
                 logs.extend(sorted(art_path.parent.glob("*.log")))
             except OSError:
                 continue
-        if logs:
-            return logs
+        return logs
     cluster_file = state_dir / f"{stage}_cluster.txt"
     if not cluster_file.exists():
         return []

@@ -673,3 +673,49 @@ class TestWorkerLogPathsBothOutstageShapes(unittest.TestCase):
                  mock.patch.object(pio, "OUTSTAGE_ROOT", root / "outstage"):
                 found = pio._worker_log_paths("cfgD", "mubeam")
             self.assertEqual(found, [])
+
+    def test_outputs_present_no_logs_yet_does_not_fall_back_to_cluster_glob(self):
+        # Regression (review finding, 2026-08-16): outputs.txt has a valid
+        # .art entry but its dir has zero .log files yet (a real race --
+        # stage-out-lag / stage-out-rename-race), while an UNRELATED proc
+        # in the same cluster happens to have a log. The primary
+        # outputs.txt-derived result must be authoritative once outputs is
+        # non-empty -- falling through to the cluster-wide glob here would
+        # misattribute another proc's log (and its grep hits) to this stage.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            outstage = root / "outstage"
+            state_dir = self._state_dir(root, "cfgE")
+            (state_dir / "mubeam_cluster.txt").write_text("42\n")
+            art_dir = outstage / "42" / "3"
+            art_dir.mkdir(parents=True)
+            (art_dir / "sim.art").write_text("art\n")
+            (state_dir / "mubeam_outputs.txt").write_text(
+                str(art_dir / "sim.art") + "\n")
+            stray_log = outstage / "42" / "7" / "stray.log"
+            stray_log.parent.mkdir(parents=True)
+            stray_log.write_text("stray\n")
+            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
+                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
+                found = pio._worker_log_paths("cfgE", "mubeam")
+            self.assertEqual(found, [])
+
+    def test_flat_shape_with_outputs_happy_path(self):
+        # Companion coverage gap: outputs.txt lists a flat-shape .art WITH
+        # a .log beside it -- found via the primary per-.art-parent glob,
+        # no cluster-dir fallback needed.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            outstage = root / "outstage"
+            state_dir = self._state_dir(root, "cfgF")
+            art_dir = outstage / "42" / "3"
+            art_dir.mkdir(parents=True)
+            (art_dir / "sim.art").write_text("art\n")
+            log = art_dir / "sim.log"
+            log.write_text("log\n")
+            (state_dir / "mubeam_outputs.txt").write_text(
+                str(art_dir / "sim.art") + "\n")
+            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
+                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
+                found = pio._worker_log_paths("cfgF", "mubeam")
+            self.assertEqual(found, [log])
