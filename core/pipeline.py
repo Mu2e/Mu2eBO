@@ -882,15 +882,19 @@ def local_marker(stage: str) -> Path:
 def _is_local_stage(stage: str) -> bool:
     """DETECTION: did THIS stage actually run locally? Marker file only.
 
-    Deliberately NOT `or os.environ.get("AUTORESEARCH_LOCAL")`. The env var is
-    an ACTIVATION switch (cmd_submit reads it to choose local mode) and every
-    path that runs local jobs -- `local-run`, `submit --local`, `submit` under
-    the env var -- goes through cmd_local_run, which always writes the marker.
-    So the disjunct added no capability and one failure mode: an operator who
-    exports AUTORESEARCH_LOCAL=1 for a study and later launches a campaign
-    from that shell would make cmd_poll a no-op on a LIVE GRID CLUSTER, and
-    cmd_list_outputs write an empty <stage>_outputs.txt from a nonexistent
-    local tree, for stages that never went near the local executor.
+    Deliberately NOT `or os.environ.get("AUTORESEARCH_LOCAL")`. The env var
+    is an ACTIVATION switch (cmd_submit reads it, directly or via the env
+    var, to choose its --local branch), and that branch is the ONE path
+    that runs local jobs today (local-build/local-run and their
+    cmd_local_run were retired with the mu2ejobdef-based local executor --
+    prodtools-switch deletion sweep): it writes the marker FIRST, then the
+    literal runid "1" into <stage>_cluster.txt, before handing off to
+    px.run_runlocal. So the disjunct would add no capability and one
+    failure mode: an operator who exports AUTORESEARCH_LOCAL=1 for a study
+    and later launches a campaign from that shell would make cmd_poll a
+    no-op on a LIVE GRID CLUSTER, and cmd_list_outputs read a stale or
+    nonexistent local wait.json, for stages that never went near the local
+    executor.
     """
     return local_marker(stage).exists()
 
