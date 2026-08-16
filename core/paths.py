@@ -128,6 +128,26 @@ def leaderboard_live(rel: str) -> Path:
     return LEADERBOARD_LIVE / _relative(rel, "leaderboard 'file'").name
 
 
+def prodtools_root() -> Path:
+    """The prodtools checkout, from env AUTORESEARCH_PRODTOOLS.
+
+    Env-resolved, never a hardcoded personal path (9f0c43c convention).
+    Checked for bin/json2jobdef so a typo fails at the seam, not three
+    subprocesses deep inside a stage submit.
+    """
+    root = os.environ.get("AUTORESEARCH_PRODTOOLS")
+    if not root:
+        raise SystemExit(
+            "AUTORESEARCH_PRODTOOLS is not set -- export it to the "
+            "prodtools checkout (the directory holding bin/json2jobdef)")
+    root = Path(root)
+    if not (root / "bin" / "json2jobdef").exists():
+        raise SystemExit(
+            f"AUTORESEARCH_PRODTOOLS={root} has no bin/json2jobdef -- "
+            f"not a prodtools checkout")
+    return root
+
+
 def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
     """Fail at launch, not three hours into a grid chain.
 
