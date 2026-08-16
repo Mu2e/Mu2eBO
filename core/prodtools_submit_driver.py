@@ -7,7 +7,7 @@ SUBMIT_RESULT {"cluster_id": ..., "jobsub_id": ..., "status": ...}
 The ledger row lifecycle (reserve -> attach / fail) is submit_entry's
 own -- a failed submission closes its reservation before we exit.
 
-Verified against /exp/mu2e/app/users/oksuzian/muse_050125/prodtools
+Verified against /exp/mu2e/app/users/oksuzian/muse_050125/prodtools (personal-path-ok: dated verification note, not a runtime default -- AUTORESEARCH_PRODTOOLS is the actual resolution seam, see core/paths.py)
 (read-only checkout) 2026-08-16:
 - utils/submission_ledger.ensure_ledger_dir(db_path) mkdir's db_path's
   PARENT and returns db_path unchanged -- but its docstring says it is
