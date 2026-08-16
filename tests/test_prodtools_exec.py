@@ -15,10 +15,12 @@ from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 
 import paths
 import pipeline
 import prodtools_exec as pex
+import pipeline_io as pio
 
 
 class TestProdtoolsRoot(unittest.TestCase):
@@ -596,3 +598,78 @@ class TestSubmitCnf(unittest.TestCase):
                 pex.submit_cnf(Path(td), Path(td) / "e.json",
                                Path(td) / "l.db", "o", {},
                                runner=self._runner(out))
+
+
+class TestWorkerLogPathsBothOutstageShapes(unittest.TestCase):
+    """graph/pipeline_io.py's `_worker_log_paths` (Task 8): scan_logs must
+    find worker logs whether the cluster was submitted by legacy mu2ejobsub
+    (`<outstage>/<cluster>/00/<00000>/*.log`) or prodtools direct
+    (`<outstage>/<cluster>/<proc>/*.log`, no zero-padded 00/ sublevel).
+
+    All these fixtures have no `<stage>_outputs.txt` (i.e. every job in the
+    cluster died before producing an .art) -- the case the outputs.txt-
+    derived primary path goes blind on, forcing the cluster-dir fallback
+    this task adds.
+    """
+
+    def _state_dir(self, root: Path, config: str) -> Path:
+        state_dir = root / "grid_data" / config / "state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        return state_dir
+
+    def test_flat_shape_found(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            outstage = root / "outstage"
+            state_dir = self._state_dir(root, "cfgA")
+            (state_dir / "mubeam_cluster.txt").write_text("42\n")
+            log = outstage / "42" / "3" / "foo.log"
+            log.parent.mkdir(parents=True)
+            log.write_text("some log text\n")
+            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
+                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
+                found = pio._worker_log_paths("cfgA", "mubeam")
+            self.assertEqual(found, [log])
+
+    def test_legacy_shape_found(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            outstage = root / "outstage"
+            state_dir = self._state_dir(root, "cfgB")
+            (state_dir / "mubeam_cluster.txt").write_text("42\n")
+            log = outstage / "42" / "00" / "00003" / "bar.log"
+            log.parent.mkdir(parents=True)
+            log.write_text("some log text\n")
+            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
+                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
+                found = pio._worker_log_paths("cfgB", "mubeam")
+            self.assertEqual(found, [log])
+
+    def test_both_shapes_present_legacy_wins(self):
+        # A cluster submitted pre-switch is legacy-only in practice, but the
+        # documented tie-break (legacy checked first) should still hold if
+        # both somehow have files.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            outstage = root / "outstage"
+            state_dir = self._state_dir(root, "cfgC")
+            (state_dir / "mubeam_cluster.txt").write_text("42\n")
+            flat_log = outstage / "42" / "3" / "foo.log"
+            flat_log.parent.mkdir(parents=True)
+            flat_log.write_text("flat\n")
+            legacy_log = outstage / "42" / "00" / "00003" / "bar.log"
+            legacy_log.parent.mkdir(parents=True)
+            legacy_log.write_text("legacy\n")
+            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
+                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
+                found = pio._worker_log_paths("cfgC", "mubeam")
+            self.assertEqual(found, [legacy_log])
+
+    def test_no_cluster_file_returns_empty(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._state_dir(root, "cfgD")
+            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
+                 mock.patch.object(pio, "OUTSTAGE_ROOT", root / "outstage"):
+                found = pio._worker_log_paths("cfgD", "mubeam")
+            self.assertEqual(found, [])
