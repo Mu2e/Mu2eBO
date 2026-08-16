@@ -4,6 +4,7 @@ Zero grid contact: every prodtools invocation is an injected fake runner.
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -179,3 +180,105 @@ class TestListOutputsFromWait(unittest.TestCase):
             lines = [p for p in outputs_file.read_text().splitlines()
                      if p.strip()]
         self.assertEqual(lines, ["/pnfs/out/777/0/sim.u.D.C.0.art"])
+
+
+class TestBuildCnf(unittest.TestCase):
+    """AUTORESEARCH_PRODTOOLS is unset in a bare test shell (see
+    TestProdtoolsRoot), so every test here patches prodtools_root
+    directly rather than relying on an ambient checkout -- build_cnf's
+    own resolution of it is TestProdtoolsRoot's job, not this class's."""
+
+    def _runner(self, rc=0, stdout="", stderr="", touch_cnf=None):
+        def run(cmd, **kw):
+            self.last_cmd = cmd
+            self.last_kw = kw
+            if touch_cnf is not None:
+                touch_cnf.touch()
+            return subprocess.CompletedProcess(cmd, rc, stdout, stderr)
+        return run
+
+    def test_shells_out_to_json2jobdef_and_returns_the_cnf_path(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            expected_cnf = (Path(td) /
+                            f"cnf.{pex.USER}.Run1A_MuBeam_t001.Run1Bak_t001.0.tar")
+            cnf = pex.build_cnf(
+                Path(td), Path(td) / "e.json", "Run1A_MuBeam_t001",
+                "Run1Bak_t001", {},
+                runner=self._runner(touch_cnf=expected_cnf))
+        self.assertEqual(cnf.name,
+                         f"cnf.{pex.USER}.Run1A_MuBeam_t001.Run1Bak_t001.0.tar")
+        joined = " ".join(str(c) for c in self.last_cmd)
+        self.assertIn("json2jobdef", joined)
+        self.assertIn("--desc Run1A_MuBeam_t001", joined)
+        self.assertIn("--dsconf Run1Bak_t001", joined)
+
+    def test_nonzero_rc_is_systemexit_with_stderr(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            with self.assertRaises(SystemExit) as cm:
+                pex.build_cnf(Path(td), Path(td) / "e.json", "d", "c", {},
+                              runner=self._runner(rc=1, stderr="bad json"))
+            self.assertIn("bad json", str(cm.exception))
+
+    def test_rc_zero_but_missing_cnf_is_systemexit(self):
+        # json2jobdef reported success but never wrote the tarball --
+        # a silent lie must not propagate a nonexistent Path downstream.
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            with self.assertRaises(SystemExit):
+                pex.build_cnf(Path(td), Path(td) / "e.json", "d", "c", {},
+                              runner=self._runner(rc=0))
+
+
+class TestSubmitCnf(unittest.TestCase):
+    """Same AUTORESEARCH_PRODTOOLS note as TestBuildCnf -- test_driver_cmd_shape
+    is the one test that legitimately exercises the real env-var resolution
+    (it asserts on the driver argv), so it sets AUTORESEARCH_PRODTOOLS itself
+    instead of patching prodtools_root."""
+
+    def _runner(self, stdout, rc=0, stderr=""):
+        def run(cmd, **kw):
+            self.last_cmd = cmd
+            return subprocess.CompletedProcess(cmd, rc, stdout, stderr)
+        return run
+
+    def test_parses_submit_result(self):
+        out = ('noise\nSUBMIT_RESULT {"cluster_id": 86123999, '
+               '"jobsub_id": "86123999.0@jobsub01.fnal.gov", '
+               '"status": "submitted"}\n')
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            cluster, jobsub_id = pex.submit_cnf(
+                Path(td), Path(td) / "e.json", Path(td) / "l.db",
+                "autoresearch:t001/mubeam", {}, runner=self._runner(out))
+        self.assertEqual(cluster, 86123999)
+        # jobwait wants NNNN@schedd -- proc stripped, schedd kept.
+        self.assertEqual(jobsub_id, "86123999@jobsub01.fnal.gov")
+
+    def test_no_result_line_is_systemexit(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            with self.assertRaises(SystemExit):
+                pex.submit_cnf(Path(td), Path(td) / "e.json",
+                               Path(td) / "l.db", "o", {},
+                               runner=self._runner("boom", rc=1,
+                                                   stderr="ledger sad"))
+
+    def test_driver_cmd_shape(self):
+        out = ('SUBMIT_RESULT {"cluster_id": 1, '
+               '"jobsub_id": "1.0@s", "status": "submitted"}\n')
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.dict(os.environ, {"AUTORESEARCH_PRODTOOLS": td}):
+            (Path(td) / "bin").mkdir(); (Path(td) / "bin" / "json2jobdef").touch()
+            pex.submit_cnf(Path(td), Path(td) / "e.json", Path(td) / "l.db",
+                           "o", {}, runner=self._runner(out))
+        joined = " ".join(str(c) for c in self.last_cmd)
+        self.assertIn("prodtools_submit_driver.py", joined)
+        self.assertIn("--entry", joined)
+        self.assertIn("--ledger", joined)

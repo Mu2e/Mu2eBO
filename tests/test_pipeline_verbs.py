@@ -34,7 +34,7 @@ class TestSubmitIdempotency(unittest.TestCase):
     def test_noop_when_cluster_file_exists(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.object(pipeline, "submit_stage") as sub, \
+             mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
              mock.patch.object(pipeline, "sourced_env", return_value={}):
             (Path(tmp) / "poke_cluster.txt").write_text("123\n")
             pipeline.cmd_submit(SimpleNamespace(stage="poke", force=False,
@@ -45,7 +45,7 @@ class TestSubmitIdempotency(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
              mock.patch.object(pipeline, "GRID_STAGES", ("poke", "harvest2")), \
-             mock.patch.object(pipeline, "submit_stage") as sub, \
+             mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
              mock.patch.object(pipeline, "sourced_env", return_value={}):
             pipeline.cmd_submit(SimpleNamespace(stage="poke", force=False,
                                                 dry_run=False))
@@ -61,7 +61,7 @@ class TestSubmitIdempotency(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
              mock.patch.object(pipeline, "GRID_STAGES", ("newchain",)), \
-             mock.patch.object(pipeline, "submit_stage"), \
+             mock.patch.object(pipeline, "submit_stage_prodtools"), \
              mock.patch.object(pipeline, "sourced_env", return_value={}):
             hv.stamp_stage_chain(Path(tmp), ["oldchain"])
             pipeline.cmd_submit(SimpleNamespace(stage="newchain", force=False,
@@ -353,6 +353,203 @@ class TestGetTokenMtimeGate(unittest.TestCase):
     def test_token_age_inf_when_missing(self):
         with mock.patch.dict(os.environ, {"BEARER_TOKEN_FILE": "/nonexistent/bt"}):
             self.assertEqual(pipeline._token_age_s(), float("inf"))
+
+
+class TestWriteCodeTarballExtraFiles(unittest.TestCase):
+    """write_code_tarball's extra_files param (prodtools switch, Task 4):
+    ships the per-stage materialized FCL beside the geom in Code/, the same
+    search-path mechanism the geom already uses. Real tar/bzip2 subprocess
+    calls only -- no grid contact."""
+
+    def _make_base_tarball(self, tmp):
+        src = Path(tmp) / "basesrc"
+        (src / "Code").mkdir(parents=True)
+        (src / "Code" / "setup.sh").write_text("# stub\n")
+        base = Path(tmp) / "Code.base.tar.bz2"
+        subprocess.run(
+            ["bash", "-c", f"cd {src} && tar cf - Code/ | bzip2 > {base}"],
+            check=True)
+        return base
+
+    def _tar_listing(self, cnf):
+        return subprocess.run(["tar", "tjf", str(cnf)], capture_output=True,
+                              text=True, check=True).stdout
+
+    def test_extra_files_land_in_the_shipped_code_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg"
+            stage_dir = root / "mubeam"
+            stage_dir.mkdir(parents=True)
+            geom = root / "geom.txt"
+            geom.write_text("geom\n")
+            extra = root / "mubeam_template_materialized.fcl"
+            extra.write_text('#include "geom.txt"\n')
+            base = self._make_base_tarball(tmp)
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom):
+                cnf = pipeline.write_code_tarball(
+                    stage_dir, base_tarball=base, extra_files=[extra])
+            listing = self._tar_listing(cnf)
+        self.assertIn("Code/mubeam_template_materialized.fcl", listing)
+        self.assertIn("Code/geom.txt", listing)
+
+    def test_a_cache_missing_a_newer_extra_file_is_rebuilt_not_reused(self):
+        # The cache-freshness gate keyed only on (geom, base_tarball) would
+        # silently reuse stage A's cached tarball for stage B -- shipping
+        # A's FCL and never B's, so every non-first stage in a config's
+        # chain would ship a Code.tar.bz2 missing its own template. Guard
+        # against that regression directly.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg"
+            stage_dir = root / "mubeam"
+            stage_dir.mkdir(parents=True)
+            geom = root / "geom.txt"
+            geom.write_text("geom\n")
+            base = self._make_base_tarball(tmp)
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom):
+                # Stage A's submit: no extra_files, seeds the shared cache.
+                cnf_a = pipeline.write_code_tarball(stage_dir, base_tarball=base)
+                # Stage B's submit: a freshly-materialized FCL not yet in
+                # that cache must force a rebuild, not a silent reuse.
+                extra_b = root / "run1b_mubeam_template_materialized.fcl"
+                extra_b.write_text('#include "geom.txt"\n')
+                cnf_b = pipeline.write_code_tarball(
+                    stage_dir, base_tarball=base, extra_files=[extra_b])
+            self.assertEqual(cnf_a, cnf_b)  # same shared per-config cache path
+            listing = self._tar_listing(cnf_b)
+        self.assertIn("Code/run1b_mubeam_template_materialized.fcl", listing)
+
+
+class TestSubmitStageProdtools(unittest.TestCase):
+    """submit_stage_prodtools (prodtools switch, Task 4): entry ->
+    json2jobdef -> submit_entry, writing the same state files the retired
+    mu2ejobsub path wrote plus the new jobsub id. build_cnf/submit_cnf
+    themselves are unit-tested against injected runners in
+    tests/test_prodtools_exec.py; here they're faked wholesale (the brief's
+    "touch the expected cnf path" / "emit SUBMIT_RESULT" fakes) so this test
+    is about the STATE FILES submit_stage_prodtools writes, not prodtools'
+    own argv shape."""
+
+    def test_state_files_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            template = state / "mubeam_template_materialized.fcl"
+            template.write_text("x")
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            def fake_submit_cnf(stage_dir, entry_path, ledger_db, origin,
+                                env, runner=None, dry_run=False):
+                self.submit_args = (stage_dir, entry_path, ledger_db, origin)
+                return 86123999, "86123999@jobsub01.fnal.gov"
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=template), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   side_effect=fake_submit_cnf):
+                cluster = pipeline.submit_stage_prodtools("mubeam", {})
+
+            self.assertEqual(cluster, 86123999)
+            self.assertEqual(
+                (state / "mubeam_cluster.txt").read_text().strip(),
+                "86123999")
+            self.assertEqual(
+                (state / "mubeam_jobsub_id.txt").read_text().strip(),
+                "86123999@jobsub01.fnal.gov")
+            self.assertEqual(
+                (state / "mubeam_events_per_job.txt").read_text().strip(),
+                str(pipeline.STAGES["mubeam"]["events_per_job"]))
+            self.assertTrue((state / "mubeam_config_sha.txt").exists())
+
+            entry = json.loads((state / "mubeam_entry.json").read_text())[0]
+            self.assertEqual(entry["desc"], "Run1A_MuBeam_cfg001")
+            self.assertEqual(entry["dsconf"], "Run1Bak_cfg001")
+            self.assertEqual(entry["fcl"], "mubeam_template_materialized.fcl")
+            self.assertEqual(entry["code"], str(Path(tmp) / "Code.tar.bz2"))
+            # events/run come from whatever mode's stage_tuning is live at
+            # import time (foilsflash's tuning overrides the base 5000/1800
+            # in a normal test run) -- assert against the live STAGES dict,
+            # not the module's base literals, same convention as
+            # TestPipelineLocalWiring in test_local_exec.py.
+            self.assertEqual(entry["events"],
+                             pipeline.STAGES["mubeam"]["events_per_job"])
+            self.assertEqual(entry["run"],
+                             pipeline.STAGES["mubeam"]["run_number"])
+            self.assertEqual(entry["resampler_name"], "beamResampler")
+            self.assertEqual(
+                entry["input_data"], {"sim.mu2e.MuBeamCat.Run1Baa.art": 1})
+            self.assertEqual(entry["inloc"], "tape")
+
+            # LEDGER_DB threaded through to submit_cnf, origin identifies
+            # the (config, stage) for the ledger row.
+            _, _, ledger_db, origin = self.submit_args
+            self.assertEqual(ledger_db, Path(tmp) / "ledger" / "submissions.db")
+            self.assertEqual(origin, "autoresearch:cfg001/mubeam")
+
+    def test_staged_inputs_feed_input_data_and_inloc(self):
+        # mustops_ce / concat shape: staged_inputs=(dir, {basename: count})
+        # replaces the static Cat-dataset input_data with the hard-linked
+        # farm's basenames, and inloc becomes dir:<staged_dir>.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            template = state / "mustops_ce_template_materialized.fcl"
+            template.write_text("x")
+            staged_dir = Path(tmp) / "staged" / "mustops_ce"
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            def fake_submit_cnf(*a, **kw):
+                return 1, "1@s"
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_materialize_template",
+                                   return_value=template), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   side_effect=fake_submit_cnf):
+                pipeline.submit_stage_prodtools(
+                    "mustops_ce", {},
+                    staged_inputs=(staged_dir, {"sim.a.art": 1, "sim.b.art": 1}))
+
+            entry = json.loads(
+                (state / "mustops_ce_entry.json").read_text())[0]
+            self.assertEqual(entry["input_data"],
+                             {"sim.a.art": 1, "sim.b.art": 1})
+            self.assertEqual(entry["inloc"], f"dir:{staged_dir}")
+            self.assertEqual(entry["resampler_name"], "TargetStopResampler")
 
 
 if __name__ == "__main__":

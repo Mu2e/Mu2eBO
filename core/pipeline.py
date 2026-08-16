@@ -127,6 +127,12 @@ MUSE_BASE_TARBALL = Path(
 USER = os.environ["USER"]
 OUTSTAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/workflow/default/outstage")
 
+# Runtime state for the prodtools submission ledger (9f0c43c convention:
+# runtime writes live on /data, out of the repo checkout). Passed straight
+# to core/prodtools_submit_driver.py's --ledger, which creates its parent
+# directory itself before handing it to prodtools' SubmitOptions.
+LEDGER_DB = DATA_ROOT / "prodtools_ledger" / "submissions.db"
+
 # --- Per-config paths populated by main() once --config is parsed ---
 CONFIG: str = ""
 ROOT: Path = Path()
@@ -494,7 +500,8 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
     return env
 
 
-def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Path:
+def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
+                       extra_files: list[Path] | None = None) -> Path:
     """Build Code.tar.bz2 for the --code path.
 
     Extracts the chosen muse-built base tarball, drops the per-config geom
@@ -506,6 +513,13 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
     base_tarball overrides MUSE_BASE_TARBALL — used by a stage whose backing
     musing differs from the default helical-patched Run1Bak tree (via
     STAGES[stage]["code_tarball"]).
+
+    extra_files: additional files copied into Code/ beside the geom (e.g.
+    the per-stage materialized template FCL — prodtools' `fcl` entry field
+    is a bare basename that the worker's setup_post.sh search path resolves
+    at job runtime, same mechanism as the geom). Each stage's materialized
+    template has a stage-prefixed basename (STATE/<stage>_template_....fcl),
+    so multiple stages' files never collide inside one shared Code dir.
     """
     if base_tarball is None:
         base_tarball = MUSE_BASE_TARBALL
@@ -519,17 +533,25 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
         raise SystemExit(f"muse base tarball missing: {base_tarball}")
 
     # Per-config cache (2026-07-10): the tarball content is fully determined
-    # by (base_tarball, GEOM_FILE), both identical across a config's stages,
-    # so build ONCE per config and reuse — was ~7-12 min of unpack+rebzip2
-    # per stage per child, 2/3 of it redundant (~10 min/eval critical path +
-    # 3x disk churn; see bo-noise-budget tarball lever). Guard: cache must be
-    # newer than both inputs (a re-proposed geom or a rebuilt base
-    # invalidates). A config's submits are serial (incl. the elebeam
-    # presubmit, which runs inside the mubeam node), so no build race.
+    # by (base_tarball, GEOM_FILE, extra_files), all identical across a
+    # config's stages EXCEPT extra_files (a fresh per-stage FCL rewritten by
+    # _materialize_template right before this call, so its mtime is always
+    # "now") — so build ONCE per config and reuse — was ~7-12 min of
+    # unpack+rebzip2 per stage per child, 2/3 of it redundant (~10 min/eval
+    # critical path + 3x disk churn; see bo-noise-budget tarball lever).
+    # Guard: cache must be newer than every input (a re-proposed geom, a
+    # rebuilt base, or a just-materialized stage FCL not yet baked into the
+    # cached tarball all invalidate) — without the extra_files leg, the
+    # cache built at stage A's first submit would be silently reused for
+    # every later stage, shipping A's FCL and never B's, C's, ... A config's
+    # submits are serial (incl. the elebeam presubmit, which runs inside the
+    # mubeam node), so no build race.
     cache = ROOT / f"Code.{base_tarball.stem.split('.')[0]}.tar.bz2"
     if (cache.exists()
             and cache.stat().st_mtime > GEOM_FILE.stat().st_mtime
-            and cache.stat().st_mtime > base_tarball.stat().st_mtime):
+            and cache.stat().st_mtime > base_tarball.stat().st_mtime
+            and all(cache.stat().st_mtime > f.stat().st_mtime
+                   for f in (extra_files or []))):
         print(f"[tarball] reusing cached {cache.name}", flush=True)
         return cache
 
@@ -538,6 +560,8 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
         shutil.rmtree(code_dir)
     run(["tar", "xjf", str(base_tarball), "-C", str(stage_dir)])
     shutil.copy(GEOM_FILE, code_dir / GEOM_FILE.name)
+    for f in (extra_files or []):
+        shutil.copy(f, code_dir / f.name)
     (code_dir / "setup_post.sh").write_text(
         'export MU2E_SEARCH_PATH="$CODE_DIR:$MU2E_SEARCH_PATH"\n'
         'export FHICL_FILE_PATH="$CODE_DIR:$FHICL_FILE_PATH"\n'
@@ -750,6 +774,79 @@ def _jobdef_cmd(stage: str, template_fcl: Path, dsconf: str, desc: str,
     if "auxinput" in cfg:
         jobdef += [f"--auxinput={cfg['auxinput']}"]
     return jobdef
+
+
+# Static resampler wiring per stage (was mu2ejobdef --auxinput). Only the
+# consuming end of the prodtools switch: cmd_submit still hard-links concat/
+# mustops_ce inputs into a /pnfs farm (stage_hardlink_farm) so `inloc: dir:`
+# can see them; this dict supplies the OTHER stages' static Cat-dataset
+# input_data + the resampler_name every resampler stage needs.
+_RESAMPLER_BY_STAGE = {
+    "mubeam": ("beamResampler", {"sim.mu2e.MuBeamCat.Run1Baa.art": 1}, None),
+    "run1b_mubeam": ("beamResampler",
+                     {"sim.mu2e.MuBeamCat.Run1Baa.art": 1}, None),
+    "elebeam_flash": ("beamResampler",
+                      {"sim.mu2e.EleBeamCat.Run1Baa.art": 1}, None),
+    "mustops_ce": ("TargetStopResampler", None, None),  # input_data staged
+}
+
+
+def _resampler_name(stage):
+    return _RESAMPLER_BY_STAGE.get(stage, (None,))[0]
+
+
+def _cat_input_data(stage):
+    """Static Cat-dataset input_data for resampler stages; the inloc is
+    the stage's default_loc (tape since the 2026-07 migrations)."""
+    ent = _RESAMPLER_BY_STAGE.get(stage)
+    return ent[1] if ent else None
+
+
+def submit_stage_prodtools(stage, env, *, staged_inputs=None,
+                           dry_run=False) -> int | None:
+    """Entry -> json2jobdef -> submit_entry. Returns the cluster id.
+
+    staged_inputs: (staged_dir, {basename: merge_or_count}) for
+    consuming stages, None otherwise. Writes the same state files the
+    mu2ejobsub path wrote (cluster.txt, events stamp, config sha) plus
+    the jobsub id for jobwait.
+    """
+    cfg = STAGES[stage]
+    desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
+    stage_dir = ROOT / stage
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    template_fcl = _materialize_template(stage)
+    tarball = write_code_tarball(
+        stage_dir,
+        base_tarball=Path(cfg["code_tarball"]) if "code_tarball" in cfg else None,
+        extra_files=[template_fcl])
+    entry = px.render_entry(
+        stage, cfg, config=CONFIG, dsconf=dsconf, desc=desc,
+        njobs=cfg["njobs"], code_tarball=tarball,
+        fcl_name=template_fcl.name,
+        events=cfg.get("events_per_job"), run=cfg.get("run_number"),
+        memory_mb=cfg.get("memory_mb"),
+        input_data=(staged_inputs[1] if staged_inputs else _cat_input_data(stage)),
+        inloc=(f"dir:{staged_inputs[0]}" if staged_inputs
+               else cfg.get("default_loc")),
+        resampler_name=_resampler_name(stage))
+    entry_path = px.write_entry(STATE, stage, entry)
+    cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf, env)
+    if "events_per_job" in cfg:
+        stamp_local_events(stage, cfg["events_per_job"])
+    if dry_run:
+        print(f"[{stage}] DRY-RUN: cnf built, not submitted: {cnf.name}")
+        return None
+    with _submit_lock(stage):
+        _maybe_refresh_token(stage)
+        cluster, jobsub_id = px.submit_cnf(
+            stage_dir, entry_path, LEDGER_DB,
+            f"autoresearch:{CONFIG}/{stage}", env)
+    (STATE / f"{stage}_cluster.txt").write_text(f"{cluster}\n")
+    (STATE / f"{stage}_jobsub_id.txt").write_text(f"{jobsub_id}\n")
+    _stamp_stage_config_sha(stage)
+    print(f"[{stage}] cluster={cluster} ({jobsub_id})")
+    return cluster
 
 
 def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
@@ -1247,22 +1344,23 @@ def cmd_submit(args):
     if not (STATE / hv.STAGE_CHAIN_STAMP).exists():
         hv.stamp_stage_chain(STATE, list(GRID_STAGES))
     env = sourced_env()
-    inputs_file = None
-    staged_input_dir = None
+    staged_inputs = None
     if args.stage == "concat":
         mubeam_list = STATE / "mubeam_outputs.txt"
         if not mubeam_list.exists():
             raise SystemExit("Run 'list-outputs mubeam' first to populate mubeam_outputs.txt")
         sources = [Path(p) for p in mubeam_list.read_text().splitlines() if p.strip()]
-        staged_input_dir, inputs_file = stage_hardlink_farm("concat", sources)
+        staged_dir, _ = stage_hardlink_farm("concat", sources)
+        merge_factor = STAGES["concat"]["merge_factor"]
+        staged_inputs = (staged_dir, {p.name: merge_factor for p in sources})
     elif args.stage == "mustops_ce":
         # Resamples concat MuminusStopsCat via TargetStopResampler.
-        # auxinput list file requires basenames (same restriction as
-        # --inputs): hard-link concat outputs into a /pnfs stage dir so
-        # xrootd can resolve them when --default-location dir:STAGED
+        # input_data requires basenames (same restriction the old --inputs/
+        # --auxinput mu2ejobdef flags had): hard-link concat outputs into a
+        # /pnfs stage dir so xrootd can resolve them when inloc dir:STAGED
         # expands the basenames.
         # Concat-less chains resample the mu--pure mubeam TargetStops files
-        # directly (auxinput=1 -> one file-slice per job, same structure as
+        # directly (one file-slice per job, same structure as
         # mubeam<->MuBeamCat).
         # Stamp-first (hv.concatless): a concat-era config resubmitted under
         # a concat-less env must keep staging its concat outputs.
@@ -1271,12 +1369,10 @@ def cmd_submit(args):
         if not prev.exists():
             raise SystemExit(f"Run 'list-outputs {prev_stage}' first to populate {prev.name}")
         sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
-        staged_input_dir, basenames_file = stage_hardlink_farm(args.stage, sources)
-        STAGES[args.stage]["auxinput"] = (
-            f"1:physics.filters.TargetStopResampler.fileNames:{basenames_file}"
-        )
-    submit_stage(args.stage, env, inputs_file=inputs_file,
-                 staged_input_dir=staged_input_dir, dry_run=args.dry_run)
+        staged_dir, _ = stage_hardlink_farm(args.stage, sources)
+        staged_inputs = (staged_dir, {p.name: 1 for p in sources})
+    submit_stage_prodtools(args.stage, env, staged_inputs=staged_inputs,
+                           dry_run=args.dry_run)
 
 
 def cmd_poll(args):

@@ -83,6 +83,60 @@ def read_wait(state_dir: Path, stage: str) -> dict:
     return json.loads(p.read_text())
 
 
+def build_cnf(stage_dir, entry_path, desc, dsconf, env,
+             runner=subprocess.run) -> Path:
+    """Build a cnf tarball via prodtools json2jobdef; return its path.
+
+    SystemExit (stderr surfaced -- c2b154d convention) on a non-zero rc
+    or on a rc==0 that somehow didn't produce the expected tarball.
+    """
+    cmd = [str(prodtools_root() / "bin" / "json2jobdef"),
+           "--json", str(entry_path), "--desc", desc, "--dsconf", dsconf]
+    res = runner(cmd, cwd=str(stage_dir), env=env,
+                 capture_output=True, text=True)
+    if res.returncode != 0:
+        raise SystemExit(f"json2jobdef failed rc={res.returncode}:\n"
+                         f"{res.stdout}\n{res.stderr}")
+    cnf = Path(stage_dir) / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
+    if not cnf.exists():
+        raise SystemExit(f"json2jobdef succeeded but {cnf} is missing")
+    return cnf
+
+
+def submit_cnf(stage_dir, entry_path, ledger_db, origin, env,
+               runner=subprocess.run, dry_run=False) -> tuple[int, str]:
+    """Submit a built cnf via core/prodtools_submit_driver.py; return
+    (cluster_id, jobsub_id). jobsub_id is normalized to NNNN@schedd (the
+    shape jobwait wants), dropping the .PROC suffix the driver may pass
+    through.
+
+    SystemExit (driver's stderr) if no cluster id came back -- the
+    driver's submit_entry already closed the ledger reservation on
+    failure, so there is nothing here to unwind.
+    """
+    driver = Path(__file__).resolve().parent / "prodtools_submit_driver.py"
+    cmd = ["python3", str(driver),
+           "--prodtools", str(prodtools_root()),
+           "--entry", str(entry_path), "--ledger", str(ledger_db),
+           "--origin", origin]
+    if dry_run:
+        cmd.append("--dry-run")
+    res = runner(cmd, cwd=str(stage_dir), env=env,
+                 capture_output=True, text=True)
+    for line in (res.stdout or "").splitlines():
+        if line.startswith("SUBMIT_RESULT "):
+            data = json.loads(line[len("SUBMIT_RESULT "):])
+            if data.get("cluster_id"):
+                jobsub = data.get("jobsub_id") or ""
+                # NNNN.P@schedd -> NNNN@schedd (what jobwait wants).
+                cluster = int(data["cluster_id"])
+                schedd = jobsub.split("@", 1)[1] if "@" in jobsub else ""
+                jid = f"{cluster}@{schedd}" if schedd else str(cluster)
+                return cluster, jid
+    raise SystemExit(f"prodtools submit failed rc={res.returncode}:\n"
+                     f"{res.stdout}\n{res.stderr}")
+
+
 def outputs_from_wait(wait: dict, output_glob: str) -> list[str]:
     """Output paths of jobs that exited 0, filtered to the stage's glob.
 

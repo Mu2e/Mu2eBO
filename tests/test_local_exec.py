@@ -691,13 +691,15 @@ class TestPipelineLocalWiring(unittest.TestCase):
         pc.assert_not_called()
 
     def test_a_forced_grid_submit_clears_the_local_runid_not_just_its_marker(self):
-        # submit_stage rewrites <stage>_cluster.txt only AFTER mu2ejobsub
-        # parses a cluster id, so every grid path that never gets there must
-        # not leave the local runid behind unmarked -- a later poll would hand
-        # that small int to jobsub_q and wait out the 24h cap. --dry-run is the
-        # cheapest such path; a raise anywhere before the submit has the same
-        # shape. Asserted on the CLUSTER FILE, not the marker: a test that
-        # checks only the marker passes against the bug this pins.
+        # submit_stage_prodtools rewrites <stage>_cluster.txt only AFTER
+        # submit_cnf parses a cluster id, so every grid path that never gets
+        # there must not leave the local runid behind unmarked -- a later
+        # poll would hand that small int to jobsub_q and wait out the 24h
+        # cap. --dry-run is the cheapest such path (it still builds the cnf
+        # but returns before submit_cnf); a raise anywhere before the submit
+        # has the same shape. Asserted on the CLUSTER FILE, not the marker:
+        # a test that checks only the marker passes against the bug this
+        # pins.
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp) / "state"
             state.mkdir()
@@ -711,18 +713,15 @@ class TestPipelineLocalWiring(unittest.TestCase):
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
                  mock.patch.object(pipeline, "_materialize_template",
                                    return_value=Path(tmp) / "t.fcl"), \
-                 mock.patch.object(pipeline, "_probe_input_urls"), \
-                 mock.patch.object(pipeline.subprocess, "run",
-                                   return_value=mock.Mock(returncode=0,
-                                                          stdout="# fcl\n",
-                                                          stderr="")):
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=Path(tmp) / "mubeam" / "cnf.x.tar"):
                 os.environ.pop("AUTORESEARCH_LOCAL", None)
                 pipeline.cmd_submit(SimpleNamespace(
                     stage="mubeam", force=True, dry_run=True, local=False))
             self.assertFalse(
                 (state / "mubeam_cluster.txt").exists(),
                 "the local runid survived a forced grid submit that never "
-                "reached mu2ejobsub -- poll would send it to jobsub_q")
+                "reached submit_cnf -- poll would send it to jobsub_q")
             self.assertFalse((state / "mubeam_local.txt").exists())
 
     def test_an_unforced_grid_submit_after_a_local_run_really_submits(self):
@@ -742,7 +741,7 @@ class TestPipelineLocalWiring(unittest.TestCase):
                  mock.patch.object(pipeline, "STATE", state), \
                  mock.patch.object(pipeline, "ROOT", Path(tmp)), \
                  mock.patch.object(pipeline, "sourced_env", return_value={}), \
-                 mock.patch.object(pipeline, "submit_stage") as ss:
+                 mock.patch.object(pipeline, "submit_stage_prodtools") as ss:
                 os.environ.pop("AUTORESEARCH_LOCAL", None)
                 pipeline.cmd_submit(SimpleNamespace(
                     stage="mubeam", force=False, dry_run=False, local=False))
@@ -763,7 +762,7 @@ class TestPipelineLocalWiring(unittest.TestCase):
                  mock.patch.object(pipeline, "STATE", state), \
                  mock.patch.object(pipeline, "cmd_local_build"), \
                  mock.patch.object(pipeline, "cmd_local_run"), \
-                 mock.patch.object(pipeline, "submit_stage") as ss:
+                 mock.patch.object(pipeline, "submit_stage_prodtools") as ss:
                 os.environ.pop("AUTORESEARCH_LOCAL", None)
                 pipeline.cmd_submit(SimpleNamespace(
                     stage="mubeam", force=True, dry_run=False, local=True))
