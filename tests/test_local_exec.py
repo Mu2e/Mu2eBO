@@ -451,24 +451,6 @@ class TestPipelineLocalWiring(unittest.TestCase):
         pc.assert_called_once()
         self.assertEqual(pc.call_args[0][1], 70314159)
 
-    def test_the_env_var_alone_does_not_divert_list_outputs_to_the_local_tree(self):
-        # Same failure, other verb: without a marker, list-outputs must glob
-        # /pnfs. Diverted, it writes an EMPTY <stage>_outputs.txt from a local
-        # tree that was never populated -- and an empty file is exactly what
-        # the next stage's --inputs reads.
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "state"
-            state.mkdir()
-            (state / "mubeam_cluster.txt").write_text("70314159\n")
-            with mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
-                 mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.object(pipeline, "_check_stage_config_sha"), \
-                 mock.patch.object(pipeline, "list_outputs") as lo:
-                pipeline.cmd_list_outputs(SimpleNamespace(stage="mubeam",
-                                                          force=False))
-        lo.assert_called_once_with("mubeam", 70314159)
-        self.assertFalse((state / "mubeam_outputs.txt").exists())
-
     @contextlib.contextmanager
     def _local_run_env(self, tmp):
         """Drive the REAL cmd_local_run with only subprocess mocked out.
@@ -787,36 +769,6 @@ class TestPipelineLocalWiring(unittest.TestCase):
                     stage="mubeam", force=True, dry_run=False, local=True))
             ss.assert_not_called()
             self.assertTrue((state / "mubeam_local.txt").exists())
-
-    def test_list_outputs_never_reaches_the_grid_lister_in_local_mode(self):
-        # Without the marker check this is safe only by accident (the
-        # idempotency guard happens to match the local paths local-run wrote).
-        # A local run with ZERO outputs empties that guard and would fall
-        # through to a /pnfs glob for a runid-shaped cluster.
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "state"
-            state.mkdir()
-            (state / "mubeam_cluster.txt").write_text("1\n")
-            (state / "mubeam_local.txt").write_text("1\n")
-            with mock.patch.dict(os.environ), \
-                 mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
-                 mock.patch.object(local_exec, "DATA_ROOT", Path(tmp)), \
-                 mock.patch.object(pipeline, "list_outputs") as lo:
-                os.environ.pop("AUTORESEARCH_LOCAL", None)
-                d = local_exec.job_dir("cfg001", 1, 0)
-                d.mkdir(parents=True)
-                (d / "sim.x.TargetStops.0.art").write_text("x")
-                pipeline.cmd_list_outputs(SimpleNamespace(stage="mubeam",
-                                                          force=False))
-                # ... and again with the local tree EMPTY, the corner the
-                # idempotency guard cannot cover.
-                (d / "sim.x.TargetStops.0.art").unlink()
-                pipeline.cmd_list_outputs(SimpleNamespace(stage="mubeam",
-                                                          force=False))
-            lo.assert_not_called()
-            self.assertEqual(
-                (state / "mubeam_outputs.txt").read_text().strip(), "")
 
 
 class TestLocalScaleEnvSeam(unittest.TestCase):

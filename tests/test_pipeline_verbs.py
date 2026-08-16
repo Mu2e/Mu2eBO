@@ -151,15 +151,26 @@ class TestListOutputsGating(unittest.TestCase):
             lo.assert_not_called()
 
     def test_reglobs_when_listed_paths_vanished(self):
+        # Re-derivation now reads state/<stage>_wait.json (prodtools_exec,
+        # Task 3) instead of re-globbing /pnfs via list_outputs -- one code
+        # path for grid and local.
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.object(pipeline, "list_outputs") as lo:
+             mock.patch.dict(pipeline.STAGES,
+                             {"poke": {"output_glob": "sim.*.art"}}):
             (Path(tmp) / "poke_outputs.txt").write_text(
                 f"{tmp}/gone.art\n")
-            (Path(tmp) / "poke_cluster.txt").write_text("123\n")
+            (Path(tmp) / "poke_wait.json").write_text(json.dumps({
+                "jobdef": "cnf.t.tar",
+                "jobs": [{"index": 0, "rc": 0,
+                         "outputs": ["/pnfs/out/1/sim.u.D.C.0.art"]}],
+                "ok": 1, "failed": [],
+            }))
             pipeline.cmd_list_outputs(SimpleNamespace(stage="poke",
                                                       force=False))
-            lo.assert_called_once_with("poke", 123)
+            self.assertEqual(
+                (Path(tmp) / "poke_outputs.txt").read_text().strip(),
+                "/pnfs/out/1/sim.u.D.C.0.art")
 
 
 class TestStageTuning(unittest.TestCase):

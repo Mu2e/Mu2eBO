@@ -68,3 +68,35 @@ def write_entry(state_dir: Path, stage: str, entry: dict) -> Path:
     out = state_dir / f"{stage}_entry.json"
     out.write_text(json.dumps([entry], indent=1) + "\n")
     return out
+
+
+def wait_json_path(state_dir: Path, stage: str) -> Path:
+    return state_dir / f"{stage}_wait.json"
+
+
+def read_wait(state_dir: Path, stage: str) -> dict:
+    p = wait_json_path(state_dir, stage)
+    if not p.exists():
+        raise SystemExit(
+            f"[{stage}] {p} missing -- the runner (runlocal/jobwait) died "
+            f"before writing its summary; re-run 'poll {stage}'")
+    return json.loads(p.read_text())
+
+
+def outputs_from_wait(wait: dict, output_glob: str) -> list[str]:
+    """Output paths of jobs that exited 0, filtered to the stage's glob.
+
+    rc None (unknown -- condor history had no record) is NOT ok: an
+    unverifiable job never contributes files to harvest denominators.
+    """
+    outs = []
+    for job in wait.get("jobs", []):
+        if job.get("rc") != 0:
+            continue
+        for o in job.get("outputs", []):
+            if not fnmatch(Path(o).name, output_glob):
+                continue
+            if not os.path.isabs(o) and job.get("dir"):
+                o = str(Path(job["dir"]) / o)
+            outs.append(o)
+    return sorted(outs)

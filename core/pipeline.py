@@ -99,6 +99,8 @@ import harvest as hv  # noqa: E402
 import modes as _modes  # noqa: E402
 # Local executor: local counterparts to the three grid-contact functions.
 import local_exec as lx  # noqa: E402
+# Prodtools execution seam: entry rendering + the shared wait.json contract.
+import prodtools_exec as px  # noqa: E402
 
 # Canonical muse-built Code.tar.bz2 produced by `muse tarball` from
 # <ARTIFACT_ROOT>/autoresearch_muse/ (mgit Mu2eG4 sparse
@@ -1294,23 +1296,20 @@ def cmd_list_outputs(args):
     # still resolves on /pnfs, skip the re-glob. --force overrides.
     outputs_file = STATE / f"{args.stage}_outputs.txt"
     if outputs_file.exists() and not getattr(args, "force", False):
-        paths = [p for p in outputs_file.read_text().splitlines() if p.strip()]
-        if paths and all(Path(p).exists() for p in paths):
-            print(f"[{args.stage}] outputs already listed ({len(paths)} files); "
+        paths_ = [p for p in outputs_file.read_text().splitlines() if p.strip()]
+        if paths_ and all(Path(p).exists() for p in paths_):
+            print(f"[{args.stage}] outputs already listed ({len(paths_)} files); "
                   f"skip (use --force to override)")
             return
-    cluster_file = STATE / f"{args.stage}_cluster.txt"
-    cluster = int(cluster_file.read_text().strip())
-    if _is_local_stage(args.stage):
-        # Re-list from the LOCAL tree; never fall through to the grid glob.
-        # The guard above is not enough on its own: a local run that produced
-        # zero outputs leaves `paths` empty, the guard falls through, and
-        # list_outputs() would glob the /pnfs outstage for a runid-shaped
-        # "cluster" that no grid job ever wrote.
-        lx.list_outputs_local(args.stage, CONFIG, cluster,
-                              STAGES[args.stage]["output_glob"], STATE)
-        return
-    list_outputs(args.stage, cluster)
+    # One code path for grid and local -- both executors write the same
+    # wait.json (spec decision 5), so "where did the files land" has one
+    # reader instead of the old glob-walker pair.
+    wait = px.read_wait(STATE, args.stage)
+    files = px.outputs_from_wait(wait, STAGES[args.stage]["output_glob"])
+    outputs_file.write_text("\n".join(files) + "\n")
+    print(f"[{args.stage}] {len(files)} output file(s) "
+          f"(ok={wait.get('ok')}, failed={wait.get('failed')}, "
+          f"unknown={wait.get('unknown', [])}) -> {outputs_file}")
 
 
 # Constant from extract_analysis_results._MUBEAM_INPUT_EFFICIENCY_BY_FCL["run1a_beam/mubeam.fcl"].
