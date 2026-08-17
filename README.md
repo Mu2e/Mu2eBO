@@ -266,7 +266,7 @@ git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
 ./setup.sh --venv                                     # link the shared venv
 ./setup.sh --backing /exp/mu2e/app/users/oksuzian     # borrow a built Offline (personal-path-ok: a real operator's)
 export AUTORESEARCH_PRODTOOLS=/exp/mu2e/app/users/oksuzian/muse_050125/prodtools   # personal-path-ok: any prodtools checkout works
-tools/run_local.sh local01                            # one evaluation, ~15 min
+tools/run_local.sh local01                            # one evaluation, ~20 min
 ```
 
 `tools/run_local.sh [config-name] [mode]` is the rest of this section made
@@ -276,7 +276,7 @@ runs the chain. With no arguments it picks a timestamped config name, so the
 command above is genuinely all you type.
 
 Every default is an env override — `AUTORESEARCH_LOCAL_EVENTS=200
-tools/run_local.sh smoke01` for a 20 s/stage plumbing check instead, or
+tools/run_local.sh smoke01` for a 30 s/stage plumbing check instead, or
 `AUTORESEARCH_BACKING=/exp/mu2e/app/users/<someone-else>` to borrow a
 different build. The backing it resolved is printed in the status block every
 run: you are never on someone's build without seeing whose.
@@ -327,17 +327,17 @@ Supported stages: `mubeam`, `run1b_mubeam`, `concat`, `mustops_ce`,
 
 ### What a default-scale run gives you — and what it does not
 
-The whole chain above takes about **20 s per stage** at 1 × 200 events, and
+The whole chain above takes about **30 s per stage** at 1 × 200 events, and
 ends with a real `harvest/summary.json`: `s_over_sqrt_b`, stop counts,
 efficiencies, the CE ntuple. That is the plumbing check, and it is the point.
 
 **It will not append a leaderboard row on a flash mode**, and that is by
-design. Flash energy reaches only ~1–2 events per thousand (`1.4e-3` measured
-locally, `2.4e-3` across production campaigns), so 200 events expects well
-under one — zero, most of the time. `evaluate` refuses to append a row whose
-second objective is zero, because a zero there would dominate the Pareto front
-at the next GP refit. You get an explicit `scan_logs/evaluate_zero_row.tsv`
-naming the cause, not a silent skip.
+design. Flash energy reaches only a few events per thousand (`1.3e-3`–`4.2e-3`
+across local geometries, `2.4e-3` across production campaigns), so 200 events
+expects well under one — zero, most of the time. `evaluate` refuses to append
+a row whose second objective is zero, because that zero would dominate the
+Pareto front at the next GP refit. You get an explicit
+`scan_logs/evaluate_zero_row.tsv` naming the cause, not a silent skip.
 
 To land a row you need enough events for the flash objective to be nonzero;
 the total is `NJOBS × EVENTS` per stage. The script's default 10⁵ landed a row
@@ -345,8 +345,8 @@ on every geometry tried, with **41–137 flash events (~9–16% statistical erro
 on the flash objective, and it varies by geometry — sample it, don't assume
 it)**, for about **15 minutes of stages** on 8 cores — measured 169 s / 283 s / 426 s for mubeam /
 elebeam_flash / mustops_ce, plus harvest. Per-event cost is far below what the
-200-event timing suggests: most of those 20 s is G4 init and geometry load,
-paid once per job.
+200-event timing suggests: most of those 30 s is G4 init and geometry load,
+paid once per job (~25 s of it, measured across 200 → 10⁴ events per job).
 
 ```bash
 AUTORESEARCH_LOCAL=1 AUTORESEARCH_LOCAL_NJOBS=8 \
