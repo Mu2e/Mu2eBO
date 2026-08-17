@@ -1,0 +1,18 @@
+{
+ "_comment": "Rationale for these keys lives in core/pipeline.py, in the comment block immediately above _render_fcl_overrides (Task 14, lifted from Task 13's STAGE_FCL[\"mustops_ce\"]). Edit that comment block, not this note, when the rationale changes.",
+ "fcl": "Production/JobConfig/primary/CeEndpoint.fcl",
+ "fcl_overrides": {
+  "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
+  "services.SeedService.baseSeed": 1,
+  "outputs.PrimaryOutput.fileName": "dts.owner.CeEndpoint.version.sequencer.art",
+  "services.GeometryService.inputFile": "{geom}",
+  "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_v01.txt",
+  "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip": 100720
+ },
+ "resampler_name": "TargetStopResampler",
+ "inloc": "disk",
+ "outloc": {"*.art": "outstage", "*.root": "outstage"},
+ "run": 1801,
+ "memory": 3000,
+ "events": 2500
+}

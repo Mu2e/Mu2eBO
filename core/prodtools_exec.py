@@ -11,13 +11,87 @@ Spec: docs/superpowers/specs/2026-08-16-prodtools-switch-design.md.
 import getpass
 import json
 import os
+import re
 import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
 
-from paths import prodtools_root
+from paths import REPO_ROOT, prodtools_root
 
 USER = os.environ.get("USER") or getpass.getuser()
+
+# Checked-in json2jobdef-native entry templates, one per stage (Task 14 --
+# retiring core/pipeline.py's STAGE_FCL + the STAGES fields that never
+# varied at runtime: fcl, fcl_overrides, resampler_name, static Cat
+# input_data, inloc, outloc, run, memory, default events). See
+# load_stage_entry.
+STAGE_ENTRIES_DIR = REPO_ROOT / "stage_entries"
+
+# Substitution is explicit and closed: ONLY these two placeholders are
+# recognized inside a stage_entries/<stage>.json string value. Runtime
+# fields (njobs, events/memory overrides from stage_tuning, staged
+# input_data/inloc, the concat-less MaxEventsToSkip conditional) are never
+# templated -- they are merged in by the caller (core/pipeline.py) after
+# load_stage_entry returns.
+_STAGE_ENTRY_PLACEHOLDERS = ("cfg", "geom")
+_PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
+
+
+def _substitute_placeholders(value, mapping: dict, where: str):
+    """Recursively substitute `{cfg}`/`{geom}` in string values.
+
+    Applies to strings anywhere inside dicts/lists (nested arbitrarily
+    deep -- see stage_entries/mubeam.json's ParticleCodes list). Any other
+    `{token}` is a loud ValueError naming the offending key path: a typo'd
+    placeholder must fail at load time, not render as a literal
+    `{typo}` string inside a submitted FHiCL override. Always builds NEW
+    containers (dict/list comprehensions, regex substitution returns a new
+    str) -- never mutates `value` in place, so repeated calls over the same
+    cached raw JSON can never alias or leak between callers.
+    """
+    if isinstance(value, str):
+        def repl(m):
+            token = m.group(1)
+            if token not in mapping:
+                raise ValueError(
+                    f"stage_entries: unknown placeholder {{{token}}} at "
+                    f"{where!r} -- only {_STAGE_ENTRY_PLACEHOLDERS} are "
+                    f"substituted")
+            return str(mapping[token])
+        return _PLACEHOLDER_RE.sub(repl, value)
+    if isinstance(value, list):
+        return [_substitute_placeholders(v, mapping, f"{where}[{i}]")
+                for i, v in enumerate(value)]
+    if isinstance(value, dict):
+        return {k: _substitute_placeholders(v, mapping, f"{where}.{k}")
+                for k, v in value.items()}
+    return value
+
+
+def load_stage_entry(stage: str, *, cfg: str, geom: str,
+                     entries_dir=None) -> dict:
+    """Load stage_entries/<stage>.json with `{cfg}`/`{geom}` substituted.
+
+    Returns the per-stage entry TEMPLATE: whatever subset of `fcl`,
+    `fcl_overrides`, `resampler_name`, `input_data`, `inloc`, `outloc`,
+    `run`, `memory`, `events` that stage's JSON file declares (a merge
+    stage like concat has neither `run` nor `events`; a staged-input stage
+    like mustops_ce has no `input_data`). `_comment` rides along
+    unsubstituted (json2jobdef ignores unknown entry keys -- verified
+    against utils/jobdesc.py validate_entry_value's "keys other than the
+    ones it knows are ignored, not rejected" -- but render_entry never
+    forwards it either way, since its signature has no `_comment` param).
+
+    `entries_dir` overrides STAGE_ENTRIES_DIR for tests; real callers never
+    pass it.
+    """
+    d = Path(entries_dir) if entries_dir is not None else STAGE_ENTRIES_DIR
+    path = d / f"{stage}.json"
+    if not path.exists():
+        raise SystemExit(
+            f"stage_entries: no template for stage {stage!r} at {path}")
+    raw = json.loads(path.read_text())
+    return _substitute_placeholders(raw, {"cfg": cfg, "geom": geom}, stage)
 
 # Same outstage root the mu2ejobsub era used (pipeline.py OUTSTAGE);
 # prodtools computes it as {wftop}/{user}/workflow/{wfproject}/outstage.
@@ -37,8 +111,10 @@ def render_entry(stage, stage_cfg, *, config, dsconf, desc, njobs,
 
     `fcl_name` is the entry's `fcl` field -- since Task 13 (retiring the
     hand-written pipeline_templates/<stage>/template.fcl files) this is the
-    PUBLISHED Production FCL path (core/pipeline.py STAGE_FCL[stage]["fcl"]),
-    not a per-config materialized file's basename; `fcl_overrides` (when
+    PUBLISHED Production FCL path (stage_entries/<stage>.json "fcl", loaded
+    via load_stage_entry -- Task 14 moved it out of core/pipeline.py's
+    STAGE_FCL dict), not a per-config materialized file's basename;
+    `fcl_overrides` (when
     given) is copied into the entry verbatim -- prodtools' write_fcl_template
     renders it directly (json.dumps per value) on top of that base FCL.
     Code-mode for every stage: the per-config Code tarball ships the geom

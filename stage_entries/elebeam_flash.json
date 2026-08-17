@@ -1,0 +1,23 @@
+{
+ "_comment": "Rationale for these keys lives in core/pipeline.py, in the comment block immediately above _render_fcl_overrides (Task 14, lifted from Task 13's STAGE_FCL[\"elebeam_flash\"]). Edit that comment block, not this note, when the rationale changes.",
+ "fcl": "Production/JobConfig/pileup/EleBeamResampler.fcl",
+ "fcl_overrides": {
+  "#include": "Production/JobConfig/pileup/epilog_1b.fcl",
+  "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
+  "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
+  "physics.filters.EarlyPrescaleFilter.nPrescale": 1,
+  "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyEleBeamFlash.version.sequencer.art",
+  "outputs.FlashOutput.fileName": "dts.owner.EleBeamFlash.version.sequencer.art",
+  "services.TFileService.fileName": "nts.owner.elebeamflash.version.sequencer.root",
+  "services.SeedService.baseSeed": 1,
+  "services.GeometryService.inputFile": "{geom}",
+  "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_v01.txt"
+ },
+ "resampler_name": "beamResampler",
+ "input_data": {"sim.mu2e.EleBeamCat.Run1Baa.art": 1},
+ "inloc": "tape",
+ "outloc": {"*.art": "outstage", "*.root": "outstage"},
+ "run": 1803,
+ "memory": 3000,
+ "events": 2500
+}

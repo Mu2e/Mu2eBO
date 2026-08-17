@@ -123,6 +123,98 @@ class TestRenderEntry(unittest.TestCase):
             self.assertEqual(data, [{"desc": "d"}])
 
 
+class TestLoadStageEntry(unittest.TestCase):
+    """pex.load_stage_entry / pex._substitute_placeholders (Task 14):
+    stage_entries/<stage>.json -> substituted entry template. Uses a
+    throwaway `entries_dir` fixture, not the real stage_entries/ tree --
+    the real files are covered end-to-end by
+    tests/test_pipeline_verbs.py::TestStageEntries."""
+
+    def _write(self, tmp, stage, payload):
+        d = Path(tmp)
+        (d / f"{stage}.json").write_text(json.dumps(payload))
+        return d
+
+    def test_substitutes_cfg_and_geom_recursively(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self._write(tmp, "x", {
+                "fcl": "a/b.fcl",
+                "fcl_overrides": {
+                    "services.GeometryService.inputFile": "{geom}",
+                    "nested": {"list": ["prefix_{cfg}_suffix", 3]},
+                },
+            })
+            e = pex.load_stage_entry("x", cfg="cfg007", geom="g.txt",
+                                     entries_dir=d)
+        self.assertEqual(
+            e["fcl_overrides"]["services.GeometryService.inputFile"], "g.txt")
+        self.assertEqual(
+            e["fcl_overrides"]["nested"]["list"][0], "prefix_cfg007_suffix")
+        self.assertEqual(e["fcl_overrides"]["nested"]["list"][1], 3)  # untouched
+
+    def test_unknown_placeholder_raises_naming_the_key_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self._write(tmp, "x", {
+                "fcl_overrides": {"a": {"b": "{typo}"}},
+            })
+            with self.assertRaises(ValueError) as cm:
+                pex.load_stage_entry("x", cfg="c", geom="g", entries_dir=d)
+        self.assertIn("typo", str(cm.exception))
+        self.assertIn("x.fcl_overrides.a.b", str(cm.exception))
+
+    def test_missing_stage_file_is_a_system_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit) as cm:
+                pex.load_stage_entry("nope", cfg="c", geom="g",
+                                     entries_dir=Path(tmp))
+        self.assertIn("nope", str(cm.exception))
+
+    def test_include_key_stays_first_through_json_load_and_substitution(self):
+        # json.load preserves source key order; _substitute_placeholders'
+        # dict comprehension must not reshuffle it.
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self._write(tmp, "x", {
+                "fcl_overrides": {
+                    "#include": ["a.fcl", "b.fcl"],
+                    "services.SeedService.baseSeed": 1,
+                    "services.GeometryService.inputFile": "{geom}",
+                },
+            })
+            e = pex.load_stage_entry("x", cfg="c", geom="g.txt", entries_dir=d)
+        self.assertEqual(list(e["fcl_overrides"].keys())[0], "#include")
+
+    def test_repeated_calls_do_not_alias_or_leak(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self._write(tmp, "x", {
+                "fcl_overrides": {"services.GeometryService.inputFile": "{geom}"},
+            })
+            e1 = pex.load_stage_entry("x", cfg="c", geom="geom1.txt",
+                                      entries_dir=d)
+            e1["fcl_overrides"]["injected"] = "leak"
+            e2 = pex.load_stage_entry("x", cfg="c", geom="geom2.txt",
+                                      entries_dir=d)
+        self.assertEqual(
+            e2["fcl_overrides"]["services.GeometryService.inputFile"],
+            "geom2.txt")
+        self.assertNotIn("injected", e2["fcl_overrides"])
+
+    def test_comment_key_rides_along_unsubstituted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self._write(tmp, "x", {"_comment": "see pipeline.py",
+                                       "fcl": "a.fcl"})
+            e = pex.load_stage_entry("x", cfg="c", geom="g", entries_dir=d)
+        self.assertEqual(e["_comment"], "see pipeline.py")
+
+    def test_real_stage_entries_dir_all_five_stages_load_without_error(self):
+        # Smoke-validates the checked-in JSON: any typo'd placeholder in
+        # the real stage_entries/<stage>.json files fails here, not three
+        # subprocesses deep inside a real submit.
+        for stage in ("mubeam", "run1b_mubeam", "concat", "mustops_ce",
+                     "elebeam_flash"):
+            with self.subTest(stage=stage):
+                pex.load_stage_entry(stage, cfg="x001", geom="geom.txt")
+
+
 class TestOutstageRoot(unittest.TestCase):
     def test_matches_legacy_constant(self):
         self.assertEqual(

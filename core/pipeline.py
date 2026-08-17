@@ -3,19 +3,29 @@
 Parametric grid pipeline orchestrator for the BO loop.
 
 Single canonical pipeline.py. Pass --config CFG; ROOT, GEOM_FILE, DSCONF,
-PNFS_STAGE and per-stage `desc` fields are derived from CFG. Per-stage FCL
-data (Task 13, retiring the old pipeline_templates/<stage>/template.fcl
-files) lives in this module's STAGE_FCL dict: `fcl` is the published
-Production FCL path, `fcl_overrides` is the flat override dict a
-json2jobdef entry's `fcl_overrides` renders directly (prodtools
-write_fcl_template) -- exactly what the old templates were, minus the
-include boilerplate. `_render_fcl_overrides` substitutes the one per-config
-value (the geom basename) at submit time; the two stages whose overrides
-need an @sequence::-bearing FHiCL block that can't ride a JSON value
-(mubeam, run1b_mubeam) pull it in from a static
-pipeline_templates/<stage>_extras.fcl via the `'#include'` override key,
-shipped in the code tarball (write_code_tarball extra_files) the same way
-the geom overlay is.
+PNFS_STAGE and per-stage `desc` fields are derived from CFG. The per-stage
+job description (Task 13, retiring the old
+pipeline_templates/<stage>/template.fcl files; Task 14, lifting Task 13's
+STAGE_FCL dict out to checked-in JSON) lives in `stage_entries/<stage>.json`,
+in json2jobdef's native entry schema: `fcl` is the published Production FCL
+path, `fcl_overrides` is the flat override dict a json2jobdef entry's
+`fcl_overrides` renders directly (prodtools write_fcl_template) -- exactly
+what the old templates were, minus the include boilerplate --
+`resampler_name`/`input_data`/`inloc`/`outloc`/`run`/`memory`/`events` are
+the rest of a json2jobdef entry that don't vary at runtime. `px.
+load_stage_entry` loads a stage's JSON and substitutes its `{cfg}`/`{geom}`
+placeholders; `_render_fcl_overrides` layers on the one substitution that
+JSON can't express (mustops_ce's stamp-first concat-less MaxEventsToSkip
+toggle). STAGES below keeps only the fields that mode_specs `stage_tuning`
+and `STAGE_TARGETS` actually tune (njobs/events_per_job/memory_mb/quorum),
+plus orchestration residue (desc_fmt/output_glob/merge_factor/
+dsconf_musing) -- see the comment block above `_render_fcl_overrides` for
+the per-stage-JSON-key rationale that used to sit beside STAGE_FCL's/
+STAGES' literals. The two stages whose overrides need an
+@sequence::-bearing FHiCL block that can't ride a JSON value (mubeam,
+run1b_mubeam) pull it in from a static pipeline_templates/<stage>_extras.fcl
+via the `'#include'` override key, shipped in the code tarball
+(write_code_tarball extra_files) the same way the geom overlay is.
 
 Per-config working tree (auto-created):
   <DATA_ROOT>/autoresearch_grid/<cfg>/
@@ -38,7 +48,6 @@ Outstage convention: /pnfs/mu2e/scratch/users/$USER/workflow/default/outstage/<C
 from __future__ import annotations
 
 import argparse
-import copy
 import datetime as dt
 import errno
 import fcntl
@@ -174,40 +183,42 @@ def _stage_dsconf(stage: str) -> str:
     return f"{musing}_{CONFIG}" if musing else DSCONF
 
 
-# Per-stage knobs (config-invariant): njobs/events/run/memory/globs. The FCL
-# content itself (published `fcl` + `fcl_overrides`) lives in STAGE_FCL
-# below, kept separate so Task 14 can lift STAGE_FCL to JSON without
-# touching these grid-scheduling knobs.
+# Orchestration residue (Task 14): only the fields mode_specs `stage_tuning`
+# and graph/config.py STAGE_TARGETS actually tune, plus desc_fmt/glob/
+# merge_factor, which never vary at runtime but aren't part of a
+# json2jobdef entry either. Everything that WAS here and IS static
+# json2jobdef-entry data (run_number, memory_mb, default_loc, the dead
+# `auxinput`/`ships_geom` fields) moved to stage_entries/<stage>.json or
+# was dropped -- see the comment block below _STAGE_EXTRAS_FCL for the
+# per-key rationale that used to sit beside those literals.
+#
+# `auxinput` (mubeam/run1b_mubeam/elebeam_flash) and `ships_geom` (every
+# stage) were DEAD before this task touched them -- grepped zero readers
+# anywhere in core/ or graph/, leftover from the pre-prodtools-switch
+# mu2ejobdef era (`auxinput` named a `*Cat.txt` filelist under
+# core/pipeline_templates/<stage>/ that today's SAM-query `input_data`/
+# `resampler_name` mechanism, in stage_entries/<stage>.json, superseded
+# without anyone deleting the STAGES literal that named it; those *.txt
+# files are themselves now orphaned on disk, out of this task's scope).
+# Not carried forward: reintroducing either would be inventing a field STAGES
+# never actually used, not preserving one it did.
 STAGES = {
     "mubeam": {
         "desc_fmt": "Run1A_MuBeam_{cfg}",
         "njobs": STAGE_TARGETS["mubeam"],
         "events_per_job": 5000,
-        "run_number": 1800,
-        "ships_geom": True,
-        "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'mubeam' / 'MuBeamCat.txt'}",
-        # MuBeamCat migrated persistent->tape 2026-07-13 (same migration as
-        # EleBeamCat 07-09); see wiki elebeamcat-tape-migration-elebeam-wipeout.
-        "default_loc": "tape",
         "output_glob": "sim.*.TargetStops.*.art",
     },
     "run1b_mubeam": {
         "desc_fmt": "Run1B_MuBeam_{cfg}",
         "njobs": STAGE_TARGETS["run1b_mubeam"],
         "events_per_job": 5000,
-        "run_number": 1810,
-        "ships_geom": True,
-        "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'run1b_mubeam' / 'MuBeamCat.txt'}",
-        # MuBeamCat migrated persistent->tape 2026-07-13 (see mubeam above).
-        "default_loc": "tape",
         "output_glob": "nts.*.mubeam.*.root",
     },
     "concat": {
         "desc_fmt": "Run1A_MuStopsCat_{cfg}",
         "njobs": STAGE_TARGETS["concat"],
         "merge_factor": 200,
-        "ships_geom": False,
-        "default_loc": "disk",
         "output_glob": "sim.*.MuminusStopsCat.*.art",
     },
     "mustops_ce": {
@@ -227,261 +238,25 @@ STAGES = {
         # σ(sob) 0.10→0.14; this configuration restores σ(sob).
         # Stamped at submit (see [[events-per-job-mid-flight-edit]]).
         "events_per_job": 2500,
-        "run_number": 1801,
-        "ships_geom": True,
-        "default_loc": "disk",
         "output_glob": "dts.*.CeEndpoint.*.art",
-        # 3000 MB (was 2500). SR00_00 worker logs showed VmPeak=2.75 GB on
-        # N_crit≈4144 jobs, exceeding the 2.2 GB allocation request and
-        # creating eviction risk. 3000 MB gives the high-N_crit tail
-        # comfortable headroom without burning slot-matchability.
-        "memory_mb": 3000,
     },
     # Electron-beam early-flash stage for the foilsflash BO line. Resamples the
-    # external EleBeamCat dataset (like mubeam resamples MuBeamCat — static
-    # auxinput filelist, NOT concat), DS-on, ships the per-BO foil geom, and
-    # writes EarlyEleBeamFlash StrawGasStep DetSteps. Harvest sums tracker
-    # ionizingEdep (reuses _extract_trk_edep_per_pot). See bo-foilsflash.
+    # external EleBeamCat dataset (like mubeam resamples MuBeamCat), DS-on,
+    # ships the per-BO foil geom, and writes EarlyEleBeamFlash StrawGasStep
+    # DetSteps. Harvest sums tracker ionizingEdep (reuses
+    # _extract_trk_edep_per_pot). See bo-foilsflash.
     "elebeam_flash": {
         "desc_fmt": "Run1A_EleBeamFlash_{cfg}",
         "njobs": STAGE_TARGETS["elebeam_flash"],
         "events_per_job": 2500,
-        "run_number": 1803,
-        "ships_geom": True,
-        "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'elebeam_flash' / 'EleBeamCat.txt'}",
-        # "tape" since 2026-07-10: EleBeamCat Run1Baa migrated persistent→tape
-        # on 2026-07-09. mu2ejobfcl derives the auxinput URL from THIS flag
-        # ("disk"==persistent), NOT from SAM — a stale value kills every job
-        # with FileOpenError at beamResampler. Files are dCache-online; verify
-        # locality before campaigns (wiki: elebeamcat-tape-migration-elebeam-wipeout).
-        "default_loc": "tape",
         "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
-        "memory_mb": 3000,
-    },
-}
-
-# Per-stage published FCL + override data (Task 13, retiring the five
-# hand-written core/pipeline_templates/<stage>/template.fcl files): every
-# template WAS exactly `#include <published Production FCL>` + flat
-# overrides -- precisely what a json2jobdef entry's `fcl` + `fcl_overrides`
-# renders directly (prodtools utils/prod_utils.py write_fcl_template).
-# `fcl_overrides` values are json.dumps'd verbatim by prodtools (strings
-# quoted, lists bracketed, bools lowercased); the one FHiCL construct that
-# can't ride a JSON value is an unquoted `@sequence::` token, so any
-# override whose value contains one lives instead in a static
-# core/pipeline_templates/<stage>_extras.fcl pulled in via the `'#include'`
-# override key -- kept FIRST in every dict below, since write_fcl_template
-# emits override keys in dict order and a later key must still be able to
-# beat whatever an earlier #include set for the same FHiCL path (none of
-# the extras files below actually collide with a later key here, but the
-# ordering rule is kept as the general contract, not a per-stage judgment
-# call).
-#
-# `services.GeometryService.inputFile` carries `_GEOM_FILE_SENTINEL`;
-# `_render_fcl_overrides()` is the sole place that substitutes the real
-# per-config geom basename, at render time. Kept JSON-serializable other
-# than that one sentinel string (a valid JSON value itself) so Task 14 can
-# lift this dict verbatim into per-stage JSON files.
-_GEOM_FILE_SENTINEL = "__GEOM_FILE__"
-
-STAGE_FCL = {
-    "mubeam": {
-        "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
-        "fcl_overrides": {
-            # epilog_1b.fcl was the template's 2nd #include; mubeam_extras.fcl
-            # carries the two outputCommands blocks + the targetStopPath
-            # restatement below (all @sequence::-bearing -- see that file).
-            "#include": ["Production/JobConfig/pileup/epilog_1b.fcl",
-                        "mubeam_extras.fcl"],
-            # FTFP_BERT physics list: -20% CPU on mubeam vs ShieldingM
-            # (n=200/200), with sob/calo deltas inside the ShieldingM-self
-            # noise floor on helicalQR00_02 (graph027 A/B 2026-05-23).
-            # See wiki concepts/g4-speed-knobs.md.
-            "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
-            "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
-            # physics.filters.beamResampler.mu2e.MaxEventsToSkip is
-            # DELIBERATELY absent (the template had a hardcoded 319542):
-            # mubeam resamples the static MuBeamCat SAM dataset (not a
-            # dir:-inloc resampler), so json2jobdef auto-computes
-            # MaxEventsToSkip from SAM and appends it as a post_line, which
-            # beats every fcl_overrides entry (write_fcl_template's
-            # post_lines argument) -- carrying the frozen 319542 forward
-            # here would be a silent lie even though it happens to equal
-            # today's SAM-derived value (validated identical for
-            # MuBeamCat Run1Baa, Task 11/13).
-            "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyMuBeamFlash.version.sequencer.art",
-            "outputs.FlashOutput.fileName": "dts.owner.MuBeamFlash.version.sequencer.art",
-            "outputs.IPAStopOutput.fileName": "sim.owner.IPAStops.version.sequencer.art",
-            "outputs.TargetStopOutput.fileName": "sim.owner.TargetStops.version.sequencer.art",
-            "services.TFileService.fileName": "nts.owner.mubeam.version.sequencer.root",
-            "services.SeedService.baseSeed": 1,
-            "physics.filters.TargetStopPrescaleFilter.nPrescale": 1,
-            # Per-BO-point geom overlay shipped inside code.tar (Code/setup.sh
-            # prepends Code/ to MU2E_SEARCH_PATH); _GEOM_FILE_SENTINEL is
-            # replaced with the real basename by _render_fcl_overrides.
-            "services.GeometryService.inputFile": _GEOM_FILE_SENTINEL,
-            "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_v01.txt",
-            # mu- purity filter folded in from concat's MuonStopSelector.fcl
-            # (2026-07-10): CeEndpoint throws BADINPUT on events with no
-            # stopped mu-, and TargetMuonFinder selects both charges
-            # ([13,-13]), so TargetStops must be mu- pure for
-            # TargetStopResampler to read these files directly (concat stage
-            # removed from the foilsflash chain). Same ParticleCodeFilter
-            # config as MuonStopSelector.fcl's muminusSelector.
-            # Backward-compatible for modes that keep concat: their
-            # muminusSelector then passes ~100% and MuplusStopsCat comes out
-            # empty (nothing consumes it). Validated via fhicl-dump
-            # 2026-07-09 (path assembly + prolog refs + SelectEvents).
-            #
-            # FLATTENED to dotted leaf keys, not one nested-dict value: real
-            # prodtools campaign JSON (muse_050125/prodtools/data/Run1B/*.json)
-            # never nests a table literal in fcl_overrides, and Task 13's own
-            # offline validation showed why -- write_fcl_template's
-            # json.dumps({"module_type": ..., ...}) always quotes dict KEYS
-            # ("module_type": ...), and FHiCL table syntax requires bare
-            # (unquoted) key identifiers; a quoted-key table is a hard
-            # fhicl-get parse error ("detected at or near" the opening
-            # brace), reproduced directly against the real prodtools
-            # checkout. Flat dotted keys sidestep it entirely -- each is a
-            # plain scalar/list value, which json.dumps renders correctly.
-            "physics.filters.muminusSelector.module_type": "ParticleCodeFilter",
-            "physics.filters.muminusSelector.SimParticles": "TargetStopFilter",
-            "physics.filters.muminusSelector.ParticleCodes": [[13, "uninitialized", "muMinusCaptureAtRest"]],
-            "physics.filters.muminusSelector.PrintLevel": 0,
-            # targetStopPath itself (restated from
-            # Production/JobConfig/pileup/MuBeamResampler.fcl:35 with
-            # muminusSelector inserted after TargetStopFilter and before
-            # compressPVTargetStops) lives in mubeam_extras.fcl -- its
-            # @sequence:: entries can't ride this JSON dict.
-        },
-    },
-    "run1b_mubeam": {
-        "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
-        "fcl_overrides": {
-            # run1b_mubeam_extras.fcl carries the two outputCommands blocks
-            # (same @sequence::-bearing shape as mubeam's); run1b_mubeam has
-            # no targetStopPath/muminusSelector override -- Run1B keeps the
-            # published targetStopPath.
-            "#include": ["Production/JobConfig/pileup/epilog_1b.fcl",
-                        "run1b_mubeam_extras.fcl"],
-            # Run1B mubeam variant: DS field OFF + geom_run1_b_v06 baseline
-            # so muons stream straight downstream and we get a real
-            # calo_stop/POT measurement. Same MuBeamCat input as the Run1A
-            # mubeam stage; same per-iter BO geom overlay.
-            #
-            # FTFP_BERT physics list - same rationale as the run1a mubeam
-            # stage. A/B was scoped to mubeam only; extending here on the
-            # assumption that the CPU/noise tradeoff is similar.
-            # See wiki concepts/g4-speed-knobs.md.
-            "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
-            "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
-            # MaxEventsToSkip deliberately absent -- same Cat-resampler
-            # auto-compute post_line rule as mubeam above.
-            "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyMuBeamFlash.version.sequencer.art",
-            "outputs.FlashOutput.fileName": "dts.owner.MuBeamFlash.version.sequencer.art",
-            "outputs.IPAStopOutput.fileName": "sim.owner.IPAStops.version.sequencer.art",
-            "outputs.TargetStopOutput.fileName": "sim.owner.TargetStops.version.sequencer.art",
-            "outputs.PolyStopOutput.fileName": "sim.owner.PolyStops.version.sequencer.art",
-            "services.TFileService.fileName": "nts.owner.mubeam.version.sequencer.root",
-            "services.SeedService.baseSeed": 1,
-            "physics.filters.TargetStopPrescaleFilter.nPrescale": 10,
-            "physics.filters.PolyStopPrescaleFilter.nPrescale": 10,
-            # BO geom overlay shipped via Code.tar (same file as run1a
-            # mubeam) but with DS-off field map and Run1B base geometry.
-            "services.GeometryService.inputFile": _GEOM_FILE_SENTINEL,
-            "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_DSOff.txt",
-        },
-    },
-    "concat": {
-        "fcl": "Production/JobConfig/pileup/MuonStopSelector.fcl",
-        "fcl_overrides": {
-            # MuonStopSelector reads source.fileNames (filled by prodtools
-            # json2jobdef from the entry's input_data/inloc fields -- was
-            # mu2ejobdef --inputs before the prodtools switch) and writes
-            # mu-/mu+ TargetStops into separate art files. No G4, no
-            # geometry dependency, so the BO geom overlay is NOT shipped
-            # with this stage (no services.GeometryService key here).
-            "outputs.muminusout.fileName": "sim.owner.MuminusStopsCat.version.sequencer.art",
-            "outputs.muplusout.fileName": "sim.owner.MuplusStopsCat.version.sequencer.art",
-        },
-    },
-    "mustops_ce": {
-        "fcl": "Production/JobConfig/primary/CeEndpoint.fcl",
-        "fcl_overrides": {
-            # Re-runs G4 on Ce primaries placed at resampled mu- stop
-            # positions. Geometry-dependent, so the BO geom overlay travels
-            # with this stage via --code.
-            # physics.filters.TargetStopResampler.fileNames is filled by
-            # prodtools json2jobdef from the entry's
-            # resampler_name/input_data/inloc fields (see render_entry; was
-            # mu2ejobdef --auxinput=... before the prodtools switch).
-            #
-            # FTFP_BERT physics list - extending the mubeam A/B result to
-            # the Ce signal stage. This affects the sob numerator directly,
-            # so monitor the first round's sob values vs the leaderboard
-            # history for divergence. See wiki concepts/g4-speed-knobs.md.
-            "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
-            "services.SeedService.baseSeed": 1,
-            "outputs.PrimaryOutput.fileName": "dts.owner.CeEndpoint.version.sequencer.art",
-            "services.GeometryService.inputFile": _GEOM_FILE_SENTINEL,
-            "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_v01.txt",
-            # Required: the prolog leaves this @nil so we must override or
-            # art aborts at ResamplingMixer construction. mustops_ce is a
-            # dir:-inloc resampler (json2jobdef's auto-compute is skipped
-            # for dir: input_data -- there is no SAM dataset to query), so
-            # unlike mubeam/run1b_mubeam/elebeam_flash this value MUST ride
-            # fcl_overrides -- no post_line rescues a missing/wrong value
-            # here. 100720 matches the local autoresearch fcl.
-            # _render_fcl_overrides() overrides this to 8000 for
-            # concat-less chains (hv.concatless -- folded in from the old
-            # _materialize_template's stamp-first conditional, unchanged
-            # rule: concat-less jobs each read ONE mubeam file (~16k mu-
-            # stop events for the 37-foil base +- extras) instead of the
-            # merged concat file (~240k events), so the random skip must
-            # stay below the smallest plausible file).
-            "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip": 100720,
-        },
-    },
-    "elebeam_flash": {
-        "fcl": "Production/JobConfig/pileup/EleBeamResampler.fcl",
-        "fcl_overrides": {
-            "#include": "Production/JobConfig/pileup/epilog_1b.fcl",
-            # bo-foilsflash 2nd objective: tracker StrawGasStep edep from
-            # the electron-beam EARLY-FLASH peak with DS ON. EleBeamResampler
-            # runs both flashPath + earlyFlashPath (trigger_paths default);
-            # we keep both and harvest only the EARLY output. FTFP_BERT
-            # matches mubeam (-20% CPU). ASCII-only (FHiCL strict).
-            "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
-            "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
-            # MaxEventsToSkip deliberately absent -- elebeam_flash resamples
-            # the static EleBeamCat SAM dataset (not dir:-inloc), same
-            # Cat-resampler auto-compute post_line rule as mubeam above.
-            #
-            # Early-flash peak = un-time-cut stream -> harvest globs the
-            # EarlyEleBeamFlash file (see pipeline STAGES glob). NO PRESCALE:
-            # the production default drops 999/1000 early events
-            # (EarlyEleBeamFlashPrescale=1000, a data-volume convenience).
-            # The early flash is OUR BO OBJECTIVE, so we keep every event
-            # (nPrescale=1) for ~32x lower per-event flash_edep noise. g4run
-            # already runs for all events regardless; only StepSim CPU +
-            # output grow. The filter sits first in EarlyDetStepSequence
-            # (pileup/prolog.fcl:355-359).
-            "physics.filters.EarlyPrescaleFilter.nPrescale": 1,
-            "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyEleBeamFlash.version.sequencer.art",
-            "outputs.FlashOutput.fileName": "dts.owner.EleBeamFlash.version.sequencer.art",
-            "services.TFileService.fileName": "nts.owner.elebeamflash.version.sequencer.root",
-            "services.SeedService.baseSeed": 1,
-            # Per-BO-point foil geom overlay shipped inside code.tar; DS
-            # field ON.
-            "services.GeometryService.inputFile": _GEOM_FILE_SENTINEL,
-            "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_v01.txt",
-        },
     },
 }
 
 # mubeam/run1b_mubeam are the only stages whose fcl_overrides reference a
-# static extras fcl (see STAGE_FCL) -- shipped alongside the geom overlay in
-# every submit's code tarball (write_code_tarball extra_files).
+# static extras fcl (see stage_entries/<stage>.json's '#include' key) --
+# shipped alongside the geom overlay in every submit's code tarball
+# (write_code_tarball extra_files).
 _STAGE_EXTRAS_FCL = {
     "mubeam": TEMPLATES_ROOT / "mubeam_extras.fcl",
     "run1b_mubeam": TEMPLATES_ROOT / "run1b_mubeam_extras.fcl",
@@ -493,18 +268,160 @@ def _stage_extra_files(stage: str) -> list[Path]:
     return [extra] if extra else []
 
 
+# Per-stage-JSON-key rationale (Task 14: this used to sit beside the STAGES
+# literals it explains, and beside Task 13's STAGE_FCL per-key values --
+# both retired to stage_entries/<stage>.json, which carries no comments
+# (JSON has none) and only a `_comment` pointer back to this block; edit
+# HERE when the rationale changes, not the JSON's `_comment` string).
+# Grouped by stage_entries/<stage>.json:
+#
+# mubeam.json:
+#   fcl_overrides['#include'] -- epilog_1b.fcl was the old template's 2nd
+#     #include; mubeam_extras.fcl carries the two outputCommands blocks +
+#     the targetStopPath restatement below (all @sequence::-bearing, so
+#     none of it can ride a JSON fcl_overrides value -- see that file).
+#   fcl_overrides['physics.producers.g4run.physics.physicsListName'] --
+#     FTFP_BERT: -20% CPU on mubeam vs ShieldingM (n=200/200), with sob/calo
+#     deltas inside the ShieldingM-self noise floor on helicalQR00_02
+#     (graph027 A/B 2026-05-23). See wiki concepts/g4-speed-knobs.md.
+#   fcl_overrides has NO 'physics.filters.beamResampler.mu2e.MaxEventsToSkip'
+#     key (the old template hardcoded 319542): mubeam resamples the static
+#     MuBeamCat SAM dataset (not a dir:-inloc resampler), so json2jobdef
+#     auto-computes MaxEventsToSkip from SAM and appends it as a post_line,
+#     which beats every fcl_overrides entry (write_fcl_template's
+#     post_lines argument) -- carrying the frozen 319542 forward would be a
+#     silent lie even though it happens to equal today's SAM-derived value
+#     (validated identical for MuBeamCat Run1Baa, Task 11/13).
+#   fcl_overrides['services.GeometryService.inputFile'] = "{geom}" -- the
+#     per-BO-point geom overlay shipped inside code.tar (Code/setup.sh
+#     prepends Code/ to MU2E_SEARCH_PATH); px.load_stage_entry substitutes
+#     `{geom}` with the real basename at load time (Task 13's
+#     _GEOM_FILE_SENTINEL served the same role inside the Python dict).
+#   fcl_overrides['physics.filters.muminusSelector.*'] -- mu- purity filter
+#     folded in from concat's MuonStopSelector.fcl (2026-07-10): CeEndpoint
+#     throws BADINPUT on events with no stopped mu-, and TargetMuonFinder
+#     selects both charges ([13,-13]), so TargetStops must be mu- pure for
+#     TargetStopResampler to read these files directly (concat stage
+#     removed from the foilsflash chain). Same ParticleCodeFilter config as
+#     MuonStopSelector.fcl's muminusSelector. Backward-compatible for modes
+#     that keep concat: their muminusSelector then passes ~100% and
+#     MuplusStopsCat comes out empty (nothing consumes it). Validated via
+#     fhicl-dump 2026-07-09 (path assembly + prolog refs + SelectEvents).
+#     FLATTENED to 4 dotted leaf keys, not one nested-dict value: real
+#     prodtools campaign JSON (muse_050125/prodtools/data/Run1B/*.json)
+#     never nests a table literal in fcl_overrides, and Task 13's own
+#     offline validation showed why -- write_fcl_template's
+#     json.dumps({"module_type": ..., ...}) always quotes dict KEYS
+#     ("module_type": ...), and FHiCL table syntax requires bare (unquoted)
+#     key identifiers; a quoted-key table is a hard fhicl-get parse error
+#     ("detected at or near" the opening brace), reproduced directly
+#     against the real prodtools checkout. Flat dotted keys sidestep it
+#     entirely -- each is a plain scalar/list value, which json.dumps
+#     renders correctly.
+#   (not in the JSON -- lives in mubeam_extras.fcl) targetStopPath itself
+#     (restated from Production/JobConfig/pileup/MuBeamResampler.fcl:35
+#     with muminusSelector inserted after TargetStopFilter and before
+#     compressPVTargetStops) -- its @sequence:: entries can't ride a JSON
+#     fcl_overrides value.
+#
+# run1b_mubeam.json:
+#   fcl_overrides['#include'] -- run1b_mubeam_extras.fcl carries the two
+#     outputCommands blocks (same @sequence::-bearing shape as mubeam's);
+#     run1b_mubeam has no targetStopPath/muminusSelector override -- Run1B
+#     keeps the published targetStopPath.
+#   Run1B mubeam variant: DS field OFF + geom_run1_b_v06 baseline so muons
+#     stream straight downstream and we get a real calo_stop/POT
+#     measurement. Same MuBeamCat input as the Run1A mubeam stage; same
+#     per-iter BO geom overlay (bfgeom_DSOff.txt vs mubeam's bfgeom_v01.txt).
+#   physicsListName FTFP_BERT -- same rationale as the Run1A mubeam stage;
+#     the A/B was scoped to mubeam only, extended here on the assumption
+#     the CPU/noise tradeoff is similar. See wiki concepts/g4-speed-knobs.md.
+#   No MaxEventsToSkip key -- same Cat-resampler auto-compute post_line
+#     rule as mubeam.json above.
+#
+# concat.json:
+#   fcl_overrides -- MuonStopSelector reads source.fileNames (filled by
+#     prodtools json2jobdef from the entry's input_data/inloc fields -- was
+#     mu2ejobdef --inputs before the prodtools switch) and writes
+#     mu-/mu+ TargetStops into separate art files. No G4, no geometry
+#     dependency, so the BO geom overlay is NOT shipped with this stage (no
+#     services.GeometryService key, no 'fcl' base needing one).
+#
+# mustops_ce.json:
+#   fcl_overrides -- re-runs G4 on Ce primaries placed at resampled mu-
+#     stop positions. Geometry-dependent, so the BO geom overlay travels
+#     with this stage via --code (same {geom} placeholder mechanism).
+#     physics.filters.TargetStopResampler.fileNames is filled by prodtools
+#     json2jobdef from the entry's resampler_name/input_data/inloc fields
+#     (see render_entry; was mu2ejobdef --auxinput=... before the prodtools
+#     switch).
+#   physicsListName FTFP_BERT -- extends the mubeam A/B result to the Ce
+#     signal stage. This affects the sob numerator directly, so monitor
+#     the first round's sob values vs the leaderboard history for
+#     divergence. See wiki concepts/g4-speed-knobs.md.
+#   fcl_overrides['physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip']
+#     = 100720 -- REQUIRED: the prolog leaves this @nil so we must override
+#     or art aborts at ResamplingMixer construction. mustops_ce is a
+#     dir:-inloc resampler (json2jobdef's auto-compute is skipped for dir:
+#     input_data -- there is no SAM dataset to query), so unlike
+#     mubeam/run1b_mubeam/elebeam_flash this value MUST ride
+#     fcl_overrides -- no post_line rescues a missing/wrong value here.
+#     100720 matches the local autoresearch fcl. `_render_fcl_overrides()`
+#     overrides this to 8000 for concat-less chains (hv.concatless --
+#     folded in from the old _materialize_template's stamp-first
+#     conditional, unchanged rule: concat-less jobs each read ONE mubeam
+#     file (~16k mu- stop events for the 37-foil base +- extras) instead of
+#     the merged concat file (~240k events), so the random skip must stay
+#     below the smallest plausible file) -- this is the one substitution
+#     point that stays in Python, since it depends on submit-time chain
+#     state (hv.concatless), not anything the static JSON can express.
+#   "memory": 3000 (was STAGES["mustops_ce"]["memory_mb"] pre-Task-14) --
+#     3000 MB, was 2500: SR00_00 worker logs showed VmPeak=2.75 GB on
+#     N_crit≈4144 jobs, exceeding the 2.2 GB allocation request and
+#     creating eviction risk. 3000 MB gives the high-N_crit tail
+#     comfortable headroom without burning slot-matchability.
+#
+# elebeam_flash.json:
+#   fcl_overrides -- bo-foilsflash 2nd objective: tracker StrawGasStep edep
+#     from the electron-beam EARLY-FLASH peak with DS ON. EleBeamResampler
+#     runs both flashPath + earlyFlashPath (trigger_paths default); we keep
+#     both and harvest only the EARLY output. FTFP_BERT matches mubeam
+#     (-20% CPU). ASCII-only (FHiCL strict).
+#   No MaxEventsToSkip key -- elebeam_flash resamples the static EleBeamCat
+#     SAM dataset (not dir:-inloc), same Cat-resampler auto-compute
+#     post_line rule as mubeam.json above.
+#   fcl_overrides['physics.filters.EarlyPrescaleFilter.nPrescale'] = 1 --
+#     early-flash peak = un-time-cut stream -> harvest globs the
+#     EarlyEleBeamFlash file (see STAGES['elebeam_flash']['output_glob']).
+#     NO PRESCALE: the production default drops 999/1000 early events
+#     (EarlyEleBeamFlashPrescale=1000, a data-volume convenience). The
+#     early flash is OUR BO OBJECTIVE, so we keep every event (nPrescale=1)
+#     for ~32x lower per-event flash_edep noise. g4run already runs for
+#     all events regardless; only StepSim CPU + output grow. The filter
+#     sits first in EarlyDetStepSequence (pileup/prolog.fcl:355-359).
+#   "memory": 3000 (was STAGES["elebeam_flash"]["memory_mb"] pre-Task-14) --
+#     same 2500->3000 MB bump as mustops_ce, same eviction-risk rationale.
+#
+# All five: "inloc" = each stage's STAGES["<stage>"]["default_loc"]
+#   pre-Task-14 literal; "tape" since the 2026-07 MuBeamCat/EleBeamCat
+#   persistent->tape migrations (see wiki
+#   elebeamcat-tape-migration-elebeam-wipeout.md) for the Cat-resampler
+#   stages, "disk" for concat/mustops_ce's staged-input default (rarely hit
+#   in practice -- both are called with staged_inputs from cmd_submit's
+#   real callers, which override inloc to `dir:<farm>`).
+
+
 def _render_fcl_overrides(stage: str) -> dict:
-    """STAGE_FCL[stage]['fcl_overrides'] with its per-call substitution
-    points applied: the geom-basename sentinel (every stage that carries
-    one) and mustops_ce's concat-less MaxEventsToSkip (stamp-first
-    hv.concatless rule -- see STAGE_FCL['mustops_ce'] comment). A fresh deep
-    copy every call: STAGE_FCL is shared module state and callers must never
-    observe another call's substitution.
+    """stage_entries/<stage>.json 'fcl_overrides' (Task 14: loaded via
+    px.load_stage_entry, {cfg}/{geom} already substituted there) with the
+    one remaining per-call substitution point applied: mustops_ce's
+    concat-less MaxEventsToSkip toggle (stamp-first hv.concatless rule --
+    see the mustops_ce.json comment block above). px.load_stage_entry
+    builds a fresh dict from disk every call (no cached/shared object), so
+    no caller can observe another call's edit.
     """
-    overrides = copy.deepcopy(STAGE_FCL[stage]["fcl_overrides"])
-    for key, val in overrides.items():
-        if val == _GEOM_FILE_SENTINEL:
-            overrides[key] = GEOM_FILE.name
+    entry = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
+    overrides = dict(entry.get("fcl_overrides", {}))
     if stage == "mustops_ce" and hv.concatless(STATE, CONCATLESS):
         overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"] = 8000
     return overrides
@@ -620,8 +537,9 @@ def _cnf_build_env(env: dict) -> dict:
     2026-08-16-prodtools-switch/task-11-report.md, finding 1). The published
     Production FCL paths (entry `fcl`, epilog_1b.fcl, ...) resolve through
     the sourced env's own SimJob/Production search path already in
-    FHICL_FILE_PATH -- but the mubeam/run1b_mubeam extras fcl (STAGE_FCL's
-    '#include' key, a bare basename -- see _STAGE_EXTRAS_FCL) does NOT,
+    FHICL_FILE_PATH -- but the mubeam/run1b_mubeam extras fcl
+    (stage_entries/<stage>.json's '#include' key, a bare basename -- see
+    _STAGE_EXTRAS_FCL) does NOT,
     since it lives permanently in core/pipeline_templates/, not inside any
     Offline product. Prepending TEMPLATES_ROOT unconditionally is harmless
     for stages that don't reference an extras fcl (an unused search-path
@@ -995,32 +913,6 @@ def stamp_local_events(stage: str, events: int) -> Path:
     return out
 
 
-# Static resampler wiring per stage (was mu2ejobdef --auxinput). Only the
-# consuming end of the prodtools switch: cmd_submit still hard-links concat/
-# mustops_ce inputs into a /pnfs farm (stage_hardlink_farm) so `inloc: dir:`
-# can see them; this dict supplies the OTHER stages' static Cat-dataset
-# input_data + the resampler_name every resampler stage needs.
-_RESAMPLER_BY_STAGE = {
-    "mubeam": ("beamResampler", {"sim.mu2e.MuBeamCat.Run1Baa.art": 1}, None),
-    "run1b_mubeam": ("beamResampler",
-                     {"sim.mu2e.MuBeamCat.Run1Baa.art": 1}, None),
-    "elebeam_flash": ("beamResampler",
-                      {"sim.mu2e.EleBeamCat.Run1Baa.art": 1}, None),
-    "mustops_ce": ("TargetStopResampler", None, None),  # input_data staged
-}
-
-
-def _resampler_name(stage):
-    return _RESAMPLER_BY_STAGE.get(stage, (None,))[0]
-
-
-def _cat_input_data(stage):
-    """Static Cat-dataset input_data for resampler stages; the inloc is
-    the stage's default_loc (tape since the 2026-07 migrations)."""
-    ent = _RESAMPLER_BY_STAGE.get(stage)
-    return ent[1] if ent else None
-
-
 def submit_stage_prodtools(stage, env, *, staged_inputs=None,
                            dry_run=False) -> int | None:
     """Entry -> json2jobdef -> submit_entry. Returns the cluster id.
@@ -1038,17 +930,27 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
         stage_dir,
         base_tarball=Path(cfg["code_tarball"]) if "code_tarball" in cfg else None,
         extra_files=_stage_extra_files(stage))
+    # stage_entries/<stage>.json (Task 14): fcl/resampler_name/static Cat
+    # input_data/inloc/run/memory/default events -- everything about this
+    # (stage, CONFIG) pair that ISN'T runtime/tunable. events/memory prefer
+    # STAGES' live value (the tunable one -- stage_tuning updates it via
+    # _apply_stage_tuning) and fall back to the JSON's default only when
+    # STAGES doesn't carry that key for this stage (e.g. concat has no
+    # events_per_job -- see STAGES' comment block).
+    entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
     entry = px.render_entry(
         stage, cfg, config=CONFIG, dsconf=dsconf, desc=desc,
         njobs=cfg["njobs"], code_tarball=tarball,
-        fcl_name=STAGE_FCL[stage]["fcl"],
+        fcl_name=entry_tmpl["fcl"],
         fcl_overrides=_render_fcl_overrides(stage),
-        events=cfg.get("events_per_job"), run=cfg.get("run_number"),
-        memory_mb=cfg.get("memory_mb"),
-        input_data=(staged_inputs[1] if staged_inputs else _cat_input_data(stage)),
+        events=cfg.get("events_per_job", entry_tmpl.get("events")),
+        run=entry_tmpl.get("run"),
+        memory_mb=cfg.get("memory_mb", entry_tmpl.get("memory")),
+        input_data=(staged_inputs[1] if staged_inputs
+                   else entry_tmpl.get("input_data")),
         inloc=(f"dir:{staged_inputs[0]}" if staged_inputs
-               else cfg.get("default_loc")),
-        resampler_name=_resampler_name(stage))
+               else entry_tmpl.get("inloc")),
+        resampler_name=entry_tmpl.get("resampler_name"))
     entry_path = px.write_entry(STATE, stage, entry)
     cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
                        _cnf_build_env(env))
@@ -1071,10 +973,11 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
 
 # Stages the local executor (cmd_submit's --local branch) can run today.
 #
-# mubeam and elebeam_flash resample an EXTERNAL dataset through a static
-# auxinput filelist (MuBeamCat.txt / EleBeamCat.txt) and consume no prior
-# stage's output -- cmd_submit's local branch renders staged_inputs=None for
-# them, so there is nothing to stage.
+# mubeam, run1b_mubeam and elebeam_flash resample an EXTERNAL SAM dataset
+# (each stage's stage_entries/<stage>.json static `input_data`/
+# `resampler_name`) and consume no prior stage's output -- cmd_submit's
+# local branch renders staged_inputs=None for them, so there is nothing to
+# stage.
 #
 # concat and mustops_ce do consume a prior stage: cmd_submit's local branch
 # resolves the previous stage inline (mustops_ce via hv.concatless, same
@@ -1286,8 +1189,9 @@ def cmd_submit(args):
         # Scope split (2026-08-16 controller resolution): non-consuming
         # stages (mubeam / run1b_mubeam / elebeam_flash) render with
         # staged_inputs=None -- input_data is still the non-None static
-        # Cat-dataset dict from _cat_input_data, inloc is cfg["default_loc"].
-        # concat and mustops_ce consume a prior LOCAL stage's outputs, so
+        # Cat-dataset dict from stage_entries/<stage>.json, inloc is the
+        # JSON's default `inloc`. concat and mustops_ce consume a prior
+        # LOCAL stage's outputs, so
         # they need a local_input_farm dir before render_entry can point
         # inloc at it.
         _require_local_stage(stage)
@@ -1359,18 +1263,23 @@ def cmd_submit(args):
             base_tarball=(Path(cfg["code_tarball"])
                          if "code_tarball" in cfg else None),
             extra_files=_stage_extra_files(stage))
+        # stage_entries/<stage>.json (Task 14) -- see submit_stage_prodtools'
+        # matching call for the events/memory fallback rationale. `run` is
+        # never local-scaled (it's a fixed cnf run-number, not a job count),
+        # so it comes straight from the JSON default here too.
+        entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
         entry = px.render_entry(
             stage, cfg, config=CONFIG, dsconf=dsconf, desc=desc,
             njobs=njobs, code_tarball=tarball,
-            fcl_name=STAGE_FCL[stage]["fcl"],
+            fcl_name=entry_tmpl["fcl"],
             fcl_overrides=_render_fcl_overrides(stage),
-            events=events, run=cfg.get("run_number"),
-            memory_mb=cfg.get("memory_mb"),
+            events=events, run=entry_tmpl.get("run"),
+            memory_mb=cfg.get("memory_mb", entry_tmpl.get("memory")),
             input_data=(staged_inputs[1] if staged_inputs
-                       else _cat_input_data(stage)),
+                       else entry_tmpl.get("input_data")),
             inloc=(f"dir:{staged_inputs[0]}" if staged_inputs
-                  else cfg.get("default_loc")),
-            resampler_name=_resampler_name(stage))
+                  else entry_tmpl.get("inloc")),
+            resampler_name=entry_tmpl.get("resampler_name"))
         entry_path = px.write_entry(STATE, stage, entry)
         cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
                            _cnf_build_env(env))
@@ -1774,7 +1683,7 @@ def cmd_harvest(args):
     # (bo-foilsflash 2nd objective). Gallery extractor sums StrawGasStep
     # ionizingEdep (tag compressDetStepMCs, process EleBeamResampler).
     # Only present when the foilsflash chain ran the elebeam_flash stage.
-    # STAGE_FCL["elebeam_flash"] overrides EarlyPrescaleFilter.nPrescale=1
+    # stage_entries/elebeam_flash.json overrides EarlyPrescaleFilter.nPrescale=1
     # (NO prescale — prod default drops 999/1000),
     # so flash_edep_total_MeV is the FULL early-flash total. The BO objective is
     # flash_edep_per_pot = total / (n_input_electrons * POT_PER_ELECTRON) — the
