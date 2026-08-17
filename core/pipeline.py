@@ -647,7 +647,12 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
     # concurrent setups the nashome lock races/corrupts -> [Errno 5] during
     # spack load. See wiki/incidents/foilsx04-all-preflight-ambiguous.md.
     spack_cache = f"/tmp/spack_cache_{os.environ.get('USER','x')}"
-    cmd = f"export SPACK_USER_CACHE_PATH={spack_cache} && {prelude}{extra} env"
+    # `env -0` (NUL-delimited records), not plain `env`: a value may itself
+    # contain newlines -- every exported shell function does
+    # ("BASH_FUNC_muse%%=() {  source ${MUSE_DIR}/bin/muse\n}") -- so a
+    # line-based read cannot tell a value's second line from the next
+    # variable. NUL is the one byte an environment entry cannot hold.
+    cmd = f"export SPACK_USER_CACHE_PATH={spack_cache} && {prelude}{extra} env -0"
     # Transient [Errno 5] env-source failures (cvmfs read flake OR NFSv4.0
     # seqid wedge on ~/.spack locks; the run_sourced_bash seam now keeps
     # those locks off NFS entirely) leave museDefine.sh unsourced -> `muse`
@@ -674,23 +679,21 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
             output=proc.stdout,
             stderr=f"{proc.stderr}\n[sourced_env] full log: {err_path}\n[sourced_env] stderr tail:\n{tail}",
         )
+    # Exported shell functions (BASH_FUNC_<name>%%) are KEPT, and keeping
+    # them whole is the point of `env -0` above. `muse` is a bash FUNCTION
+    # from setupmu2e-art.sh, not a binary, and a local job needs it: prodtools
+    # runlocal runs `bash -c 'source Code/setup.sh && mu2e -c ...'`, whose
+    # line 4 is `muse setup $CODE_DIR -q p101 e29 prof`. Drop the function and
+    # that job dies rc=127 "muse: command not found" in ~1 s, which reaches
+    # the operator two stages later as "mubeam_outputs.txt is empty".
+    # (Grid workers source their own env, so this only ever bit the local
+    # path -- and only after execution moved to runlocal, which is why the
+    # pre-switch local executor tolerated dropping them.)
     env = {}
-    for line in proc.stdout.splitlines():
-        if "=" not in line:
+    for record in proc.stdout.split("\0"):
+        if "=" not in record:
             continue
-        k, _, v = line.partition("=")
-        # Drop exported shell functions. `env` prints them across MULTIPLE
-        # lines ("BASH_FUNC_muse%%=() {  source ...\n}"), and this parser is
-        # line-based, so it captures a body with no closing brace. Every child
-        # shell then rejects the malformed definition:
-        #   sh: muse: line 1: syntax error: unexpected end of file
-        #   sh: error importing function definition for `muse'
-        # ~10 of those per shell spawn, hundreds per job log -- they buried
-        # both real failures found by the first local smoke run (a missing
-        # geom on MU2E_SEARCH_PATH, and an expired bearer token). Nothing is
-        # lost: a truncated definition never defined the function anyway.
-        if k.startswith("BASH_FUNC_"):
-            continue
+        k, _, v = record.partition("=")
         env[k] = v
     return env
 

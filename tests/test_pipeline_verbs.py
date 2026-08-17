@@ -1397,23 +1397,34 @@ class TestSourcedEnvGuards(unittest.TestCase):
     """pipeline.sourced_env: shell-function parsing + the pre-sourced-shell
     refusal. Ported verbatim from tests/test_local_exec.py."""
 
-    def test_sourced_env_drops_truncated_exported_shell_functions(self):
-        # `env` prints an exported bash function across multiple lines, so a
-        # line-based parser captures a body with no closing brace. Passing
-        # that to a child yields "syntax error: unexpected end of file" ~10x
-        # per shell spawn -- hundreds of lines per job log, which is what hid
-        # the two real failures the first local smoke run turned up.
-        out = ("PATH=/usr/bin\n"
-               "BASH_FUNC_muse%%=() {  source ${MUSE_DIR}/bin/muse\n"
-               "}\n"
-               "MU2E_SEARCH_PATH=/cvmfs/x\n")
+    def test_sourced_env_keeps_exported_shell_functions_whole(self):
+        # `muse` is a bash FUNCTION, not a binary, and a local job needs it:
+        # runlocal runs `bash -c 'source Code/setup.sh && mu2e ...'` and that
+        # script's line 4 is `muse setup ...`. Its exported form spans
+        # multiple LINES, so sourced_env reads NUL-delimited `env -0` records
+        # -- a line-based read would truncate the body at the newline (child
+        # shells then reject it: "syntax error: unexpected end of file") or,
+        # if dropped outright, kill the job rc=127 "muse: command not found".
+        out = ("PATH=/usr/bin\0"
+               "BASH_FUNC_muse%%=() {  source ${MUSE_DIR}/bin/muse\n}\0"
+               "MU2E_SEARCH_PATH=/cvmfs/x\0")
         with mock.patch.object(pipeline, "run_sourced_bash",
                                return_value=SimpleNamespace(
                                    returncode=0, stdout=out, stderr="")):
             env = pipeline.sourced_env()
         self.assertEqual(env["PATH"], "/usr/bin")
         self.assertEqual(env["MU2E_SEARCH_PATH"], "/cvmfs/x")
-        self.assertEqual([k for k in env if k.startswith("BASH_FUNC_")], [])
+        self.assertEqual(env["BASH_FUNC_muse%%"],
+                         "() {  source ${MUSE_DIR}/bin/muse\n}")
+
+    def test_sourced_env_asks_for_nul_delimited_records(self):
+        # The whole-function guarantee above rests on `env -0`; a plain `env`
+        # cannot distinguish a value's second line from the next variable.
+        with mock.patch.object(pipeline, "run_sourced_bash",
+                               return_value=SimpleNamespace(
+                                   returncode=0, stdout="", stderr="")) as rsb:
+            pipeline.sourced_env()
+        self.assertTrue(rsb.call_args[0][0].rstrip().endswith("env -0"))
 
     def test_muse_already_set_up_fails_fast_instead_of_retrying(self):
         # `muse setup` is one-shot per shell and run_sourced_bash inherits
