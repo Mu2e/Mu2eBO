@@ -30,7 +30,11 @@ BO_DRIVER = PROJECT_ROOT / "core" / "bo_driver.py"
 PIPELINE_DRIVER = PROJECT_ROOT / "core" / "pipeline.py"
 
 # Per-config grid work tree lives under here; harvest/summary.json gets written here.
-GRID_DATA_ROOT = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
+# Local runs (run_local.sh) set AUTORESEARCH_DATA_ROOT to user's data directory;
+# grid runs default to the shared operator area.
+_DEFAULT_GRID_DATA_ROOT = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
+GRID_DATA_ROOT = Path(os.environ.get("AUTORESEARCH_DATA_ROOT",
+                                     str(_DEFAULT_GRID_DATA_ROOT)))
 
 # Mu2e environment sources. Sourced by every preflight/grid invocation.
 SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
@@ -102,6 +106,8 @@ STAGE_TARGETS = {
     # over LANDED files, so 4× jobs = 4× POT num+denom, unbiased. Wall ~same as
     # 200 if grid slots available (parallel), else some queueing. First: pt6d15.
     "pot_only":     800,
+    "digi":         1,
+    "reco":         1,
 }
 
 # foilsflash uses ~30-min payloads: 100 jobs/stage paired with big events_per_job

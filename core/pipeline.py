@@ -205,6 +205,15 @@ STAGES = {
         # comfortable headroom without burning slot-matchability.
         "memory_mb": 3000,
     },
+    "digi": {
+        "desc_fmt": "Digi_{cfg}",
+        "njobs": STAGE_TARGETS["digi"],
+        "events_per_job": 5000,
+        "memory_mb": 2000,
+        "ships_geom": False,
+        "default_loc": "disk",
+        "output_glob": "dig.*.OnSpill.*.art",
+    },
     # Electron-beam early-flash stage for the foilsflash BO line. Resamples the
     # external EleBeamCat dataset (like mubeam resamples MuBeamCat — static
     # auxinput filelist, NOT concat), DS-on, ships the per-BO foil geom, and
@@ -241,7 +250,7 @@ STAGES = {
         "events_per_job": 2500,
         "run_number": 1700,
         "ships_geom": True,
-        "code_tarball": _modes.SPECS["prodtarget"].grid_tarball,
+        "code_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_MDC2025aq_prodtarget.tar.bz2",
         "dsconf_musing": "MDC2025aq",
         "default_loc": "disk",
         "output_glob": "nts.*.POT_vd.*.root",
@@ -970,8 +979,23 @@ def cmd_submit(args):
         STAGES[args.stage]["auxinput"] = (
             f"1:physics.filters.TargetStopResampler.fileNames:{basenames_file}"
         )
+    elif args.stage == "digi":
+        mustops_ce_list = STATE / "mustops_ce_outputs.txt"
+        if not mustops_ce_list.exists():
+            raise SystemExit("Run 'list-outputs mustops_ce' first")
+        sources = [Path(p) for p in mustops_ce_list.read_text().splitlines() if p.strip()]
+        staged_input_dir, inputs_file = stage_hardlink_farm("digi", sources)
+        # Note: inputs_file is passed to submit_stage, not auxinput
+
+    elif args.stage == "reco":
+        digi_list = STATE / "digi_outputs.txt"
+        if not digi_list.exists():
+            raise SystemExit("Run 'list-outputs digi' first")
+        sources = [Path(p) for p in digi_list.read_text().splitlines() if p.strip()]
+        staged_input_dir, inputs_file = stage_hardlink_farm("reco", sources)
+        # Note: inputs_file is passed to submit_stage, not auxinput
     submit_stage(args.stage, env, inputs_file=inputs_file,
-                 staged_input_dir=staged_input_dir, dry_run=args.dry_run)
+                staged_input_dir=staged_input_dir, dry_run=args.dry_run)
 
 
 def cmd_poll(args):

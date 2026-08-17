@@ -45,7 +45,7 @@ _HOLERADII_TARBALL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_helica
 # recorded here as the mode's tarball fact (same file).
 _PRODTARGET_TARBALL = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_MDC2025aq_prodtarget.tar.bz2"
 
-_CE_CALO_CHAIN = ("mubeam", "run1b_mubeam", "concat", "mustops_ce")
+_CE_CALO_CHAIN = ("mubeam", "run1b_mubeam", "concat", "mustops_ce", "digi", "reco")
 
 # Replicate-measured observation noise (see ModeSpec.obs_noise).
 # sigma(sob): pooled within-group sd over repeated geometries — 0.0059 raw
