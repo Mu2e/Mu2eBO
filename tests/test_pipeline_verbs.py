@@ -1069,6 +1069,132 @@ class TestSubmitStageProdtools(unittest.TestCase):
             entry = json.loads((state / "mubeam_entry.json").read_text())[0]
             self.assertEqual(entry["events"], 5000)  # stage_entries default
 
+    def test_stage_entries_outloc_flows_into_the_rendered_entry(self):
+        # Review finding (task-14 fix round): outloc was in every
+        # stage_entries/<stage>.json but render_entry hardcoded its own
+        # literal and neither call site read entry_tmpl["outloc"] -- editing
+        # the JSON's outloc silently did nothing. Prove a changed outloc in
+        # a (fixture) stage entry actually lands in the RENDERED entry, not
+        # just the loaded template (TestStageEntries only checked the latter).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            geom = root / "geom" / "autoresearch_cfg001_geom.txt"
+            geom.parent.mkdir(parents=True)
+            geom.write_text("geom\n")
+
+            entries_dir = Path(tmp) / "stage_entries"
+            entries_dir.mkdir()
+            custom_outloc = {"*.art": "tape", "*.root": "disk"}
+            (entries_dir / "mubeam.json").write_text(json.dumps({
+                "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
+                "outloc": custom_outloc,
+            }))
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom), \
+                 mock.patch.object(pipeline.px, "STAGE_ENTRIES_DIR", entries_dir), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   return_value=(1, "1@s")):
+                pipeline.submit_stage_prodtools("mubeam", {})
+
+            entry = json.loads((state / "mubeam_entry.json").read_text())[0]
+            self.assertEqual(entry["outloc"], custom_outloc)
+
+    def test_local_branch_stage_entries_outloc_also_flows_into_the_entry(self):
+        # Same finding, the OTHER call site (cmd_submit's --local branch).
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            entries_dir = Path(tmp) / "stage_entries"
+            entries_dir.mkdir()
+            custom_outloc = {"*.art": "scratch", "*.root": "outstage"}
+            (entries_dir / "mubeam.json").write_text(json.dumps({
+                "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
+                "outloc": custom_outloc,
+            }))
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / "cnf.x.tar"
+                cnf.parent.mkdir(parents=True, exist_ok=True)
+                cnf.touch()
+                return cnf
+
+            with mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "sourced_env",
+                                   return_value={"X": "1"}), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline.px, "STAGE_ENTRIES_DIR", entries_dir), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "run_runlocal", return_value=0):
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=False, local=True,
+                    local_njobs=None, local_events=None, local_pool=None))
+
+            entry = json.loads((state / "mubeam_entry.json").read_text())[0]
+            self.assertEqual(entry["outloc"], custom_outloc)
+
+    def test_submit_stage_prodtools_loads_the_stage_entry_only_once(self):
+        # _render_fcl_overrides now takes the caller's already-loaded
+        # entry_tmpl instead of reloading -- pin the call count so this
+        # doesn't regress back to two disk reads per submit.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            geom = root / "geom" / "autoresearch_cfg001_geom.txt"
+            geom.parent.mkdir(parents=True)
+            geom.write_text("geom\n")
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "load_stage_entry",
+                                   wraps=pipeline.px.load_stage_entry) as spy, \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   return_value=(1, "1@s")):
+                pipeline.submit_stage_prodtools("mubeam", {})
+
+            self.assertEqual(spy.call_count, 1)
+
 
 class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
     """cmd_submit's grid concat/mustops_ce branches: stage_hardlink_farm is

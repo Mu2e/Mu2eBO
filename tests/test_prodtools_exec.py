@@ -115,6 +115,26 @@ class TestRenderEntry(unittest.TestCase):
                                           run=1801))
         self.assertEqual(e["memory"], "3000MB")
 
+    def test_outloc_defaults_to_the_outstage_literal_when_omitted(self):
+        e = pex.render_entry("mubeam", {}, **self._base())
+        self.assertEqual(e["outloc"], {"*.art": "outstage", "*.root": "outstage"})
+
+    def test_outloc_passed_in_wins_over_the_default(self):
+        # Review finding: a stage_entries/<stage>.json "outloc" must
+        # actually reach the rendered entry, not be shadowed by the
+        # hardcoded literal -- the same silent-divergence class this task
+        # closed for every other stage_entries key.
+        custom = {"*.art": "tape", "*.root": "disk"}
+        e = pex.render_entry("mubeam", {}, **self._base(outloc=custom))
+        self.assertEqual(e["outloc"], custom)
+
+    def test_outloc_is_a_copy_not_an_alias(self):
+        custom = {"*.art": "tape"}
+        e = pex.render_entry("mubeam", {}, **self._base(outloc=custom))
+        custom["*.art"] = "disk"
+        custom["*.root"] = "outstage"
+        self.assertEqual(e["outloc"], {"*.art": "tape"})
+
     def test_write_entry_is_one_element_list(self):
         with tempfile.TemporaryDirectory() as td:
             p = pex.write_entry(Path(td), "mubeam", {"desc": "d"})

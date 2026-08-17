@@ -103,10 +103,14 @@ def outstage_root() -> str:
     return f"{WFTOP}/{USER}/workflow/{WFPROJECT}/outstage"
 
 
+_DEFAULT_OUTLOC = {"*.art": "outstage", "*.root": "outstage"}
+
+
 def render_entry(stage, stage_cfg, *, config, dsconf, desc, njobs,
                  code_tarball, fcl_name, events=None, run=None,
                  memory_mb=None, input_data=None, inloc=None,
-                 resampler_name=None, fcl_overrides=None) -> dict:
+                 resampler_name=None, fcl_overrides=None,
+                 outloc=None) -> dict:
     """One json2jobdef entry dict for a (config, stage).
 
     `fcl_name` is the entry's `fcl` field -- since Task 13 (retiring the
@@ -122,6 +126,12 @@ def render_entry(stage, stage_cfg, *, config, dsconf, desc, njobs,
     -- see pipeline.py _stage_extra_files), so grid and local read the
     identical FCL (the env-divergence class of incidents is closed by
     construction, not by care).
+
+    `outloc`: caller-supplied (a stage_entries/<stage>.json "outloc", every
+    real caller) wins; `_DEFAULT_OUTLOC` is the fallback ONLY for a caller
+    that passes none (e.g. a test building an entry directly), so editing a
+    stage's outloc in the JSON actually takes effect instead of being
+    silently shadowed by a hardcoded literal here (task-14 review finding).
     """
     entry = {
         "desc": desc,
@@ -130,7 +140,7 @@ def render_entry(stage, stage_cfg, *, config, dsconf, desc, njobs,
         "fcl": fcl_name,
         "code": str(code_tarball),
         "njobs": njobs,
-        "outloc": {"*.art": "outstage", "*.root": "outstage"},
+        "outloc": dict(outloc) if outloc is not None else dict(_DEFAULT_OUTLOC),
     }
     if events is not None:
         entry["events"] = events

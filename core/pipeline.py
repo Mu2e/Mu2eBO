@@ -411,16 +411,25 @@ def _stage_extra_files(stage: str) -> list[Path]:
 #   real callers, which override inloc to `dir:<farm>`).
 
 
-def _render_fcl_overrides(stage: str) -> dict:
+def _render_fcl_overrides(stage: str, entry_tmpl: dict | None = None) -> dict:
     """stage_entries/<stage>.json 'fcl_overrides' (Task 14: loaded via
     px.load_stage_entry, {cfg}/{geom} already substituted there) with the
     one remaining per-call substitution point applied: mustops_ce's
     concat-less MaxEventsToSkip toggle (stamp-first hv.concatless rule --
-    see the mustops_ce.json comment block above). px.load_stage_entry
-    builds a fresh dict from disk every call (no cached/shared object), so
-    no caller can observe another call's edit.
+    see the mustops_ce.json comment block above).
+
+    `entry_tmpl`: pass the caller's ALREADY-loaded px.load_stage_entry()
+    result to avoid a second disk read (submit_stage_prodtools / cmd_submit's
+    local branch both need the rest of the template too -- fcl/resampler_name/
+    input_data/inloc/run/memory/outloc); omit it (the default) to load fresh,
+    which every direct test call below does. Either way px.load_stage_entry
+    builds a NEW dict from disk each time it's called (no cached/shared
+    object), so passing the same `entry_tmpl` into two calls -- or letting
+    two calls each load their own -- can never let one caller observe
+    another's edit.
     """
-    entry = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
+    entry = entry_tmpl if entry_tmpl is not None else px.load_stage_entry(
+        stage, cfg=CONFIG, geom=GEOM_FILE.name)
     overrides = dict(entry.get("fcl_overrides", {}))
     if stage == "mustops_ce" and hv.concatless(STATE, CONCATLESS):
         overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"] = 8000
@@ -942,7 +951,7 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
         stage, cfg, config=CONFIG, dsconf=dsconf, desc=desc,
         njobs=cfg["njobs"], code_tarball=tarball,
         fcl_name=entry_tmpl["fcl"],
-        fcl_overrides=_render_fcl_overrides(stage),
+        fcl_overrides=_render_fcl_overrides(stage, entry_tmpl),
         events=cfg.get("events_per_job", entry_tmpl.get("events")),
         run=entry_tmpl.get("run"),
         memory_mb=cfg.get("memory_mb", entry_tmpl.get("memory")),
@@ -950,7 +959,8 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
                    else entry_tmpl.get("input_data")),
         inloc=(f"dir:{staged_inputs[0]}" if staged_inputs
                else entry_tmpl.get("inloc")),
-        resampler_name=entry_tmpl.get("resampler_name"))
+        resampler_name=entry_tmpl.get("resampler_name"),
+        outloc=entry_tmpl.get("outloc"))
     entry_path = px.write_entry(STATE, stage, entry)
     cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
                        _cnf_build_env(env))
@@ -1272,14 +1282,15 @@ def cmd_submit(args):
             stage, cfg, config=CONFIG, dsconf=dsconf, desc=desc,
             njobs=njobs, code_tarball=tarball,
             fcl_name=entry_tmpl["fcl"],
-            fcl_overrides=_render_fcl_overrides(stage),
+            fcl_overrides=_render_fcl_overrides(stage, entry_tmpl),
             events=events, run=entry_tmpl.get("run"),
             memory_mb=cfg.get("memory_mb", entry_tmpl.get("memory")),
             input_data=(staged_inputs[1] if staged_inputs
                        else entry_tmpl.get("input_data")),
             inloc=(f"dir:{staged_inputs[0]}" if staged_inputs
                   else entry_tmpl.get("inloc")),
-            resampler_name=entry_tmpl.get("resampler_name"))
+            resampler_name=entry_tmpl.get("resampler_name"),
+            outloc=entry_tmpl.get("outloc"))
         entry_path = px.write_entry(STATE, stage, entry)
         cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
                            _cnf_build_env(env))
