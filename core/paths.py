@@ -72,6 +72,17 @@ BACKING = _resolve_backing()
 GRID_DATA_ROOT = DATA_ROOT / "autoresearch_grid"
 GRAPH_DATA = DATA_ROOT / "autoresearch_graph_data"
 LEADERBOARD_LIVE = DATA_ROOT / "autoresearch_leaderboards"
+# propose/preflight scratch: candidate geom files and preflight G4 logs. This
+# is runtime OUTPUT, so it belongs on /data with everything else the runner
+# writes. It sat under REPO_ROOT until 2026-08-13, where it made `propose` die
+# with PermissionError for anyone running from a checkout they do not own
+# (mmackenz, running tools/run_local.sh out of another user's worktree).
+BO_WORK = DATA_ROOT / "autoresearch_bo_work"
+
+# A concrete path beats a "<them>" placeholder: the person hitting this
+# error is usually new and does not know whose area to name. Same value
+# the README's Quick start prints, so the two never disagree.
+_EXAMPLE_BACKING = "/exp/mu2e/app/users/oksuzian"  # personal-path-ok: the published artifact area, see README
 
 
 def _relative(rel: str, what: str) -> Path:
@@ -117,12 +128,34 @@ def leaderboard_live(rel: str) -> Path:
     return LEADERBOARD_LIVE / _relative(rel, "leaderboard 'file'").name
 
 
-def verify(specs, *, make_dirs: bool = True) -> None:
+def prodtools_root() -> Path:
+    """The prodtools checkout, from env AUTORESEARCH_PRODTOOLS.
+
+    Env-resolved, never a hardcoded personal path (9f0c43c convention).
+    Checked for bin/json2jobdef so a typo fails at the seam, not three
+    subprocesses deep inside a stage submit.
+    """
+    root = os.environ.get("AUTORESEARCH_PRODTOOLS")
+    if not root:
+        raise SystemExit(
+            "AUTORESEARCH_PRODTOOLS is not set -- export it to the "
+            "prodtools checkout (the directory holding bin/json2jobdef)")
+    root = Path(root)
+    if not (root / "bin" / "json2jobdef").exists():
+        raise SystemExit(
+            f"AUTORESEARCH_PRODTOOLS={root} has no bin/json2jobdef -- "
+            f"not a prodtools checkout")
+    return root
+
+
+def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
     """Fail at launch, not three hours into a grid chain.
 
     `specs` is any iterable of objects carrying .name, .musing and
-    .grid_tarball -- pass core.modes.SPECS.values(). Injected rather than
-    imported so this module stays project-import-free.
+    .grid_tarball -- pass core.modes.SPECS.values(). `extra` is an iterable
+    of (path, description) for artifacts that are not per-mode ModeSpec
+    fields -- pass core.harvest.REQUIRED_ARTIFACTS. Both are injected rather
+    than imported so this module stays project-import-free.
 
     Modelled on museSetup.sh:502, which refuses to proceed when the backing
     build cannot supply what is needed. Both prodtarget-env-divergence and
@@ -135,17 +168,32 @@ def verify(specs, *, make_dirs: bool = True) -> None:
     own SchemaMismatch and tests/test_live_leaderboard_headers.py already
     cover it twice over.
     """
+    def operator_hint():
+        # Shared remediation tail (reads ARTIFACT_ROOT/BACKING at raise
+        # time, so a test that patches them sees its own values).
+        return (f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
+                f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
+                f"Point at an operator who has it -- copy-paste "
+                f"either line:\n"
+                f"    ./setup.sh --backing {_EXAMPLE_BACKING}\n"
+                f"    export AUTORESEARCH_BACKING={_EXAMPLE_BACKING}"
+                f"   # if the checkout is not yours to write")
+
     for spec in specs:
         for field in ("musing", "grid_tarball"):
             p = Path(getattr(spec, field))
             if not p.exists():
                 raise PathsError(
                     f"mode {spec.name!r}: {field} not found at {p}\n"
-                    f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
-                    f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
-                    f"Point at an operator who has it:\n"
-                    f"    ./setup.sh --backing /exp/mu2e/app/users/<them>\n"
-                    f"or build your own (see README, 'Artifacts').")
+                    + operator_hint()
+                    + "\nor build your own (see README, 'Artifacts').")
+    for path, what in extra:
+        p = Path(path)
+        if not p.exists():
+            raise PathsError(
+                f"{what} not found at {p}\n"
+                f"Every mode's harvest needs it.\n"
+                + operator_hint())
     if make_dirs:
         for d in (GRID_DATA_ROOT, GRAPH_DATA, LEADERBOARD_LIVE):
             try:

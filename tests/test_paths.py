@@ -155,9 +155,31 @@ class TestEveryModuleAgreesOnTheRoot(unittest.TestCase):
         import harvest
         import pipeline
         self.assertEqual(bo_driver.ROOT, paths.REPO_ROOT)
-        self.assertEqual(harvest.AUTORESEARCH, paths.REPO_ROOT)
         self.assertEqual(pipeline.AUTORESEARCH, paths.REPO_ROOT)
         self.assertEqual(botorch_predict.AUTORESEARCH, paths.REPO_ROOT)
+        # harvest anchors on the muse work area, not the repo: Run1BAna is a
+        # backing-resolved ARTIFACT (gitignored), so a fresh clone has none.
+        self.assertEqual(harvest.MUSE_WORKAREA,
+                         paths.artifact("autoresearch_muse"))
+
+    def test_propose_and_preflight_scratch_is_not_in_the_repo(self):
+        """Runtime OUTPUT never anchors on REPO_ROOT.
+
+        proposal_dir/preflight_dir did until 2026-08-13, so `propose` wrote a
+        candidate geom into the checkout -- fine when you own it,
+        PermissionError when you are running someone else's (mmackenz, via
+        tools/run_local.sh). Writable roots must derive from DATA_ROOT, which
+        is per-operator by construction.
+        """
+        import bo_driver
+        for mode in bo_driver.MODES.values():
+            for d in (mode.proposal_dir, mode.preflight_dir):
+                self.assertFalse(
+                    str(d).startswith(str(paths.REPO_ROOT)),
+                    f"{mode.name}: {d} is inside the repo")
+                self.assertTrue(
+                    str(d).startswith(str(paths.DATA_ROOT)),
+                    f"{mode.name}: {d} is not under DATA_ROOT")
 
     def test_graph_modules_use_the_resolver(self):
         sys.path.insert(0, str(ROOT / "graph"))
@@ -238,6 +260,27 @@ class TestVerify(unittest.TestCase):
         self.assertIn("setup.sh --backing", msg)
         self.assertIn("gone.sh", msg)
         self.assertIn("m", msg)
+
+    def test_a_missing_extra_artifact_is_caught_too(self):
+        # harvest's Run1BAna inputs are not per-mode ModeSpec fields, and no
+        # step before harvest touches them -- so without this a fresh clone
+        # ran every stage first and died at the very last one.
+        setup = self.tmp / "s.sh"
+        setup.write_text("")
+        p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
+        with self.assertRaises(paths.PathsError) as cm:
+            p.verify([FakeSpec("m", str(setup), str(setup))],
+                     extra=[(self.tmp / "gone.fcl", "EdepAna FCL (Run1BAna)")],
+                     make_dirs=False)
+        msg = str(cm.exception)
+        self.assertIn("EdepAna FCL (Run1BAna)", msg)
+        self.assertIn("setup.sh --backing", msg)
+
+    def test_extra_defaults_to_empty_so_existing_callers_are_unaffected(self):
+        setup = self.tmp / "s.sh"
+        setup.write_text("")
+        p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
+        p.verify([FakeSpec("m", str(setup), str(setup))], make_dirs=False)
 
     def test_make_dirs_false_does_not_create_anything(self):
         setup = self.tmp / "s.sh"

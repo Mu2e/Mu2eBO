@@ -18,7 +18,7 @@ import fcntl
 import json
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -159,11 +159,21 @@ class Leaderboard:
     def quarantine_path(self) -> Path:
         return self.path.with_name(self.path.name + ".quarantine.tsv")
 
-    def _load_one(self, path: Path) -> list[Point]:
+    def _load_one(self, path: Path, *, lock: bool = True) -> list[Point]:
+        """lock=False for the committed archive.
+
+        _lock_path CREATES <dir>/locks/<name>.lock, so taking even a SHARED
+        lock on the archive needs WRITE access to the repo -- which a user
+        running from someone else's checkout does not have (PermissionError
+        at propose, mmackenz 2026-08-13). Nothing here writes the archive: it
+        changes only by a reviewed git commit, which no flock serializes
+        against anyway. The lock bought nothing there and cost read-only
+        deployments everything.
+        """
         if not path.exists():
             return []
         out = []
-        with _flock_sh(path), path.open() as f:
+        with (_flock_sh(path) if lock else nullcontext()), path.open() as f:
             first = f.readline()
             if first.rstrip("\n") != self.header().rstrip("\n"):
                 raise SchemaMismatch(path, self.header(), first)
@@ -188,7 +198,8 @@ class Leaderboard:
         row left behind in the live file would otherwise enter the GP
         training set twice.
         """
-        archive = self._load_one(self.archive_path) if self.archive_path else []
+        archive = (self._load_one(self.archive_path, lock=False)
+                   if self.archive_path else [])
         seen = {p.cfg for p in archive}
         live = [p for p in self._load_one(self.path) if p.cfg not in seen]
         return archive + live

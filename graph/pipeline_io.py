@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
+import prodtools_exec as _prodtools_exec  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (  # noqa: E402
@@ -132,9 +133,20 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
         status = json.loads(verdict_path.read_text())["verdict"]
     except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
         status = "ambiguous"
+        # No verdict means the subprocess died BEFORE writing one, and a
+        # python death writes its traceback to STDERR -- which the tail above
+        # does not include. So the one message explaining the failure was
+        # discarded and the operator saw "ambiguous" three times and nothing
+        # else (mmackenz 2026-08-13: a missing backing, whose PathsError names
+        # the exact fix, was invisible). Same swallowed-stderr class as the
+        # jobsub-disk-quota-stderr-swallowed and sourced-env-stderr-swallowed
+        # incidents.
+        err = "\n".join(proc.stderr.splitlines()[-40:])
         tail = (f"(preflight verdict JSON missing/unparseable at "
                 f"{verdict_path}: {e!r}; rc={proc.returncode} — decoding as "
-                f"ambiguous)\n" + tail)
+                f"ambiguous)\n"
+                + (f"PREFLIGHT STDERR:\n{err}\n" if err.strip() else "")
+                + tail)
     return status, tail
 
 
@@ -291,24 +303,48 @@ _SCAN_PATTERNS = (
 )
 
 
+# Outstage root prodtools writes to -- same root the mu2ejobsub era used
+# (core/prodtools_exec.py outstage_root()). Module-level so tests can point
+# it at a tmp dir via mock.patch.object(pipeline_io, "OUTSTAGE_ROOT", ...).
+OUTSTAGE_ROOT = Path(_prodtools_exec.outstage_root())
+
+
 def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
     """Resolve every .log under the per-worker outstage dirs for one stage.
 
-    Reads `<state>/<stage>_outputs.txt`, takes the dirname of each .art path,
-    globs *.log in that dir. Returns [] if outputs file is missing (stage
-    didn't reach list-outputs yet).
+    Primary source: `<state>/<stage>_outputs.txt` -- each .art path's parent
+    dir already IS the per-worker outstage dir, so globbing *.log there
+    self-adapts to whichever backend wrote it. Once outputs.txt has
+    entries, this is authoritative and returned as-is (even if empty --
+    e.g. stage-out-lag/-rename-race means a job's .log hasn't landed next
+    to its .art yet; falling through to a cluster-wide glob there would
+    risk attributing an unrelated proc's log to this one).
+
+    Fallback (outputs.txt missing/empty -- i.e. list-outputs hasn't run,
+    or every job in the cluster died before producing an .art, so there
+    is no per-worker dir to derive at all): glob the cluster's outstage
+    dir (`<state>/<stage>_cluster.txt`) via
+    prodtools_exec.cluster_worker_logs, which owns the known worker-log
+    layouts (legacy mu2ejobsub vs prodtools-direct flat) and their
+    tie-break.
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
     outputs = hv.read_outputs(state_dir, stage)
-    if not outputs:
+    if outputs:
+        logs: list[Path] = []
+        for art_path in outputs:
+            try:
+                logs.extend(sorted(art_path.parent.glob("*.log")))
+            except OSError:
+                continue
+        return logs
+    cluster_file = state_dir / f"{stage}_cluster.txt"
+    if not cluster_file.exists():
         return []
-    logs: list[Path] = []
-    for art_path in outputs:
-        try:
-            logs.extend(sorted(art_path.parent.glob("*.log")))
-        except OSError:
-            continue
-    return logs
+    cluster = cluster_file.read_text().strip()
+    if not cluster:
+        return []
+    return _prodtools_exec.cluster_worker_logs(OUTSTAGE_ROOT / cluster)
 
 
 def _scan_one_stage(config_name: str, stage: str, jobs: int = 16) -> dict[str, int]:

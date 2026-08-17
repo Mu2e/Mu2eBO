@@ -513,17 +513,20 @@ def node_barrier(state: RoundState) -> dict:
     broken.txt, or dead process) or STOP_FLAG appears.
 
     There is deliberately NO per-round pacing timeout. Child process liveness
-    is the wait condition: an alive `graph.run` child is always progressing
-    toward resolution (every grid stage inside it is bounded by pipeline.py's
-    poll `cap_hours`), and a dead one is marked completed-failed within two
+    is the wait condition: a dead child is marked completed-failed within two
     poll ticks. Wall-clock windows were only ever a proxy for "will this
     child resolve?" and the proxy caused two orphan-storm incidents
     (foilsg03 @240min, foilsg05 @360min — see
     wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md).
 
     barrier_max_min (default 24h) is a loud BACKSTOP for the one remaining
-    pathology — a child that is alive but hung — not round pacing. Tripping
-    it should be rare and is always worth investigating."""
+    pathology — a child that is alive but hung — not round pacing. It is
+    now the ONLY such backstop: pipeline.py's per-stage poll no longer has
+    an inner `cap_hours` of its own (prodtools' jobwait has no internal
+    timeout by design, per the prodtools-switch design spec), so an alive
+    child stuck inside a grid stage's poll is bounded solely by this
+    barrier, not by anything inside the child. Tripping it should be rare
+    and is always worth investigating."""
     poll = state.get("barrier_poll_sec", CLOSED_LOOP_BARRIER_POLL_SEC)
     max_min = state.get("barrier_max_min", CLOSED_LOOP_BARRIER_MAX_MIN)
     start = time.time()

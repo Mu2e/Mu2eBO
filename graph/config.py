@@ -152,9 +152,10 @@ CLOSED_LOOP_STAGGER_SEC = 90
 # without flooding the SqliteSaver.
 CLOSED_LOOP_BARRIER_POLL_SEC = 300
 # Loud backstop cap on a single round's barrier, for alive-but-hung
-# children only (NOT round pacing; alive children always resolve via
-# pipeline.py's per-stage cap_hours). 1440 = 24h. Tripping this is rare
-# and always worth investigating.
+# children only (NOT round pacing; pipeline.py's per-stage cap_hours
+# backstop is gone -- jobwait has no internal timeout by design, so this
+# barrier timeout is now the ONLY backstop an alive-but-hung child resolves
+# against). 1440 = 24h. Tripping this is rare and always worth investigating.
 CLOSED_LOOP_BARRIER_MAX_MIN = 1440
 # Operator stop file. `touch $GRAPH_DATA/STOP_CLOSED_LOOP` ($GRAPH_DATA expands to
 # the path value at runtime) and the next barrier-poll iteration or decide_next will exit cleanly without affecting

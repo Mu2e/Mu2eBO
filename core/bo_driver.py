@@ -44,7 +44,8 @@ from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
     Leaderboard, Point, to_py_scalars,   # are public API of this module)
     _flock_ex, _flock_sh, _lock_path)
 
-from paths import REPO_ROOT as ROOT, GRID_DATA_ROOT  # single root resolver, see core/paths.py
+from paths import REPO_ROOT as ROOT  # single root resolver, see core/paths.py
+from paths import BO_WORK, GRID_DATA_ROOT
 from paths import leaderboard_archive, leaderboard_live
 
 # graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
@@ -245,8 +246,8 @@ class JsonMode(BOMode):
         # leaderboards/ are read-only priors both operators start warm from.
         self.leaderboard = leaderboard_live(spec.leaderboard_rel)
         self.leaderboard_archive = leaderboard_archive(spec.leaderboard_rel)
-        self.proposal_dir = ROOT / "bo_work" / "proposals" / name
-        self.preflight_dir = ROOT / "bo_work" / "preflight" / name
+        self.proposal_dir = BO_WORK / "proposals" / name
+        self.preflight_dir = BO_WORK / "preflight" / name
 
     def _geom_text(self, x) -> str:
         return _modes.SPECS[self.name].geom.render(x)
@@ -694,8 +695,13 @@ def write_json_atomic(path: Path, payload: dict) -> None:
 def _cmd_preflight_impl(args):
     mode = MODES[args.mode]
 
+    import harvest as _harvest
     import paths as _paths
-    _paths.verify([_modes.SPECS[mode.name]], make_dirs=False)
+    # Preflight is the first thing every chain runs, so it is where a missing
+    # backing has to surface -- including harvest's Run1BAna artifacts, which
+    # no earlier step touches and which a fresh clone does not have.
+    _paths.verify([_modes.SPECS[mode.name]],
+                  extra=_harvest.REQUIRED_ARTIFACTS, make_dirs=False)
 
     name = args.config_name
     geom = mode.proposal_dir / f"{name}_geom.txt"

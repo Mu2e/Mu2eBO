@@ -132,4 +132,5 @@ missing-include-chain issues. Subcommand of [bo-driver](/drivers/bo-driver.md).
 
 ## Cross-links
 - Used by: [bo-driver](/drivers/bo-driver.md), [graph-runner](/drivers/graph-runner.md) (per-iteration preflight node)
+- Also gates harvest's artifacts: [local-executor](/drivers/local-executor.md) (`paths.verify(extra=...)`, Run1BAna)
 - Surfaced bug: [geom-run1a-vs-run1b](/incidents/geom-run1a-vs-run1b.md)
