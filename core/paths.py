@@ -168,32 +168,32 @@ def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
     own SchemaMismatch and tests/test_live_leaderboard_headers.py already
     cover it twice over.
     """
+    def operator_hint():
+        # Shared remediation tail (reads ARTIFACT_ROOT/BACKING at raise
+        # time, so a test that patches them sees its own values).
+        return (f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
+                f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
+                f"Point at an operator who has it -- copy-paste "
+                f"either line:\n"
+                f"    ./setup.sh --backing {_EXAMPLE_BACKING}\n"
+                f"    export AUTORESEARCH_BACKING={_EXAMPLE_BACKING}"
+                f"   # if the checkout is not yours to write")
+
     for spec in specs:
         for field in ("musing", "grid_tarball"):
             p = Path(getattr(spec, field))
             if not p.exists():
                 raise PathsError(
                     f"mode {spec.name!r}: {field} not found at {p}\n"
-                    f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
-                    f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
-                    f"Point at an operator who has it -- copy-paste "
-                    f"either line:\n"
-                    f"    ./setup.sh --backing {_EXAMPLE_BACKING}\n"
-                    f"    export AUTORESEARCH_BACKING={_EXAMPLE_BACKING}"
-                    f"   # if the checkout is not yours to write\n"
-                    f"or build your own (see README, 'Artifacts').")
+                    + operator_hint()
+                    + "\nor build your own (see README, 'Artifacts').")
     for path, what in extra:
         p = Path(path)
         if not p.exists():
             raise PathsError(
                 f"{what} not found at {p}\n"
-                f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
-                f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
-                f"Every mode's harvest needs it. Point at an operator "
-                f"who has it -- copy-paste either line:\n"
-                f"    ./setup.sh --backing {_EXAMPLE_BACKING}\n"
-                f"    export AUTORESEARCH_BACKING={_EXAMPLE_BACKING}"
-                f"   # if the checkout is not yours to write")
+                f"Every mode's harvest needs it.\n"
+                + operator_hint())
     if make_dirs:
         for d in (GRID_DATA_ROOT, GRAPH_DATA, LEADERBOARD_LIVE):
             try:

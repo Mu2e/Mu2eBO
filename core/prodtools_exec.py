@@ -93,7 +93,8 @@ def load_stage_entry(stage: str, *, cfg: str, geom: str,
     raw = json.loads(path.read_text())
     return _substitute_placeholders(raw, {"cfg": cfg, "geom": geom}, stage)
 
-# Same outstage root the mu2ejobsub era used (pipeline.py OUTSTAGE);
+# Same outstage root the mu2ejobsub era used (pipeline.py's retired
+# OUTSTAGE constant);
 # prodtools computes it as {wftop}/{user}/workflow/{wfproject}/outstage.
 WFTOP = "/pnfs/mu2e/scratch/users"
 WFPROJECT = "default"

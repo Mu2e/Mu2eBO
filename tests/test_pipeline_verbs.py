@@ -474,9 +474,12 @@ class TestStageEntries(unittest.TestCase):
                     pipeline._render_fcl_overrides("mustops_ce")[key], 8000)
 
     def test_stage_extra_files_only_mubeam_and_run1b_mubeam(self):
+        # Derived from the entry's '#include' (bare basenames ship,
+        # published Production/... paths don't), so the JSON is the single
+        # declaration of "this stage needs this extra include".
         for stage in pipeline.STAGES:
             with self.subTest(stage=stage):
-                extras = pipeline._stage_extra_files(stage)
+                extras = pipeline._stage_extra_files(self._entry(stage))
                 if stage in ("mubeam", "run1b_mubeam"):
                     self.assertEqual(len(extras), 1)
                     self.assertTrue(extras[0].exists(),
@@ -486,15 +489,25 @@ class TestStageEntries(unittest.TestCase):
                     self.assertEqual(extras, [])
 
     def test_mubeam_extras_fcl_basename_matches_the_include_key(self):
-        extras = pipeline._stage_extra_files("mubeam")
+        entry = self._entry("mubeam")
+        extras = pipeline._stage_extra_files(entry)
         self.assertEqual(extras[0].name,
-                         self._entry("mubeam")["fcl_overrides"]["#include"][1])
+                         entry["fcl_overrides"]["#include"][1])
 
     def test_run1b_mubeam_extras_fcl_basename_matches_the_include_key(self):
-        extras = pipeline._stage_extra_files("run1b_mubeam")
+        entry = self._entry("run1b_mubeam")
+        extras = pipeline._stage_extra_files(entry)
+        self.assertEqual(extras[0].name,
+                         entry["fcl_overrides"]["#include"][1])
+
+    def test_stage_extra_files_string_include_and_missing_overrides(self):
+        # A single-string '#include' (elebeam_flash's shape) and an entry
+        # with no fcl_overrides at all must both work.
         self.assertEqual(
-            extras[0].name,
-            self._entry("run1b_mubeam")["fcl_overrides"]["#include"][1])
+            pipeline._stage_extra_files({"fcl_overrides":
+                                         {"#include": "a/published.fcl"}}),
+            [])
+        self.assertEqual(pipeline._stage_extra_files({}), [])
 
     def test_stages_never_carry_the_dead_pre_task14_fields(self):
         # run_number/memory_mb/default_loc/ships_geom/auxinput all moved to
@@ -661,7 +674,7 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
                 with mock.patch.object(pipeline, "run",
                                        wraps=pipeline.run) as run_spy:
                     # Same basename, same bytes -- exactly what a real
-                    # resubmit's _stage_extra_files(stage) call produces
+                    # resubmit's _stage_extra_files(entry) call produces
                     # (the identical static file, every time).
                     extra.write_text('#include "geom.txt"\n')
                     cnf_2 = pipeline.write_code_tarball(
@@ -1287,8 +1300,7 @@ class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
              mock.patch.object(pipeline, "sourced_env", return_value={}), \
              mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
              mock.patch.object(pipeline, "stage_hardlink_farm",
-                               return_value=(Path("/pnfs/x/concat"),
-                                            None)) as farm:
+                               return_value=Path("/pnfs/x/concat")) as farm:
             sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(3)]
             (Path(tmp) / "mubeam_outputs.txt").write_text(
                 "\n".join(sources) + "\n")
@@ -1310,8 +1322,7 @@ class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
              mock.patch.object(pipeline, "sourced_env", return_value={}), \
              mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
              mock.patch.object(pipeline, "stage_hardlink_farm",
-                               return_value=(Path("/pnfs/x/mustops_ce"),
-                                            None)):
+                               return_value=Path("/pnfs/x/mustops_ce")):
             sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(4)]
             (Path(tmp) / "concat_outputs.txt").write_text(
                 "\n".join(sources) + "\n")
