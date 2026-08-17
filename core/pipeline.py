@@ -23,9 +23,10 @@ dsconf_musing) -- see the comment block above `_render_fcl_overrides` for
 the per-stage-JSON-key rationale that used to sit beside STAGE_FCL's/
 STAGES' literals. The two stages whose overrides need an
 @sequence::-bearing FHiCL block that can't ride a JSON value (mubeam,
-run1b_mubeam) pull it in from a static pipeline_templates/<stage>_extras.fcl
-via the `'#include'` override key, shipped in the code tarball
-(write_code_tarball extra_files) the same way the geom overlay is.
+run1b_mubeam) pull it in from static pipeline_templates/*.fcl files via the
+`'#include'` override key, shipped in the code tarball (write_code_tarball
+extra_files) the same way the geom overlay is. Both share
+sim_kept_products_extras.fcl; mubeam adds mubeam_targetstop_path.fcl.
 
 Per-config working tree (auto-created):
   <DATA_ROOT>/autoresearch_grid/<cfg>/
@@ -280,9 +281,13 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #
 # mubeam.json:
 #   fcl_overrides['#include'] -- epilog_1b.fcl was the old template's 2nd
-#     #include; mubeam_extras.fcl carries the two outputCommands blocks +
-#     the targetStopPath restatement below (all @sequence::-bearing, so
-#     none of it can ride a JSON fcl_overrides value -- see that file).
+#     #include; sim_kept_products_extras.fcl carries the two outputCommands
+#     blocks and mubeam_targetstop_path.fcl the targetStopPath restatement
+#     below (all @sequence::-bearing, so none of it can ride a JSON
+#     fcl_overrides value -- see those files). Split into two files
+#     2026-08-17: the outputCommands blocks were byte-identical to
+#     run1b_mubeam's, so the shared half is now included by both stages and
+#     only the path override is mubeam-only.
 #   fcl_overrides['physics.producers.g4run.physics.physicsListName'] --
 #     FTFP_BERT: -20% CPU on mubeam vs ShieldingM (n=200/200), with sob/calo
 #     deltas inside the ShieldingM-self noise floor on helicalQR00_02
@@ -321,17 +326,19 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #     against the real prodtools checkout. Flat dotted keys sidestep it
 #     entirely -- each is a plain scalar/list value, which json.dumps
 #     renders correctly.
-#   (not in the JSON -- lives in mubeam_extras.fcl) targetStopPath itself
+#   (not in the JSON -- lives in mubeam_targetstop_path.fcl) targetStopPath
 #     (restated from Production/JobConfig/pileup/MuBeamResampler.fcl:35
 #     with muminusSelector inserted after TargetStopFilter and before
 #     compressPVTargetStops) -- its @sequence:: entries can't ride a JSON
 #     fcl_overrides value.
 #
 # run1b_mubeam.json:
-#   fcl_overrides['#include'] -- run1b_mubeam_extras.fcl carries the two
-#     outputCommands blocks (same @sequence::-bearing shape as mubeam's);
+#   fcl_overrides['#include'] -- sim_kept_products_extras.fcl, the SAME
+#     file mubeam includes, carries the two outputCommands blocks (they
+#     were byte-identical per-stage copies until 2026-08-17);
 #     run1b_mubeam has no targetStopPath/muminusSelector override -- Run1B
-#     keeps the published targetStopPath.
+#     keeps the published targetStopPath, so it does NOT include
+#     mubeam_targetstop_path.fcl.
 #   Run1B mubeam variant: DS field OFF + geom_run1_b_v06 baseline so muons
 #     stream straight downstream and we get a real calo_stop/POT
 #     measurement. Same MuBeamCat input as the Run1A mubeam stage; same
@@ -727,7 +734,7 @@ def _cache_token(extra_files: list[Path] | None) -> str:
 
     I1 fix: pre-fix, the cache path was `Code.<base>.tar.bz2` — ONE name per
     (config, base_tarball) regardless of extra_files, so a config's mubeam
-    submit (extras=mubeam_extras.fcl) and its mustops_ce submit (no extras)
+    submit (extras=the two mubeam includes) and its mustops_ce submit (none)
     fought over the SAME cache file: each stage's submit invalidated the
     other's (their _extra_files_digest differ), forcing a full unpack+
     rebzip2 (~7-12 min) on nearly every stage instead of reusing across a

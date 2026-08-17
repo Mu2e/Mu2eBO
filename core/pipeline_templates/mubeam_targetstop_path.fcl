@@ -1,0 +1,22 @@
+# mubeam-only @sequence::-bearing path override. Split out of the former
+# mubeam_extras.fcl 2026-08-17: this line is the ONLY thing that differed
+# between mubeam's and run1b_mubeam's extras, so the identical outputCommands
+# blocks they shared now live in sim_kept_products_extras.fcl, which both
+# stages include. run1b_mubeam does NOT include this file -- Run1B keeps the
+# published targetStopPath.
+#
+# See sim_kept_products_extras.fcl's header for why this is a FILE rather
+# than a JSON fcl_overrides value (json.dumps cannot emit an unquoted
+# @sequence:: token), how it ships (code tarball + FHICL_FILE_PATH), and
+# where the load-bearing rationale lives (core/pipeline.py, above
+# _render_fcl_overrides).
+#
+# targetStopPath restated from Production/JobConfig/pileup/MuBeamResampler.fcl:35
+# with muminusSelector inserted after TargetStopFilter (whose compressed
+# SimParticle product it reads) and before compressPVTargetStops (so rejected
+# events skip compression). muminusSelector itself is defined via
+# fcl_overrides's flattened "physics.filters.muminusSelector.*" keys --
+# FHiCL path lists only need the module LABEL, not its definition order, so
+# referencing it here (an earlier #include) before those override lines are
+# written later in the same rendered file is fine.
+physics.targetStopPath : [ @sequence::Pileup.beamResamplerSequence, @sequence::Common.g4Sequence, TargetStopPrescaleFilter, TargetMuonFinder, TargetStopFilter, muminusSelector, compressPVTargetStops ]

@@ -2,7 +2,7 @@
  "_comment": "Rationale for these keys lives in core/pipeline.py, in the comment block immediately above _render_fcl_overrides (Task 14, lifted from Task 13's STAGE_FCL[\"run1b_mubeam\"]). Edit that comment block, not this note, when the rationale changes.",
  "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
  "fcl_overrides": {
-  "#include": ["Production/JobConfig/pileup/epilog_1b.fcl", "run1b_mubeam_extras.fcl"],
+  "#include": ["Production/JobConfig/pileup/epilog_1b.fcl", "sim_kept_products_extras.fcl"],
   "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
   "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
   "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyMuBeamFlash.version.sequencer.art",

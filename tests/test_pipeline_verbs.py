@@ -331,7 +331,8 @@ class TestStageEntries(unittest.TestCase):
         self.assertEqual(list(overrides.keys())[0], "#include")
         self.assertEqual(
             overrides["#include"],
-            ["Production/JobConfig/pileup/epilog_1b.fcl", "mubeam_extras.fcl"])
+            ["Production/JobConfig/pileup/epilog_1b.fcl",
+             "sim_kept_products_extras.fcl", "mubeam_targetstop_path.fcl"])
 
     def test_run1b_mubeam_include_key_is_first_and_carries_epilog_and_extras(self):
         overrides = self._entry("run1b_mubeam")["fcl_overrides"]
@@ -339,7 +340,22 @@ class TestStageEntries(unittest.TestCase):
         self.assertEqual(
             overrides["#include"],
             ["Production/JobConfig/pileup/epilog_1b.fcl",
-             "run1b_mubeam_extras.fcl"])
+             "sim_kept_products_extras.fcl"])
+
+    def test_both_resampler_stages_share_one_kept_products_file(self):
+        # The dedupe's whole point (2026-08-17): the outputCommands blocks
+        # were byte-identical in the two former per-stage extras files, so a
+        # change to the kept-products shape had to be made twice or silently
+        # diverge. Pin that they now name the SAME file, and that only
+        # mubeam carries the targetStopPath override -- Run1B keeps the
+        # published path.
+        mubeam = self._entry("mubeam")["fcl_overrides"]["#include"]
+        run1b = self._entry("run1b_mubeam")["fcl_overrides"]["#include"]
+        shared = "sim_kept_products_extras.fcl"
+        self.assertIn(shared, mubeam)
+        self.assertIn(shared, run1b)
+        self.assertIn("mubeam_targetstop_path.fcl", mubeam)
+        self.assertNotIn("mubeam_targetstop_path.fcl", run1b)
 
     def test_concat_has_no_include_key_and_no_geom_key(self):
         # concat's base FCL (MuonStopSelector.fcl) had only ONE #include in
@@ -480,25 +496,27 @@ class TestStageEntries(unittest.TestCase):
         for stage in pipeline.STAGES:
             with self.subTest(stage=stage):
                 extras = pipeline._stage_extra_files(self._entry(stage))
-                if stage in ("mubeam", "run1b_mubeam"):
-                    self.assertEqual(len(extras), 1)
-                    self.assertTrue(extras[0].exists(),
-                                    f"{extras[0]} must exist on disk")
-                    self.assertIn("@sequence::", extras[0].read_text())
-                else:
-                    self.assertEqual(extras, [])
+                # mubeam ships two since the 2026-08-17 dedupe (the shared
+                # kept-products file + its own targetStopPath); run1b_mubeam
+                # ships only the shared one.
+                expected = {"mubeam": 2, "run1b_mubeam": 1}.get(stage, 0)
+                self.assertEqual(len(extras), expected)
+                for f in extras:
+                    self.assertTrue(f.exists(), f"{f} must exist on disk")
+                    self.assertIn("@sequence::", f.read_text())
 
-    def test_mubeam_extras_fcl_basename_matches_the_include_key(self):
-        entry = self._entry("mubeam")
-        extras = pipeline._stage_extra_files(entry)
-        self.assertEqual(extras[0].name,
-                         entry["fcl_overrides"]["#include"][1])
-
-    def test_run1b_mubeam_extras_fcl_basename_matches_the_include_key(self):
-        entry = self._entry("run1b_mubeam")
-        extras = pipeline._stage_extra_files(entry)
-        self.assertEqual(extras[0].name,
-                         entry["fcl_overrides"]["#include"][1])
+    def test_extras_fcl_basenames_match_the_include_key_in_order(self):
+        # Every bare basename in '#include' must ship, in the same order:
+        # FHiCL is last-wins, so a shipped-but-reordered include could
+        # silently change which override survives. Published Production/...
+        # paths resolve from the release and ship nothing.
+        for stage in ("mubeam", "run1b_mubeam"):
+            with self.subTest(stage=stage):
+                entry = self._entry(stage)
+                inc = entry["fcl_overrides"]["#include"]
+                self.assertEqual(
+                    [f.name for f in pipeline._stage_extra_files(entry)],
+                    [i for i in inc if "/" not in i])
 
     def test_stage_extra_files_string_include_and_missing_overrides(self):
         # A single-string '#include' (elebeam_flash's shape) and an entry
@@ -775,7 +793,8 @@ class TestSubmitStageProdtools(unittest.TestCase):
             self.assertEqual(
                 overrides["#include"],
                 ["Production/JobConfig/pileup/epilog_1b.fcl",
-                 "mubeam_extras.fcl"])
+                 "sim_kept_products_extras.fcl",
+                 "mubeam_targetstop_path.fcl"])
             self.assertEqual(
                 overrides["services.GeometryService.inputFile"],
                 "autoresearch_cfg001_geom.txt")
@@ -874,7 +893,9 @@ class TestSubmitStageProdtools(unittest.TestCase):
 
             self.assertEqual(len(seen_extra_files), 1)
             self.assertEqual(
-                [p.name for p in seen_extra_files[0]], ["mubeam_extras.fcl"])
+                [p.name for p in seen_extra_files[0]],
+                ["sim_kept_products_extras.fcl",
+                 "mubeam_targetstop_path.fcl"])
 
     def test_mustops_ce_concatless_overrides_max_events_to_skip_to_8000(self):
         # Folded-in from the old _materialize_template's stamp-first
