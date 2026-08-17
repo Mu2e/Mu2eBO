@@ -284,6 +284,7 @@ run: you are never on someone's build without seeing whose.
 Spelled out, the script is these steps:
 
 ```bash
+# AUTORESEARCH_PRODTOOLS is assumed already exported (Prerequisites) — runlocal is a prodtools binary
 source .venv/bin/activate && source setup.sh          # 3. per-shell, every shell
 export AUTORESEARCH_DATA_ROOT=/exp/mu2e/data/users/$USER/localtest   # 4. sandbox
 ./setup.sh --status                                   # 5. read this before step 6
