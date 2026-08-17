@@ -1,18 +1,24 @@
 # mubeam @sequence::-bearing overrides (Task 13, retiring
-# pipeline_templates/mubeam/template.fcl into core/pipeline.py's STAGE_FCL).
+# pipeline_templates/mubeam/template.fcl into core/pipeline.py's STAGE_FCL
+# dict; Task 14 then lifted that dict's per-stage values out to checked-in
+# stage_entries/<stage>.json, keeping only the per-stage-JSON-key RATIONALE
+# in a plain comment block in core/pipeline.py, immediately above
+# _render_fcl_overrides).
 #
 # json2jobdef's write_fcl_template (prodtools utils/prod_utils.py) renders
 # every fcl_overrides value through json.dumps, which can only emit quoted
 # strings / bracketed lists -- it cannot emit the unquoted @sequence::
-# preprocessor token. These two blocks are pulled in via the STAGE_FCL
-# mubeam '#include' key (kept FIRST among the overrides, so every later
-# per-key override in fcl_overrides still wins over whatever these set) and
-# shipped inside the code tarball's Code/ dir (write_code_tarball
-# extra_files), the same search-path mechanism the per-BO geom overlay uses.
+# preprocessor token. These two blocks are pulled in via
+# stage_entries/mubeam.json's '#include' key (kept FIRST among the
+# overrides, so every later per-key override in fcl_overrides still wins
+# over whatever these set) and shipped inside the code tarball's Code/ dir
+# (write_code_tarball extra_files), the same search-path mechanism the
+# per-BO geom overlay uses.
 #
-# Load-bearing rationale for each block lives in core/pipeline.py's
-# STAGE_FCL["mubeam"] comments, not here (Task 13 transcription rule: zero
-# comment content dropped, but the narrative home is the Python dict).
+# Load-bearing rationale for each block lives in core/pipeline.py's comment
+# block above _render_fcl_overrides (the "mubeam.json:" section), not here
+# (Task 13 transcription rule: zero comment content dropped, but the
+# narrative home is the Python comment block, not this file).
 
 outputs.TargetStopOutput.outputCommands: [
   "drop *_*_*_*",

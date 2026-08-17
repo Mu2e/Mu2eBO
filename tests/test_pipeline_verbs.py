@@ -27,6 +27,25 @@ import pipeline  # noqa: E402
 import harvest as hv  # noqa: E402
 
 
+def _stub_run_runlocal(rc=0, ok=None):
+    """A px.run_runlocal side_effect that writes a real (minimal) wait.json.
+
+    cmd_submit's --local branch reads the wait.json back right after
+    run_runlocal returns (M5, 2026-08-16 review: WARN when ok < njobs) --
+    a bare `return_value=...` mock leaves nothing for that px.read_wait
+    call to find, which would raise SystemExit (missing wait.json) in every
+    test that mocks run_runlocal wholesale. `ok` defaults to the call's own
+    `njobs` argument (i.e. "every job ok") so tests that don't care about
+    M5's WARN path don't trip it by accident.
+    """
+    def _fn(stage_dir, cnf, njobs, wait_json, env, **kw):
+        Path(wait_json).write_text(json.dumps({
+            "jobdef": "cnf.t.tar", "jobs": [],
+            "ok": njobs if ok is None else ok, "failed": []}))
+        return rc
+    return _fn
+
+
 class TestSubmitIdempotency(unittest.TestCase):
     def test_noop_when_cluster_file_exists(self):
         with tempfile.TemporaryDirectory() as tmp, \
@@ -533,11 +552,15 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
         self.assertIn("Code/geom.txt", listing)
 
     def test_a_cache_missing_a_newer_extra_file_is_rebuilt_not_reused(self):
-        # The cache-freshness gate keyed only on (geom, base_tarball) would
-        # silently reuse stage A's cached tarball for stage B -- shipping
-        # A's extras fcl and never B's, so every non-first stage in a
-        # config's chain would ship a Code.tar.bz2 missing its own extras.
-        # Guard against that regression directly.
+        # Pre-I1, the cache-freshness gate keyed the cache PATH only on
+        # (config, base_tarball) -- so stage A's submit (no extras) and
+        # stage B's submit (an extras fcl) fought over the SAME cache file,
+        # each rebuild silently evicting the other's. I1 (2026-08-16 review)
+        # folds the extras digest into the cache FILENAME instead, so A and
+        # B now land in different cache files by construction and neither
+        # ever gets shipped missing its own extras -- see
+        # test_two_stages_with_different_extras_cache_independently for the
+        # thrash-elimination half of this fix.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg"
             stage_dir = root / "mubeam"
@@ -547,17 +570,67 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
             base = self._make_base_tarball(tmp)
             with mock.patch.object(pipeline, "ROOT", root), \
                  mock.patch.object(pipeline, "GEOM_FILE", geom):
-                # Stage A's submit: no extra_files, seeds the shared cache.
+                # Stage A's submit: no extra_files.
                 cnf_a = pipeline.write_code_tarball(stage_dir, base_tarball=base)
-                # Stage B's submit: an extras fcl not yet in that cache must
-                # force a rebuild, not a silent reuse.
+                # Stage B's submit: an extras fcl not yet cached under ANY
+                # name -- must build its own cache file, not overwrite A's.
                 extra_b = root / "run1b_mubeam_extras.fcl"
                 extra_b.write_text('#include "geom.txt"\n')
                 cnf_b = pipeline.write_code_tarball(
                     stage_dir, base_tarball=base, extra_files=[extra_b])
-            self.assertEqual(cnf_a, cnf_b)  # same shared per-config cache path
-            listing = self._tar_listing(cnf_b)
-        self.assertIn("Code/run1b_mubeam_extras.fcl", listing)
+            self.assertNotEqual(cnf_a, cnf_b)  # I1: distinct cache files
+            self.assertTrue(cnf_a.exists())    # A's cache untouched by B's build
+            listing_a = self._tar_listing(cnf_a)
+            listing_b = self._tar_listing(cnf_b)
+        self.assertNotIn("Code/run1b_mubeam_extras.fcl", listing_a)
+        self.assertIn("Code/run1b_mubeam_extras.fcl", listing_b)
+
+    def test_two_stages_with_different_extras_cache_independently(self):
+        # I1 [Important]: pre-fix, the per-config cache filename was
+        # `Code.<base>.tar.bz2` regardless of extra_files -- ONE name shared
+        # by every stage in a config, so mubeam's submit (extras=
+        # mubeam_extras.fcl) and mustops_ce's submit (no extras) evicted and
+        # rebuilt each other's cache on every submit within a config
+        # (~7-12 min of unpack+rebzip2 lost nearly every stage). Folding the
+        # extras digest into the filename (_cache_token) gives each variant
+        # its own cache slot: assert two different-extras builds land at
+        # different paths AND each reuses (no tar/bzip2 re-invoked) on a
+        # same-extras repeat.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg"
+            stage_dir_a = root / "mubeam"
+            stage_dir_a.mkdir(parents=True)
+            stage_dir_b = root / "mustops_ce"
+            stage_dir_b.mkdir(parents=True)
+            geom = root / "geom.txt"
+            geom.write_text("geom\n")
+            extra_a = root / "mubeam_extras.fcl"
+            extra_a.write_text('#include "geom.txt"\n')
+            base = self._make_base_tarball(tmp)
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom):
+                # mubeam-shaped submit (extras), then mustops_ce-shaped
+                # submit (no extras) for the SAME config -- the exact
+                # sequence that thrashed pre-fix.
+                cnf_mubeam_1 = pipeline.write_code_tarball(
+                    stage_dir_a, base_tarball=base, extra_files=[extra_a])
+                cnf_mustops_1 = pipeline.write_code_tarball(
+                    stage_dir_b, base_tarball=base)
+                self.assertNotEqual(cnf_mubeam_1, cnf_mustops_1)
+                self.assertTrue(cnf_mubeam_1.exists())
+                self.assertTrue(cnf_mustops_1.exists())
+                # A second submit of EACH must reuse its own cache -- no
+                # tar/bzip2 invocation for either.
+                with mock.patch.object(pipeline, "run",
+                                       wraps=pipeline.run) as run_spy:
+                    cnf_mubeam_2 = pipeline.write_code_tarball(
+                        stage_dir_a, base_tarball=base,
+                        extra_files=[extra_a])
+                    cnf_mustops_2 = pipeline.write_code_tarball(
+                        stage_dir_b, base_tarball=base)
+                run_spy.assert_not_called()
+            self.assertEqual(cnf_mubeam_1, cnf_mubeam_2)
+            self.assertEqual(cnf_mustops_1, cnf_mustops_2)
 
     def test_identical_extra_files_content_reuses_the_cache(self):
         # The staleness signal must be CONTENT, not mtime: a real resubmit
@@ -1149,7 +1222,8 @@ class TestSubmitStageProdtools(unittest.TestCase):
                  mock.patch.object(pipeline.px, "STAGE_ENTRIES_DIR", entries_dir), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    side_effect=fake_build_cnf), \
-                 mock.patch.object(pipeline.px, "run_runlocal", return_value=0):
+                 mock.patch.object(pipeline.px, "run_runlocal",
+                                   side_effect=_stub_run_runlocal()):
                 pipeline.cmd_submit(SimpleNamespace(
                     stage="mubeam", force=False, dry_run=False, local=True,
                     local_njobs=None, local_events=None, local_pool=None))
@@ -1636,7 +1710,7 @@ class TestCmdSubmitLocalMarkerHandling(unittest.TestCase):
                                    return_value=Path(tmp) / "mubeam" /
                                    "cnf.x.tar"), \
                  mock.patch.object(pipeline.px, "run_runlocal",
-                                   return_value=0), \
+                                   side_effect=_stub_run_runlocal()), \
                  mock.patch.object(pipeline, "submit_stage_prodtools") as ss:
                 os.environ.pop("AUTORESEARCH_LOCAL", None)
                 pipeline.cmd_submit(SimpleNamespace(
@@ -1667,9 +1741,9 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                               return_value=Path(tmp) / "Code.tar.bz2"),
             mock.patch.object(pipeline.px, "build_cnf", return_value=cnf),
             mock.patch.object(pipeline.px, "run_runlocal",
-                              return_value=(run_runlocal
-                                           if run_runlocal is not None
-                                           else 0)),
+                              side_effect=_stub_run_runlocal(
+                                  rc=(run_runlocal
+                                     if run_runlocal is not None else 0))),
         ]
 
     def _consuming_stage_patches(self, tmp):
@@ -1690,7 +1764,8 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                               return_value=Path(tmp) / "Code.tar.bz2"),
             mock.patch.object(pipeline.px, "build_cnf",
                               return_value=Path(tmp) / "x" / "cnf.x.tar"),
-            mock.patch.object(pipeline.px, "run_runlocal", return_value=0),
+            mock.patch.object(pipeline.px, "run_runlocal",
+                              side_effect=_stub_run_runlocal()),
         ]
 
     def test_a_consuming_stage_refuses_when_its_input_stage_never_ran_local(self):
@@ -1776,7 +1851,7 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                     stack.enter_context(p)
                 rr = stack.enter_context(
                     mock.patch.object(pipeline.px, "run_runlocal",
-                                      return_value=0))
+                                      side_effect=_stub_run_runlocal()))
                 pipeline.cmd_submit(SimpleNamespace(
                     stage="concat", force=False, dry_run=False, local=True,
                     local_njobs=None, local_events=None, local_pool=None))
@@ -1790,8 +1865,13 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
                              sorted(s.name for s in sources))
             self.assertEqual(entry["njobs"], math.ceil(5 / merge))
-            call_args, _ = rr.call_args
+            call_args, call_kwargs = rr.call_args
             self.assertEqual(call_args[2], math.ceil(5 / merge))
+            # C1 regression: a consuming stage's runlocal call must carry
+            # the SAME dir:<farm> inloc the rendered entry got -- without
+            # it, runlocal defaults to --inloc tape and resolves this
+            # locally-farmed basename against /pnfs/mu2e/tape.
+            self.assertEqual(call_kwargs["inloc"], f"dir:{farm_dir}")
 
     def test_concat_local_njobs_flag_overrides_the_computed_default(self):
         # Operator wins: an explicit --local-njobs beats the
@@ -1975,7 +2055,7 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                  mock.patch.object(pipeline.px, "build_cnf",
                                    return_value=cnf), \
                  mock.patch.object(pipeline.px, "run_runlocal",
-                                   return_value=0) as rr:
+                                   side_effect=_stub_run_runlocal()) as rr:
                 pipeline.cmd_submit(SimpleNamespace(
                     stage="mubeam", force=False, dry_run=False, local=True,
                     local_njobs=["3"], local_events=["77"],
@@ -1991,6 +2071,11 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
         self.assertEqual(call_kwargs["code_tarball"],
                          Path(tmp) / "Code.tar.bz2")
         self.assertEqual(call_kwargs["pool"], 4)  # DEFAULT_LOCAL_POOL, unset flag
+        # C1 regression: a non-consuming stage (mubeam resamples an
+        # external SAM Cat dataset, staged_inputs=None) must still carry
+        # the stage_entries/mubeam.json default inloc ("tape") through to
+        # runlocal, not silently omit --inloc.
+        self.assertEqual(call_kwargs["inloc"], "tape")
 
     def test_local_pool_flag_overrides_the_default(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2008,12 +2093,81 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                                    return_value=Path(tmp) / "mubeam" /
                                    "cnf.x.tar"), \
                  mock.patch.object(pipeline.px, "run_runlocal",
-                                   return_value=0) as rr:
+                                   side_effect=_stub_run_runlocal()) as rr:
                 pipeline.cmd_submit(SimpleNamespace(
                     stage="mubeam", force=False, dry_run=False, local=True,
                     local_njobs=None, local_events=None, local_pool=2))
             _, call_kwargs = rr.call_args
         self.assertEqual(call_kwargs["pool"], 2)
+
+    def test_partial_local_ok_warns_but_does_not_raise(self):
+        # M5 (2026-08-16 review): wait.json stays authoritative for a
+        # partial local run (list-outputs still divides by the true ok
+        # count), but an operator watching the console needs to SEE which
+        # indices came up short -- mirrors the retired (pre-prodtools-switch)
+        # cmd_local_run's "WARNING: N job(s) failed: [...]" print.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+
+            def partial_run_runlocal(stage_dir, cnf, njobs, wait_json, env,
+                                     **kw):
+                Path(wait_json).write_text(json.dumps({
+                    "jobdef": "cnf.t.tar", "jobs": [],
+                    "ok": 1, "failed": [1, 2]}))
+                return 1
+
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "sourced_env",
+                                   return_value={"X": "1"}), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=Path(tmp) / "mubeam" /
+                                   "cnf.x.tar"), \
+                 mock.patch.object(pipeline.px, "run_runlocal",
+                                   side_effect=partial_run_runlocal):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    # No SystemExit: a partial local run is still a normal
+                    # return, exactly like cmd_poll's below-quorum WARN path.
+                    pipeline.cmd_submit(SimpleNamespace(
+                        stage="mubeam", force=False, dry_run=False,
+                        local=True, local_njobs=["3"], local_events=None,
+                        local_pool=None))
+            out = buf.getvalue()
+        self.assertIn("WARN", out)
+        self.assertIn("1/3", out)
+        self.assertIn("[1, 2]", out)   # failed indices named
+
+    def test_full_local_ok_prints_no_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "sourced_env",
+                                   return_value={"X": "1"}), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=Path(tmp) / "mubeam" /
+                                   "cnf.x.tar"), \
+                 mock.patch.object(pipeline.px, "run_runlocal",
+                                   side_effect=_stub_run_runlocal()):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    pipeline.cmd_submit(SimpleNamespace(
+                        stage="mubeam", force=False, dry_run=False,
+                        local=True, local_njobs=None, local_events=None,
+                        local_pool=None))
+            out = buf.getvalue()
+        self.assertNotIn("WARN", out)
 
 
 if __name__ == "__main__":

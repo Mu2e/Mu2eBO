@@ -49,7 +49,7 @@ class TestProdtoolsRoot(unittest.TestCase):
 
 class TestRenderEntry(unittest.TestCase):
     def _base(self, **kw):
-        args = dict(config="t001", dsconf="Run1Bak_t001",
+        args = dict(dsconf="Run1Bak_t001",
                     desc="Run1A_MuBeam_t001", njobs=200,
                     code_tarball=Path("/data/t001/Code.tar.bz2"),
                     # Task 13: `fcl` is the published Production FCL path,
@@ -60,7 +60,7 @@ class TestRenderEntry(unittest.TestCase):
 
     def test_resampler_stage_shape(self):
         e = pex.render_entry(
-            "mubeam", {}, **self._base(
+            **self._base(
                 events=5000, run=1800,
                 resampler_name="beamResampler",
                 input_data={"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
@@ -82,8 +82,7 @@ class TestRenderEntry(unittest.TestCase):
     def test_fcl_overrides_copied_into_the_entry_when_given(self):
         overrides = {"#include": "epilog_1b.fcl",
                     "services.SeedService.baseSeed": 1}
-        e = pex.render_entry(
-            "mubeam", {}, **self._base(fcl_overrides=overrides))
+        e = pex.render_entry(**self._base(fcl_overrides=overrides))
         self.assertEqual(e["fcl_overrides"], overrides)
 
     def test_fcl_overrides_is_a_copy_not_an_alias(self):
@@ -93,14 +92,14 @@ class TestRenderEntry(unittest.TestCase):
         # its own overrides dict after the call must never leak into the
         # already-rendered entry.
         overrides = {"a": 1}
-        e = pex.render_entry("mubeam", {}, **self._base(fcl_overrides=overrides))
+        e = pex.render_entry(**self._base(fcl_overrides=overrides))
         overrides["a"] = 2
         overrides["b"] = 3
         self.assertEqual(e["fcl_overrides"], {"a": 1})
 
     def test_merge_stage_no_events(self):
         e = pex.render_entry(
-            "concat", {}, **self._base(
+            **self._base(
                 desc="Run1A_MuStopsCat_t001", njobs=1,
                 input_data={"sim.a.art": 200, "sim.b.art": 200},
                 inloc="dir:/pnfs/stage/t001/concat_inputs"))
@@ -110,13 +109,12 @@ class TestRenderEntry(unittest.TestCase):
         self.assertEqual(e["inloc"], "dir:/pnfs/stage/t001/concat_inputs")
 
     def test_memory_formatted(self):
-        e = pex.render_entry("mustops_ce", {},
-                             **self._base(memory_mb=3000, events=2500,
+        e = pex.render_entry(**self._base(memory_mb=3000, events=2500,
                                           run=1801))
         self.assertEqual(e["memory"], "3000MB")
 
     def test_outloc_defaults_to_the_outstage_literal_when_omitted(self):
-        e = pex.render_entry("mubeam", {}, **self._base())
+        e = pex.render_entry(**self._base())
         self.assertEqual(e["outloc"], {"*.art": "outstage", "*.root": "outstage"})
 
     def test_outloc_passed_in_wins_over_the_default(self):
@@ -125,12 +123,12 @@ class TestRenderEntry(unittest.TestCase):
         # hardcoded literal -- the same silent-divergence class this task
         # closed for every other stage_entries key.
         custom = {"*.art": "tape", "*.root": "disk"}
-        e = pex.render_entry("mubeam", {}, **self._base(outloc=custom))
+        e = pex.render_entry(**self._base(outloc=custom))
         self.assertEqual(e["outloc"], custom)
 
     def test_outloc_is_a_copy_not_an_alias(self):
         custom = {"*.art": "tape"}
-        e = pex.render_entry("mubeam", {}, **self._base(outloc=custom))
+        e = pex.render_entry(**self._base(outloc=custom))
         custom["*.art"] = "disk"
         custom["*.root"] = "outstage"
         self.assertEqual(e["outloc"], {"*.art": "tape"})
@@ -256,14 +254,38 @@ _WAIT_GRID = {
 }
 
 _WAIT_LOCAL = {
+    # Real prodtools runlocal (utils/runlocal.py `summary()`, verified
+    # against the checked-out prodtools 2026-08-16) ALWAYS joins each job's
+    # `dir` with its bare output name before writing the JSON -- `outputs`
+    # is absolute, never bare basenames, even though the per-job `JobResult`
+    # it builds from stores bare names internally. M6 (2026-08-16 review):
+    # this fixture used to carry bare names, implying relative-then-joined
+    # was runlocal's normal shape; it isn't -- see
+    # _WAIT_LOCAL_RELATIVE_OUTPUTS below for the (defense-in-depth, not the
+    # common case) join-path test.
     "jobdef": "cnf.t.tar",
     "jobs": [
         {"index": 0, "rc": 0, "dir": "/data/local/j0",
-         "outputs": ["sim.u.D.C.0.art", "nts.u.D.C.0.root"]},
+         "outputs": ["/data/local/j0/sim.u.D.C.0.art",
+                     "/data/local/j0/nts.u.D.C.0.root"]},
         {"index": 1, "rc": 137, "dir": "/data/local/j1",
-         "outputs": ["sim.u.D.C.1.art"]},
+         "outputs": ["/data/local/j1/sim.u.D.C.1.art"]},
     ],
     "ok": 1, "failed": [1],
+}
+
+# outputs_from_wait's `if not os.path.isabs(o) and job.get("dir")` branch
+# exists for a producer that did NOT already join dir+name the way real
+# runlocal does -- kept as an explicit, separately-fixtured case (not
+# implied by _WAIT_LOCAL) since M6 retired the bare-name shape from the
+# "this is what runlocal writes" fixture above.
+_WAIT_LOCAL_RELATIVE_OUTPUTS = {
+    "jobdef": "cnf.t.tar",
+    "jobs": [
+        {"index": 0, "rc": 0, "dir": "/data/local/j0",
+         "outputs": ["nts.u.D.C.0.root"]},
+    ],
+    "ok": 1, "failed": [],
 }
 
 
@@ -282,7 +304,11 @@ class TestWaitContract(unittest.TestCase):
         self.assertEqual(outs, ["/data/local/j0/sim.u.D.C.0.art"])
 
     def test_relative_outputs_join_job_dir(self):
-        outs = pex.outputs_from_wait(_WAIT_LOCAL, "nts.*.root")
+        # M6: a bare (relative) output name gets joined with the job's
+        # `dir` -- exercised against _WAIT_LOCAL_RELATIVE_OUTPUTS, not
+        # _WAIT_LOCAL (which, like real runlocal, is already absolute).
+        outs = pex.outputs_from_wait(_WAIT_LOCAL_RELATIVE_OUTPUTS,
+                                     "nts.*.root")
         self.assertEqual(outs, ["/data/local/j0/nts.u.D.C.0.root"])
 
     def test_read_wait_missing_is_systemexit(self):
@@ -413,6 +439,20 @@ class TestCmdPollViaJobwait(unittest.TestCase):
             (pipeline.STATE / "mubeam_cluster.txt").write_text("777\n")
             pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
                                               cap_hours=24.0))
+
+    def test_cnf_path_matches_px_cnf_path(self):
+        # M1: cmd_poll re-derives the cnf path (no entry.json to re-read at
+        # poll time) via px.cnf_path -- pin that it's the SAME naming rule
+        # build_cnf itself used, not a second inline f-string that could
+        # silently drift from it.
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(tmp, njobs=3, quorum=0.9,
+                      wait_body={"jobdef": "cnf.t.tar", "jobs": [],
+                                 "ok": 3, "failed": [], "unknown": []})
+        expected = pex.cnf_path(pipeline.ROOT / "mubeam",
+                                pipeline._stage_desc("mubeam"),
+                                pipeline._stage_dsconf("mubeam"))
+        self.assertEqual(self.jobwait_call["cnf"], expected)
 
     def test_ok_meets_quorum_proceeds_silently(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -637,6 +677,35 @@ class TestListOutputsFromWaitLocal(unittest.TestCase):
             lines = [p for p in outputs_file.read_text().splitlines()
                      if p.strip()]
         self.assertEqual(lines, ["/data/local/j0/sim.u.D.C.0.art"])
+
+
+class TestCnfPath(unittest.TestCase):
+    """M1 (2026-08-16 review): the `cnf.<user>.<desc>.<dsconf>.0.tar` naming
+    rule lived inline, duplicated, at both build_cnf and core/pipeline.py's
+    cmd_poll -- pex.cnf_path is now the one place that spells it out."""
+
+    def test_matches_build_cnfs_naming(self):
+        p = pex.cnf_path(Path("/data/t001/mubeam"), "Run1A_MuBeam_t001",
+                         "Run1Bak_t001")
+        self.assertEqual(
+            p, Path("/data/t001/mubeam") /
+            f"cnf.{pex.USER}.Run1A_MuBeam_t001.Run1Bak_t001.0.tar")
+
+    def test_build_cnf_writes_where_cnf_path_says(self):
+        # build_cnf derives its own expected path with the same rule --
+        # pin that the two never drift apart.
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            expected = pex.cnf_path(Path(td), "d", "c")
+
+            def run(cmd, **kw):
+                expected.touch()
+                return subprocess.CompletedProcess(cmd, 0)
+
+            cnf = pex.build_cnf(Path(td), Path(td) / "e.json", "d", "c", {},
+                                runner=run)
+        self.assertEqual(cnf, expected)
 
 
 class TestBuildCnf(unittest.TestCase):

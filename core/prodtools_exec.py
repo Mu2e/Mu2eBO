@@ -106,12 +106,20 @@ def outstage_root() -> str:
 _DEFAULT_OUTLOC = {"*.art": "outstage", "*.root": "outstage"}
 
 
-def render_entry(stage, stage_cfg, *, config, dsconf, desc, njobs,
+def render_entry(*, dsconf, desc, njobs,
                  code_tarball, fcl_name, events=None, run=None,
                  memory_mb=None, input_data=None, inloc=None,
                  resampler_name=None, fcl_overrides=None,
                  outloc=None) -> dict:
     """One json2jobdef entry dict for a (config, stage).
+
+    M3 (2026-08-16 review): dropped the leading `stage, stage_cfg, *,
+    config` params -- none of the three were ever read in the body (every
+    value the entry actually needs -- desc/dsconf/fcl_name/... -- already
+    arrives as its own keyword); callers that used to pass them
+    (core/pipeline.py's submit_stage_prodtools / cmd_submit local branch,
+    both now routed through the shared `_render_and_build_cnf`) dropped
+    them too.
 
     `fcl_name` is the entry's `fcl` field -- since Task 13 (retiring the
     hand-written pipeline_templates/<stage>/template.fcl files) this is the
@@ -200,6 +208,21 @@ def run_jobwait(stage_dir, cnf, jobid, njobs, wait_json, env,
     return res.returncode
 
 
+def cnf_path(stage_dir, desc, dsconf) -> Path:
+    """The cnf tarball path json2jobdef writes for (stage_dir, desc, dsconf).
+
+    ONE naming rule (M1): json2jobdef's own convention
+    (`cnf.<owner>.<desc>.<dsconf>.0.tar`, `.0` = the fixed jobdef-revision
+    suffix, `owner` = this process' USER, same as the entry's `owner`
+    field). build_cnf derives the path it expects json2jobdef to have
+    written; core/pipeline.py's cmd_poll re-derives the SAME path (no
+    entry.json to re-read at poll time) to hand jobwait the cnf it must
+    block on -- both used to inline this f-string separately, so an edit to
+    one silently diverged from the other.
+    """
+    return Path(stage_dir) / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
+
+
 def build_cnf(stage_dir, entry_path, desc, dsconf, env,
              runner=subprocess.run) -> Path:
     """Build a cnf tarball via prodtools json2jobdef; return its path.
@@ -214,7 +237,7 @@ def build_cnf(stage_dir, entry_path, desc, dsconf, env,
     if res.returncode != 0:
         raise SystemExit(f"json2jobdef failed rc={res.returncode}:\n"
                          f"{res.stdout}\n{res.stderr}")
-    cnf = Path(stage_dir) / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
+    cnf = cnf_path(stage_dir, desc, dsconf)
     if not cnf.exists():
         raise SystemExit(f"json2jobdef succeeded but {cnf} is missing")
     return cnf
