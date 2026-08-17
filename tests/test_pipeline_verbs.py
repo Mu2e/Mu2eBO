@@ -2215,3 +2215,79 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLocalDryRun(unittest.TestCase):
+    """`submit <stage> --local --dry-run` must build and NOT run.
+
+    Until 2026-08-17 the local branch never read args.dry_run, so a
+    "dry run" executed the jobs for real -- found while validating an
+    unrelated change, after several supposedly-inert invocations had each
+    started a genuine mu2e job.
+    """
+
+    def _submit_dry(self, tmp):
+        state = Path(tmp) / "state"
+        state.mkdir()
+        cnf = Path(tmp) / "mubeam" / "cnf.x.tar"
+        with mock.patch.object(pipeline, "STATE", state), \
+             mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+             mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+             mock.patch.object(pipeline, "sourced_env",
+                               return_value={"X": "1"}), \
+             mock.patch.object(pipeline, "_maybe_refresh_token") as tok, \
+             mock.patch.object(pipeline, "write_code_tarball",
+                               return_value=Path(tmp) / "Code.tar.bz2"), \
+             mock.patch.object(pipeline.px, "build_cnf", return_value=cnf), \
+             mock.patch.object(pipeline.px, "run_runlocal",
+                               side_effect=_stub_run_runlocal()) as rr:
+            pipeline.cmd_submit(SimpleNamespace(
+                stage="mubeam", force=False, dry_run=True, local=True,
+                local_njobs=["3"], local_events=["77"], local_pool=None))
+        return state, rr, tok
+
+    def test_dry_run_does_not_execute_the_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _state, rr, _tok = self._submit_dry(tmp)
+            rr.assert_not_called()
+
+    def test_dry_run_leaves_no_state_claiming_the_stage_ran(self):
+        # The marker and cluster file are what make _is_local_stage and
+        # cmd_poll believe a local run happened; written without one, poll
+        # and list-outputs hunt a wait.json that will never exist.
+        with tempfile.TemporaryDirectory() as tmp:
+            state, _rr, _tok = self._submit_dry(tmp)
+            self.assertFalse((state / "mubeam_local.txt").exists())
+            self.assertFalse((state / "mubeam_cluster.txt").exists())
+            self.assertFalse(
+                pipeline.px.wait_json_path(state, "mubeam").exists())
+
+    def test_dry_run_does_not_refresh_the_token(self):
+        # Nothing streams from /pnfs when nothing runs; a dry run should
+        # not touch the operator's credentials.
+        with tempfile.TemporaryDirectory() as tmp:
+            _state, _rr, tok = self._submit_dry(tmp)
+            tok.assert_not_called()
+
+    def test_dry_run_still_builds_the_cnf_and_code_tarball(self):
+        # The point of the flag: everything up to dispatch must happen, so
+        # a build failure still surfaces.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2") as wct, \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=Path(tmp) / "c.tar") as bc, \
+                 mock.patch.object(pipeline.px, "run_runlocal",
+                                   side_effect=_stub_run_runlocal()):
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=True, local=True,
+                    local_njobs=["1"], local_events=["200"], local_pool=None))
+            wct.assert_called_once()
+            bc.assert_called_once()

@@ -1351,6 +1351,21 @@ def cmd_submit(args):
             stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf,
             stage_dir=stage_dir, env=env, njobs=njobs, events=events,
             staged_inputs=staged_inputs)
+        if args.dry_run:
+            # Same contract the grid path gives the flag: build everything,
+            # dispatch nothing. Until 2026-08-17 --dry-run was simply not
+            # read here, so `submit <stage> --local --dry-run` ran the jobs
+            # for real -- the flag's whole promise, inverted, on the one
+            # path where "dispatch" means "start burning this node's cores".
+            #
+            # Deliberately BEFORE the marker/cluster writes below: those
+            # declare "this stage ran locally", and writing them without a
+            # run leaves cmd_poll/cmd_list_outputs hunting a wait.json that
+            # will never exist. Nothing above this point mutates stage
+            # state -- the cnf and code tarball are content-addressed build
+            # products, which is exactly what a dry run is FOR.
+            print(f"[{stage}] DRY-RUN: cnf built, not run: {cnf.name}")
+            return
         # INVARIANT (write half): marker FIRST, then the runid into
         # <stage>_cluster.txt. If the process dies between these two writes,
         # the residue is a marker with no cluster file (poll no-ops;
