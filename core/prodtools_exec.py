@@ -32,14 +32,20 @@ def outstage_root() -> str:
 def render_entry(stage, stage_cfg, *, config, dsconf, desc, njobs,
                  code_tarball, fcl_name, events=None, run=None,
                  memory_mb=None, input_data=None, inloc=None,
-                 resampler_name=None) -> dict:
+                 resampler_name=None, fcl_overrides=None) -> dict:
     """One json2jobdef entry dict for a (config, stage).
 
-    Code-mode for every stage: the per-config Code tarball ships the
-    geom AND the materialized template, whose basename is `fcl` -- the
-    worker resolves it via the tarball's setup_post.sh search path, so
-    grid and local read the identical FCL (the env-divergence class of
-    incidents is closed by construction, not by care).
+    `fcl_name` is the entry's `fcl` field -- since Task 13 (retiring the
+    hand-written pipeline_templates/<stage>/template.fcl files) this is the
+    PUBLISHED Production FCL path (core/pipeline.py STAGE_FCL[stage]["fcl"]),
+    not a per-config materialized file's basename; `fcl_overrides` (when
+    given) is copied into the entry verbatim -- prodtools' write_fcl_template
+    renders it directly (json.dumps per value) on top of that base FCL.
+    Code-mode for every stage: the per-config Code tarball ships the geom
+    (and, for the two stages whose overrides need one, a static extras fcl
+    -- see pipeline.py _stage_extra_files), so grid and local read the
+    identical FCL (the env-divergence class of incidents is closed by
+    construction, not by care).
     """
     entry = {
         "desc": desc,
@@ -60,6 +66,8 @@ def render_entry(stage, stage_cfg, *, config, dsconf, desc, njobs,
         entry["inloc"] = inloc
     if resampler_name is not None:
         entry["resampler_name"] = resampler_name
+    if fcl_overrides is not None:
+        entry["fcl_overrides"] = dict(fcl_overrides)
     return entry
 
 

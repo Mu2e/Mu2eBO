@@ -52,7 +52,9 @@ class TestRenderEntry(unittest.TestCase):
         args = dict(config="t001", dsconf="Run1Bak_t001",
                     desc="Run1A_MuBeam_t001", njobs=200,
                     code_tarball=Path("/data/t001/Code.tar.bz2"),
-                    fcl_name="mubeam_template_materialized.fcl")
+                    # Task 13: `fcl` is the published Production FCL path,
+                    # not a per-config materialized file's basename.
+                    fcl_name="Production/JobConfig/pileup/MuBeamResampler.fcl")
         args.update(kw)
         return args
 
@@ -65,7 +67,8 @@ class TestRenderEntry(unittest.TestCase):
                 inloc="tape"))
         self.assertEqual(e["desc"], "Run1A_MuBeam_t001")
         self.assertEqual(e["dsconf"], "Run1Bak_t001")
-        self.assertEqual(e["fcl"], "mubeam_template_materialized.fcl")
+        self.assertEqual(e["fcl"],
+                         "Production/JobConfig/pileup/MuBeamResampler.fcl")
         self.assertEqual(e["code"], "/data/t001/Code.tar.bz2")
         self.assertEqual(e["events"], 5000)
         self.assertEqual(e["run"], 1800)
@@ -74,6 +77,26 @@ class TestRenderEntry(unittest.TestCase):
         self.assertEqual(e["outloc"],
                          {"*.art": "outstage", "*.root": "outstage"})
         self.assertNotIn("simjob_setup", e)   # exactly one Offline source
+        self.assertNotIn("fcl_overrides", e)  # not passed -> not present
+
+    def test_fcl_overrides_copied_into_the_entry_when_given(self):
+        overrides = {"#include": "epilog_1b.fcl",
+                    "services.SeedService.baseSeed": 1}
+        e = pex.render_entry(
+            "mubeam", {}, **self._base(fcl_overrides=overrides))
+        self.assertEqual(e["fcl_overrides"], overrides)
+
+    def test_fcl_overrides_is_a_copy_not_an_alias(self):
+        # render_entry's caller (pipeline._render_fcl_overrides) already
+        # deep-copies STAGE_FCL, but render_entry must not re-introduce
+        # aliasing on top of whatever dict it's handed -- a caller mutating
+        # its own overrides dict after the call must never leak into the
+        # already-rendered entry.
+        overrides = {"a": 1}
+        e = pex.render_entry("mubeam", {}, **self._base(fcl_overrides=overrides))
+        overrides["a"] = 2
+        overrides["b"] = 3
+        self.assertEqual(e["fcl_overrides"], {"a": 1})
 
     def test_merge_stage_no_events(self):
         e = pex.render_entry(

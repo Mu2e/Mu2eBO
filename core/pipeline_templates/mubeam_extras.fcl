@@ -1,0 +1,38 @@
+# mubeam @sequence::-bearing overrides (Task 13, retiring
+# pipeline_templates/mubeam/template.fcl into core/pipeline.py's STAGE_FCL).
+#
+# json2jobdef's write_fcl_template (prodtools utils/prod_utils.py) renders
+# every fcl_overrides value through json.dumps, which can only emit quoted
+# strings / bracketed lists -- it cannot emit the unquoted @sequence::
+# preprocessor token. These two blocks are pulled in via the STAGE_FCL
+# mubeam '#include' key (kept FIRST among the overrides, so every later
+# per-key override in fcl_overrides still wins over whatever these set) and
+# shipped inside the code tarball's Code/ dir (write_code_tarball
+# extra_files), the same search-path mechanism the per-BO geom overlay uses.
+#
+# Load-bearing rationale for each block lives in core/pipeline.py's
+# STAGE_FCL["mubeam"] comments, not here (Task 13 transcription rule: zero
+# comment content dropped, but the narrative home is the Python dict).
+
+outputs.TargetStopOutput.outputCommands: [
+  "drop *_*_*_*",
+  @sequence::Pileup.SimKeptProducts,
+  "drop *_IPAStopFilter_*_*",
+  "drop *_FlashFilter_*_*"
+]
+outputs.FlashOutput.outputCommands: [
+  "drop *_*_*_*",
+  @sequence::Pileup.SimKeptProducts,
+  "drop *_IPAStopFilter_*_*",
+  "drop *_TargetStopFilter_*_*"
+]
+
+# targetStopPath restated from Production/JobConfig/pileup/MuBeamResampler.fcl:35
+# with muminusSelector inserted after TargetStopFilter (whose compressed
+# SimParticle product it reads) and before compressPVTargetStops (so rejected
+# events skip compression). muminusSelector itself is defined via
+# fcl_overrides's flattened "physics.filters.muminusSelector.*" keys --
+# FHiCL path lists only need the module LABEL, not its definition order, so
+# referencing it here (an earlier #include) before those override lines are
+# written later in the same rendered file is fine.
+physics.targetStopPath : [ @sequence::Pileup.beamResamplerSequence, @sequence::Common.g4Sequence, TargetStopPrescaleFilter, TargetMuonFinder, TargetStopFilter, muminusSelector, compressPVTargetStops ]

@@ -288,14 +288,158 @@ class TestGetTokenMtimeGate(unittest.TestCase):
             self.assertEqual(pipeline._token_age_s(), float("inf"))
 
 
+class TestStageFcl(unittest.TestCase):
+    """STAGE_FCL / _render_fcl_overrides / _stage_extra_files (Task 13,
+    retiring the five hand-written pipeline_templates/<stage>/template.fcl
+    files): golden per-stage entry data + the two per-call substitution
+    points (geom sentinel, mustops_ce's concat-less MaxEventsToSkip)."""
+
+    def test_every_stage_has_a_published_fcl_and_overrides_dict(self):
+        for stage in pipeline.STAGES:
+            with self.subTest(stage=stage):
+                self.assertIn(stage, pipeline.STAGE_FCL)
+                self.assertTrue(pipeline.STAGE_FCL[stage]["fcl"]
+                               .startswith("Production/JobConfig/"))
+                self.assertIsInstance(
+                    pipeline.STAGE_FCL[stage]["fcl_overrides"], dict)
+
+    def test_mubeam_include_key_is_first_and_carries_epilog_and_extras(self):
+        overrides = pipeline.STAGE_FCL["mubeam"]["fcl_overrides"]
+        self.assertEqual(list(overrides.keys())[0], "#include")
+        self.assertEqual(
+            overrides["#include"],
+            ["Production/JobConfig/pileup/epilog_1b.fcl", "mubeam_extras.fcl"])
+
+    def test_run1b_mubeam_include_key_is_first_and_carries_epilog_and_extras(self):
+        overrides = pipeline.STAGE_FCL["run1b_mubeam"]["fcl_overrides"]
+        self.assertEqual(list(overrides.keys())[0], "#include")
+        self.assertEqual(
+            overrides["#include"],
+            ["Production/JobConfig/pileup/epilog_1b.fcl",
+             "run1b_mubeam_extras.fcl"])
+
+    def test_concat_has_no_include_key_and_no_geom_key(self):
+        # concat's base FCL (MuonStopSelector.fcl) had only ONE #include in
+        # the old template -- nothing to carry as a '#include' override --
+        # and no G4 stage, so no services.GeometryService key either.
+        overrides = pipeline.STAGE_FCL["concat"]["fcl_overrides"]
+        self.assertNotIn("#include", overrides)
+        self.assertNotIn("services.GeometryService.inputFile", overrides)
+
+    def test_mustops_ce_has_no_include_key(self):
+        # mustops_ce's base FCL (CeEndpoint.fcl) also had only one #include.
+        overrides = pipeline.STAGE_FCL["mustops_ce"]["fcl_overrides"]
+        self.assertNotIn("#include", overrides)
+
+    def test_elebeam_flash_include_key_is_epilog_only_no_extras(self):
+        # elebeam_flash has no @sequence::-bearing override -- its
+        # '#include' key carries only epilog_1b.fcl, as a bare string (not
+        # a list), unlike mubeam/run1b_mubeam.
+        overrides = pipeline.STAGE_FCL["elebeam_flash"]["fcl_overrides"]
+        self.assertEqual(list(overrides.keys())[0], "#include")
+        self.assertEqual(overrides["#include"],
+                         "Production/JobConfig/pileup/epilog_1b.fcl")
+
+    def test_cat_resampler_stages_never_carry_max_events_to_skip(self):
+        # mubeam/run1b_mubeam/elebeam_flash resample a static SAM Cat
+        # dataset -- json2jobdef auto-computes MaxEventsToSkip and appends
+        # it as a post_line that beats fcl_overrides, so carrying the old
+        # templates' hardcoded 319542 forward would be a silent lie.
+        for stage in ("mubeam", "run1b_mubeam", "elebeam_flash"):
+            with self.subTest(stage=stage):
+                overrides = pipeline.STAGE_FCL[stage]["fcl_overrides"]
+                self.assertFalse(
+                    any(k.endswith("MaxEventsToSkip") for k in overrides),
+                    f"{stage} fcl_overrides must not carry MaxEventsToSkip "
+                    f"-- the SAM auto-compute post_line always wins anyway")
+
+    def test_mustops_ce_carries_max_events_to_skip(self):
+        # mustops_ce IS a dir:-inloc resampler -- json2jobdef's auto-compute
+        # is skipped for dir: input_data, so this value MUST ride
+        # fcl_overrides or art aborts at ResamplingMixer construction.
+        overrides = pipeline.STAGE_FCL["mustops_ce"]["fcl_overrides"]
+        self.assertEqual(
+            overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"],
+            100720)
+
+    def test_render_fcl_overrides_substitutes_the_geom_sentinel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            geom = Path(tmp) / "autoresearch_x001_geom.txt"
+            with mock.patch.object(pipeline, "GEOM_FILE", geom), \
+                 mock.patch.object(pipeline, "STATE", Path(tmp)):
+                overrides = pipeline._render_fcl_overrides("mubeam")
+        self.assertEqual(overrides["services.GeometryService.inputFile"],
+                         "autoresearch_x001_geom.txt")
+        # concat has no geom key to substitute -- the sentinel loop is a
+        # no-op for it, not an error.
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
+                 mock.patch.object(pipeline, "STATE", Path(tmp)):
+                self.assertNotIn(
+                    "services.GeometryService.inputFile",
+                    pipeline._render_fcl_overrides("concat"))
+
+    def test_render_fcl_overrides_never_mutates_stage_fcl(self):
+        # A deep copy every call -- STAGE_FCL is shared module state and one
+        # caller's substitution must never leak into another's.
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
+                 mock.patch.object(pipeline, "STATE", Path(tmp)):
+                pipeline._render_fcl_overrides("mubeam")
+        self.assertEqual(
+            pipeline.STAGE_FCL["mubeam"]["fcl_overrides"][
+                "services.GeometryService.inputFile"],
+            pipeline._GEOM_FILE_SENTINEL)
+
+    def test_render_fcl_overrides_mustops_ce_concatless_toggle(self):
+        key = "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
+                 mock.patch.object(pipeline, "STATE", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONCATLESS", False):
+                self.assertEqual(
+                    pipeline._render_fcl_overrides("mustops_ce")[key], 100720)
+            with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
+                 mock.patch.object(pipeline, "STATE", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONCATLESS", True):
+                self.assertEqual(
+                    pipeline._render_fcl_overrides("mustops_ce")[key], 8000)
+
+    def test_stage_extra_files_only_mubeam_and_run1b_mubeam(self):
+        for stage in pipeline.STAGES:
+            with self.subTest(stage=stage):
+                extras = pipeline._stage_extra_files(stage)
+                if stage in ("mubeam", "run1b_mubeam"):
+                    self.assertEqual(len(extras), 1)
+                    self.assertTrue(extras[0].exists(),
+                                    f"{extras[0]} must exist on disk")
+                    self.assertIn("@sequence::", extras[0].read_text())
+                else:
+                    self.assertEqual(extras, [])
+
+    def test_mubeam_extras_fcl_basename_matches_the_include_key(self):
+        extras = pipeline._stage_extra_files("mubeam")
+        self.assertEqual(extras[0].name,
+                         pipeline.STAGE_FCL["mubeam"]["fcl_overrides"]
+                         ["#include"][1])
+
+    def test_run1b_mubeam_extras_fcl_basename_matches_the_include_key(self):
+        extras = pipeline._stage_extra_files("run1b_mubeam")
+        self.assertEqual(extras[0].name,
+                         pipeline.STAGE_FCL["run1b_mubeam"]["fcl_overrides"]
+                         ["#include"][1])
+
+
 class TestWriteCodeTarballExtraFiles(unittest.TestCase):
-    """write_code_tarball's extra_files param (prodtools switch, Task 4):
-    ships the per-stage materialized FCL beside the geom in Code/, the same
+    """write_code_tarball's extra_files param (prodtools switch, Task 4;
+    Task 13 changed WHAT ships here -- a static mubeam/run1b_mubeam extras
+    fcl instead of a per-config materialized template -- but not the
+    mechanism): ships extra files beside the geom in Code/, the same
     search-path mechanism the geom already uses. Staleness for extra_files
-    is CONTENT-based (_extra_files_digest), not mtime -- _materialize_template
-    always rewrites the FCL fresh right before this is called, so an
-    mtime-only gate can never observe a reuse (review finding 1, 2026-08-16).
-    Real tar/bzip2 subprocess calls only -- no grid contact."""
+    is CONTENT-based (_extra_files_digest), not mtime -- see that function's
+    docstring for why an mtime-only gate can't distinguish "same stage,
+    reuse" from "different stage, must rebuild" (review finding 1,
+    2026-08-16). Real tar/bzip2 subprocess calls only -- no grid contact."""
 
     def _make_base_tarball(self, tmp):
         src = Path(tmp) / "basesrc"
@@ -318,7 +462,7 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
             stage_dir.mkdir(parents=True)
             geom = root / "geom.txt"
             geom.write_text("geom\n")
-            extra = root / "mubeam_template_materialized.fcl"
+            extra = root / "mubeam_extras.fcl"
             extra.write_text('#include "geom.txt"\n')
             base = self._make_base_tarball(tmp)
             with mock.patch.object(pipeline, "ROOT", root), \
@@ -326,15 +470,15 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
                 cnf = pipeline.write_code_tarball(
                     stage_dir, base_tarball=base, extra_files=[extra])
             listing = self._tar_listing(cnf)
-        self.assertIn("Code/mubeam_template_materialized.fcl", listing)
+        self.assertIn("Code/mubeam_extras.fcl", listing)
         self.assertIn("Code/geom.txt", listing)
 
     def test_a_cache_missing_a_newer_extra_file_is_rebuilt_not_reused(self):
         # The cache-freshness gate keyed only on (geom, base_tarball) would
         # silently reuse stage A's cached tarball for stage B -- shipping
-        # A's FCL and never B's, so every non-first stage in a config's
-        # chain would ship a Code.tar.bz2 missing its own template. Guard
-        # against that regression directly.
+        # A's extras fcl and never B's, so every non-first stage in a
+        # config's chain would ship a Code.tar.bz2 missing its own extras.
+        # Guard against that regression directly.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg"
             stage_dir = root / "mubeam"
@@ -346,25 +490,27 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
                  mock.patch.object(pipeline, "GEOM_FILE", geom):
                 # Stage A's submit: no extra_files, seeds the shared cache.
                 cnf_a = pipeline.write_code_tarball(stage_dir, base_tarball=base)
-                # Stage B's submit: a freshly-materialized FCL not yet in
-                # that cache must force a rebuild, not a silent reuse.
-                extra_b = root / "run1b_mubeam_template_materialized.fcl"
+                # Stage B's submit: an extras fcl not yet in that cache must
+                # force a rebuild, not a silent reuse.
+                extra_b = root / "run1b_mubeam_extras.fcl"
                 extra_b.write_text('#include "geom.txt"\n')
                 cnf_b = pipeline.write_code_tarball(
                     stage_dir, base_tarball=base, extra_files=[extra_b])
             self.assertEqual(cnf_a, cnf_b)  # same shared per-config cache path
             listing = self._tar_listing(cnf_b)
-        self.assertIn("Code/run1b_mubeam_template_materialized.fcl", listing)
+        self.assertIn("Code/run1b_mubeam_extras.fcl", listing)
 
     def test_identical_extra_files_content_reuses_the_cache(self):
-        # The staleness signal must be CONTENT, not mtime:
-        # _materialize_template always rewrites the per-stage FCL fresh
-        # right before write_code_tarball is called, so its mtime is
-        # always "now" -- an mtime-only gate can never observe a reuse and
-        # silently reintroduces the full unpack+rebzip2 cost on every
-        # single submit, including a same-stage retry with byte-identical
-        # text (review finding 1, 2026-08-16). Proven here by spying on
-        # the module-level `run` helper (the only thing that shells out to
+        # The staleness signal must be CONTENT, not mtime: a real resubmit
+        # re-passes the SAME static extras fcl path (_stage_extra_files) on
+        # every call -- an mtime-only gate would see that file's on-disk
+        # mtime never changes between submits either, which happens to work
+        # today only by accident (mtime-based freshness is still wrong in
+        # general -- see _extra_files_digest's docstring) and would
+        # silently reintroduce the full unpack+rebzip2 cost the moment
+        # anything touched the extras fcl's mtime without changing its
+        # content (e.g. a checkout/rsync). Proven here by spying on the
+        # module-level `run` helper (the only thing that shells out to
         # tar/bzip2): a second call whose extra_files basename+bytes are
         # byte-identical to the first must NOT invoke it again.
         with tempfile.TemporaryDirectory() as tmp:
@@ -373,7 +519,7 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
             stage_dir.mkdir(parents=True)
             geom = root / "geom.txt"
             geom.write_text("geom\n")
-            extra = root / "mubeam_template_materialized.fcl"
+            extra = root / "mubeam_extras.fcl"
             extra.write_text('#include "geom.txt"\n')
             base = self._make_base_tarball(tmp)
             with mock.patch.object(pipeline, "ROOT", root), \
@@ -383,8 +529,8 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
                 with mock.patch.object(pipeline, "run",
                                        wraps=pipeline.run) as run_spy:
                     # Same basename, same bytes -- exactly what a real
-                    # resubmit's _materialize_template call produces (a
-                    # fresh mtime, identical text).
+                    # resubmit's _stage_extra_files(stage) call produces
+                    # (the identical static file, every time).
                     extra.write_text('#include "geom.txt"\n')
                     cnf_2 = pipeline.write_code_tarball(
                         stage_dir, base_tarball=base, extra_files=[extra])
@@ -407,8 +553,9 @@ class TestSubmitStageProdtools(unittest.TestCase):
             root = Path(tmp) / "cfg001"
             state = root / "state"
             state.mkdir(parents=True)
-            template = state / "mubeam_template_materialized.fcl"
-            template.write_text("x")
+            geom = root / "geom" / "autoresearch_cfg001_geom.txt"
+            geom.parent.mkdir(parents=True)
+            geom.write_text("geom\n")
 
             def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
                                runner=None):
@@ -425,12 +572,11 @@ class TestSubmitStageProdtools(unittest.TestCase):
                  mock.patch.object(pipeline, "STATE", state), \
                  mock.patch.object(pipeline, "CONFIG", "cfg001"), \
                  mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom), \
                  mock.patch.object(pipeline, "LEDGER_DB",
                                    Path(tmp) / "ledger" / "submissions.db"), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
-                 mock.patch.object(pipeline, "_materialize_template",
-                                   return_value=template), \
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    side_effect=fake_build_cnf), \
@@ -453,7 +599,10 @@ class TestSubmitStageProdtools(unittest.TestCase):
             entry = json.loads((state / "mubeam_entry.json").read_text())[0]
             self.assertEqual(entry["desc"], "Run1A_MuBeam_cfg001")
             self.assertEqual(entry["dsconf"], "Run1Bak_cfg001")
-            self.assertEqual(entry["fcl"], "mubeam_template_materialized.fcl")
+            # `fcl` is the PUBLISHED Production FCL path (Task 13), not a
+            # per-config materialized basename.
+            self.assertEqual(entry["fcl"],
+                             "Production/JobConfig/pileup/MuBeamResampler.fcl")
             self.assertEqual(entry["code"], str(Path(tmp) / "Code.tar.bz2"))
             # events/run come from whatever mode's stage_tuning is live at
             # import time (foilsflash's tuning overrides the base 5000/1800
@@ -469,11 +618,159 @@ class TestSubmitStageProdtools(unittest.TestCase):
                 entry["input_data"], {"sim.mu2e.MuBeamCat.Run1Baa.art": 1})
             self.assertEqual(entry["inloc"], "tape")
 
+            # fcl_overrides: '#include' is FIRST (write_fcl_template dict
+            # order), carries both epilog_1b.fcl and the extras fcl; the
+            # geom sentinel is substituted with the real basename; the
+            # physics-list override survives; MaxEventsToSkip is
+            # DELIBERATELY absent (Cat-resampler auto-compute post_line
+            # beats it -- see STAGE_FCL["mubeam"] comment).
+            overrides = entry["fcl_overrides"]
+            self.assertEqual(list(overrides.keys())[0], "#include")
+            self.assertEqual(
+                overrides["#include"],
+                ["Production/JobConfig/pileup/epilog_1b.fcl",
+                 "mubeam_extras.fcl"])
+            self.assertEqual(
+                overrides["services.GeometryService.inputFile"],
+                "autoresearch_cfg001_geom.txt")
+            self.assertEqual(
+                overrides["physics.producers.g4run.physics.physicsListName"],
+                "FTFP_BERT")
+            self.assertNotIn(
+                "physics.filters.beamResampler.mu2e.MaxEventsToSkip",
+                overrides)
+
             # LEDGER_DB threaded through to submit_cnf, origin identifies
             # the (config, stage) for the ledger row.
             _, _, ledger_db, origin = self.submit_args
             self.assertEqual(ledger_db, Path(tmp) / "ledger" / "submissions.db")
             self.assertEqual(origin, "autoresearch:cfg001/mubeam")
+
+    def test_no_materialized_fcl_is_written_anywhere_under_state(self):
+        # Task 13: _materialize_template and the __GEOM_FILE__ text
+        # substitution it did are gone -- nothing under STATE should ever
+        # be named *_template_materialized.fcl again.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            geom = root / "geom" / "autoresearch_cfg001_geom.txt"
+            geom.parent.mkdir(parents=True)
+            geom.write_text("geom\n")
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   return_value=(1, "1@s")):
+                pipeline.submit_stage_prodtools("mubeam", {})
+
+            materialized = list(root.rglob("*_template_materialized.fcl"))
+            self.assertEqual(materialized, [])
+            self.assertFalse(hasattr(pipeline, "_materialize_template"))
+
+    def test_mubeam_submit_ships_the_extras_fcl_via_write_code_tarball(self):
+        # The mubeam entry test the brief asks for: the extras fcl rides
+        # '#include' (checked in test_state_files_written) AND is actually
+        # in the tarball's extra_files -- spy on write_code_tarball to
+        # check what submit_stage_prodtools passes it, not just what
+        # _stage_extra_files returns in isolation.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            geom = root / "geom" / "autoresearch_cfg001_geom.txt"
+            geom.parent.mkdir(parents=True)
+            geom.write_text("geom\n")
+            seen_extra_files = []
+
+            def fake_write_code_tarball(stage_dir, base_tarball=None,
+                                        extra_files=None):
+                seen_extra_files.append(extra_files)
+                return Path(tmp) / "Code.tar.bz2"
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   side_effect=fake_write_code_tarball), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   return_value=(1, "1@s")):
+                pipeline.submit_stage_prodtools("mubeam", {})
+
+            self.assertEqual(len(seen_extra_files), 1)
+            self.assertEqual(
+                [p.name for p in seen_extra_files[0]], ["mubeam_extras.fcl"])
+
+    def test_mustops_ce_concatless_overrides_max_events_to_skip_to_8000(self):
+        # Folded-in from the old _materialize_template's stamp-first
+        # conditional (concat-less chains resample ONE mubeam file instead
+        # of the merged concat file, so the random skip must stay below the
+        # smallest plausible file -- see STAGE_FCL["mustops_ce"] comment).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            staged_dir = Path(tmp) / "staged" / "mustops_ce"
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "CONCATLESS", True), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   return_value=(1, "1@s")):
+                pipeline.submit_stage_prodtools(
+                    "mustops_ce", {},
+                    staged_inputs=(staged_dir, {"sim.a.art": 1}))
+
+            entry = json.loads(
+                (state / "mustops_ce_entry.json").read_text())[0]
+            self.assertEqual(
+                entry["fcl_overrides"][
+                    "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"],
+                8000)
 
     def test_staged_inputs_feed_input_data_and_inloc(self):
         # mustops_ce / concat shape: staged_inputs=(dir, {basename: count})
@@ -483,8 +780,6 @@ class TestSubmitStageProdtools(unittest.TestCase):
             root = Path(tmp) / "cfg001"
             state = root / "state"
             state.mkdir(parents=True)
-            template = state / "mustops_ce_template_materialized.fcl"
-            template.write_text("x")
             staged_dir = Path(tmp) / "staged" / "mustops_ce"
 
             def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
@@ -504,9 +799,8 @@ class TestSubmitStageProdtools(unittest.TestCase):
                                    Path(tmp) / "ledger" / "submissions.db"), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
-                 mock.patch.object(pipeline, "_materialize_template",
-                                   return_value=template), \
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "CONCATLESS", False), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    side_effect=fake_build_cnf), \
                  mock.patch.object(pipeline.px, "submit_cnf",
@@ -521,24 +815,32 @@ class TestSubmitStageProdtools(unittest.TestCase):
                              {"sim.a.art": 1, "sim.b.art": 1})
             self.assertEqual(entry["inloc"], f"dir:{staged_dir}")
             self.assertEqual(entry["resampler_name"], "TargetStopResampler")
+            self.assertEqual(entry["fcl"],
+                             "Production/JobConfig/primary/CeEndpoint.fcl")
+            # mustops_ce is a dir:-inloc resampler -- no auto-compute
+            # post_line, so MaxEventsToSkip MUST ride fcl_overrides (unlike
+            # mubeam above). No stage-chain stamp exists in this fresh
+            # STATE, so the module-level CONCATLESS fallback (forced False
+            # above) decides: a concat-bearing chain keeps 100720.
+            self.assertEqual(
+                entry["fcl_overrides"][
+                    "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"],
+                100720)
 
-    def test_build_cnf_env_carries_template_dir_on_fhicl_file_path(self):
+    def test_build_cnf_env_carries_templates_root_on_fhicl_file_path(self):
         # Task 11 empirical finding (docs/superpowers/sdd/
         # 2026-08-16-prodtools-switch/task-11-report.md, finding 1): real
-        # json2jobdef writes its own wrapper template.fcl containing
-        # `#include "<fcl_name>"` (a bare basename) and resolves it via
-        # fhicl-get, which consults ONLY $FHICL_FILE_PATH -- confirmed by
-        # direct reproduction that fhicl-get does NOT fall back to cwd, even
-        # though build_cnf's subprocess cwd is the stage dir. sourced_env()'s
-        # `muse setup ops` has no way to know about our per-config STATE
-        # dir, so without _cnf_build_env, json2jobdef always dies inside
-        # fhicl-get with "Can't find file <stage>_template_materialized.fcl".
+        # json2jobdef writes its own wrapper template.fcl and resolves every
+        # #include via fhicl-get, which consults ONLY $FHICL_FILE_PATH --
+        # confirmed by direct reproduction that fhicl-get does NOT fall back
+        # to cwd, even though build_cnf's subprocess cwd is the stage dir.
+        # Since Task 13, the bare-basename include that needs this is the
+        # mubeam/run1b_mubeam extras fcl (STAGE_FCL's '#include' key), which
+        # lives permanently in TEMPLATES_ROOT, not a per-config STATE dir.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg001"
             state = root / "state"
             state.mkdir(parents=True)
-            template = state / "mubeam_template_materialized.fcl"
-            template.write_text("x")
             seen_envs = []
 
             def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
@@ -559,8 +861,6 @@ class TestSubmitStageProdtools(unittest.TestCase):
                                    Path(tmp) / "ledger" / "submissions.db"), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
-                 mock.patch.object(pipeline, "_materialize_template",
-                                   return_value=template), \
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    side_effect=fake_build_cnf), \
@@ -571,7 +871,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
 
             self.assertEqual(len(seen_envs), 1)
             fcl_path = seen_envs[0]["FHICL_FILE_PATH"]
-            self.assertEqual(fcl_path.split(":")[0], str(state))
+            self.assertEqual(fcl_path.split(":")[0], str(pipeline.TEMPLATES_ROOT))
             # the incoming env's own FHICL_FILE_PATH is preserved, not
             # clobbered -- just prepended to.
             self.assertIn("/some/other/path", fcl_path)
@@ -960,8 +1260,6 @@ class TestCmdSubmitLocalMarkerHandling(unittest.TestCase):
                  mock.patch.object(pipeline, "sourced_env", return_value={}), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
-                 mock.patch.object(pipeline, "_materialize_template",
-                                   return_value=Path(tmp) / "t.fcl"), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    return_value=Path(tmp) / "mubeam" / "cnf.x.tar"):
                 os.environ.pop("AUTORESEARCH_LOCAL", None)
@@ -1014,8 +1312,6 @@ class TestCmdSubmitLocalMarkerHandling(unittest.TestCase):
                  mock.patch.object(pipeline, "sourced_env", return_value={}), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
-                 mock.patch.object(pipeline, "_materialize_template",
-                                   return_value=Path(tmp) / "t.fcl"), \
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    return_value=Path(tmp) / "mubeam" /
@@ -1050,8 +1346,6 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
             mock.patch.object(pipeline, "_maybe_refresh_token"),
             mock.patch.object(pipeline, "write_code_tarball",
                               return_value=Path(tmp) / "Code.tar.bz2"),
-            mock.patch.object(pipeline, "_materialize_template",
-                              return_value=Path(tmp) / "t.fcl"),
             mock.patch.object(pipeline.px, "build_cnf", return_value=cnf),
             mock.patch.object(pipeline.px, "run_runlocal",
                               return_value=(run_runlocal
@@ -1060,10 +1354,10 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
         ]
 
     def _consuming_stage_patches(self, tmp):
-        # cmd_submit's local branch calls sourced_env()/_materialize_template
-        # BEFORE the consuming-stage refusal checks (same order the old
+        # cmd_submit's local branch calls sourced_env() BEFORE the
+        # consuming-stage refusal checks (same order the old
         # cmd_local_build had -- see submit_stage_prodtools's docstring),
-        # so even a refusal test needs these faked: sourced_env() for real
+        # so even a refusal test needs it faked: sourced_env() for real
         # shells out to setupmu2e-art.sh (~20s, and only succeeds in a
         # pre-configured interactive shell), and an unmocked ROOT defaults
         # to Path() (cwd), leaving stray <stage>/ dirs in the repo checkout.
@@ -1075,8 +1369,6 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
             mock.patch.object(pipeline, "_maybe_refresh_token"),
             mock.patch.object(pipeline, "write_code_tarball",
                               return_value=Path(tmp) / "Code.tar.bz2"),
-            mock.patch.object(pipeline, "_materialize_template",
-                              return_value=Path(tmp) / "t.fcl"),
             mock.patch.object(pipeline.px, "build_cnf",
                               return_value=Path(tmp) / "x" / "cnf.x.tar"),
             mock.patch.object(pipeline.px, "run_runlocal", return_value=0),
@@ -1276,7 +1568,7 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                 (state / "mubeam_events_per_job.txt").read_text().strip(),
                 "77")
 
-    def test_build_cnf_env_carries_template_dir_on_fhicl_file_path(self):
+    def test_build_cnf_env_carries_templates_root_on_fhicl_file_path(self):
         # Same Task 11 finding as TestSubmitStageProdtools's twin test, but
         # for cmd_submit's --local branch, which builds its own env/build_cnf
         # call independently of submit_stage_prodtools (see core/pipeline.py
@@ -1295,9 +1587,8 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                 return cnf
 
             # _patches(tmp) supplies sourced_env()={"X": "1"} (no
-            # FHICL_FILE_PATH of its own) and _materialize_template ->
-            # Path(tmp)/"t.fcl", so the assertion below checks the fix adds
-            # the template's directory even when the incoming env had no
+            # FHICL_FILE_PATH of its own), so the assertion below checks
+            # the fix adds TEMPLATES_ROOT even when the incoming env had no
             # FHICL_FILE_PATH to preserve.
             patches = self._patches(tmp)
             with mock.patch.object(pipeline, "STATE", state), \
@@ -1313,7 +1604,7 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
 
             self.assertEqual(len(seen_envs), 1)
             fcl_path = seen_envs[0]["FHICL_FILE_PATH"]
-            self.assertEqual(fcl_path.split(":")[0], str(Path(tmp)))
+            self.assertEqual(fcl_path.split(":")[0], str(pipeline.TEMPLATES_ROOT))
             self.assertEqual(seen_envs[0]["X"], "1")
 
     def test_writes_marker_before_cluster_txt_with_the_literal_runid(self):
@@ -1362,8 +1653,6 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
-                 mock.patch.object(pipeline, "_materialize_template",
-                                   return_value=Path(tmp) / "t.fcl"), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    return_value=cnf), \
                  mock.patch.object(pipeline.px, "run_runlocal",
@@ -1396,8 +1685,6 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
-                 mock.patch.object(pipeline, "_materialize_template",
-                                   return_value=Path(tmp) / "t.fcl"), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    return_value=Path(tmp) / "mubeam" /
                                    "cnf.x.tar"), \
