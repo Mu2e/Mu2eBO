@@ -46,6 +46,12 @@ def main():
     ap.add_argument("--entry", required=True)
     ap.add_argument("--ledger", required=True)
     ap.add_argument("--origin", required=True)
+    # Passed by prodtools_exec.submit_cnf from its WFTOP/WFPROJECT
+    # constants (the outstage-convention owner) -- this driver runs as a
+    # standalone script under the Mu2e env, so it takes the values as
+    # args rather than importing across that env boundary.
+    ap.add_argument("--wftop", required=True)
+    ap.add_argument("--wfproject", required=True)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -60,8 +66,7 @@ def main():
     Path(args.ledger).parent.mkdir(parents=True, exist_ok=True)
     opts = SubmitOptions(ledger_db=args.ledger, dry_run=args.dry_run,
                          origin=args.origin,
-                         wftop="/pnfs/mu2e/scratch/users",
-                         wfproject="default")
+                         wftop=args.wftop, wfproject=args.wfproject)
     result = submit_entry(entry, 0, opts)
     print("SUBMIT_RESULT " + json.dumps({
         "cluster_id": result.get("cluster_id"),

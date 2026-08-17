@@ -323,13 +323,10 @@ def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
     Fallback (outputs.txt missing/empty -- i.e. list-outputs hasn't run,
     or every job in the cluster died before producing an .art, so there
     is no per-worker dir to derive at all): glob the cluster's outstage
-    dir (`<state>/<stage>_cluster.txt`) directly under both known
-    worker-log shapes -- legacy mu2ejobsub
-    (`<OUTSTAGE_ROOT>/<cluster>/00/<00000>/*.log`) first, then prodtools
-    direct's flat layout (`<OUTSTAGE_ROOT>/<cluster>/<proc>/*.log`) -- and
-    return whichever is non-empty. A cluster submitted pre-switch can only
-    ever have the legacy shape, so checking it first is also the tie-break:
-    if both somehow have files, legacy wins.
+    dir (`<state>/<stage>_cluster.txt`) via
+    prodtools_exec.cluster_worker_logs, which owns the known worker-log
+    layouts (legacy mu2ejobsub vs prodtools-direct flat) and their
+    tie-break.
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
     outputs = hv.read_outputs(state_dir, stage)
@@ -347,11 +344,7 @@ def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
     cluster = cluster_file.read_text().strip()
     if not cluster:
         return []
-    base = OUTSTAGE_ROOT / cluster
-    legacy = sorted(base.glob("00/*/*.log"))
-    if legacy:
-        return legacy
-    return sorted(base.glob("*/*.log"))
+    return _prodtools_exec.cluster_worker_logs(OUTSTAGE_ROOT / cluster)
 
 
 def _scan_one_stage(config_name: str, stage: str, jobs: int = 16) -> dict[str, int]:

@@ -808,6 +808,10 @@ class TestSubmitCnf(unittest.TestCase):
         self.assertIn("prodtools_submit_driver.py", joined)
         self.assertIn("--entry", joined)
         self.assertIn("--ledger", joined)
+        # The outstage convention rides the command line from this module's
+        # WFTOP/WFPROJECT constants -- the driver holds no copy of its own.
+        self.assertIn(f"--wftop {pex.WFTOP}", joined)
+        self.assertIn(f"--wfproject {pex.WFPROJECT}", joined)
 
     def test_cluster_id_present_but_jobsub_id_missing_is_systemexit(self):
         # A cluster_id with no derivable schedd can't be jobwait'd -- must

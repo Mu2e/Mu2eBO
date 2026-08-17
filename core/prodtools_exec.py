@@ -104,6 +104,23 @@ def outstage_root() -> str:
     return f"{WFTOP}/{USER}/workflow/{WFPROJECT}/outstage"
 
 
+def cluster_worker_logs(cluster_dir) -> list:
+    """Worker .log files under one cluster's outstage dir, across both
+    layouts this root has ever held: legacy mu2ejobsub
+    (`<cluster>/00/<00000>/*.log`) first, then prodtools direct's flat
+    per-proc layout (`<cluster>/<proc>/*.log`). A cluster submitted
+    pre-switch can only ever have the legacy shape, so checking it first
+    is also the tie-break: if both somehow have files, legacy wins.
+    Owned here, beside outstage_root(), so a prodtools-side layout change
+    has one place to land -- callers (graph/pipeline_io.py's worker-log
+    fallback) hold no layout knowledge of their own."""
+    cluster_dir = Path(cluster_dir)
+    legacy = sorted(cluster_dir.glob("00/*/*.log"))
+    if legacy:
+        return legacy
+    return sorted(cluster_dir.glob("*/*.log"))
+
+
 _DEFAULT_OUTLOC = {"*.art": "outstage", "*.root": "outstage"}
 
 
@@ -294,7 +311,8 @@ def submit_cnf(stage_dir, entry_path, ledger_db, origin, env,
     cmd = ["python3", str(driver),
            "--prodtools", str(prodtools_root()),
            "--entry", str(entry_path), "--ledger", str(ledger_db),
-           "--origin", origin]
+           "--origin", origin,
+           "--wftop", WFTOP, "--wfproject", WFPROJECT]
     if dry_run:
         cmd.append("--dry-run")
     res = runner(cmd, cwd=str(stage_dir), env=env,
