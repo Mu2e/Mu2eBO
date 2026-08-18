@@ -5,11 +5,52 @@ description: 'GP density cloud silently fails to envelope top-3 champions: <1.1%
   of Sobol samples at sob≥3.2 (invisible under LogNorm) + GP under-predicts calo
   there by 2.3× (matches forward-LOO log-calo bias −0.80)'
 status: active
-timestamp: '2026-07-17'
-updated_note: '2^22 pushforward: chunked predict + O(N log N) pareto2d_idx required'
+timestamp: '2026-08-09'
+updated_note: 'foilspfbp cloud: front-above-max is winner''s curse at huge sigma, holdout-REFUTED by bp04'
 ---
 
 # GP density-cloud rendering gotchas
+
+## foilspfbp cloud: "front above 4.5" is winner's curse at σ≈0.6 — holdout-tested by bp04 (2026-08-09)
+Operator flagged the deck's `docs/foilspfbp_perpot_cloud.png`
+(`gp_predict_foilspfbp_perpot_cloud.py`): the blue GP-Pareto dots reach ~4.5
+while no eval exceeds 4.33, and the front visibly detaches from the density
+cloud. Both are the documented pathologies of this page — but this instance is
+notable because it survives the 2026-06-23 length-scale-cap fix (this script's
+`make_gp` HAS the cap) and because bp04 landed after the render, giving a free
+out-of-sample test. Measured (reproduced the fig's GP on the 73 pre-bp04 rows):
+
+- **The >4.4 tail is 0.027% of predictions** (71 of 262k Sobol; 4 survive the
+  Pareto filter) with **predictive σ ≈ ±0.61** — the plot draws means only.
+  Those points sit **0.58–0.65 normalized-9D** from the nearest eval, which IS
+  the median training nearest-neighbor distance (0.57): at n≈80 in 9D
+  *everything* is beyond the 0.5 length-scale cap, so the cap prevents
+  confident ramping but median bulk σ is 0.69 — and a Pareto filter over 10⁶
+  draws of a σ≈0.6 surface selects the largest upward mean fluctuations by
+  construction. The histogram x-range `sob.max()+0.3` invites the eye to read
+  the tail as territory.
+- **Holdout verdict: the extrapolation isn't even directionally right.** The
+  fig's GP, asked about bp04's 20 picked x's, was **pessimistic by up to 0.8
+  sob** exactly where the production picker went (predicted 3.43–3.93 →
+  measured 4.16–4.33) and under-predicted flash ~40% there (−0.14 dex);
+  overall calibrated only in the weak sense (mean |z|≈0.5 against σ≈0.7).
+  Production botorch picks already probed the promising corners; reality
+  answered 4.33, not 4.5. The argmax-predicted point (4.48±0.61) is an
+  ordinary mid-box design (rOut 66/107/88, f≈0.3–0.4), not an unexplored
+  physics corner.
+- **"Front far from the map" = three stacked selection effects**: (a) the
+  front is the extreme envelope of 2²⁰ draws — near it density is ~1 count
+  per 400×400 bin, invisible under LogNorm(vmin=1) (the classic
+  sparse-tail invisibility below); (b) the Pareto filter selects points whose
+  *flash* error fluctuated most negative, so the front floats below the true
+  support (correlated-error selection); (c) out-of-histogram-range predictions
+  still enter the Pareto computation.
+- **Not a data or code bug; presentation-only.** The deck caption never cites
+  the GP front, and the campaign story (best-at-budget 4.00, search closed) is
+  built on measured rows. Fix options if the overlay misleads again: drop the
+  GP front from the bp cloud / replace with the MEASURED Pareto front, or
+  restrict the front to samples with σ below a cutoff. Do NOT re-propose
+  predictive-spread rendering (rejected below, 2026-06-23).
 
 ## Scaling the pushforward past 2^20 needs two mechanical fixes (2026-07-10)
 Bumping `N` in `gp_predict_foilsflash_perpot_cloud.py` beyond 2^20 hits two

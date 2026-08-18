@@ -5,8 +5,8 @@ description: per-point event budget + REPLICATE-measured σ(sob)=0.0051 abs (0.1
   supersedes the 0.4% assumption) / σ_rel(flash)=2.31% / σ(calo)=8%; calo is binding
   noise channel near saturation
 status: active
-timestamp: '2026-07-21'
-updated_note: replicate-measured sigma added (0.0051 sob / 2.31% flash) — supersedes the 0.4% assumption for train_Yvar
+timestamp: '2026-08-10'
+updated_note: 'CORRECTION 2026-07-23 — `--x-point` flash replicas are DETERMINISTIC (mu2ejobfcl sets baseSeed=index+1); the √N lever is more elebeam JOBS, not replicas. foilsflashC400 confirmed _11 edge 7.6%→5.8% (~3.2σ). Earlier: replicate-measured sigma (0.0051 sob / 2.31% flash)'
 ---
 
 # bo-noise-budget
@@ -243,6 +243,19 @@ equivalent ways:
   `graph.run --x-point <csv> --config-name <name>` (forces exact geometry, skips
   the BO ask — `graph/nodes.py:60-83`), then average → same √N reduction. 8
   replicas ≈ 8× events. Reuses existing machinery.
+  - **CORRECTION (2026-07-23) — `--x-point` replicas are DETERMINISTIC for the
+    resampling stages; they do NOT average.** Probed via `mu2ejobfcl --index N`:
+    `mu2ejobfcl` overrides the template's pinned `services.SeedService.baseSeed:1`
+    with **`baseSeed = job_index + 1`** per job (index 0→seed 1, …, index 99→seed
+    100). So a re-run of the same config repeats indices 0–99 → identical seeds →
+    **bit-identical flash** (confirmed live: 3× `_11` at elebeam=100 gave
+    9.98372e-07 to all 17 digits). Replicas only average for stages that draw a
+    fresh per-submit seed (mubeam/mustops generate events → sob DOES vary). For
+    the resampling stages (elebeam flash, mubeam/mustops resample), the √N lever
+    is **more jobs = more indices = more distinct seeds**, NOT `--x-point`
+    re-runs. Champion flash calls: raise `AUTORESEARCH_ELEBEAM_NJOBS`, don't
+    replicate. VALIDATED: foilsflashC400 re-ran `_11`+champion at njobs=400 →
+    edge 7.6%(100j)→5.8%(400j), ~3.2σ (see log 2026-07-23).
 - **GOTCHA — "more jobs in the high-sob region" does NOT break the tie.** Densely
   sampling the champion box adds many *different* nearby geometries, each still at
   σ≈0.4%; averaging across *distinct* points doesn't sharpen any single one. A is
@@ -268,6 +281,21 @@ equivalent ways:
     noise; replicates isolate the latter, which is what `train_Yvar` means.
     Deployed as `modes.ModeSpec.obs_noise` — see
     [gp-free-noise-erases-champion](/incidents/gp-free-noise-erases-champion.md)
+  - **CROSS-FAMILY CONFIRMATION on a foilspf geometry (2026-08-10).** The σ
+    above was measured entirely on foilsflash/foils_v3 geometries and merely
+    *assumed* transferable to the 10D profile modes. `pareto_sob` in
+    foilspfbpz06 spent a pick re-submitting the all-time record x — all 10
+    knobs bit-identical to `foilspfbpz05R01_00` (rOut 79.9226/110.3635/94.9948,
+    hT 0.045868/0.066019/0.061047, f 0.0142/0.0458/0.0105, zmid 83.2059) — so
+    `foilspfbpz06R01_00` is a free independent replicate at the top of the
+    ridge: **sob 4.41 vs 4.41** (identical to the leaderboard's 0.01 print
+    precision, i.e. ≤0.1σ) and **flash 1.09788e-6 vs 1.09528e-6 = +0.24%**,
+    ~0.1σ_rel(flash). The `obs_noise: [0.006, 0.01]` in
+    `mode_specs/foilspfbpz.json` is therefore correct-to-conservative on this
+    family too. Two consequences: the 4.41 record is REPRODUCED, not a lucky
+    draw (it was the one deck number resting on a single measurement), and the
+    long-offered "replicate the record via `--x-point`" probe is now DONE for
+    free — do not spend jobs on it.
     for why leaving it free cost the foilsflash line its best point.
 
 - **Per-BO-point event budget (`pipeline.py`):**

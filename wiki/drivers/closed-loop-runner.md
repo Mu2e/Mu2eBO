@@ -4,11 +4,12 @@ title: closed-loop-runner — multi-round Pareto-pick BO driver
 description: 'multi-round Pareto-pick BO driver: wraps q parallel graph-runner children,
   refits GP between rounds'
 status: active
-timestamp: '2026-07-20'
-updated_note: 'ChildTracker full-cut (2026-07-19): barrier is the sole resolver
-  of child state — STALE_CLUSTER resolves loudly at the barrier (not launch time),
-  launch-failed children resolve immediately (no 24h hang), barrier hard-guard
-  narrowed to empty-children-dict'
+timestamp: '2026-07-26'
+updated_note: 'elebeam_flash overlap corrected (2026-07-26): the page ended at the
+  v1 "OVERTURNED / DO NOT USE / REVERT" verdict and never recorded that v2
+  (presubmit-after-mubeam, njobs 200→100) SHIPPED 2026-07-10 and delivered −40%
+  eval wall — a reader would have concluded the overlap was disabled. v1 symbols
+  confirmed gone from the code; flagged the seam''s missing behavioral test'
 ---
 
 # closed-loop-runner — multi-round Pareto-pick BO driver
@@ -149,15 +150,18 @@ in this phase.
   barely changes wall); harvest ~12 min (EdepAna + gallery flash + calo); inter-stage gaps
   ~2–8 min. The two long stages are the "fast config" FEW-BIG-JOB stages (mubeam/mustops_ce),
   NOT the 200-job flash stage. ~35-min eval-to-eval spread is pure grid-queue variance.
-  - **Parallelization opportunity (elebeam_flash is INDEPENDENT of the sob chain, 2026-07-01):**
-    the chain runs strictly SEQUENTIAL (`STAGES_BY_MODE["foilsflash"]` linear; mtimes confirm
-    elebeam_flash submits only AFTER mustops_ce lands). But the sob chain (mubeam→concat→mustops_ce,
-    internally coupled) and elebeam_flash share NO data — elebeam_flash resamples its own external
+  - **Parallelization opportunity (elebeam_flash is INDEPENDENT of the sob chain, 2026-07-01)
+    — ✅ SHIPPED 2026-07-10 as the after-mubeam `PRESUBMIT_AFTER` seam; see the
+    "RESTORED" bullet below. The v1 at-preflight variant below was reverted first; read
+    BOTH before touching this.** The premise: the chain ran strictly SEQUENTIAL
+    (`STAGES_BY_MODE["foilsflash"]` linear; mtimes confirm elebeam_flash submitted only
+    AFTER mustops_ce landed). But the sob chain (mubeam→concat→mustops_ce, internally
+    coupled) and elebeam_flash share NO data — elebeam_flash resamples its own external
     EleBeamCat `auxinput` (run_number 1803) with the same foil geom, reading nothing from the sob
     stages. So flash could run CONCURRENTLY with the sob chain → per-eval wall drops from
-    `sum` (~4.5–5 h) to `max(sob-chain, flash)` (~3.5–4 h, ~20–25%). Requires forking the graph
-    into two parallel branches feeding one harvest (a `graph/` sequencing change, NOT a config tweak);
-    do NOT attempt mid-campaign.
+    `sum` (~4.5–5 h) to `max(sob-chain, flash)` (~3.5–4 h, ~20–25%). Realized: −40% at ~half
+    the grid footprint (ff12). Any change here is a `graph/` sequencing change, NOT a config
+    tweak; do NOT attempt mid-campaign.
 - **The mid-campaign edit freeze covers `botorch_predict.py` too (2026-07-11)**: it is
   NOT only pipeline.py/templates/graph — a multi-round campaign executes
   `botorch_predict.py` fresh at every round transition (`_botorch_picks_subprocess`
@@ -256,6 +260,38 @@ in this phase.
       **Recommendation: REVERT** (remove `PRESUBMIT_STAGES_BY_MODE["foilsflash"]` → empty, or the node stays
       a no-op). If retried, must throttle the burst (smaller elebeam njobs, or stagger presubmits over the
       sob-chain duration, not up-front). The "~40-50 min saving" estimate above the fold is WRONG — superseded.
+    - **✅ RESTORED 2026-07-10 as v2 "presubmit-after-mubeam" — BOTH throttles applied, and it WORKED.
+      The `DO NOT USE` verdict above applies to the v1 at-preflight variant ONLY; v2 is live in
+      production today.** The v1 retry conditions were met literally:
+      (1) *smaller elebeam njobs* — 200 → **100** (2026-07-09; `AUTORESEARCH_ELEBEAM_NJOBS` default,
+      do NOT set it by hand); (2) *stagger, not up-front* — the presubmit now fires **when mubeam
+      COMPLETES (~90 min in)**, not at preflight, so q=10 children's elebeam submits are spread by
+      their own mubeam finish times instead of colliding at round start. Peak burst drops from
+      10×200 = 2,000 jobs at t≈0 to 10×100 = 1,000 spread over ~90+ min.
+      **Wiring (v1 symbols are GONE — `node_presubmit_parallel`, `PRESUBMIT_STAGES_BY_MODE`,
+      `presubmit_parallel`, and the `build.py` edge all return 0 greps):** the map is now a
+      `ModeSpec` field, `presubmit_after: {after-stage → stages}` (`core/modes.py:73`;
+      foilsflash `{"mubeam": ("elebeam_flash",)}` at `:206`), surfaced as
+      `graph/config.py:73 PRESUBMIT_AFTER` and fired INSIDE the stage node
+      (`graph/nodes.py:157-169`) via `pipeline_io.presubmit_stage()` (`:220`). Still
+      best-effort: a presubmit exception is caught + logged and the stage's own node submits
+      sequentially (idempotent cluster-file guard) — a presubmit failure never fails the eval.
+      Because it is a `ModeSpec` field, any mode (incl. JSON-defined) can declare an overlap
+      without a `graph/` edit.
+      **Measured.** ff12 (2026-07-10, first full-stack campaign): 10/10 presubmits fired,
+      **median eval wall 214 min (best 168)** vs the 5.4 h pre-stack baseline ≈ **−40% at ~half
+      the grid footprint**. Independent re-check 2026-07-26 from cluster-file mtimes — the
+      ORDERING test (elebeam before mustops_ce = overlapping), not |Δt|:
+      ff18R00_02 elebeam +96 min vs mustops_ce +108; ff14R01_02 +94 vs +105;
+      ff18R02_00 +92 vs +100 — elebeam consistently precedes mustops_ce, i.e. its grid time
+      hides behind concat + mustops_ce as designed. (ff14R01_00 shows +328 min: that is the
+      manual 400-job champion re-confirmation, NOT a presubmit failure.)
+      **Lesson worth keeping:** the v1 revert was NOT proof that "independent-stage overlap
+      doesn't work here" — it was proof that *an unthrottled simultaneous burst* doesn't. Same
+      mechanism, staggered and halved, bought 40%.
+      **Gap (2026-07-26): the seam has NO behavioral test** — `PRESUBMIT_AFTER` and
+      `presubmit_stage` have 0 matches in `tests/`, so the best-effort degradation path is
+      unverified.
     - **Barrier hangs 24 h on a child that dies WITHOUT a terminal checkpoint (foilsflash05 R00_02).**
       R00_02 died at the `evaluate` node (`bo_driver.py evaluate` subprocess **120 s timeout**,
       pipeline_io ~:443) — harvest succeeded but the leaderboard-append timed out → child crashed, no row,

@@ -2,10 +2,12 @@
 type: concept
 title: Saturation is acquisition-relative
 description: '"saturated" = flat acquisition signal, NOT fully-mapped front (foilsflash
-  tail sat ~9σ beyond evals while the GP knew); end-of-campaign checklist: corner-picker
-  round + sibling-champion transplant probes'
+  tail sat ~9σ beyond evals while the GP knew); the scalar record is the WRONG stop test
+  (foilspfbp 2026-08-06) — use budget-conditioned best-sob + Pareto-front bound-hitting;
+  end-of-campaign checklist: corner-picker round + sibling-champion transplant probes'
 status: active
-timestamp: '2026-07-08'
+timestamp: '2026-08-09'
+updated_note: 'second production confirmation: foilspfbpz04 pareto_sob round broke the 4.33 "ceiling" to 4.37'
 ---
 
 # Saturation is acquisition-relative
@@ -19,6 +21,88 @@ sob tail sat 3.4% (~9σ) beyond every observed eval — and the GP already
 knew it.
 
 ## Key facts
+- **★★ SECOND PRODUCTION CONFIRMATION — the corner-picker round WORKS
+  (foilspfbpz04, 2026-08-09/10).** After 257 evals of hypervolume-driven
+  picking had "saturated" the sob record at 4.33, a single `pareto_sob`
+  exploit round (q=20 rolling, 40 evals, warm start) scored **mean sob
+  4.293 across all 40 picks** (the picker essentially never missed), put
+  **12 evals at ≥ 4.33**, and broke the record to **4.37 — three
+  independent geometries** (R11_00 zmid +8 / R08_00 +15 / R14_01 +53),
+  with 4.36 + three 4.35s behind them: a new, tighter plateau at
+  ~4.36±0.01, +1.2% above the qNEHVI-era ceiling. Two of the three record
+  geometries sit at |zmid| ≤ 15 — the gain is SHAPE at near-uniform pitch,
+  not the pitch rail. All 40 rows are damage-expensive (cheapest 4.37 at
+  +52% flash; 0/40 inside the deployed budget), so the budget-conditioned
+  verdict (best-at-budget 4.00, search closed) is UNTOUCHED — this maps
+  the ceiling, it does not reopen deployment. Checklist status: the
+  end-of-campaign corner-picker round is now 2-for-2 (SOBX01 transplant,
+  bpz04) at finding tail the acquisition had abandoned.
+- **★ THE SCALAR RECORD IS THE WRONG SATURATION TEST (foilspfbp, 2026-08-06).**
+  Four campaigns at a fixed 9D box (83 evals) moved the sob ceiling
+  4.16 → 4.33 (+4%) — but the ceiling is a 1-D shadow of a 2-D problem, and
+  reading it alone gets the stop/continue call **wrong in both directions**:
+  - *False "keep going"*: the Pareto front grew 6 → 28 points and the count of
+    designs beating the deployed target on both objectives grew 4 → 24, which
+    looks like healthy progress. Decomposed by damage budget it is mostly
+    **densification, not advance**.
+  - *False "stop"*: foilspfbp02 returned 0/20 on sob and looked like a pure
+    null, yet foilspfbp03 then displaced the record **by domination** — same
+    sob (4.29→4.30, 0.4σ) at **−32% damage** — knocking the old record off
+    the front entirely. A repeat campaign never raises the ceiling; it can
+    still replace the champion.
+  - **The right metric is budget-conditioned**: `best sob subject to
+    damage ≤ B`, tabulated for the B values a decision would actually use.
+    At B = the deployed target's damage, foilspfbp sat at **3.99 for 70
+    evals** (seeds 3.99 → bp04 4.00, i.e. +0.3%, inside the 0.6% noise) —
+    and that 3.99 came from a *transplanted seed*, not from any campaign.
+    Flat there = saturated for decision purposes, whatever the ceiling does.
+  See [bo-foilspf](/projects/bo-foilspf.md).
+- **Diagnose the next box by bound-hitting, not by intuition** (same line):
+  tally how many *Pareto-front* designs sit within 2% of each box edge. For
+  foilspfbp: `rOut_{0,1,2}` pinned at the 120 mm ceiling in **12–15 of 28**
+  front designs and `hT_0` at its 20 µm floor in **15 of 28**, while every
+  `f_*` sat comfortably interior. That is the optimizer naming its own next
+  box — and it costs one pass over the leaderboard.
+- **★ TESTING A PINNED BOUND: DESIGN THE TEST TO ISOLATE IT (foilspfbw,
+  2026-08-07 — a CONFOUNDED test, recorded as a method lesson).** The
+  foilspfbp tally above was acted on directly, but foilspfbw changed **two
+  things at once**: the ceiling 120 → 150 mm **and** the parameterization
+  (`f × rOut` → `bore + width`, rOut derived as a sum). The campaign did not
+  clear foilspfbp's budget-conditioned 4.00 (it reached 3.79) — but **that
+  outcome cannot be attributed to either change**, and no conclusion about
+  whether the 120 wall binds is available from it.
+  - **A first reading of it was wrong and is recorded to stop the repeat.**
+    Tallying only the **Pareto front** (7 points) suggested the extra radius
+    went unused — but a 7-point front at this stage is dominated by
+    *low-damage corner* designs, which is the wrong slice for a question
+    about radius. Tallying **high-sob** designs instead: 3 of the top 5
+    exceed 120, including one at rOut **150.0** that beats the deployed
+    target on both axes (sob 3.46 at −5% damage). Sampling was not the
+    limiter either — 5 of 20 evals exceeded 120 against 5.4 expected from
+    the prior, and the picker put two picks at exactly 150.
+  - **Method rules this justifies.** (1) **Change one thing.** To test a
+    bound, move the bound and nothing else; re-parameterizing at the same
+    time forfeits the answer. (2) **Pick the right slice**: judge a bound by
+    the designs that are *good on the objective the bound was supposed to
+    help*, not by front membership. (3) **Check the induced prior**: when a
+    knob becomes *derived* (here rOut = bore + w, a sum of uniforms), its
+    box edges are corners of the sampling distribution rather than directly
+    addressable coordinates — verify the region is actually being offered
+    before concluding it was declined.
+  - Still open, therefore: whether the 120 mm `rOut` ceiling binds, and
+    whether `bore`-direct beats `f × rOut` as a parameterization. See
+    [bo-foilspf](/projects/bo-foilspf.md).
+- **MEASURED CONFIRMATION (2026-07-27): two identical campaigns, 40 evals, ceiling untouched.**
+  `foilsflash23` and `foilsflash25` both ran `hybrid` q=10 rolling ×20 on the noise-fixed GP
+  against a leaderboard already dense in the high-sob basin. Neither approached
+  `foilsflashBASIN01_00` (sob 3.91): ff25 topped out at 3.76, ff23 at 3.57. Both, however,
+  **advanced the Pareto front on the flash axis** (ff25 added 2 of 23 front points). This is
+  Mechanism 1 seen from the inside — the acquisition was not idle, it was correctly spending
+  its budget where HV was still purchasable, which is exactly NOT the sob corner. **Cost of
+  the lesson: ~40 evals × ~4.5 h.** The operational rule this justifies: once a ceiling has
+  survived two picker-driven campaigns, a third is a purchase of the same negative result —
+  switch to the end-of-campaign checklist below, or redirect the picker to the axis where
+  the front still moves. See [bo-foilsflash](/projects/bo-foilsflash.md).
 - Mechanism 1 — **HV economics**: extending the front at a corner (sob
   3.77→3.90 while flash worsens 9.9e-7→1.08e-6) adds only a thin sliver of
   hypervolume; once the useful region is mapped, EVERY candidate has
