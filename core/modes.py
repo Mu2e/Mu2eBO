@@ -31,6 +31,66 @@ if TYPE_CHECKING:  # annotation-only: PEP 563 means this is never resolved at ru
 
 
 @dataclass(frozen=True)
+class StageDef:
+    """Per-stage definition: everything pipeline.py needs to submit, poll,
+    and collect outputs for one stage.  Replaces the old hardcoded STAGES
+    dict in pipeline.py."""
+    name: str
+    desc_fmt: str                     # e.g. "Run1A_MuBeam_{cfg}"
+    output_glob: str                  # e.g. "sim.*.TargetStops.*.art"
+    entry: str                        # path to stage_entries JSON, repo-relative
+    consumes: Optional[str] = None    # stage whose outputs feed this one
+    consumes_filter: Optional[str] = None  # substring filter on consumed outputs
+    merge_factor: Optional[int] = None     # for merging stages (concat)
+    njobs: int = 200                  # default number of jobs
+    events_per_job: int = 5000        # default events per job
+    memory_mb: Optional[int] = None   # memory override (MB)
+    quorum: Optional[float] = None    # fraction of jobs required to proceed
+    dsconf_musing: Optional[str] = None  # per-stage dsconf override
+
+
+@dataclass(frozen=True)
+class HarvestExtractor:
+    """One metric-extraction step in the harvest pipeline."""
+    name: str
+    type: str                         # "mu2e_module", "root_macro", "gallery",
+                                      # "event_count", "histogram", "script"
+    stage: Optional[str] = None       # which stage's outputs to consume
+    # mu2e_module type
+    fcl: Optional[str] = None
+    output: Optional[str] = None
+    # root_macro type
+    script: Optional[str] = None
+    args: Optional[Tuple[str, ...]] = None
+    # gallery type
+    collection: Optional[str] = None
+    quantity: Optional[str] = None
+    tags: Optional[Tuple[str, ...]] = None
+    # histogram type
+    histogram_path: Optional[str] = None
+    bin_labels: Optional[Tuple[str, ...]] = None
+    # event_count type
+    count_filter: Optional[str] = None
+    # script type
+    command: Optional[Tuple[str, ...]] = None
+    parse_json: bool = False
+    fields: Optional[Tuple[str, ...]] = None
+    # shared
+    parse_pattern: Optional[str] = None
+    parse_field: Optional[str] = None
+    parse_type: Optional[str] = None  # "int", "float"
+    fail_soft: bool = False
+
+
+@dataclass(frozen=True)
+class HarvestConfig:
+    """Declarative harvest configuration: extractors + derived fields."""
+    extractors: Tuple[HarvestExtractor, ...]
+    derived: Dict[str, str]           # field_name -> expression
+    summary_fields: Tuple[str, ...]   # ordered fields for summary.json
+
+
+@dataclass(frozen=True)
 class ModeSpec:
     """The pure-data half of a Mode (CONTEXT.md: 'ModeSpec')."""
     name: str
@@ -40,62 +100,41 @@ class ModeSpec:
     harvest_verb: str                 # pipeline.py verb: "harvest"
     stage_target_overrides: Dict[str, int]   # njobs overrides on graph.config.STAGE_TARGETS
     presubmit_after: Dict[str, Tuple[str, ...]]  # after-stage -> stages to presubmit
-    # Per-stage core/pipeline.py STAGES overrides (events_per_job/memory_mb/
-    # quorum), applied by pipeline.py's _apply_stage_tuning on top of the
-    # pipeline defaults. The five Python modes pass {} explicitly (this
-    # module's rule: a missing fact is an import error, never a default);
-    # JSON modes populate this from `run.stage_tuning` (core/mode_json.py),
-    # which has been the sole stage-tuning mechanism since the hardcoded
-    # foilsflash block was retired from pipeline.py (2026-07-26).
     stage_tuning: Dict[str, Dict[str, object]]
-    # Search-space box (numeric modes; michael's Categorical space is not a
-    # box — None is passed EXPLICITLY there, it is not a default).
+    # Search-space box
     bounds_lo: Optional[Tuple[float, ...]]
     bounds_hi: Optional[Tuple[float, ...]]
     int_dims: Optional[Tuple[int, ...]]
-    # Preflight policy flags (replace the 6 hand-listed mode tuples in
-    # bo_driver.py; the managed-overlap banner derives from
-    # checks_managed_overlap, which retires the prodtarget6d banner drift).
-    dumps_gdml: bool                  # preflight FCL writes a GDML dump
-    verifies_foil_gdml: bool          # per-foil GDML-vs-geom assertion (hard gate)
-    preserves_gdml: bool              # GDML kept as artifact (emission-only check)
-    checks_managed_overlap: bool      # surface-check managed-volume scan
-    # Strict overlap policy. True => preflight FAILS on ANY surface-check
-    # overlap, not just volumes the BO knobs build. Added 2026-07-28 after
-    # foilsflashRUN1BAP01 introduced 3 never-before-seen IPAsupport overlaps
-    # and still PASSED: the managed/baseline whitelist keys on volume NAME,
-    # but IPAsupport_* position derives from targetEnd, i.e. from our knobs.
-    # Only modes whose Musing can actually reach zero may set this.
-    require_zero_overlaps: bool       # any overlap => fail_managed
+    # Preflight policy flags
+    dumps_gdml: bool
+    verifies_foil_gdml: bool
+    preserves_gdml: bool
+    checks_managed_overlap: bool
+    require_zero_overlaps: bool
 
-    # Leaderboard schema (single source — ADR-0002 extension, 2026-07-19).
-    # knob_names/knob_fmts: per-knob column names + per-position formats.
-    # metric_cols: the FULL post-knob column tail; the ProdTarget family's
-    # divergence (mu_per_POT/edep/peak-dose, no sob/calo/alpha) is data
-    # here, not a special case. The leading `config` column is a writer
-    # detail (golden (a) pins it).
+    # Leaderboard schema
     knob_names: Tuple[str, ...]
     knob_fmts: Tuple[str, ...]
     metric_cols: Tuple[str, ...]
 
-    # Measured observation noise, as ABSOLUTE sigma on each GP output axis
-    # (botorch_predict._load_history_tensor's Y columns, in that order).
-    # Fed to SingleTaskGP as train_Yvar so the GP stops inferring noise by
-    # MLL. Left free, the foilsflash fit lands at sigma(sob)=0.0507 against
-    # a replicate-measured 0.0051 — a 12x overestimate that shrank the
-    # line's best-ever eval (SOBX01, sob=3.90) to a predicted 3.787 and
-    # ranked it 16th of 324. See wiki/incidents/gp-free-noise-erases-champion.
-    # None means "axis-1 units are data-dependent, a fixed sigma is
-    # undefined" — passed EXPLICITLY by the ProdTarget family, not a default.
     obs_noise: Optional[Tuple[float, ...]]
 
-    # Declarative geometry, metric mapping, and leaderboard path. Present ONLY
-    # on JSON-defined modes (core/mode_json.py); the six Python modes render via
-    # their BOMode subclass, set `leaderboard` as a class attribute, and pass
-    # None here EXPLICITLY, never by default.
+    # Declarative geometry, metric mapping, and leaderboard path.
     geom: Optional[GeomTemplate]
     metrics: Optional[Dict[str, Tuple[str, ...]]]
     leaderboard_rel: Optional[str]
+
+    # --- NEW: per-stage definitions and declarative harvest ---
+    # stage_defs: the COMPLETE per-stage configuration. Every stage in
+    # grid_stages MUST have an entry here. This replaces the old hardcoded
+    # STAGES dict in pipeline.py.
+    stage_defs: Dict[str, StageDef] = None  # type: ignore[assignment]
+
+    # harvest_config: declarative metric extraction. When present, the
+    # generic harvest orchestrator runs these extractors and evaluates the
+    # derived-field expressions. When None, falls back to the legacy
+    # cmd_harvest in pipeline.py (for backward compat during migration).
+    harvest_config: Optional[HarvestConfig] = None
 
     def __post_init__(self):
         if self.bounds_lo is not None and not (
@@ -111,6 +150,13 @@ class ModeSpec:
             raise ValueError(
                 f"{self.name}: obs_noise must be 2 positive sigmas "
                 f"(one per GP output axis), got {self.obs_noise!r}")
+        # Validate stage_defs covers every grid_stages entry
+        if self.stage_defs is not None:
+            for s in self.grid_stages:
+                if s not in self.stage_defs:
+                    raise ValueError(
+                        f"{self.name}: grid_stages includes {s!r} but "
+                        f"stage_defs has no entry for it")
 
 
 SPECS: Dict[str, ModeSpec] = {}

@@ -37,6 +37,25 @@
         "events_per_job": 110000,
         "memory_mb": 2000
       }
+    },
+    "stage_defs": {
+      "mubeam": {
+        "desc_fmt": "Run1A_MuBeam_{cfg}",
+        "output_glob": "sim.*.TargetStops.*.art",
+        "entry": "stage_entries/mubeam.json"
+      },
+      "mustops_ce": {
+        "desc_fmt": "Run1A_CeEndpoint_{cfg}",
+        "output_glob": "dts.*.CeEndpoint.*.art",
+        "entry": "stage_entries/mustops_ce.json",
+        "consumes": "mubeam",
+        "consumes_filter": "TargetStops"
+      },
+      "elebeam_flash": {
+        "desc_fmt": "Run1A_EleBeamFlash_{cfg}",
+        "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
+        "entry": "stage_entries/elebeam_flash.json"
+      }
     }
   },
   "knobs": [
@@ -330,6 +349,67 @@
         "type": "double",
         "value": 0.1
       }
+    ]
+  },
+  "harvest": {
+    "extractors": [
+      {
+        "name": "edepana",
+        "type": "mu2e_module",
+        "stage": "mustops_ce",
+        "fcl": "Run1BAna/workflows/fcl/edep.fcl",
+        "output": "nts.ce.root",
+        "parse_pattern": "EdepAna summary:\\s*Saw\\s+([\\d.eE+-]+)\\s+events",
+        "parse_field": "ce_seen",
+        "parse_type": "int"
+      },
+      {
+        "name": "muminus_count",
+        "type": "event_count",
+        "stage": "mubeam",
+        "count_filter": "TargetStops",
+        "parse_field": "muminus_stops"
+      },
+      {
+        "name": "sensitivity",
+        "type": "root_macro",
+        "script": "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C",
+        "args": [
+          "\"{_nts_path}\"",
+          "{ce_abs_eff:.16g}",
+          "\"{harvest_dir}\""
+        ],
+        "parse_pattern": "S/sqrt\\(B\\)\\s*=\\s*([\\d.eE+-]+)",
+        "parse_field": "s_over_sqrt_b",
+        "parse_type": "float"
+      },
+      {
+        "name": "flash_edep",
+        "type": "gallery",
+        "stage": "elebeam_flash",
+        "collection": "mu2e::StrawGasStep",
+        "quantity": "ionizingEdep",
+        "tags": [
+          "compressDetStepMCs",
+          "compressDetStepMCs:tracker",
+          "makeSGS"
+        ],
+        "fail_soft": true
+      }
+    ],
+    "derived": {
+      "mubeam_sim_total": "count_files('mubeam') * events_per_job('mubeam')",
+      "ce_simulated_events": "count_files('mustops_ce') * events_per_job('mustops_ce')",
+      "stopping_factor": "muminus_stops / mubeam_sim_total",
+      "ce_abs_eff": "ce_seen * 0.01278168 * stopping_factor / ce_simulated_events"
+    },
+    "summary_fields": [
+      "ce_seen",
+      "muminus_stops",
+      "s_over_sqrt_b",
+      "ce_abs_eff",
+      "flash_edep_total",
+      "flash_edep_per_event"
     ]
   }
 }

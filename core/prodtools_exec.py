@@ -69,24 +69,25 @@ def _substitute_placeholders(value, mapping: dict, where: str):
 
 
 def load_stage_entry(stage: str, *, cfg: str, geom: str,
-                     entries_dir=None) -> dict:
-    """Load stage_entries/<stage>.json with `{cfg}`/`{geom}` substituted.
+                     entries_dir=None, entry_path=None) -> dict:
+    """Load a stage entry JSON with `{cfg}`/`{geom}` substituted.
 
     Returns the per-stage entry TEMPLATE: whatever subset of `fcl`,
     `fcl_overrides`, `resampler_name`, `input_data`, `inloc`, `outloc`,
-    `run`, `memory`, `events` that stage's JSON file declares (a merge
-    stage like concat has neither `run` nor `events`; a staged-input stage
-    like mustops_ce has no `input_data`). `_comment` rides along
-    unsubstituted (json2jobdef ignores unknown entry keys -- verified
-    against utils/jobdesc.py validate_entry_value's "keys other than the
-    ones it knows are ignored, not rejected" -- but render_entry never
-    forwards it either way, since its signature has no `_comment` param).
+    `run`, `memory`, `events` that stage's JSON file declares.
 
-    `entries_dir` overrides STAGE_ENTRIES_DIR for tests; real callers never
-    pass it.
+    Resolution order for the entry file:
+    1. `entry_path` if given (absolute or repo-relative path from stage_defs)
+    2. `entries_dir / <stage>.json` if entries_dir is given
+    3. `STAGE_ENTRIES_DIR / <stage>.json` (the default)
     """
-    d = Path(entries_dir) if entries_dir is not None else STAGE_ENTRIES_DIR
-    path = d / f"{stage}.json"
+    if entry_path is not None:
+        path = Path(entry_path)
+        if not path.is_absolute():
+            path = REPO_ROOT / path
+    else:
+        d = Path(entries_dir) if entries_dir is not None else STAGE_ENTRIES_DIR
+        path = d / f"{stage}.json"
     if not path.exists():
         raise SystemExit(
             f"stage_entries: no template for stage {stage!r} at {path}")

@@ -4,17 +4,94 @@ One file per optimization line: `mode_specs/<name>.json`, where `<name>`
 matches the `"name"` field. Every file here is loaded at import and merged
 into `core.modes.SPECS`.
 
-See `docs/superpowers/specs/2026-07-25-json-configurable-modes-design.md` for the
-schema.
+## Schema overview
+
+A mode spec defines the complete analysis pipeline:
+
+```json
+{
+  "name": "<mode_name>",
+  "software": { "musing": "...", "grid_tarball": "..." },
+  "run": {
+    "stages": ["stage_a", "stage_b", "stage_c"],
+    "stage_defs": {
+      "stage_a": {
+        "desc_fmt": "MyDesc_{cfg}",
+        "output_glob": "sim.*.Output.*.art",
+        "entry": "stage_entries/stage_a.json"
+      },
+      "stage_b": {
+        "desc_fmt": "MyReco_{cfg}",
+        "output_glob": "rec.*.Reco.*.art",
+        "entry": "stage_entries/stage_b.json",
+        "consumes": "stage_a",
+        "consumes_filter": "Output"
+      },
+      "stage_c": { ... }
+    },
+    "harvest": "harvest",
+    "jobs_per_stage": { ... },
+    "stage_tuning": { ... }
+  },
+  "harvest": {
+    "extractors": [ ... ],
+    "derived": { ... },
+    "summary_fields": [ ... ]
+  },
+  "knobs": [ ... ],
+  "leaderboard": { ... },
+  "preflight": { ... },
+  "geom": { ... }
+}
+```
+
+### `run.stage_defs`
+
+Each stage in `run.stages` must have an entry in `stage_defs`:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `desc_fmt` | yes | Submit description template, `{cfg}` is substituted |
+| `output_glob` | yes | Glob pattern for stage output files |
+| `entry` | yes | Repo-relative path to the stage entry JSON |
+| `consumes` | no | Stage whose outputs feed this one |
+| `consumes_filter` | no | Substring filter on consumed output filenames |
+| `merge_factor` | no | For merging stages (e.g. concat) |
+| `njobs` | no | Default number of jobs (default: 200) |
+| `events_per_job` | no | Default events per job (default: 5000) |
+| `memory_mb` | no | Memory override in MB |
+| `quorum` | no | Fraction of jobs required to proceed (0..1] |
+
+### `harvest`
+
+Declarative metric extraction. When present, the generic harvest
+orchestrator runs the extractors and evaluates derived fields.
+
+**Extractor types:**
+
+| Type | Description |
+|------|-------------|
+| `mu2e_module` | Run `mu2e -c <fcl> -S <files>`, parse stdout |
+| `root_macro` | Run a ROOT macro, parse stdout |
+| `gallery` | Gallery collection extractor (StrawGasStep, etc.) |
+| `event_count` | Count art events in stage output files |
+| `histogram` | Read ROOT histogram bins |
+| `script` | Run arbitrary script, parse JSON output |
+
+**Derived fields** use safe arithmetic expressions with built-in
+functions: `count_files(stage)`, `events_per_job(stage)`, `sqrt()`,
+`abs()`, `min()`, `max()`, `log()`, `exp()`.
 
 ## Starting a new line
 
 Copy **`tests/fixtures/modes/template.json`** — it is deliberately pointed at a
-non-live leaderboard — and change three things:
+non-live leaderboard — and change:
 
 1. `"name"` — must equal the file stem (`mode_specs/<name>.json`).
 2. `"leaderboard": {"file": ...}` — must be a path **no other mode uses**.
-3. the knobs and the `geom` block.
+3. `"run.stage_defs"` — define your analysis stages.
+4. `"harvest"` — define how to extract metrics from stage outputs.
+5. the knobs and the `geom` block.
 
 Do **not** start from `tests/fixtures/modes/foils.json` or `foilsflash.json`.
 Those are the reference fixtures that reproduce the live Python lines

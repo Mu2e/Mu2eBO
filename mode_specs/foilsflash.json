@@ -37,6 +37,25 @@
         "events_per_job": 110000,
         "memory_mb": 2000
       }
+    },
+    "stage_defs": {
+      "mubeam": {
+        "desc_fmt": "Run1A_MuBeam_{cfg}",
+        "output_glob": "sim.*.TargetStops.*.art",
+        "entry": "stage_entries/mubeam.json"
+      },
+      "mustops_ce": {
+        "desc_fmt": "Run1A_CeEndpoint_{cfg}",
+        "output_glob": "dts.*.CeEndpoint.*.art",
+        "entry": "stage_entries/mustops_ce.json",
+        "consumes": "mubeam",
+        "consumes_filter": "TargetStops"
+      },
+      "elebeam_flash": {
+        "desc_fmt": "Run1A_EleBeamFlash_{cfg}",
+        "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
+        "entry": "stage_entries/elebeam_flash.json"
+      }
     }
   },
   "knobs": [
@@ -137,10 +156,22 @@
       {
         "comment": "holeRadii vector decouples extras-rIn from base-rIn (patched lib)."
       },
-      {"comment": "EMC_Source relocated 5300 -> 5000. It is a 20um disc of ds.vacuumMaterial (vd.halfLength=0.01) -- ZERO mass, no scattering, no absorption -- and NO foils-family stage reads virtual detectors (only pot_only instantiates ReadVirtualDetector). At 5300 it was the UPSTREAM wall of the zero-overlap corridor, capping the stack at 6271-5300=971mm. zEMCSourceInMu2e is a plain c.getDouble default at VirtualDetectorMaker.cc:189, so this is one config line, no source patch. EMC_Source2 stays at 4800, so ordering is preserved."},
-      {"key": "zEMCSourceInMu2e", "type": "double", "value": 5000.0},
-      {"comment": "protonabsorber.distFromTargetEnd 491.666672 (stock 625). This line's 49 foils span 1066.67 mm vs the deployed 800, so its downstream end sits 133.33 mm further back, and Offline slides the IPA the same 133.33 mm downstream with it -- as a RIGID body: length stays 1000 mm because pabs1halflen saturates at the protonabsorber.halfLength=500 cap. Measured with protonabsorber.verbosityLevel=1: stock 6901.02-7901.02, uncompensated 7034.35-8034.35, compensated 6901.02-7901.02. The IPA is FIXED HARDWARE at z=6901-7901, so that displacement was a physics error present in all 414 historical rows, not just an overlap. Compensating restores the absorber to its true position AND removes the overlap, with the target left at its original z0."},
-      {"key": "protonabsorber.distFromTargetEnd", "type": "double", "value": 491.666672},
+      {
+        "comment": "EMC_Source relocated 5300 -> 5000. It is a 20um disc of ds.vacuumMaterial (vd.halfLength=0.01) -- ZERO mass, no scattering, no absorption -- and NO foils-family stage reads virtual detectors (only pot_only instantiates ReadVirtualDetector). At 5300 it was the UPSTREAM wall of the zero-overlap corridor, capping the stack at 6271-5300=971mm. zEMCSourceInMu2e is a plain c.getDouble default at VirtualDetectorMaker.cc:189, so this is one config line, no source patch. EMC_Source2 stays at 4800, so ordering is preserved."
+      },
+      {
+        "key": "zEMCSourceInMu2e",
+        "type": "double",
+        "value": 5000.0
+      },
+      {
+        "comment": "protonabsorber.distFromTargetEnd 491.666672 (stock 625). This line's 49 foils span 1066.67 mm vs the deployed 800, so its downstream end sits 133.33 mm further back, and Offline slides the IPA the same 133.33 mm downstream with it -- as a RIGID body: length stays 1000 mm because pabs1halflen saturates at the protonabsorber.halfLength=500 cap. Measured with protonabsorber.verbosityLevel=1: stock 6901.02-7901.02, uncompensated 7034.35-8034.35, compensated 6901.02-7901.02. The IPA is FIXED HARDWARE at z=6901-7901, so that displacement was a physics error present in all 414 historical rows, not just an overlap. Compensating restores the absorber to its true position AND removes the overlap, with the target left at its original z0."
+      },
+      {
+        "key": "protonabsorber.distFromTargetEnd",
+        "type": "double",
+        "value": 491.666672
+      },
       {
         "key": "hasTSdA",
         "type": "bool",
@@ -266,6 +297,67 @@
         "type": "double",
         "value": 0.1
       }
+    ]
+  },
+  "harvest": {
+    "extractors": [
+      {
+        "name": "edepana",
+        "type": "mu2e_module",
+        "stage": "mustops_ce",
+        "fcl": "Run1BAna/workflows/fcl/edep.fcl",
+        "output": "nts.ce.root",
+        "parse_pattern": "EdepAna summary:\\s*Saw\\s+([\\d.eE+-]+)\\s+events",
+        "parse_field": "ce_seen",
+        "parse_type": "int"
+      },
+      {
+        "name": "muminus_count",
+        "type": "event_count",
+        "stage": "mubeam",
+        "count_filter": "TargetStops",
+        "parse_field": "muminus_stops"
+      },
+      {
+        "name": "sensitivity",
+        "type": "root_macro",
+        "script": "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C",
+        "args": [
+          "\"{_nts_path}\"",
+          "{ce_abs_eff:.16g}",
+          "\"{harvest_dir}\""
+        ],
+        "parse_pattern": "S/sqrt\\(B\\)\\s*=\\s*([\\d.eE+-]+)",
+        "parse_field": "s_over_sqrt_b",
+        "parse_type": "float"
+      },
+      {
+        "name": "flash_edep",
+        "type": "gallery",
+        "stage": "elebeam_flash",
+        "collection": "mu2e::StrawGasStep",
+        "quantity": "ionizingEdep",
+        "tags": [
+          "compressDetStepMCs",
+          "compressDetStepMCs:tracker",
+          "makeSGS"
+        ],
+        "fail_soft": true
+      }
+    ],
+    "derived": {
+      "mubeam_sim_total": "count_files('mubeam') * events_per_job('mubeam')",
+      "ce_simulated_events": "count_files('mustops_ce') * events_per_job('mustops_ce')",
+      "stopping_factor": "muminus_stops / mubeam_sim_total",
+      "ce_abs_eff": "ce_seen * 0.01278168 * stopping_factor / ce_simulated_events"
+    },
+    "summary_fields": [
+      "ce_seen",
+      "muminus_stops",
+      "s_over_sqrt_b",
+      "ce_abs_eff",
+      "flash_edep_total",
+      "flash_edep_per_event"
     ]
   }
 }

@@ -107,6 +107,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from config import (  # noqa: E402
     GRID_DATA_ROOT as DATA_ROOT,
     GRID_STAGES,
+    MODE_SPEC,
     MUSING,
     SETUPMU2E,
     STAGE_TARGETS,
@@ -205,56 +206,66 @@ def _stage_dsconf(stage: str) -> str:
 # files are themselves now orphaned on disk, out of this task's scope).
 # Not carried forward: reintroducing either would be inventing a field STAGES
 # never actually used, not preserving one it did.
-STAGES = {
-    "mubeam": {
-        "desc_fmt": "Run1A_MuBeam_{cfg}",
-        "njobs": STAGE_TARGETS["mubeam"],
-        "events_per_job": 5000,
-        "output_glob": "sim.*.TargetStops.*.art",
-    },
-    "run1b_mubeam": {
-        "desc_fmt": "Run1B_MuBeam_{cfg}",
-        "njobs": STAGE_TARGETS["run1b_mubeam"],
-        "events_per_job": 5000,
-        "output_glob": "nts.*.mubeam.*.root",
-    },
-    "concat": {
-        "desc_fmt": "Run1A_MuStopsCat_{cfg}",
-        "njobs": STAGE_TARGETS["concat"],
-        "merge_factor": 200,
-        "output_glob": "sim.*.MuminusStopsCat.*.art",
-    },
-    "mustops_ce": {
-        "desc_fmt": "Run1A_CeEndpoint_{cfg}",
-        # 100 jobs per A/B noise test on helical001 (2026-05-16): half-vs-half
-        # ce_seen agreed to 0.4% at 97 jobs each — well below GP noise floor.
-        "njobs": STAGE_TARGETS["mustops_ce"],
-        # njobs=200 driven by STAGE_TARGETS["mustops_ce"] in graph/config.py.
-        # 2500 events/job paired with njobs=200 (set in graph/config.py
-        # STAGE_TARGETS) preserves total CE statistics at 500k events but
-        # halves per-job wall-time and doubles per-cluster parallelism.
-        # 2026-05-21 PM: SR00_00 long-tail (dx=0.011 → N_crit≈4144 → 3-4h
-        # CPU/job, 5× normal) showed the implicit throughput gate; halving
-        # events_per_job halves the per-job CPU cost at constant total
-        # statistics. The earlier 2026-05-21 AM reversion to 5000 was made
-        # WITHOUT compensating with njobs, which halved stats and hurt
-        # σ(sob) 0.10→0.14; this configuration restores σ(sob).
-        # Stamped at submit (see [[events-per-job-mid-flight-edit]]).
-        "events_per_job": 2500,
-        "output_glob": "dts.*.CeEndpoint.*.art",
-    },
-    # Electron-beam early-flash stage for the foilsflash BO line. Resamples the
-    # external EleBeamCat dataset (like mubeam resamples MuBeamCat), DS-on,
-    # ships the per-BO foil geom, and writes EarlyEleBeamFlash StrawGasStep
-    # DetSteps. Harvest sums tracker ionizingEdep (reuses
-    # _extract_trk_edep_per_pot). See bo-foilsflash.
-    "elebeam_flash": {
-        "desc_fmt": "Run1A_EleBeamFlash_{cfg}",
-        "njobs": STAGE_TARGETS["elebeam_flash"],
-        "events_per_job": 2500,
-        "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
-    },
-}
+def _build_stages_from_spec(spec, stage_targets) -> dict:
+    """Build the STAGES dict from a ModeSpec's stage_defs.
+
+    When stage_defs is available, each StageDef populates the STAGES entry
+    directly. Otherwise falls back to the legacy hardcoded defaults.
+    """
+    if spec.stage_defs:
+        stages = {}
+        for name, sdef in spec.stage_defs.items():
+            entry = {
+                "desc_fmt": sdef.desc_fmt,
+                "njobs": stage_targets.get(name, sdef.njobs),
+                "events_per_job": sdef.events_per_job,
+                "output_glob": sdef.output_glob,
+            }
+            if sdef.merge_factor is not None:
+                entry["merge_factor"] = sdef.merge_factor
+            if sdef.memory_mb is not None:
+                entry["memory_mb"] = sdef.memory_mb
+            if sdef.quorum is not None:
+                entry["quorum"] = sdef.quorum
+            if sdef.dsconf_musing is not None:
+                entry["dsconf_musing"] = sdef.dsconf_musing
+            stages[name] = entry
+        return stages
+    # Legacy fallback for modes without stage_defs
+    return {
+        "mubeam": {
+            "desc_fmt": "Run1A_MuBeam_{cfg}",
+            "njobs": stage_targets.get("mubeam", 200),
+            "events_per_job": 5000,
+            "output_glob": "sim.*.TargetStops.*.art",
+        },
+        "run1b_mubeam": {
+            "desc_fmt": "Run1B_MuBeam_{cfg}",
+            "njobs": stage_targets.get("run1b_mubeam", 200),
+            "events_per_job": 5000,
+            "output_glob": "nts.*.mubeam.*.root",
+        },
+        "concat": {
+            "desc_fmt": "Run1A_MuStopsCat_{cfg}",
+            "njobs": stage_targets.get("concat", 1),
+            "merge_factor": 200,
+            "output_glob": "sim.*.MuminusStopsCat.*.art",
+        },
+        "mustops_ce": {
+            "desc_fmt": "Run1A_CeEndpoint_{cfg}",
+            "njobs": stage_targets.get("mustops_ce", 200),
+            "events_per_job": 2500,
+            "output_glob": "dts.*.CeEndpoint.*.art",
+        },
+        "elebeam_flash": {
+            "desc_fmt": "Run1A_EleBeamFlash_{cfg}",
+            "njobs": stage_targets.get("elebeam_flash", 100),
+            "events_per_job": 2500,
+            "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
+        },
+    }
+
+STAGES = _build_stages_from_spec(MODE_SPEC, STAGE_TARGETS)
 
 def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
     """Extras FCLs to ship in the submit's code tarball, derived from the
@@ -431,8 +442,7 @@ def _render_fcl_overrides(stage: str, entry_tmpl: dict | None = None) -> dict:
     two calls each load their own -- can never let one caller observe
     another's edit.
     """
-    entry = entry_tmpl if entry_tmpl is not None else px.load_stage_entry(
-        stage, cfg=CONFIG, geom=GEOM_FILE.name)
+    entry = entry_tmpl if entry_tmpl is not None else _load_stage_entry(stage)
     overrides = dict(entry.get("fcl_overrides", {}))
     if stage == "mustops_ce" and hv.concatless(STATE, CONCATLESS):
         overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"] = 8000
@@ -493,6 +503,22 @@ _apply_stage_tuning(
 # turn the elebeam_flash TOTAL edep into an absolute MeV/POT rate (the flash-per-POT
 # objective — the geometry-sensitive lever; the per-event MEAN divides out the
 # flash-event count and is blind to it). See wiki/projects/bo-foilsflash.md.
+
+
+def _stage_entry_path(stage: str) -> str | None:
+    """Return the entry path from stage_defs, or None for legacy resolution."""
+    if MODE_SPEC.stage_defs:
+        sdef = MODE_SPEC.stage_defs.get(stage)
+        if sdef:
+            return sdef.entry
+    return None
+
+
+def _load_stage_entry(stage: str) -> dict:
+    """Load a stage entry, using stage_defs entry path when available."""
+    return px.load_stage_entry(
+        stage, cfg=CONFIG, geom=GEOM_FILE.name,
+        entry_path=_stage_entry_path(stage))
 
 
 def _stage_desc(stage: str) -> str:
@@ -823,11 +849,17 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
 
 
 def _input_stage_for(stage: str) -> str:
-    """Which stage's outputs feed `stage`: concat <- mubeam; mustops_ce <-
-    mubeam-or-concat, stamp-first (hv.concatless) so a concat-era config
-    resubmitted under a concat-less env keeps staging its concat outputs.
-    The one owner of that topological fact for both executors -- the grid
-    and --local staging branches of cmd_submit must agree."""
+    """Which stage's outputs feed `stage`.
+
+    When the mode spec provides stage_defs with a `consumes` field, use
+    that directly. Otherwise fall back to the legacy hardcoded logic.
+    """
+    if MODE_SPEC.stage_defs:
+        sdef = MODE_SPEC.stage_defs.get(stage)
+        if sdef and sdef.consumes:
+            return sdef.consumes
+        return ""  # no input stage
+    # Legacy fallback
     if stage == "concat":
         return "mubeam"
     return "mubeam" if hv.concatless(STATE, CONCATLESS) else "concat"
@@ -1028,7 +1060,7 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
     # _apply_stage_tuning) and fall back to the JSON's default only when
     # STAGES doesn't carry that key for this stage (e.g. concat has no
     # events_per_job -- see STAGES' comment block).
-    entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
+    entry_tmpl = _load_stage_entry(stage)
     cnf, _tarball, entry_path, _inloc = _render_and_build_cnf(
         stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf, stage_dir=stage_dir,
         env=env, njobs=cfg["njobs"],
@@ -1066,8 +1098,12 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
 # LOCAL_SUPPORTED_STAGES is refused by _require_local_stage rather than
 # handed an entry with no inputs, which prodtools would accept and which
 # would then yield a job that silently reads nothing.
-LOCAL_SUPPORTED_STAGES = ("mubeam", "run1b_mubeam", "elebeam_flash",
-                          "concat", "mustops_ce")
+# When stage_defs is available, all stages are local-supported.
+# Otherwise fall back to the hardcoded legacy list.
+LOCAL_SUPPORTED_STAGES = (tuple(MODE_SPEC.stage_defs.keys())
+                          if MODE_SPEC.stage_defs
+                          else ("mubeam", "run1b_mubeam", "elebeam_flash",
+                                "concat", "mustops_ce"))
 
 
 def _require_local_stage(stage: str) -> None:
@@ -1293,18 +1329,11 @@ def cmd_submit(args):
         njobs, events = _local_scale(args, stage)
 
         staged_inputs = None
-        if stage in ("concat", "mustops_ce"):
-            # Same previous-stage rule cmd_submit's grid staging follows
-            # (_input_stage_for). The stamp-first hv.concatless read inside
-            # it also covers the local branch, which never writes the
-            # stage-chain stamp itself (only the grid branch below does):
-            # a legacy concat-era local config still falls back to the
-            # module-level CONCATLESS default correctly.
-            prev_stage = _input_stage_for(stage)
-            # Same refusal _local_stage_inputs made for the old
-            # mu2ejobdef-based local executor: the prior stage must have run
-            # LOCALLY, or <prev>_outputs.txt holds /pnfs paths and farming
-            # those locally is a grid chain wearing a local hat.
+        prev_stage = _input_stage_for(stage)
+        if prev_stage:
+            # This stage consumes a prior stage's outputs. The prior stage
+            # must have run LOCALLY, or <prev>_outputs.txt holds /pnfs paths
+            # and farming those locally is a grid chain wearing a local hat.
             if not local_marker(prev_stage).exists():
                 raise SystemExit(
                     f"[{stage}] consumes {prev_stage}, which has no local "
@@ -1339,7 +1368,7 @@ def cmd_submit(args):
         # (it's a fixed cnf run-number, not a job count), so it comes
         # straight from the JSON default either way (_render_and_build_cnf
         # always pulls it from entry_tmpl).
-        entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
+        entry_tmpl = _load_stage_entry(stage)
         cnf, tarball, _entry_path, inloc = _render_and_build_cnf(
             stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf,
             stage_dir=stage_dir, env=env, njobs=njobs, events=events,
@@ -1394,17 +1423,10 @@ def cmd_submit(args):
         hv.stamp_stage_chain(STATE, list(GRID_STAGES))
     env = sourced_env()
     staged_inputs = None
-    if args.stage in ("concat", "mustops_ce"):
-        # Consuming stages (topology: _input_stage_for; mustops_ce
-        # resamples the previous stage's MuminusStops via
-        # TargetStopResampler, concat-less chains resampling the mu--pure
-        # mubeam TargetStops files directly, one file-slice per job).
-        # input_data requires basenames (same restriction the old --inputs/
-        # --auxinput mu2ejobdef flags had): hard-link the previous stage's
-        # outputs into a /pnfs stage dir so xrootd can resolve them when
-        # inloc dir:STAGED expands the basenames. The merge factor is the
-        # clamped one (_merge_factor_for; 1 for mustops_ce).
-        prev_stage = _input_stage_for(args.stage)
+    prev_stage = _input_stage_for(args.stage)
+    if prev_stage:
+        # Consuming stages: hard-link the previous stage's outputs into a
+        # /pnfs stage dir so xrootd can resolve them.
         prev = STATE / f"{prev_stage}_outputs.txt"
         if not prev.exists():
             raise SystemExit(f"Run 'list-outputs {prev_stage}' first to populate {prev.name}")
@@ -1663,16 +1685,40 @@ def _note_degraded(sec, stage, degraded):
         degraded[stage] = sec.error
 
 
-def cmd_harvest(args):
-    """Compute s_over_sqrt_b from the smoke pipeline outputs.
+def _cmd_harvest_generic(args):
+    """Generic harvest: run extractors from mode_specs harvest config."""
+    import extractors as ext_mod  # noqa: E402 — local import to avoid circular
+    for stage in GRID_STAGES:
+        if (STATE / f"{stage}_config_sha.txt").exists():
+            _check_stage_config_sha(stage)
+    env = sourced_env(with_muse=True)
+    harvest_dir = ROOT / "harvest"
+    harvest_dir.mkdir(parents=True, exist_ok=True)
 
-    Steps (mirrors extract_analysis_results.run_rough_run1a_sensitivity_analysis):
-      1. Run EdepAna on mustops_ce CeEndpoint art files -> nts ROOT + 'Saw N' line
-      2. Count events in concat MuminusStopsCat -> muminus_stops_events
-      3. ce_scale = input_corr * (muminus_stops / mubeam_sim_total) / ce_simulated_events
-         ce_abs_eff = ce_seen * ce_scale
-      4. Run rough_run1a_sensitivity.C -> parse 'S/sqrt(B) = X'
+    import paths as _paths  # noqa: E402
+    fhicl_extra = str(_paths.REPO_ROOT)
+
+    fields = ext_mod.run_harvest_config(
+        MODE_SPEC.harvest_config, STATE, harvest_dir, env,
+        stage_defs=MODE_SPEC.stage_defs or {},
+        fhicl_extra_path=fhicl_extra)
+
+    summary = hv.EvalSummary.from_fields(CONFIG, fields)
+    summary.write(harvest_dir)
+    print("\n" + summary.to_json())
+
+
+def cmd_harvest(args):
+    """Harvest stage outputs into summary.json.
+
+    When the mode spec provides a harvest_config, uses the generic
+    extractor framework. Otherwise falls back to the legacy hardcoded
+    Mu2e-specific harvest steps.
     """
+    # Generic harvest path: driven by mode_specs harvest config
+    if MODE_SPEC.harvest_config:
+        return _cmd_harvest_generic(args)
+    # Legacy harvest path below
     # Check config-sha only for stages this run actually produced — chains
     # differ per mode (foilsflash adds elebeam_flash; sob-only drops
     # run1b_mubeam), so key off the stamped config_sha files rather than a

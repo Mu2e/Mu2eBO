@@ -25,21 +25,24 @@ if __package__:
     from core import paths
     from core.geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                     _validate_fmt)
+    from core.modes import StageDef, HarvestExtractor, HarvestConfig
 else:
     import paths
     from geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                _validate_fmt)
+    from modes import StageDef, HarvestExtractor, HarvestConfig
 
 _REQUIRED_TOP = ("name", "software", "run", "knobs", "leaderboard",
                  "preflight", "geom")
-# "note" and "int_dims" are legal top-level keys that are optional (no
-# _need entry) -- listed here only so _reject_unknown doesn't flag them.
-_ALLOWED_TOP = _REQUIRED_TOP + ("note", "int_dims")
+# "note", "int_dims", and "harvest" are legal top-level keys that are
+# optional -- listed here only so _reject_unknown doesn't flag them.
+_ALLOWED_TOP = _REQUIRED_TOP + ("note", "int_dims", "harvest")
 _REQUIRED_SOFTWARE = ("musing", "grid_tarball")
 _REQUIRED_RUN = ("stages", "harvest")
-# jobs_per_stage/presubmit_after/stage_tuning are optional (default to
-# empty when absent -- see load_mode_file below).
-_ALLOWED_RUN = _REQUIRED_RUN + ("jobs_per_stage", "presubmit_after", "stage_tuning")
+# jobs_per_stage/presubmit_after/stage_tuning/stage_defs are optional
+# (default to empty when absent -- see load_mode_file below).
+_ALLOWED_RUN = _REQUIRED_RUN + ("jobs_per_stage", "presubmit_after",
+                                "stage_tuning", "stage_defs")
 _REQUIRED_PREFLIGHT = ("dumps_gdml", "verifies_foil_gdml",
                        "preserves_gdml", "checks_managed_overlap",
                        "require_zero_overlaps")
@@ -254,6 +257,169 @@ def _validate_presubmit_after(run: dict, declared_stages, where: str) -> Dict[st
     return out
 
 
+_ALLOWED_STAGE_DEF = ("desc_fmt", "output_glob", "entry", "consumes",
+                      "consumes_filter", "merge_factor", "njobs",
+                      "events_per_job", "memory_mb", "quorum",
+                      "dsconf_musing")
+_REQUIRED_STAGE_DEF = ("desc_fmt", "output_glob", "entry")
+
+_ALLOWED_EXTRACTOR = ("name", "type", "stage", "fcl", "output", "script",
+                      "args", "collection", "quantity", "tags",
+                      "histogram_path", "bin_labels", "count_filter",
+                      "command", "parse_json", "fields",
+                      "parse_pattern", "parse_field", "parse_type",
+                      "fail_soft")
+_REQUIRED_EXTRACTOR = ("name", "type")
+_EXTRACTOR_TYPES = ("mu2e_module", "root_macro", "gallery", "event_count",
+                    "histogram", "script")
+
+
+def _validate_stage_defs(run: dict, declared_stages, where: str) -> dict:
+    """Validate and build stage_defs from run.stage_defs.
+
+    Every stage in run.stages MUST have an entry. Each entry is validated
+    for required fields and unknown keys. Returns {name: StageDef}.
+    """
+    raw = run.get("stage_defs")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"{where}[run.stage_defs]: must be an object of "
+            f"{{stage_name: {{...}}}}, got {raw!r}")
+    _reject_unknown(raw, declared_stages, f"{where}[run.stage_defs]")
+    # Every declared stage must have a stage_def
+    missing = [s for s in declared_stages if s not in raw]
+    if missing:
+        raise ValueError(
+            f"{where}[run.stage_defs]: missing definitions for stages "
+            f"{missing}; every stage in run.stages must have an entry")
+    defs = {}
+    for stage_name, sdef in raw.items():
+        sw = f"{where}[run.stage_defs.{stage_name}]"
+        if not isinstance(sdef, dict):
+            raise ValueError(f"{sw}: must be an object, got {sdef!r}")
+        _need(sdef, _REQUIRED_STAGE_DEF, sw)
+        _reject_unknown(sdef, _ALLOWED_STAGE_DEF, sw)
+        # Validate entry path exists
+        entry_path = paths.REPO_ROOT / sdef["entry"]
+        if not entry_path.exists():
+            raise ValueError(
+                f"{sw}[entry]: file not found: {entry_path}")
+        # Validate consumes references a declared stage
+        consumes = sdef.get("consumes")
+        if consumes is not None and consumes not in declared_stages:
+            raise ValueError(
+                f"{sw}[consumes]: {consumes!r} is not in run.stages "
+                f"{list(declared_stages)}")
+        # Validate numeric fields
+        njobs = sdef.get("njobs", 200)
+        if isinstance(njobs, bool) or not isinstance(njobs, int) or njobs <= 0:
+            raise ValueError(f"{sw}[njobs]: must be a positive int, got {njobs!r}")
+        epj = sdef.get("events_per_job", 5000)
+        if isinstance(epj, bool) or not isinstance(epj, int) or epj <= 0:
+            raise ValueError(f"{sw}[events_per_job]: must be a positive int, got {epj!r}")
+        mem = sdef.get("memory_mb")
+        if mem is not None and (isinstance(mem, bool) or not isinstance(mem, int) or mem <= 0):
+            raise ValueError(f"{sw}[memory_mb]: must be a positive int, got {mem!r}")
+        merge = sdef.get("merge_factor")
+        if merge is not None and (isinstance(merge, bool) or not isinstance(merge, int) or merge <= 0):
+            raise ValueError(f"{sw}[merge_factor]: must be a positive int, got {merge!r}")
+        quorum = sdef.get("quorum")
+        if quorum is not None and (isinstance(quorum, bool) or not isinstance(quorum, (int, float))
+                                   or not (0 < quorum <= 1)):
+            raise ValueError(f"{sw}[quorum]: must be a float in (0, 1], got {quorum!r}")
+
+        defs[stage_name] = StageDef(
+            name=stage_name,
+            desc_fmt=sdef["desc_fmt"],
+            output_glob=sdef["output_glob"],
+            entry=sdef["entry"],
+            consumes=consumes,
+            consumes_filter=sdef.get("consumes_filter"),
+            merge_factor=merge,
+            njobs=njobs,
+            events_per_job=epj,
+            memory_mb=mem,
+            quorum=float(quorum) if quorum is not None else None,
+            dsconf_musing=sdef.get("dsconf_musing"),
+        )
+    return defs
+
+
+def _validate_harvest_config(doc: dict, declared_stages, where: str):
+    """Validate and build HarvestConfig from top-level 'harvest' object."""
+    raw = doc.get("harvest")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"{where}[harvest]: must be an object with 'extractors', "
+            f"'derived', and 'summary_fields', got {raw!r}")
+    _need(raw, ("extractors",), f"{where}[harvest]")
+    _reject_unknown(raw, ("extractors", "derived", "summary_fields"),
+                    f"{where}[harvest]")
+    # Validate extractors
+    raw_extractors = raw["extractors"]
+    if not isinstance(raw_extractors, list):
+        raise ValueError(
+            f"{where}[harvest.extractors]: must be a list, got {raw_extractors!r}")
+    extractors = []
+    for i, ext in enumerate(raw_extractors):
+        ew = f"{where}[harvest.extractors[{i}]]"
+        if not isinstance(ext, dict):
+            raise ValueError(f"{ew}: must be an object, got {ext!r}")
+        _need(ext, _REQUIRED_EXTRACTOR, ew)
+        _reject_unknown(ext, _ALLOWED_EXTRACTOR, ew)
+        if ext["type"] not in _EXTRACTOR_TYPES:
+            raise ValueError(
+                f"{ew}[type]: must be one of {_EXTRACTOR_TYPES}, "
+                f"got {ext['type']!r}")
+        # Validate stage reference
+        ext_stage = ext.get("stage")
+        if ext_stage is not None and ext_stage not in declared_stages:
+            raise ValueError(
+                f"{ew}[stage]: {ext_stage!r} is not in run.stages "
+                f"{list(declared_stages)}")
+        extractors.append(HarvestExtractor(
+            name=ext["name"],
+            type=ext["type"],
+            stage=ext_stage,
+            fcl=ext.get("fcl"),
+            output=ext.get("output"),
+            script=ext.get("script"),
+            args=tuple(ext["args"]) if ext.get("args") else None,
+            collection=ext.get("collection"),
+            quantity=ext.get("quantity"),
+            tags=tuple(ext["tags"]) if ext.get("tags") else None,
+            histogram_path=ext.get("histogram_path"),
+            bin_labels=tuple(ext["bin_labels"]) if ext.get("bin_labels") else None,
+            count_filter=ext.get("count_filter"),
+            command=tuple(ext["command"]) if ext.get("command") else None,
+            parse_json=ext.get("parse_json", False),
+            fields=tuple(ext["fields"]) if ext.get("fields") else None,
+            parse_pattern=ext.get("parse_pattern"),
+            parse_field=ext.get("parse_field"),
+            parse_type=ext.get("parse_type"),
+            fail_soft=ext.get("fail_soft", False),
+        ))
+    # Validate derived
+    derived = raw.get("derived", {})
+    if not isinstance(derived, dict):
+        raise ValueError(
+            f"{where}[harvest.derived]: must be an object, got {derived!r}")
+    # Validate summary_fields
+    summary_fields = raw.get("summary_fields", ())
+    if not isinstance(summary_fields, (list, tuple)):
+        raise ValueError(
+            f"{where}[harvest.summary_fields]: must be a list, got {summary_fields!r}")
+    return HarvestConfig(
+        extractors=tuple(extractors),
+        derived=dict(derived),
+        summary_fields=tuple(summary_fields),
+    )
+
+
 def load_mode_file(path: Path) -> "object":
     """Parse one mode JSON file into a ModeSpec. Raises ValueError on any
     schema problem, always naming the file."""
@@ -425,11 +591,14 @@ def load_mode_file(path: Path) -> "object":
 
     geom = GeomTemplate.from_dict(doc["geom"], names, f"{where}[geom]")
 
+    stage_defs = _validate_stage_defs(run, stages, where)
+    harvest_config = _validate_harvest_config(doc, stages, where)
+
     spec = ModeSpec(
         name=doc["name"],
         musing=_expand_artifact(software["musing"], "musing", where),
         grid_tarball=_expand_artifact(software["grid_tarball"],
-                                      "grid_tarball", where),
+                                       "grid_tarball", where),
         grid_stages=tuple(stages),
         harvest_verb=run["harvest"],
         stage_target_overrides=jobs_per_stage,
@@ -450,6 +619,8 @@ def load_mode_file(path: Path) -> "object":
         metrics=metrics,
         leaderboard_rel=lb_file,
         stage_tuning=stage_tuning,
+        stage_defs=stage_defs,
+        harvest_config=harvest_config,
     )
     return spec
 

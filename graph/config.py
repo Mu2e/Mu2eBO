@@ -50,6 +50,7 @@ import modes as _modes  # noqa: E402
 _SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")]
 
 MUSING = _SPEC.musing
+MODE_SPEC = _SPEC  # full spec, exported for pipeline.py stage_defs access
 
 # Stage chain (Phase 2b). Each entry is the stage name; per-stage `run_stage`
 # calls submit → poll → list-outputs internally. Harvest runs once after the

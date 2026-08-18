@@ -346,47 +346,80 @@ def winsorized_diagnostics(per_file: Optional[Sequence[float]], epj: int,
 
 @dataclass
 class EvalSummary:
-    """The explicit contract behind harvest/summary.json.
+    """The contract behind harvest/summary.json.
 
-    Every key the driver's extract_metrics, the graph's evaluate node, or a
-    human reader may consume. Optional fields are the fail-soft secondary
-    objectives — None means 'stage absent or extraction degraded', and the
-    leaderboard row derived from this summary reflects that honestly.
+    Supports both the legacy fixed-field schema (for existing modes) and
+    a dynamic-field schema (for modes with harvest_config). The `fields`
+    dict holds all metric values; legacy fields are mirrored as direct
+    attributes for backward compatibility.
     """
     config: str
-    # primary (hard-fail) chain
-    ce_seen: int
-    muminus_stops: int
-    mubeam_sim_total: int
-    ce_simulated_events: int
-    stopping_factor: float
-    ce_abs_eff: float
-    s_over_sqrt_b: float
-    muminus_source: str  # "concat" | "mubeam" — provenance of the stop count
-    # calo (fail-soft)
+    fields: dict = field(default_factory=dict)
+    degraded: dict = field(default_factory=dict)
+
+    # Legacy fixed fields — these exist for backward compat with existing
+    # code that reads summary.json by key name (bo_driver extract_metrics,
+    # graph pipeline_io mock_metrics, etc.). They are populated from
+    # `fields` when using the generic harvest path.
+    ce_seen: Optional[int] = None
+    muminus_stops: Optional[int] = None
+    mubeam_sim_total: Optional[int] = None
+    ce_simulated_events: Optional[int] = None
+    stopping_factor: Optional[float] = None
+    ce_abs_eff: Optional[float] = None
+    s_over_sqrt_b: Optional[float] = None
+    muminus_source: Optional[str] = None
     calo_per_pot: Optional[float] = None
     calo_total: Optional[float] = None
     calo_files_seen: Optional[int] = None
-    # flash / bo-foilsflash (fail-soft)
     flash_edep_per_event: Optional[float] = None
     flash_edep_per_pot: Optional[float] = None
-    flash_edep_per_pot_winsor: Optional[float] = None  # diagnostic, NOT objective
-    flash_perfile_stats: Optional[dict] = None          # diagnostic
+    flash_edep_per_pot_winsor: Optional[float] = None
+    flash_perfile_stats: Optional[dict] = None
     flash_edep_total_MeV: Optional[float] = None
     flash_edep_events: Optional[int] = None
     flash_n_input: Optional[int] = None
     flash_edep_tag: Optional[str] = None
-    # artifact pointers
     nts_path: str = ""
     edep_log: str = ""
     macro_log: str = ""
-    # degradation record: stage -> reason, for every fail-softed extraction
-    degraded: dict = field(default_factory=dict)
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), indent=2)
+        # Merge fields into the top-level dict for summary.json
+        d = asdict(self)
+        # Flatten: fields values are available at top level for
+        # extract_metrics lookups
+        for k, v in d.get("fields", {}).items():
+            if k not in d or d[k] is None:
+                d[k] = v
+        return json.dumps(d, indent=2)
 
     def write(self, harvest_dir: Path) -> Path:
         out = harvest_dir / "summary.json"
         out.write_text(self.to_json())
         return out
+
+    @classmethod
+    def from_fields(cls, config: str, fields: dict) -> "EvalSummary":
+        """Build an EvalSummary from a generic fields dict.
+
+        Maps known field names to the legacy attributes for backward compat.
+        """
+        degraded = fields.pop("degraded", {})
+        # Extract legacy field values from the generic fields dict
+        legacy_kwargs = {}
+        legacy_keys = (
+            "ce_seen", "muminus_stops", "mubeam_sim_total",
+            "ce_simulated_events", "stopping_factor", "ce_abs_eff",
+            "s_over_sqrt_b", "muminus_source", "calo_per_pot",
+            "calo_total", "calo_files_seen", "flash_edep_per_event",
+            "flash_edep_per_pot", "flash_edep_per_pot_winsor",
+            "flash_perfile_stats", "flash_edep_total_MeV",
+            "flash_edep_events", "flash_n_input", "flash_edep_tag",
+            "nts_path", "edep_log", "macro_log",
+        )
+        for key in legacy_keys:
+            if key in fields:
+                legacy_kwargs[key] = fields[key]
+        return cls(config=config, fields=dict(fields),
+                   degraded=degraded, **legacy_kwargs)
