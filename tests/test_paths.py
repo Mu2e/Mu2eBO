@@ -224,6 +224,47 @@ class FakeSpec:
         self.name, self.musing, self.grid_tarball = name, musing, grid_tarball
 
 
+class TestRequire(unittest.TestCase):
+    """paths.require: the shared stat-or-raise behind verify() and
+    sourced_env()."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._td.name)
+
+    def tearDown(self):
+        self._td.cleanup()
+        importlib.reload(paths)
+
+    def test_returns_the_path_when_it_exists(self):
+        setup = self.tmp / "setup_local.sh"
+        setup.write_text("")
+        self.assertEqual(paths.require(setup, "musing"), setup)
+
+    def test_accepts_a_string_and_returns_a_path(self):
+        # sourced_env passes MUSING, which is a str off the ModeSpec.
+        setup = self.tmp / "setup_local.sh"
+        setup.write_text("")
+        self.assertEqual(paths.require(str(setup), "musing"), setup)
+
+    def test_a_miss_names_the_path_the_description_and_the_remediation(self):
+        p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
+        with self.assertRaises(paths.PathsError) as cm:
+            p.require(self.tmp / "gone.sh", "the mode's musing setup script")
+        msg = str(cm.exception)
+        self.assertIn("gone.sh", msg)
+        self.assertIn("the mode's musing setup script", msg)
+        self.assertIn("setup.sh --backing", msg)
+        self.assertIn("ARTIFACT_ROOT", msg)
+
+    def test_tail_is_appended_after_the_remediation(self):
+        p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
+        with self.assertRaises(paths.PathsError) as cm:
+            p.require(self.tmp / "gone.sh", "thing", tail="\nOWN TAIL.")
+        self.assertTrue(str(cm.exception).endswith("\nOWN TAIL."))
+
+
 class TestVerify(unittest.TestCase):
     def setUp(self):
         import tempfile

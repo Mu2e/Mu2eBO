@@ -623,7 +623,12 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # 2026-06-26: switched off mmackenz's hardcoded path after he bumped
         # p094→p101 and deleted it. See wiki/incidents/mmackenz-edepana-lib-qualifier-bump.md.
         import paths  # see core/paths.py
-        _muse = paths.artifact("autoresearch_muse")
+        # require(), not artifact(), for the same reason as MUSING below: a
+        # miss here becomes `cd <nonexistent>` -> rc=1, indistinguishable
+        # from the cvmfs flake the retry loop exists for.
+        _muse = paths.require(paths.artifact("autoresearch_muse"),
+                              "the autoresearch_muse work area (harvest's "
+                              "EdepAna lib)")
         mmlib = str(_muse / "build/al9-prof-e29-p094/Run1BAna/lib")
         prelude = (
             f"cd {_muse} && "
@@ -645,6 +650,21 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # unsourced and the `muse` function undefined -- upstream of this
         # line. The retry loop below is what actually recovers it.
         # See wiki/incidents/sourced-env-stderr-swallowed.md.
+        #
+        # Stat MUSING before handing it to bash. `source` on a missing file is
+        # rc=1 -- the same rc as the flake above -- so an unresolvable musing
+        # burned all four retries and then named only the command line. The
+        # ${ARTIFACT} token makes this reachable by ordinary use: it resolves
+        # under the CALLING operator's app area, so anyone who has not built
+        # the partial Offline tree (or set `./setup.sh --backing`) hits it on
+        # their first submit. preflight's paths.verify() already covers it,
+        # but `pipeline.py ... submit <stage>` is driven directly for stalled-
+        # chain recovery and never runs preflight.
+        #
+        # SETUPMU2E is deliberately NOT checked: it lives on cvmfs, where
+        # "missing" is usually the transient condition the retries recover.
+        import paths  # see core/paths.py
+        paths.require(MUSING, "the mode's musing setup script")
         prelude = (
             f"source {SETUPMU2E} && "
             f"source {MUSING} && "

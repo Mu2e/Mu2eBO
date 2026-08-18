@@ -1415,8 +1415,39 @@ class TestRequireLocalStage(unittest.TestCase):
 
 
 class TestSourcedEnvGuards(unittest.TestCase):
-    """pipeline.sourced_env: shell-function parsing + the pre-sourced-shell
-    refusal. Ported verbatim from tests/test_local_exec.py."""
+    """pipeline.sourced_env: shell-function parsing, the pre-sourced-shell
+    refusal, and the missing-musing guard. Ported (the first three) verbatim
+    from tests/test_local_exec.py."""
+
+    def setUp(self):
+        # sourced_env stats MUSING before shelling out, so point it at a real
+        # file -- these cases are about everything AFTER that check, and the
+        # suite must stay green on a machine with no /exp/mu2e.
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        musing = Path(self._td.name) / "setup_local.sh"
+        musing.write_text("")
+        patcher = mock.patch.object(pipeline, "MUSING", str(musing))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_missing_musing_fails_fast_instead_of_retrying(self):
+        # `source <missing>` is rc=1, the same rc as the cvmfs/spack flake the
+        # retry loop exists for -- so this used to burn four retries (~50 s)
+        # and surface as a CalledProcessError naming only the command line.
+        # Reachable by ordinary use: ${ARTIFACT} in the mode spec resolves
+        # under the CALLING operator's app area, so a second operator with no
+        # partial-Offline build and no `./setup.sh --backing` hits it on their
+        # first direct `pipeline.py ... submit`, which never runs preflight.
+        import paths
+        with mock.patch.object(pipeline, "MUSING", "/nonexistent/setup_local.sh"), \
+             mock.patch.object(pipeline, "run_sourced_bash") as rsb:
+            with self.assertRaises(paths.PathsError) as cm:
+                pipeline.sourced_env()
+        rsb.assert_not_called()
+        msg = str(cm.exception)
+        self.assertIn("/nonexistent/setup_local.sh", msg)
+        self.assertIn("setup.sh --backing", msg)
 
     def test_sourced_env_keeps_exported_shell_functions_whole(self):
         # `muse` is a bash FUNCTION, not a binary, and a local job needs it:
