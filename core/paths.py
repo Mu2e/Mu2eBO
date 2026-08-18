@@ -148,6 +148,38 @@ def prodtools_root() -> Path:
     return root
 
 
+def _operator_hint() -> str:
+    """Shared remediation tail. Reads ARTIFACT_ROOT/BACKING at raise time, so
+    a test that patches them sees its own values."""
+    return (f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
+            f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
+            f"Point at an operator who has it -- copy-paste "
+            f"either line:\n"
+            f"    ./setup.sh --backing {_EXAMPLE_BACKING}\n"
+            f"    export AUTORESEARCH_BACKING={_EXAMPLE_BACKING}"
+            f"   # if the checkout is not yours to write")
+
+
+def require(path, what: str, *, tail: str = "") -> Path:
+    """Stat one artifact; a miss is a named PathsError, not an rc=1.
+
+    The single formatter for "this is not where the roots say it should be".
+    verify() calls it per field at preflight; sourced_env() calls it on the
+    musing it is about to `source`, because a direct
+    `pipeline.py --config X submit <stage>` never runs preflight. That path is
+    why this exists: bash answers a missing `source` target with rc=1, which
+    the sourced_env retry loop cannot tell apart from a cvmfs flake -- so a
+    typo'd or unbacked musing burned four retries (~50 s) and surfaced as a
+    CalledProcessError quoting the whole command line and naming no cause.
+    Reported by a second operator whose ${ARTIFACT} resolved to her own
+    (empty) app area, 2026-08-18.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise PathsError(f"{what} not found at {p}\n" + _operator_hint() + tail)
+    return p
+
+
 def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
     """Fail at launch, not three hours into a grid chain.
 
@@ -168,32 +200,12 @@ def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
     own SchemaMismatch and tests/test_live_leaderboard_headers.py already
     cover it twice over.
     """
-    def operator_hint():
-        # Shared remediation tail (reads ARTIFACT_ROOT/BACKING at raise
-        # time, so a test that patches them sees its own values).
-        return (f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
-                f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
-                f"Point at an operator who has it -- copy-paste "
-                f"either line:\n"
-                f"    ./setup.sh --backing {_EXAMPLE_BACKING}\n"
-                f"    export AUTORESEARCH_BACKING={_EXAMPLE_BACKING}"
-                f"   # if the checkout is not yours to write")
-
     for spec in specs:
         for field in ("musing", "grid_tarball"):
-            p = Path(getattr(spec, field))
-            if not p.exists():
-                raise PathsError(
-                    f"mode {spec.name!r}: {field} not found at {p}\n"
-                    + operator_hint()
-                    + "\nor build your own (see README, 'Artifacts').")
+            require(getattr(spec, field), f"mode {spec.name!r}: {field}",
+                    tail="\nor build your own (see README, 'Artifacts').")
     for path, what in extra:
-        p = Path(path)
-        if not p.exists():
-            raise PathsError(
-                f"{what} not found at {p}\n"
-                f"Every mode's harvest needs it.\n"
-                + operator_hint())
+        require(path, what, tail="\nEvery mode's harvest needs it.")
     if make_dirs:
         for d in (GRID_DATA_ROOT, GRAPH_DATA, LEADERBOARD_LIVE):
             try:

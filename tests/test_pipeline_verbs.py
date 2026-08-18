@@ -331,7 +331,8 @@ class TestStageEntries(unittest.TestCase):
         self.assertEqual(list(overrides.keys())[0], "#include")
         self.assertEqual(
             overrides["#include"],
-            ["Production/JobConfig/pileup/epilog_1b.fcl", "mubeam_extras.fcl"])
+            ["Production/JobConfig/pileup/epilog_1b.fcl",
+             "sim_kept_products_extras.fcl", "mubeam_targetstop_path.fcl"])
 
     def test_run1b_mubeam_include_key_is_first_and_carries_epilog_and_extras(self):
         overrides = self._entry("run1b_mubeam")["fcl_overrides"]
@@ -339,7 +340,22 @@ class TestStageEntries(unittest.TestCase):
         self.assertEqual(
             overrides["#include"],
             ["Production/JobConfig/pileup/epilog_1b.fcl",
-             "run1b_mubeam_extras.fcl"])
+             "sim_kept_products_extras.fcl"])
+
+    def test_both_resampler_stages_share_one_kept_products_file(self):
+        # The dedupe's whole point (2026-08-17): the outputCommands blocks
+        # were byte-identical in the two former per-stage extras files, so a
+        # change to the kept-products shape had to be made twice or silently
+        # diverge. Pin that they now name the SAME file, and that only
+        # mubeam carries the targetStopPath override -- Run1B keeps the
+        # published path.
+        mubeam = self._entry("mubeam")["fcl_overrides"]["#include"]
+        run1b = self._entry("run1b_mubeam")["fcl_overrides"]["#include"]
+        shared = "sim_kept_products_extras.fcl"
+        self.assertIn(shared, mubeam)
+        self.assertIn(shared, run1b)
+        self.assertIn("mubeam_targetstop_path.fcl", mubeam)
+        self.assertNotIn("mubeam_targetstop_path.fcl", run1b)
 
     def test_concat_has_no_include_key_and_no_geom_key(self):
         # concat's base FCL (MuonStopSelector.fcl) had only ONE #include in
@@ -480,25 +496,27 @@ class TestStageEntries(unittest.TestCase):
         for stage in pipeline.STAGES:
             with self.subTest(stage=stage):
                 extras = pipeline._stage_extra_files(self._entry(stage))
-                if stage in ("mubeam", "run1b_mubeam"):
-                    self.assertEqual(len(extras), 1)
-                    self.assertTrue(extras[0].exists(),
-                                    f"{extras[0]} must exist on disk")
-                    self.assertIn("@sequence::", extras[0].read_text())
-                else:
-                    self.assertEqual(extras, [])
+                # mubeam ships two since the 2026-08-17 dedupe (the shared
+                # kept-products file + its own targetStopPath); run1b_mubeam
+                # ships only the shared one.
+                expected = {"mubeam": 2, "run1b_mubeam": 1}.get(stage, 0)
+                self.assertEqual(len(extras), expected)
+                for f in extras:
+                    self.assertTrue(f.exists(), f"{f} must exist on disk")
+                    self.assertIn("@sequence::", f.read_text())
 
-    def test_mubeam_extras_fcl_basename_matches_the_include_key(self):
-        entry = self._entry("mubeam")
-        extras = pipeline._stage_extra_files(entry)
-        self.assertEqual(extras[0].name,
-                         entry["fcl_overrides"]["#include"][1])
-
-    def test_run1b_mubeam_extras_fcl_basename_matches_the_include_key(self):
-        entry = self._entry("run1b_mubeam")
-        extras = pipeline._stage_extra_files(entry)
-        self.assertEqual(extras[0].name,
-                         entry["fcl_overrides"]["#include"][1])
+    def test_extras_fcl_basenames_match_the_include_key_in_order(self):
+        # Every bare basename in '#include' must ship, in the same order:
+        # FHiCL is last-wins, so a shipped-but-reordered include could
+        # silently change which override survives. Published Production/...
+        # paths resolve from the release and ship nothing.
+        for stage in ("mubeam", "run1b_mubeam"):
+            with self.subTest(stage=stage):
+                entry = self._entry(stage)
+                inc = entry["fcl_overrides"]["#include"]
+                self.assertEqual(
+                    [f.name for f in pipeline._stage_extra_files(entry)],
+                    [i for i in inc if "/" not in i])
 
     def test_stage_extra_files_string_include_and_missing_overrides(self):
         # A single-string '#include' (elebeam_flash's shape) and an entry
@@ -775,7 +793,8 @@ class TestSubmitStageProdtools(unittest.TestCase):
             self.assertEqual(
                 overrides["#include"],
                 ["Production/JobConfig/pileup/epilog_1b.fcl",
-                 "mubeam_extras.fcl"])
+                 "sim_kept_products_extras.fcl",
+                 "mubeam_targetstop_path.fcl"])
             self.assertEqual(
                 overrides["services.GeometryService.inputFile"],
                 "autoresearch_cfg001_geom.txt")
@@ -874,7 +893,9 @@ class TestSubmitStageProdtools(unittest.TestCase):
 
             self.assertEqual(len(seen_extra_files), 1)
             self.assertEqual(
-                [p.name for p in seen_extra_files[0]], ["mubeam_extras.fcl"])
+                [p.name for p in seen_extra_files[0]],
+                ["sim_kept_products_extras.fcl",
+                 "mubeam_targetstop_path.fcl"])
 
     def test_mustops_ce_concatless_overrides_max_events_to_skip_to_8000(self):
         # Folded-in from the old _materialize_template's stamp-first
@@ -1394,8 +1415,39 @@ class TestRequireLocalStage(unittest.TestCase):
 
 
 class TestSourcedEnvGuards(unittest.TestCase):
-    """pipeline.sourced_env: shell-function parsing + the pre-sourced-shell
-    refusal. Ported verbatim from tests/test_local_exec.py."""
+    """pipeline.sourced_env: shell-function parsing, the pre-sourced-shell
+    refusal, and the missing-musing guard. Ported (the first three) verbatim
+    from tests/test_local_exec.py."""
+
+    def setUp(self):
+        # sourced_env stats MUSING before shelling out, so point it at a real
+        # file -- these cases are about everything AFTER that check, and the
+        # suite must stay green on a machine with no /exp/mu2e.
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        musing = Path(self._td.name) / "setup_local.sh"
+        musing.write_text("")
+        patcher = mock.patch.object(pipeline, "MUSING", str(musing))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_missing_musing_fails_fast_instead_of_retrying(self):
+        # `source <missing>` is rc=1, the same rc as the cvmfs/spack flake the
+        # retry loop exists for -- so this used to burn four retries (~50 s)
+        # and surface as a CalledProcessError naming only the command line.
+        # Reachable by ordinary use: ${ARTIFACT} in the mode spec resolves
+        # under the CALLING operator's app area, so a second operator with no
+        # partial-Offline build and no `./setup.sh --backing` hits it on their
+        # first direct `pipeline.py ... submit`, which never runs preflight.
+        import paths
+        with mock.patch.object(pipeline, "MUSING", "/nonexistent/setup_local.sh"), \
+             mock.patch.object(pipeline, "run_sourced_bash") as rsb:
+            with self.assertRaises(paths.PathsError) as cm:
+                pipeline.sourced_env()
+        rsb.assert_not_called()
+        msg = str(cm.exception)
+        self.assertIn("/nonexistent/setup_local.sh", msg)
+        self.assertIn("setup.sh --backing", msg)
 
     def test_sourced_env_keeps_exported_shell_functions_whole(self):
         # `muse` is a bash FUNCTION, not a binary, and a local job needs it:
@@ -2194,3 +2246,79 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLocalDryRun(unittest.TestCase):
+    """`submit <stage> --local --dry-run` must build and NOT run.
+
+    Until 2026-08-17 the local branch never read args.dry_run, so a
+    "dry run" executed the jobs for real -- found while validating an
+    unrelated change, after several supposedly-inert invocations had each
+    started a genuine mu2e job.
+    """
+
+    def _submit_dry(self, tmp):
+        state = Path(tmp) / "state"
+        state.mkdir()
+        cnf = Path(tmp) / "mubeam" / "cnf.x.tar"
+        with mock.patch.object(pipeline, "STATE", state), \
+             mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+             mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+             mock.patch.object(pipeline, "sourced_env",
+                               return_value={"X": "1"}), \
+             mock.patch.object(pipeline, "_maybe_refresh_token") as tok, \
+             mock.patch.object(pipeline, "write_code_tarball",
+                               return_value=Path(tmp) / "Code.tar.bz2"), \
+             mock.patch.object(pipeline.px, "build_cnf", return_value=cnf), \
+             mock.patch.object(pipeline.px, "run_runlocal",
+                               side_effect=_stub_run_runlocal()) as rr:
+            pipeline.cmd_submit(SimpleNamespace(
+                stage="mubeam", force=False, dry_run=True, local=True,
+                local_njobs=["3"], local_events=["77"], local_pool=None))
+        return state, rr, tok
+
+    def test_dry_run_does_not_execute_the_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _state, rr, _tok = self._submit_dry(tmp)
+            rr.assert_not_called()
+
+    def test_dry_run_leaves_no_state_claiming_the_stage_ran(self):
+        # The marker and cluster file are what make _is_local_stage and
+        # cmd_poll believe a local run happened; written without one, poll
+        # and list-outputs hunt a wait.json that will never exist.
+        with tempfile.TemporaryDirectory() as tmp:
+            state, _rr, _tok = self._submit_dry(tmp)
+            self.assertFalse((state / "mubeam_local.txt").exists())
+            self.assertFalse((state / "mubeam_cluster.txt").exists())
+            self.assertFalse(
+                pipeline.px.wait_json_path(state, "mubeam").exists())
+
+    def test_dry_run_does_not_refresh_the_token(self):
+        # Nothing streams from /pnfs when nothing runs; a dry run should
+        # not touch the operator's credentials.
+        with tempfile.TemporaryDirectory() as tmp:
+            _state, _rr, tok = self._submit_dry(tmp)
+            tok.assert_not_called()
+
+    def test_dry_run_still_builds_the_cnf_and_code_tarball(self):
+        # The point of the flag: everything up to dispatch must happen, so
+        # a build failure still surfaces.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state"
+            state.mkdir()
+            with mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "sourced_env", return_value={}), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2") as wct, \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   return_value=Path(tmp) / "c.tar") as bc, \
+                 mock.patch.object(pipeline.px, "run_runlocal",
+                                   side_effect=_stub_run_runlocal()):
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mubeam", force=False, dry_run=True, local=True,
+                    local_njobs=["1"], local_events=["200"], local_pool=None))
+            wct.assert_called_once()
+            bc.assert_called_once()

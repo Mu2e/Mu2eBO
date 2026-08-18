@@ -12,6 +12,7 @@ import getpass
 import json
 import os
 import re
+import shutil
 import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
@@ -261,6 +262,58 @@ def build_cnf(stage_dir, entry_path, desc, dsconf, env,
     return cnf
 
 
+_CODE_ID = ".autoresearch-code-id"
+
+
+def _invalidate_stale_code_tree(workdir: Path, code_tarball: Path) -> bool:
+    """Drop `<workdir>/code` when it was unpacked from a DIFFERENT tarball.
+    Returns True if a stale tree was removed.
+
+    runlocal unpacks the code tarball once per workdir and reuses it
+    forever after, guarded by its own `.unpack-complete` sentinel
+    (utils/runlocal.py:unpack_code). That sentinel answers "is this tree
+    complete", never "is it the tree THIS tarball would produce" -- so
+    re-submitting the same (config, stage) after the tarball changed runs
+    the OLD code, silently. Measured 2026-08-17: an edited extras fcl was
+    ignored this way, and the job failed rc=90 against a deleted include
+    while the correct file sat unread in the new tarball. The reuse is
+    deliberate and worth keeping (several GB per unpack), so this
+    invalidates rather than disables it.
+
+    Identity is (resolved path, size, mtime_ns), NOT the path alone: the
+    cache filename's token covers extra_files only, so a rebuilt tarball
+    carrying a NEW GEOM lands at the same path -- the failure that would
+    hide is a job silently running the previous BO point's geometry, which
+    is worse than a stale include and invisible in the metrics.
+
+    Campaigns never hit this (a fresh config name means a fresh workdir);
+    it is an iteration hazard, which is exactly why it must not depend on
+    anyone remembering it.
+    """
+    code_root = workdir / "code"
+    if not code_tarball.exists():
+        # No identity to compare against. Leave the tree alone and let
+        # runlocal fail on the missing tarball with its own message rather
+        # than raising a less informative FileNotFoundError from here.
+        return False
+    st = code_tarball.stat()
+    ident = f"{code_tarball.resolve()}\n{st.st_size}\n{st.st_mtime_ns}\n"
+    stamp = code_root / _CODE_ID
+    stale = code_root.exists() and (
+        not stamp.is_file() or stamp.read_text() != ident)
+    if stale:
+        print(f"[local] code tarball changed -- discarding stale unpack at "
+              f"{code_root}")
+        shutil.rmtree(code_root)
+    code_root.mkdir(parents=True, exist_ok=True)
+    # Written BEFORE the run: it records which tarball this tree is FOR,
+    # while runlocal's own sentinel records whether the tree is complete.
+    # An interrupted unpack therefore still re-extracts (no sentinel) --
+    # the two markers answer different questions and must stay separate.
+    stamp.write_text(ident)
+    return stale
+
+
 def run_runlocal(stage_dir, cnf, njobs, wait_json, env, *, code_tarball,
                  inloc=None, pool=4, runner=subprocess.run) -> int:
     """Run njobs jobs on THIS node via prodtools runlocal; return its rc.
@@ -278,6 +331,7 @@ def run_runlocal(stage_dir, cnf, njobs, wait_json, env, *, code_tarball,
     """
     workdir = Path(stage_dir) / "local"
     workdir.mkdir(parents=True, exist_ok=True)
+    _invalidate_stale_code_tree(workdir, Path(code_tarball))
     cmd = [str(prodtools_root() / "bin" / "runlocal"),
            "--jobdef", str(cnf), "--first", "0", "--num", str(njobs),
            "-j", str(pool), "--workdir", str(workdir),

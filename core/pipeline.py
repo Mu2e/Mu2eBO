@@ -23,9 +23,10 @@ dsconf_musing) -- see the comment block above `_render_fcl_overrides` for
 the per-stage-JSON-key rationale that used to sit beside STAGE_FCL's/
 STAGES' literals. The two stages whose overrides need an
 @sequence::-bearing FHiCL block that can't ride a JSON value (mubeam,
-run1b_mubeam) pull it in from a static pipeline_templates/<stage>_extras.fcl
-via the `'#include'` override key, shipped in the code tarball
-(write_code_tarball extra_files) the same way the geom overlay is.
+run1b_mubeam) pull it in from static pipeline_templates/*.fcl files via the
+`'#include'` override key, shipped in the code tarball (write_code_tarball
+extra_files) the same way the geom overlay is. Both share
+sim_kept_products_extras.fcl; mubeam adds mubeam_targetstop_path.fcl.
 
 Per-config working tree (auto-created):
   <DATA_ROOT>/autoresearch_grid/<cfg>/
@@ -280,9 +281,13 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #
 # mubeam.json:
 #   fcl_overrides['#include'] -- epilog_1b.fcl was the old template's 2nd
-#     #include; mubeam_extras.fcl carries the two outputCommands blocks +
-#     the targetStopPath restatement below (all @sequence::-bearing, so
-#     none of it can ride a JSON fcl_overrides value -- see that file).
+#     #include; sim_kept_products_extras.fcl carries the two outputCommands
+#     blocks and mubeam_targetstop_path.fcl the targetStopPath restatement
+#     below (all @sequence::-bearing, so none of it can ride a JSON
+#     fcl_overrides value -- see those files). Split into two files
+#     2026-08-17: the outputCommands blocks were byte-identical to
+#     run1b_mubeam's, so the shared half is now included by both stages and
+#     only the path override is mubeam-only.
 #   fcl_overrides['physics.producers.g4run.physics.physicsListName'] --
 #     FTFP_BERT: -20% CPU on mubeam vs ShieldingM (n=200/200), with sob/calo
 #     deltas inside the ShieldingM-self noise floor on helicalQR00_02
@@ -321,17 +326,19 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #     against the real prodtools checkout. Flat dotted keys sidestep it
 #     entirely -- each is a plain scalar/list value, which json.dumps
 #     renders correctly.
-#   (not in the JSON -- lives in mubeam_extras.fcl) targetStopPath itself
+#   (not in the JSON -- lives in mubeam_targetstop_path.fcl) targetStopPath
 #     (restated from Production/JobConfig/pileup/MuBeamResampler.fcl:35
 #     with muminusSelector inserted after TargetStopFilter and before
 #     compressPVTargetStops) -- its @sequence:: entries can't ride a JSON
 #     fcl_overrides value.
 #
 # run1b_mubeam.json:
-#   fcl_overrides['#include'] -- run1b_mubeam_extras.fcl carries the two
-#     outputCommands blocks (same @sequence::-bearing shape as mubeam's);
+#   fcl_overrides['#include'] -- sim_kept_products_extras.fcl, the SAME
+#     file mubeam includes, carries the two outputCommands blocks (they
+#     were byte-identical per-stage copies until 2026-08-17);
 #     run1b_mubeam has no targetStopPath/muminusSelector override -- Run1B
-#     keeps the published targetStopPath.
+#     keeps the published targetStopPath, so it does NOT include
+#     mubeam_targetstop_path.fcl.
 #   Run1B mubeam variant: DS field OFF + geom_run1_b_v06 baseline so muons
 #     stream straight downstream and we get a real calo_stop/POT
 #     measurement. Same MuBeamCat input as the Run1A mubeam stage; same
@@ -616,7 +623,12 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # 2026-06-26: switched off mmackenz's hardcoded path after he bumped
         # p094→p101 and deleted it. See wiki/incidents/mmackenz-edepana-lib-qualifier-bump.md.
         import paths  # see core/paths.py
-        _muse = paths.artifact("autoresearch_muse")
+        # require(), not artifact(), for the same reason as MUSING below: a
+        # miss here becomes `cd <nonexistent>` -> rc=1, indistinguishable
+        # from the cvmfs flake the retry loop exists for.
+        _muse = paths.require(paths.artifact("autoresearch_muse"),
+                              "the autoresearch_muse work area (harvest's "
+                              "EdepAna lib)")
         mmlib = str(_muse / "build/al9-prof-e29-p094/Run1BAna/lib")
         prelude = (
             f"cd {_muse} && "
@@ -638,6 +650,21 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # unsourced and the `muse` function undefined -- upstream of this
         # line. The retry loop below is what actually recovers it.
         # See wiki/incidents/sourced-env-stderr-swallowed.md.
+        #
+        # Stat MUSING before handing it to bash. `source` on a missing file is
+        # rc=1 -- the same rc as the flake above -- so an unresolvable musing
+        # burned all four retries and then named only the command line. The
+        # ${ARTIFACT} token makes this reachable by ordinary use: it resolves
+        # under the CALLING operator's app area, so anyone who has not built
+        # the partial Offline tree (or set `./setup.sh --backing`) hits it on
+        # their first submit. preflight's paths.verify() already covers it,
+        # but `pipeline.py ... submit <stage>` is driven directly for stalled-
+        # chain recovery and never runs preflight.
+        #
+        # SETUPMU2E is deliberately NOT checked: it lives on cvmfs, where
+        # "missing" is usually the transient condition the retries recover.
+        import paths  # see core/paths.py
+        paths.require(MUSING, "the mode's musing setup script")
         prelude = (
             f"source {SETUPMU2E} && "
             f"source {MUSING} && "
@@ -727,7 +754,7 @@ def _cache_token(extra_files: list[Path] | None) -> str:
 
     I1 fix: pre-fix, the cache path was `Code.<base>.tar.bz2` — ONE name per
     (config, base_tarball) regardless of extra_files, so a config's mubeam
-    submit (extras=mubeam_extras.fcl) and its mustops_ce submit (no extras)
+    submit (extras=the two mubeam includes) and its mustops_ce submit (none)
     fought over the SAME cache file: each stage's submit invalidated the
     other's (their _extra_files_digest differ), forcing a full unpack+
     rebzip2 (~7-12 min) on nearly every stage instead of reusing across a
@@ -1344,6 +1371,21 @@ def cmd_submit(args):
             stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf,
             stage_dir=stage_dir, env=env, njobs=njobs, events=events,
             staged_inputs=staged_inputs)
+        if args.dry_run:
+            # Same contract the grid path gives the flag: build everything,
+            # dispatch nothing. Until 2026-08-17 --dry-run was simply not
+            # read here, so `submit <stage> --local --dry-run` ran the jobs
+            # for real -- the flag's whole promise, inverted, on the one
+            # path where "dispatch" means "start burning this node's cores".
+            #
+            # Deliberately BEFORE the marker/cluster writes below: those
+            # declare "this stage ran locally", and writing them without a
+            # run leaves cmd_poll/cmd_list_outputs hunting a wait.json that
+            # will never exist. Nothing above this point mutates stage
+            # state -- the cnf and code tarball are content-addressed build
+            # products, which is exactly what a dry run is FOR.
+            print(f"[{stage}] DRY-RUN: cnf built, not run: {cnf.name}")
+            return
         # INVARIANT (write half): marker FIRST, then the runid into
         # <stage>_cluster.txt. If the process dies between these two writes,
         # the residue is a marker with no cluster file (poll no-ops;

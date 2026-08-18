@@ -962,3 +962,92 @@ class TestWorkerLogPathsBothOutstageShapes(unittest.TestCase):
                  mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
                 found = pio._worker_log_paths("cfgF", "mubeam")
             self.assertEqual(found, [log])
+
+
+class TestStaleCodeTreeInvalidation(unittest.TestCase):
+    """runlocal unpacks the code tarball once per workdir and reuses it
+    forever after (its `.unpack-complete` sentinel answers "complete?",
+    never "from THIS tarball?"), so re-submitting the same (config, stage)
+    after a rebuild silently ran the OLD code -- measured 2026-08-17 as a
+    job failing rc=90 against a deleted include. These pin the
+    invalidation without disabling the reuse (several GB per unpack)."""
+
+    def _tarball(self, td, content):
+        t = Path(td) / "Code.tar.bz2"
+        t.write_text(content)
+        return t
+
+    def _tree(self, td):
+        """An already-unpacked tree with a payload file to watch."""
+        root = Path(td) / "local" / "code"
+        (root / "Code").mkdir(parents=True)
+        (root / "Code" / "payload.fcl").write_text("old")
+        (root / ".unpack-complete").write_text("")
+        return root
+
+    def test_tree_from_a_different_tarball_is_discarded(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            first = self._tarball(td, "A")
+            pex._invalidate_stale_code_tree(Path(td) / "local", first)
+            # Second call with DIFFERENT content at the same path: the
+            # geom-rebuild case, which the cache filename's extras-only
+            # token cannot distinguish.
+            os.utime(first, (1, 1))
+            second = self._tarball(td, "BB")
+            self.assertTrue(
+                pex._invalidate_stale_code_tree(Path(td) / "local", second))
+            self.assertFalse((root / "Code" / "payload.fcl").exists())
+
+    def test_tree_from_the_same_tarball_is_reused(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            t = self._tarball(td, "A")
+            # The first call stamps the tree -- and discards it, since a
+            # tree predating this guard is unstamped. Simulate the unpack
+            # runlocal would then do, and check the SECOND call keeps it.
+            pex._invalidate_stale_code_tree(Path(td) / "local", t)
+            (root / "Code").mkdir(parents=True, exist_ok=True)
+            (root / "Code" / "payload.fcl").write_text("kept")
+            self.assertFalse(
+                pex._invalidate_stale_code_tree(Path(td) / "local", t))
+            self.assertEqual((root / "Code" / "payload.fcl").read_text(),
+                             "kept")
+
+    def test_unstamped_preexisting_tree_is_discarded_once(self):
+        # A tree unpacked before this guard existed carries no stamp; it
+        # must be treated as unknown-provenance, not silently trusted.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            t = self._tarball(td, "A")
+            self.assertTrue(
+                pex._invalidate_stale_code_tree(Path(td) / "local", t))
+            self.assertFalse((root / "Code" / "payload.fcl").exists())
+            self.assertFalse(
+                pex._invalidate_stale_code_tree(Path(td) / "local", t))
+
+    def test_missing_tarball_leaves_the_tree_for_runlocal_to_refuse(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            self.assertFalse(pex._invalidate_stale_code_tree(
+                Path(td) / "local", Path(td) / "nope.tar.bz2"))
+            self.assertTrue((root / "Code" / "payload.fcl").exists())
+
+    def test_run_runlocal_invalidates_before_invoking(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(pex, "prodtools_root",
+                               return_value=Path("/fake/prodtools")):
+            root = self._tree(td)
+            t = self._tarball(td, "A")
+            wait_json = Path(td) / "mubeam_wait.json"
+
+            def run(cmd, **kw):
+                # By the time runlocal is invoked the stale tree must be
+                # gone -- otherwise it reuses it and never reads the new
+                # tarball at all.
+                self.assertFalse((root / "Code" / "payload.fcl").exists())
+                wait_json.write_text(json.dumps(_WAIT_LOCAL))
+                return subprocess.CompletedProcess(cmd, 0)
+
+            pex.run_runlocal(Path(td), Path(td) / "cnf.t.tar", 1, wait_json,
+                             {}, code_tarball=t, runner=run)
