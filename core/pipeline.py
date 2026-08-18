@@ -3,17 +3,36 @@
 Parametric grid pipeline orchestrator for the BO loop.
 
 Single canonical pipeline.py. Pass --config CFG; ROOT, GEOM_FILE, DSCONF,
-PNFS_STAGE and per-stage `desc` fields are derived from CFG. Stage templates
-live next to this script under pipeline_templates/<stage>/template.fcl with
-the geom basename slot marked `__GEOM_FILE__`; submit_stage materializes the
-template into <work_root>/<cfg>/state/<stage>_template_materialized.fcl
-before handing it to mu2ejobdef.
+PNFS_STAGE and per-stage `desc` fields are derived from CFG. The per-stage
+job description (Task 13, retiring the old
+pipeline_templates/<stage>/template.fcl files; Task 14, lifting Task 13's
+STAGE_FCL dict out to checked-in JSON) lives in `stage_entries/<stage>.json`,
+in json2jobdef's native entry schema: `fcl` is the published Production FCL
+path, `fcl_overrides` is the flat override dict a json2jobdef entry's
+`fcl_overrides` renders directly (prodtools write_fcl_template) -- exactly
+what the old templates were, minus the include boilerplate --
+`resampler_name`/`input_data`/`inloc`/`outloc`/`run`/`memory`/`events` are
+the rest of a json2jobdef entry that don't vary at runtime. `px.
+load_stage_entry` loads a stage's JSON and substitutes its `{cfg}`/`{geom}`
+placeholders; `_render_fcl_overrides` layers on the one substitution that
+JSON can't express (mustops_ce's stamp-first concat-less MaxEventsToSkip
+toggle). STAGES below keeps only the fields that mode_specs `stage_tuning`
+and `STAGE_TARGETS` actually tune (njobs/events_per_job/memory_mb/quorum),
+plus orchestration residue (desc_fmt/output_glob/merge_factor/
+dsconf_musing) -- see the comment block above `_render_fcl_overrides` for
+the per-stage-JSON-key rationale that used to sit beside STAGE_FCL's/
+STAGES' literals. The two stages whose overrides need an
+@sequence::-bearing FHiCL block that can't ride a JSON value (mubeam,
+run1b_mubeam) pull it in from static pipeline_templates/*.fcl files via the
+`'#include'` override key, shipped in the code tarball (write_code_tarball
+extra_files) the same way the geom overlay is. Both share
+sim_kept_products_extras.fcl; mubeam adds mubeam_targetstop_path.fcl.
 
 Per-config working tree (auto-created):
-  /exp/mu2e/data/users/oksuzian/autoresearch_grid/<cfg>/
+  <DATA_ROOT>/autoresearch_grid/<cfg>/
     geom/autoresearch_<cfg>_geom.txt   (placed by bo_driver.py propose)
     <stage>/                           (cnf tarballs, Code.tar.bz2)
-    state/                             (cluster IDs, output lists, materialized FCL)
+    state/                             (cluster IDs, output lists, entry JSON)
     harvest/                           (summary.json, EdepAna outputs)
 
 Stages run in sequence at a fixed BO knob point:
@@ -22,13 +41,20 @@ Stages run in sequence at a fixed BO knob point:
 Each stage is its own subcommand so a failed stage can be re-run without redoing
 the earlier ones.
 
-Polling uses jobsub_q --user=$USER and direct /pnfs ls.
-Outstage convention: /pnfs/mu2e/scratch/users/$USER/workflow/default/outstage/<CLUSTER>/00/<hash>/
+Polling uses prodtools jobwait (core/prodtools_exec.py:run_jobwait), which
+itself polls jobsub_q/condor history; autoresearch applies its own
+quorum/zero-ok acceptance policy on the wait.json it writes.
+Outstage convention (prodtools direct backend, since the prodtools switch):
+/pnfs/mu2e/scratch/users/$USER/workflow/default/outstage/<CLUSTER>/<PROC>/ --
+flat per-proc dirs, no zero-padded `00/<00000>/` sublevel (that shape is
+legacy mu2ejobsub; graph/pipeline_io.py's `_worker_log_paths` still checks
+it as a fallback for clusters submitted before the switch).
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import errno
 import fcntl
 import hashlib
 import json
@@ -42,7 +68,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-# Host-wide lock guarding the mu2ejobsub critical section. condor_vault_storer
+# Host-wide lock guarding the token-refresh + submit critical section
+# (originally mu2ejobsub, now prodtools' submit_entry). condor_vault_storer
 # races when N concurrent chains call submit within seconds; serializing the
 # token-refresh+submit block eliminates the "Failed to obtain weakened token"
 # crashes (see wiki/incidents/concurrent-token-contention.md).
@@ -97,9 +124,11 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 import harvest as hv  # noqa: E402
 # ModeSpec registry (ADR-0002): per-mode grid-tarball facts.
 import modes as _modes  # noqa: E402
+# Prodtools execution seam: entry rendering + the shared wait.json contract.
+import prodtools_exec as px  # noqa: E402
 
 # Canonical muse-built Code.tar.bz2 produced by `muse tarball` from
-# /exp/mu2e/app/users/oksuzian/autoresearch_muse/ (mgit Mu2eG4 sparse
+# <ARTIFACT_ROOT>/autoresearch_muse/ (mgit Mu2eG4 sparse
 # checkout of v13_12_10 + helical-plug.patch, backed by SimJob/Run1Bak).
 # Contains Code/setup.sh that does `muse setup $CODE_DIR -q e29 prof p094`,
 # so the local libs (incl. patched libmu2e_Mu2eG4.so with mu2e::makeHelicalPlug)
@@ -121,7 +150,12 @@ import modes as _modes  # noqa: E402
 MUSE_BASE_TARBALL = Path(
     _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilsflash")].grid_tarball)
 USER = os.environ["USER"]
-OUTSTAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/workflow/default/outstage")
+
+# Runtime state for the prodtools submission ledger (9f0c43c convention:
+# runtime writes live on /data, out of the repo checkout). Passed straight
+# to core/prodtools_submit_driver.py's --ledger, which creates its parent
+# directory itself before handing it to prodtools' SubmitOptions.
+LEDGER_DB = DATA_ROOT / "prodtools_ledger" / "submissions.db"
 
 # --- Per-config paths populated by main() once --config is parsed ---
 CONFIG: str = ""
@@ -153,39 +187,42 @@ def _stage_dsconf(stage: str) -> str:
     return f"{musing}_{CONFIG}" if musing else DSCONF
 
 
-# Per-stage knobs (config-invariant). desc_fmt and template path are derived
-# at submit time from CONFIG. Inputs that vary per config (geom basename) are
-# substituted into the template via __GEOM_FILE__ in submit_stage.
+# Orchestration residue (Task 14): only the fields mode_specs `stage_tuning`
+# and graph/config.py STAGE_TARGETS actually tune, plus desc_fmt/glob/
+# merge_factor, which never vary at runtime but aren't part of a
+# json2jobdef entry either. Everything that WAS here and IS static
+# json2jobdef-entry data (run_number, memory_mb, default_loc, the dead
+# `auxinput`/`ships_geom` fields) moved to stage_entries/<stage>.json or
+# was dropped -- see the comment block below _stage_extra_files for the
+# per-key rationale that used to sit beside those literals.
+#
+# `auxinput` (mubeam/run1b_mubeam/elebeam_flash) and `ships_geom` (every
+# stage) were DEAD before this task touched them -- grepped zero readers
+# anywhere in core/ or graph/, leftover from the pre-prodtools-switch
+# mu2ejobdef era (`auxinput` named a `*Cat.txt` filelist under
+# core/pipeline_templates/<stage>/ that today's SAM-query `input_data`/
+# `resampler_name` mechanism, in stage_entries/<stage>.json, superseded
+# without anyone deleting the STAGES literal that named it; those *.txt
+# files are themselves now orphaned on disk, out of this task's scope).
+# Not carried forward: reintroducing either would be inventing a field STAGES
+# never actually used, not preserving one it did.
 STAGES = {
     "mubeam": {
         "desc_fmt": "Run1A_MuBeam_{cfg}",
         "njobs": STAGE_TARGETS["mubeam"],
         "events_per_job": 5000,
-        "run_number": 1800,
-        "ships_geom": True,
-        "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'mubeam' / 'MuBeamCat.txt'}",
-        # MuBeamCat migrated persistent->tape 2026-07-13 (same migration as
-        # EleBeamCat 07-09); see wiki elebeamcat-tape-migration-elebeam-wipeout.
-        "default_loc": "tape",
         "output_glob": "sim.*.TargetStops.*.art",
     },
     "run1b_mubeam": {
         "desc_fmt": "Run1B_MuBeam_{cfg}",
         "njobs": STAGE_TARGETS["run1b_mubeam"],
         "events_per_job": 5000,
-        "run_number": 1810,
-        "ships_geom": True,
-        "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'run1b_mubeam' / 'MuBeamCat.txt'}",
-        # MuBeamCat migrated persistent->tape 2026-07-13 (see mubeam above).
-        "default_loc": "tape",
         "output_glob": "nts.*.mubeam.*.root",
     },
     "concat": {
         "desc_fmt": "Run1A_MuStopsCat_{cfg}",
         "njobs": STAGE_TARGETS["concat"],
         "merge_factor": 200,
-        "ships_geom": False,
-        "default_loc": "disk",
         "output_glob": "sim.*.MuminusStopsCat.*.art",
     },
     "mustops_ce": {
@@ -205,38 +242,209 @@ STAGES = {
         # σ(sob) 0.10→0.14; this configuration restores σ(sob).
         # Stamped at submit (see [[events-per-job-mid-flight-edit]]).
         "events_per_job": 2500,
-        "run_number": 1801,
-        "ships_geom": True,
-        "default_loc": "disk",
         "output_glob": "dts.*.CeEndpoint.*.art",
-        # 3000 MB (was 2500). SR00_00 worker logs showed VmPeak=2.75 GB on
-        # N_crit≈4144 jobs, exceeding the 2.2 GB allocation request and
-        # creating eviction risk. 3000 MB gives the high-N_crit tail
-        # comfortable headroom without burning slot-matchability.
-        "memory_mb": 3000,
     },
     # Electron-beam early-flash stage for the foilsflash BO line. Resamples the
-    # external EleBeamCat dataset (like mubeam resamples MuBeamCat — static
-    # auxinput filelist, NOT concat), DS-on, ships the per-BO foil geom, and
-    # writes EarlyEleBeamFlash StrawGasStep DetSteps. Harvest sums tracker
-    # ionizingEdep (reuses _extract_trk_edep_per_pot). See bo-foilsflash.
+    # external EleBeamCat dataset (like mubeam resamples MuBeamCat), DS-on,
+    # ships the per-BO foil geom, and writes EarlyEleBeamFlash StrawGasStep
+    # DetSteps. Harvest sums tracker ionizingEdep (reuses
+    # _extract_trk_edep_per_pot). See bo-foilsflash.
     "elebeam_flash": {
         "desc_fmt": "Run1A_EleBeamFlash_{cfg}",
         "njobs": STAGE_TARGETS["elebeam_flash"],
         "events_per_job": 2500,
-        "run_number": 1803,
-        "ships_geom": True,
-        "auxinput": f"1:physics.filters.beamResampler.fileNames:{TEMPLATES_ROOT / 'elebeam_flash' / 'EleBeamCat.txt'}",
-        # "tape" since 2026-07-10: EleBeamCat Run1Baa migrated persistent→tape
-        # on 2026-07-09. mu2ejobfcl derives the auxinput URL from THIS flag
-        # ("disk"==persistent), NOT from SAM — a stale value kills every job
-        # with FileOpenError at beamResampler. Files are dCache-online; verify
-        # locality before campaigns (wiki: elebeamcat-tape-migration-elebeam-wipeout).
-        "default_loc": "tape",
         "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
-        "memory_mb": 3000,
     },
 }
+
+def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
+    """Extras FCLs to ship in the submit's code tarball, derived from the
+    entry's fcl_overrides['#include']: a bare basename (no '/') can only
+    resolve from the tarball's search path, so it must ship from
+    TEMPLATES_ROOT; a published Production/... path resolves from the
+    release and ships nothing. Derived rather than kept as a parallel
+    stage->file dict so the JSON stays the single declaration -- a
+    basename included but not shipped would otherwise fail only at grid
+    run time. Today that means mubeam/run1b_mubeam's *_extras.fcl."""
+    inc = entry_tmpl.get("fcl_overrides", {}).get("#include", [])
+    if isinstance(inc, str):
+        inc = [inc]
+    return [TEMPLATES_ROOT / name for name in inc if "/" not in name]
+
+
+# Per-stage-JSON-key rationale (Task 14: this used to sit beside the STAGES
+# literals it explains, and beside Task 13's STAGE_FCL per-key values --
+# both retired to stage_entries/<stage>.json, which carries no comments
+# (JSON has none) and only a `_comment` pointer back to this block; edit
+# HERE when the rationale changes, not the JSON's `_comment` string).
+# Grouped by stage_entries/<stage>.json:
+#
+# mubeam.json:
+#   fcl_overrides['#include'] -- epilog_1b.fcl was the old template's 2nd
+#     #include; sim_kept_products_extras.fcl carries the two outputCommands
+#     blocks and mubeam_targetstop_path.fcl the targetStopPath restatement
+#     below (all @sequence::-bearing, so none of it can ride a JSON
+#     fcl_overrides value -- see those files). Split into two files
+#     2026-08-17: the outputCommands blocks were byte-identical to
+#     run1b_mubeam's, so the shared half is now included by both stages and
+#     only the path override is mubeam-only.
+#   fcl_overrides['physics.producers.g4run.physics.physicsListName'] --
+#     FTFP_BERT: -20% CPU on mubeam vs ShieldingM (n=200/200), with sob/calo
+#     deltas inside the ShieldingM-self noise floor on helicalQR00_02
+#     (graph027 A/B 2026-05-23). See wiki concepts/g4-speed-knobs.md.
+#   fcl_overrides has NO 'physics.filters.beamResampler.mu2e.MaxEventsToSkip'
+#     key (the old template hardcoded 319542): mubeam resamples the static
+#     MuBeamCat SAM dataset (not a dir:-inloc resampler), so json2jobdef
+#     auto-computes MaxEventsToSkip from SAM and appends it as a post_line,
+#     which beats every fcl_overrides entry (write_fcl_template's
+#     post_lines argument) -- carrying the frozen 319542 forward would be a
+#     silent lie even though it happens to equal today's SAM-derived value
+#     (validated identical for MuBeamCat Run1Baa, Task 11/13).
+#   fcl_overrides['services.GeometryService.inputFile'] = "{geom}" -- the
+#     per-BO-point geom overlay shipped inside code.tar (Code/setup.sh
+#     prepends Code/ to MU2E_SEARCH_PATH); px.load_stage_entry substitutes
+#     `{geom}` with the real basename at load time (Task 13's
+#     _GEOM_FILE_SENTINEL served the same role inside the Python dict).
+#   fcl_overrides['physics.filters.muminusSelector.*'] -- mu- purity filter
+#     folded in from concat's MuonStopSelector.fcl (2026-07-10): CeEndpoint
+#     throws BADINPUT on events with no stopped mu-, and TargetMuonFinder
+#     selects both charges ([13,-13]), so TargetStops must be mu- pure for
+#     TargetStopResampler to read these files directly (concat stage
+#     removed from the foilsflash chain). Same ParticleCodeFilter config as
+#     MuonStopSelector.fcl's muminusSelector. Backward-compatible for modes
+#     that keep concat: their muminusSelector then passes ~100% and
+#     MuplusStopsCat comes out empty (nothing consumes it). Validated via
+#     fhicl-dump 2026-07-09 (path assembly + prolog refs + SelectEvents).
+#     FLATTENED to 4 dotted leaf keys, not one nested-dict value: real
+#     prodtools campaign JSON (muse_050125/prodtools/data/Run1B/*.json)
+#     never nests a table literal in fcl_overrides, and Task 13's own
+#     offline validation showed why -- write_fcl_template's
+#     json.dumps({"module_type": ..., ...}) always quotes dict KEYS
+#     ("module_type": ...), and FHiCL table syntax requires bare (unquoted)
+#     key identifiers; a quoted-key table is a hard fhicl-get parse error
+#     ("detected at or near" the opening brace), reproduced directly
+#     against the real prodtools checkout. Flat dotted keys sidestep it
+#     entirely -- each is a plain scalar/list value, which json.dumps
+#     renders correctly.
+#   (not in the JSON -- lives in mubeam_targetstop_path.fcl) targetStopPath
+#     (restated from Production/JobConfig/pileup/MuBeamResampler.fcl:35
+#     with muminusSelector inserted after TargetStopFilter and before
+#     compressPVTargetStops) -- its @sequence:: entries can't ride a JSON
+#     fcl_overrides value.
+#
+# run1b_mubeam.json:
+#   fcl_overrides['#include'] -- sim_kept_products_extras.fcl, the SAME
+#     file mubeam includes, carries the two outputCommands blocks (they
+#     were byte-identical per-stage copies until 2026-08-17);
+#     run1b_mubeam has no targetStopPath/muminusSelector override -- Run1B
+#     keeps the published targetStopPath, so it does NOT include
+#     mubeam_targetstop_path.fcl.
+#   Run1B mubeam variant: DS field OFF + geom_run1_b_v06 baseline so muons
+#     stream straight downstream and we get a real calo_stop/POT
+#     measurement. Same MuBeamCat input as the Run1A mubeam stage; same
+#     per-iter BO geom overlay (bfgeom_DSOff.txt vs mubeam's bfgeom_v01.txt).
+#   physicsListName FTFP_BERT -- same rationale as the Run1A mubeam stage;
+#     the A/B was scoped to mubeam only, extended here on the assumption
+#     the CPU/noise tradeoff is similar. See wiki concepts/g4-speed-knobs.md.
+#   No MaxEventsToSkip key -- same Cat-resampler auto-compute post_line
+#     rule as mubeam.json above.
+#
+# concat.json:
+#   fcl_overrides -- MuonStopSelector reads source.fileNames (filled by
+#     prodtools json2jobdef from the entry's input_data/inloc fields -- was
+#     mu2ejobdef --inputs before the prodtools switch) and writes
+#     mu-/mu+ TargetStops into separate art files. No G4, no geometry
+#     dependency, so the BO geom overlay is NOT shipped with this stage (no
+#     services.GeometryService key, no 'fcl' base needing one).
+#
+# mustops_ce.json:
+#   fcl_overrides -- re-runs G4 on Ce primaries placed at resampled mu-
+#     stop positions. Geometry-dependent, so the BO geom overlay travels
+#     with this stage via --code (same {geom} placeholder mechanism).
+#     physics.filters.TargetStopResampler.fileNames is filled by prodtools
+#     json2jobdef from the entry's resampler_name/input_data/inloc fields
+#     (see render_entry; was mu2ejobdef --auxinput=... before the prodtools
+#     switch).
+#   physicsListName FTFP_BERT -- extends the mubeam A/B result to the Ce
+#     signal stage. This affects the sob numerator directly, so monitor
+#     the first round's sob values vs the leaderboard history for
+#     divergence. See wiki concepts/g4-speed-knobs.md.
+#   fcl_overrides['physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip']
+#     = 100720 -- REQUIRED: the prolog leaves this @nil so we must override
+#     or art aborts at ResamplingMixer construction. mustops_ce is a
+#     dir:-inloc resampler (json2jobdef's auto-compute is skipped for dir:
+#     input_data -- there is no SAM dataset to query), so unlike
+#     mubeam/run1b_mubeam/elebeam_flash this value MUST ride
+#     fcl_overrides -- no post_line rescues a missing/wrong value here.
+#     100720 matches the local autoresearch fcl. `_render_fcl_overrides()`
+#     overrides this to 8000 for concat-less chains (hv.concatless --
+#     folded in from the old _materialize_template's stamp-first
+#     conditional, unchanged rule: concat-less jobs each read ONE mubeam
+#     file (~16k mu- stop events for the 37-foil base +- extras) instead of
+#     the merged concat file (~240k events), so the random skip must stay
+#     below the smallest plausible file) -- this is the one substitution
+#     point that stays in Python, since it depends on submit-time chain
+#     state (hv.concatless), not anything the static JSON can express.
+#   "memory": 3000 (was STAGES["mustops_ce"]["memory_mb"] pre-Task-14) --
+#     3000 MB, was 2500: SR00_00 worker logs showed VmPeak=2.75 GB on
+#     N_crit≈4144 jobs, exceeding the 2.2 GB allocation request and
+#     creating eviction risk. 3000 MB gives the high-N_crit tail
+#     comfortable headroom without burning slot-matchability.
+#
+# elebeam_flash.json:
+#   fcl_overrides -- bo-foilsflash 2nd objective: tracker StrawGasStep edep
+#     from the electron-beam EARLY-FLASH peak with DS ON. EleBeamResampler
+#     runs both flashPath + earlyFlashPath (trigger_paths default); we keep
+#     both and harvest only the EARLY output. FTFP_BERT matches mubeam
+#     (-20% CPU). ASCII-only (FHiCL strict).
+#   No MaxEventsToSkip key -- elebeam_flash resamples the static EleBeamCat
+#     SAM dataset (not dir:-inloc), same Cat-resampler auto-compute
+#     post_line rule as mubeam.json above.
+#   fcl_overrides['physics.filters.EarlyPrescaleFilter.nPrescale'] = 1 --
+#     early-flash peak = un-time-cut stream -> harvest globs the
+#     EarlyEleBeamFlash file (see STAGES['elebeam_flash']['output_glob']).
+#     NO PRESCALE: the production default drops 999/1000 early events
+#     (EarlyEleBeamFlashPrescale=1000, a data-volume convenience). The
+#     early flash is OUR BO OBJECTIVE, so we keep every event (nPrescale=1)
+#     for ~32x lower per-event flash_edep noise. g4run already runs for
+#     all events regardless; only StepSim CPU + output grow. The filter
+#     sits first in EarlyDetStepSequence (pileup/prolog.fcl:355-359).
+#   "memory": 3000 (was STAGES["elebeam_flash"]["memory_mb"] pre-Task-14) --
+#     same 2500->3000 MB bump as mustops_ce, same eviction-risk rationale.
+#
+# All five: "inloc" = each stage's STAGES["<stage>"]["default_loc"]
+#   pre-Task-14 literal; "tape" since the 2026-07 MuBeamCat/EleBeamCat
+#   persistent->tape migrations (see wiki
+#   elebeamcat-tape-migration-elebeam-wipeout.md) for the Cat-resampler
+#   stages, "disk" for concat/mustops_ce's staged-input default (rarely hit
+#   in practice -- both are called with staged_inputs from cmd_submit's
+#   real callers, which override inloc to `dir:<farm>`).
+
+
+def _render_fcl_overrides(stage: str, entry_tmpl: dict | None = None) -> dict:
+    """stage_entries/<stage>.json 'fcl_overrides' (Task 14: loaded via
+    px.load_stage_entry, {cfg}/{geom} already substituted there) with the
+    one remaining per-call substitution point applied: mustops_ce's
+    concat-less MaxEventsToSkip toggle (stamp-first hv.concatless rule --
+    see the mustops_ce.json comment block above).
+
+    `entry_tmpl`: pass the caller's ALREADY-loaded px.load_stage_entry()
+    result to avoid a second disk read (submit_stage_prodtools / cmd_submit's
+    local branch both need the rest of the template too -- fcl/resampler_name/
+    input_data/inloc/run/memory/outloc); omit it (the default) to load fresh,
+    which every direct test call below does. Either way px.load_stage_entry
+    builds a NEW dict from disk each time it's called (no cached/shared
+    object), so passing the same `entry_tmpl` into two calls -- or letting
+    two calls each load their own -- can never let one caller observe
+    another's edit.
+    """
+    entry = entry_tmpl if entry_tmpl is not None else px.load_stage_entry(
+        stage, cfg=CONFIG, geom=GEOM_FILE.name)
+    overrides = dict(entry.get("fcl_overrides", {}))
+    if stage == "mustops_ce" and hv.concatless(STATE, CONCATLESS):
+        overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"] = 8000
+    return overrides
+
 
 # There is NO mode-specific tuning block here. Per-stage tuning for the flash
 # lines (foilsflash/foilspf) is declared in mode_specs/<mode>.json
@@ -336,28 +544,30 @@ def _check_stage_config_sha(stage: str) -> None:
         )
 
 
-def _materialize_template(stage: str) -> Path:
-    """Read pipeline_templates/<stage>/template.fcl, substitute __GEOM_FILE__;
-    write to <STATE>/<stage>_template_materialized.fcl and return that path.
+def _cnf_build_env(env: dict) -> dict:
+    """env for px.build_cnf's json2jobdef subprocess call.
+
+    json2jobdef writes its own wrapper `template.fcl` locally (`#include
+    "<fcl>"` + the fcl_overrides '#include' key's extra includes) and
+    resolves every include via fhicl-get, which consults ONLY
+    $FHICL_FILE_PATH (confirmed empirically: fhicl-get does NOT fall back to
+    cwd, even though build_cnf's subprocess cwd is the stage dir; this is
+    the Task 11 empirical-validation finding, .superpowers/sdd/
+    2026-08-16-prodtools-switch/task-11-report.md, finding 1). The published
+    Production FCL paths (entry `fcl`, epilog_1b.fcl, ...) resolve through
+    the sourced env's own SimJob/Production search path already in
+    FHICL_FILE_PATH -- but the mubeam/run1b_mubeam extras fcl
+    (stage_entries/<stage>.json's '#include' key, a bare basename -- see
+    _stage_extra_files) does NOT,
+    since it lives permanently in core/pipeline_templates/, not inside any
+    Offline product. Prepending TEMPLATES_ROOT unconditionally is harmless
+    for stages that don't reference an extras fcl (an unused search-path
+    entry is a no-op) and is what Task 13 replaced the old per-config
+    STATE-dir prepend with (that directory held the now-deleted
+    _materialize_template output, not TEMPLATES_ROOT's static files).
     """
-    src = TEMPLATES_ROOT / stage / "template.fcl"
-    text = src.read_text()
-    text = text.replace("__GEOM_FILE__", GEOM_FILE.name)
-    # Stamp-aware concat-less decision: the Eval's own stage-chain stamp wins
-    # (written by cmd_submit before materialization); the env-derived global
-    # is only the fallback for pre-stamp legacy configs.
-    if stage == "mustops_ce" and hv.concatless(STATE, CONCATLESS):
-        # The shared template's MaxEventsToSkip (100720) is tuned to the
-        # merged concat file (~240k events). Concat-less jobs each read ONE
-        # mubeam file (~16k mu- stop events for the 37-foil base +- extras);
-        # the random skip must stay below the smallest plausible file.
-        text += (
-            "\n# concat-less override (see graph/config.py foilsflash chain)\n"
-            "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip: 8000\n"
-        )
-    out = STATE / f"{stage}_template_materialized.fcl"
-    out.write_text(text)
-    return out
+    return {**env, "FHICL_FILE_PATH":
+            f"{TEMPLATES_ROOT}:{env.get('FHICL_FILE_PATH', '')}"}
 
 
 def run(cmd, *, env=None, check=True, capture=True):
@@ -380,11 +590,24 @@ def run(cmd, *, env=None, check=True, capture=True):
 def sourced_env(extra="", *, with_muse=False) -> dict:
     """Return an env dict with setupmu2e-art.sh + Run1Bak musing + mu2egrid sourced.
 
-    Use for invoking mu2ejobdef / mu2ejobsub from Python so the child process
-    sees the right PATH, MU2E_*_PATH, etc. Set with_muse=True for the harvest
-    step, which needs the EdepAna module built into our own autoresearch_muse
-    work area (mmackenz's copy went away at his p094→p101 bump, 2026-06-26).
+    Use for invoking mu2e / the prodtools binaries (json2jobdef, runlocal,
+    jobwait, submit_entry) from Python so the child process sees the right
+    PATH, MU2E_*_PATH, etc. Set with_muse=True for the harvest step, which
+    needs the EdepAna module built into our own autoresearch_muse work area
+    (mmackenz's copy went away at his p094→p101 bump, 2026-06-26).
     """
+    # `muse setup` is ONE-SHOT per shell, and run_sourced_bash inherits this
+    # process's env, so a launching shell that already ran it makes every
+    # prelude below fail with "ERROR - Muse already setup for directory" --
+    # then burn all four retries (~50 s) on a condition no retry can fix,
+    # and surface as a bare CalledProcessError with the cause 500 lines up.
+    # The README says not to pre-source; this is that rule, enforced.
+    if os.environ.get("MUSE_WORK_DIR"):
+        raise SystemExit(
+            f"muse is already set up in this shell "
+            f"(MUSE_WORK_DIR={os.environ['MUSE_WORK_DIR']}).\n"
+            f"pipeline.py sources its own environment per stage, and muse "
+            f"setup cannot run twice in one shell. Start a fresh shell.")
     if with_muse:
         # Use our own autoresearch_muse work area (same one that produces the
         # base Code.tar.bz2). `-q p094` is required: without it muse picks
@@ -399,19 +622,27 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # build/al9-prof-e29-p094/Run1BAna/lib/librun1bana_workflows_EdepAna_module.so`.
         # 2026-06-26: switched off mmackenz's hardcoded path after he bumped
         # p094→p101 and deleted it. See wiki/incidents/mmackenz-edepana-lib-qualifier-bump.md.
-        mmlib = "/exp/mu2e/app/users/oksuzian/autoresearch_muse/build/al9-prof-e29-p094/Run1BAna/lib"
+        import paths  # see core/paths.py
+        # require(), not artifact(), for the same reason as MUSING below: a
+        # miss here becomes `cd <nonexistent>` -> rc=1, indistinguishable
+        # from the cvmfs flake the retry loop exists for.
+        _muse = paths.require(paths.artifact("autoresearch_muse"),
+                              "the autoresearch_muse work area (harvest's "
+                              "EdepAna lib)")
+        mmlib = str(_muse / "build/al9-prof-e29-p094/Run1BAna/lib")
         prelude = (
-            "cd /exp/mu2e/app/users/oksuzian/autoresearch_muse && "
+            f"cd {_muse} && "
             f"source {SETUPMU2E} >/dev/null 2>&1 && "
             "muse setup -q p094  >/dev/null 2>&1 && "
             f"export CET_PLUGIN_PATH={mmlib}:$CET_PLUGIN_PATH && "
             f"export LD_LIBRARY_PATH={mmlib}:$LD_LIBRARY_PATH && "
         )
     else:
-        # `muse setup ops` (spack-native) provides the mu2egrid binaries
-        # (/cvmfs/.../artexternals/mu2egrid/v8_03_02/bin/{mu2ejobsub,
-        # mu2ejobdef,mu2eprodsys}) via the active Musing's env, replacing the
-        # legacy UPS `setup mu2egrid`.
+        # `muse setup ops` (spack-native) provides mu2e's grid/ops tooling
+        # (condor/jobsub_lite client bits prodtools' own binaries shell out
+        # to; historically also the mu2egrid mu2ejobsub/mu2ejobdef binaries,
+        # retired with the prodtools switch) via the active Musing's env,
+        # replacing the legacy UPS `setup mu2egrid`.
         # NOTE: this swap does NOT prevent rc=127. That failure comes from a
         # transient [Errno 5] inside setupmu2e-art.sh (cvmfs read flake OR
         # the NFSv4.0 seqid wedge on ~/.spack locks -- see wiki/incidents/
@@ -419,6 +650,21 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # unsourced and the `muse` function undefined -- upstream of this
         # line. The retry loop below is what actually recovers it.
         # See wiki/incidents/sourced-env-stderr-swallowed.md.
+        #
+        # Stat MUSING before handing it to bash. `source` on a missing file is
+        # rc=1 -- the same rc as the flake above -- so an unresolvable musing
+        # burned all four retries and then named only the command line. The
+        # ${ARTIFACT} token makes this reachable by ordinary use: it resolves
+        # under the CALLING operator's app area, so anyone who has not built
+        # the partial Offline tree (or set `./setup.sh --backing`) hits it on
+        # their first submit. preflight's paths.verify() already covers it,
+        # but `pipeline.py ... submit <stage>` is driven directly for stalled-
+        # chain recovery and never runs preflight.
+        #
+        # SETUPMU2E is deliberately NOT checked: it lives on cvmfs, where
+        # "missing" is usually the transient condition the retries recover.
+        import paths  # see core/paths.py
+        paths.require(MUSING, "the mode's musing setup script")
         prelude = (
             f"source {SETUPMU2E} && "
             f"source {MUSING} && "
@@ -428,7 +674,12 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
     # concurrent setups the nashome lock races/corrupts -> [Errno 5] during
     # spack load. See wiki/incidents/foilsx04-all-preflight-ambiguous.md.
     spack_cache = f"/tmp/spack_cache_{os.environ.get('USER','x')}"
-    cmd = f"export SPACK_USER_CACHE_PATH={spack_cache} && {prelude}{extra} env"
+    # `env -0` (NUL-delimited records), not plain `env`: a value may itself
+    # contain newlines -- every exported shell function does
+    # ("BASH_FUNC_muse%%=() {  source ${MUSE_DIR}/bin/muse\n}") -- so a
+    # line-based read cannot tell a value's second line from the next
+    # variable. NUL is the one byte an environment entry cannot hold.
+    cmd = f"export SPACK_USER_CACHE_PATH={spack_cache} && {prelude}{extra} env -0"
     # Transient [Errno 5] env-source failures (cvmfs read flake OR NFSv4.0
     # seqid wedge on ~/.spack locks; the run_sourced_bash seam now keeps
     # those locks off NFS entirely) leave museDefine.sh unsourced -> `muse`
@@ -455,16 +706,69 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
             output=proc.stdout,
             stderr=f"{proc.stderr}\n[sourced_env] full log: {err_path}\n[sourced_env] stderr tail:\n{tail}",
         )
+    # Exported shell functions (BASH_FUNC_<name>%%) are KEPT, and keeping
+    # them whole is the point of `env -0` above. `muse` is a bash FUNCTION
+    # from setupmu2e-art.sh, not a binary, and a local job needs it: prodtools
+    # runlocal runs `bash -c 'source Code/setup.sh && mu2e -c ...'`, whose
+    # line 4 is `muse setup $CODE_DIR -q p101 e29 prof`. Drop the function and
+    # that job dies rc=127 "muse: command not found" in ~1 s, which reaches
+    # the operator two stages later as "mubeam_outputs.txt is empty".
+    # (Grid workers source their own env, so this only ever bit the local
+    # path -- and only after execution moved to runlocal, which is why the
+    # pre-switch local executor tolerated dropping them.)
     env = {}
-    for line in proc.stdout.splitlines():
-        if "=" not in line:
+    for record in proc.stdout.split("\0"):
+        if "=" not in record:
             continue
-        k, _, v = line.partition("=")
+        k, _, v = record.partition("=")
         env[k] = v
     return env
 
 
-def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Path:
+def _extra_files_digest(extra_files: list[Path] | None) -> str:
+    """Order-independent content digest of (basename, bytes) for every
+    extra_file — the cache-staleness signal for write_code_tarball.
+
+    Content, not mtime: a resubmit/retry re-passes the same static
+    _stage_extra_files(stage) list every time (mubeam/run1b_mubeam's extras
+    fcl is a fixed repo file, not a per-config materialization since Task
+    13), so an mtime-only gate would see the SAME mtime on every call and
+    could never distinguish "same stage, reuse" from "different stage
+    (empty extra_files -> non-empty, or vice versa), must rebuild" without
+    also checking content. A content digest gets both right: a same-stage
+    resubmit reuses the cache, while a genuinely different extra_files set
+    (or an edited extras fcl) invalidates it.
+    """
+    h = hashlib.sha256()
+    for f in sorted(extra_files or [], key=lambda p: p.name):
+        h.update(f.name.encode())
+        h.update(b"\0")
+        h.update(f.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _cache_token(extra_files: list[Path] | None) -> str:
+    """8-hex-char cache-FILENAME token for extra_files' content, or the
+    stable literal "plain" for a stage with none.
+
+    I1 fix: pre-fix, the cache path was `Code.<base>.tar.bz2` — ONE name per
+    (config, base_tarball) regardless of extra_files, so a config's mubeam
+    submit (extras=the two mubeam includes) and its mustops_ce submit (none)
+    fought over the SAME cache file: each stage's submit invalidated the
+    other's (their _extra_files_digest differ), forcing a full unpack+
+    rebzip2 (~7-12 min) on nearly every stage instead of reusing across a
+    resubmit/retry of the SAME stage. Folding the digest into the filename
+    gives each (base, extras-variant) its own cache slot, so mubeam,
+    run1b_mubeam (a different extras fcl), and the no-extras stages
+    (concat/mustops_ce/elebeam_flash) each build once and reuse thereafter
+    — see TestWriteCodeTarballExtraFiles.
+    """
+    return _extra_files_digest(extra_files)[:8] if extra_files else "plain"
+
+
+def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
+                       extra_files: list[Path] | None = None) -> Path:
     """Build Code.tar.bz2 for the --code path.
 
     Extracts the chosen muse-built base tarball, drops the per-config geom
@@ -476,6 +780,12 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
     base_tarball overrides MUSE_BASE_TARBALL — used by a stage whose backing
     musing differs from the default helical-patched Run1Bak tree (via
     STAGES[stage]["code_tarball"]).
+
+    extra_files: additional files copied into Code/ beside the geom -- since
+    Task 13, the static mubeam/run1b_mubeam extras fcl (_stage_extra_files;
+    empty for every other stage), whose basename is what the fcl_overrides
+    '#include' key references. The worker's setup_post.sh search path
+    resolves it at job runtime, same mechanism as the geom.
     """
     if base_tarball is None:
         base_tarball = MUSE_BASE_TARBALL
@@ -488,18 +798,31 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
     if not base_tarball.exists():
         raise SystemExit(f"muse base tarball missing: {base_tarball}")
 
-    # Per-config cache (2026-07-10): the tarball content is fully determined
-    # by (base_tarball, GEOM_FILE), both identical across a config's stages,
-    # so build ONCE per config and reuse — was ~7-12 min of unpack+rebzip2
-    # per stage per child, 2/3 of it redundant (~10 min/eval critical path +
-    # 3x disk churn; see bo-noise-budget tarball lever). Guard: cache must be
-    # newer than both inputs (a re-proposed geom or a rebuilt base
-    # invalidates). A config's submits are serial (incl. the elebeam
-    # presubmit, which runs inside the mubeam node), so no build race.
-    cache = ROOT / f"Code.{base_tarball.stem.split('.')[0]}.tar.bz2"
+    # Per-config, per-extras-variant cache (2026-07-10; filename-scoped by
+    # extras digest since I1, 2026-08-16): the tarball content is fully
+    # determined by (base_tarball, GEOM_FILE, extra_files) — build ONCE per
+    # (config, base, extras variant) and reuse — was ~7-12 min of unpack+
+    # rebzip2 per stage per child, 2/3 of it redundant (~10 min/eval
+    # critical path + 3x disk churn; see bo-noise-budget tarball lever).
+    #
+    # extra_files staleness is CONTENT-based (_extra_files_digest), not
+    # mtime — see that function's docstring. I1: folding the digest (via
+    # _cache_token) into the cache FILENAME means each stage's extras
+    # variant gets its own cache slot, so mubeam/run1b_mubeam/no-extras
+    # stages no longer evict and rebuild each other's cache on every
+    # submit within a config (the thrash the plain per-(config,base) name
+    # caused — see _cache_token's docstring). A digest sidecar file next to
+    # the cache still records the full digest baked into it, as a second
+    # (defense-in-depth) staleness check beyond the filename itself.
+    current_digest = _extra_files_digest(extra_files)
+    cache = ROOT / (f"Code.{base_tarball.stem.split('.')[0]}."
+                    f"{_cache_token(extra_files)}.tar.bz2")
+    digest_file = cache.parent / f"{cache.name}.extra_files_sha256"
     if (cache.exists()
             and cache.stat().st_mtime > GEOM_FILE.stat().st_mtime
-            and cache.stat().st_mtime > base_tarball.stat().st_mtime):
+            and cache.stat().st_mtime > base_tarball.stat().st_mtime
+            and digest_file.exists()
+            and digest_file.read_text().strip() == current_digest):
         print(f"[tarball] reusing cached {cache.name}", flush=True)
         return cache
 
@@ -508,6 +831,8 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
         shutil.rmtree(code_dir)
     run(["tar", "xjf", str(base_tarball), "-C", str(stage_dir)])
     shutil.copy(GEOM_FILE, code_dir / GEOM_FILE.name)
+    for f in (extra_files or []):
+        shutil.copy(f, code_dir / f.name)
     (code_dir / "setup_post.sh").write_text(
         'export MU2E_SEARCH_PATH="$CODE_DIR:$MU2E_SEARCH_PATH"\n'
         'export FHICL_FILE_PATH="$CODE_DIR:$FHICL_FILE_PATH"\n'
@@ -519,17 +844,42 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None) -> Pat
     tmp = cache.with_suffix(".tmp")
     shutil.move(tarball, tmp)
     tmp.rename(cache)  # atomic within ROOT: readers never see a partial file
+    digest_file.write_text(current_digest)
     shutil.rmtree(code_dir, ignore_errors=True)
     return cache
 
 
-def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> tuple[Path, Path]:
+def _input_stage_for(stage: str) -> str:
+    """Which stage's outputs feed `stage`: concat <- mubeam; mustops_ce <-
+    mubeam-or-concat, stamp-first (hv.concatless) so a concat-era config
+    resubmitted under a concat-less env keeps staging its concat outputs.
+    The one owner of that topological fact for both executors -- the grid
+    and --local staging branches of cmd_submit must agree."""
+    if stage == "concat":
+        return "mubeam"
+    return "mubeam" if hv.concatless(STATE, CONCATLESS) else "concat"
+
+
+def _merge_factor_for(stage: str, n_sources: int) -> int:
+    """CLAMPED merge factor (min(configured, n_sources)) for a merging
+    stage, else 1. mu2ejobdef used to yield ZERO jobs when the merge
+    factor exceeded the input count (Task 7 controller resolution #2);
+    prodtools' behavior at that corner is unvalidated, so the clamp is
+    our guard, applied by every input_map builder through this one
+    function."""
+    cfg = STAGES[stage]
+    return min(cfg["merge_factor"], n_sources) if "merge_factor" in cfg else 1
+
+
+def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> Path:
     """Build a /pnfs hard-link farm so all input files appear in one dir.
 
-    Needed because mu2ejobdef's --inputs only accepts basenames, and
-    mu2ejobsub's --default-location dir:DIR assumes all files live in DIR.
-    Hard links (not symlinks): xrootd doors don't follow /pnfs symlinks, but
-    hard links share the same dCache namespace entry. Returns (staged_dir, basenames_file).
+    Needed because prodtools' entry input_data is keyed by BASENAME only
+    (same constraint the retired mu2ejobdef --inputs / mu2ejobsub
+    --default-location dir:DIR had), and the entry's `inloc` assumes every
+    one of them lives in one DIR. Hard links (not symlinks): xrootd doors
+    don't follow /pnfs symlinks, but hard links share the same dCache
+    namespace entry. Returns the staged dir.
     """
     staged_dir = PNFS_STAGE / stage
     if staged_dir.exists():
@@ -537,95 +887,52 @@ def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> tuple[Path, Pat
             p.unlink()
     else:
         staged_dir.mkdir(parents=True, exist_ok=True)
-    basenames = []
     for src in source_paths:
-        link = staged_dir / src.name
-        os.link(src, link)
-        basenames.append(src.name)
-    basenames_file = STATE / f"{stage}_basenames.txt"
-    basenames_file.write_text("\n".join(basenames) + "\n")
-    print(f"[{stage}] hard-linked {len(basenames)} files into {staged_dir}")
-    return staged_dir, basenames_file
+        os.link(src, staged_dir / src.name)
+    print(f"[{stage}] hard-linked {len(source_paths)} files into {staged_dir}")
+    return staged_dir
 
 
-def _grid_setup_sh() -> str:
-    """Worker-visible setup script for stages submitted with --setup.
+def local_input_farm(stage: str, sources: list[Path]) -> tuple[Path, dict]:
+    """Local analogue of stage_hardlink_farm: flat farm of a consuming
+    stage's local inputs at ROOT/<stage>/local_inputs.
 
-    MUSING may point at a LOCAL patched workdir's setup_local.sh (preflight
-    parity with the patched grid tarball — see
-    wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md).
-    Grid workers cannot see /exp, and the --setup path is sourced ON the
-    worker (mu2ejobsub.sh) — handing it a local path kills the job at setup
-    (foilsgV01 concat, 2026-06-12). Stages that use --setup instead of
-    --code (concat) run no geometry code, so the workdir's cvmfs *backing*
-    Musing is always sufficient: resolve it from the `backing` symlink.
+    The prodtools entry's `inloc: dir:<path>` assumes every input lives
+    directly in that one directory, and a local stage's previous-stage
+    outputs are spread one-dir-per-job-index -- the same constraint
+    stage_hardlink_farm collects for /pnfs, on a POSIX-local tree instead.
+
+    Hard links (cheap for large .art files), falling back to a copy across a
+    filesystem boundary (OSError EXDEV): unlike /pnfs, where every staged
+    path shares one dCache namespace, a local outstage tree and ROOT can
+    legitimately land on different filesystems. A symlink would also read
+    fine locally (the xrootd-door restriction that forces hard links on
+    /pnfs doesn't apply here), but the brief calls for a copy fallback, and
+    a copy also survives the source tree being cleaned up later.
+
+    Returns (farm_dir, {basename: merge_or_1}): the merge value is
+    _merge_factor_for's clamped factor (1 for a non-merging stage).
     """
-    if MUSING.startswith("/cvmfs/"):
-        return MUSING
-    backing = Path(MUSING).parent / "backing"
-    target = Path(os.path.realpath(backing))
-    if not str(target).startswith("/cvmfs/"):
-        raise SystemExit(
-            f"MUSING {MUSING} is local and {backing} does not resolve to a "
-            f"/cvmfs Musing — cannot build a worker-visible --setup jobdef"
-        )
-    return str(target / "setup.sh")
-
-
-def _probe_input_urls(stage: str, fcl_text: str) -> None:
-    """Verify job-0's resolved input files are readable BEFORE submitting.
-
-    EleBeamCat migrated persistent→tape mid-campaign (2026-07-09) and every
-    elebeam job died at FileOpenError ~30 s in: the URL comes from OUR
-    --default-location flag ('disk'==persistent), not SAM, so a stale
-    location silently kills the whole cluster. Probing the resolved URLs
-    turns 2,000 dead jobs into one loud submit-time error.
-
-    This is the AUTHORITATIVE gate for the incident class (the scan patterns
-    in graph/pipeline_io.py stay report-only). FAIL-CLOSED (2026-07-11,
-    friction-survey FP-5): the original version skipped any URL that didn't
-    match one hardcoded door name — a door rename would have recreated the
-    wipeout with the probe green on zero probes. Now any xrootd URL whose
-    path can't be mapped to a /pnfs NFS probe is a submit-time error, not a
-    skip. Emergency bypass: AUTORESEARCH_SKIP_INPUT_PROBE=1.
-    A stage whose FCL has NO xrootd inputs (no auxinput) probes nothing.
-    """
-    if os.environ.get("AUTORESEARCH_SKIP_INPUT_PROBE") == "1":
-        print(f"[{stage}] input probe SKIPPED (AUTORESEARCH_SKIP_INPUT_PROBE=1)",
-              flush=True)
-        return
-    urls = list(dict.fromkeys(re.findall(r'"(x?root://[^"]+\.art)"', fcl_text)))
-    if not urls:
-        return
-    probes = []
-    unmapped = []
-    for u in urls:
-        m = re.match(r"x?root://[^/]+//pnfs/fnal\.gov/usr/mu2e/(.+)", u)
-        if m:
-            probes.append(Path("/pnfs/mu2e") / m.group(1))
-        else:
-            unmapped.append(u)
-    if unmapped:
-        raise SystemExit(
-            f"[{stage}] input probe cannot map {len(unmapped)} xrootd URL(s) "
-            f"to /pnfs for a liveness check (first: {unmapped[0]}). "
-            f"Refusing to submit blind — this fail-open path is how the "
-            f"EleBeamCat tape-wipeout recurs. Extend _probe_input_urls's "
-            f"mapping or set AUTORESEARCH_SKIP_INPUT_PROBE=1 to override.")
-    # Probes are independent — fan out so wall time is max(probe), not sum
-    # (each dd blocks up to 10 s on a sick pool).
-    procs = [(p, subprocess.Popen(
-        ["timeout", "10", "dd", f"if={p}", "of=/dev/null", "bs=64k", "count=1"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        for p in probes[:4]]
-    for p, proc in procs:
-        if proc.wait() != 0:
-            raise SystemExit(
-                f"[{stage}] input probe FAILED: {p} not readable — dataset "
-                f"moved (persistent→tape?) or wrong default_loc; fix "
-                f"STAGES['{stage}']['default_loc'] before submitting. "
-                f"See wiki elebeamcat-tape-migration-elebeam-wipeout.")
-        print(f"[{stage}] input probe OK: {p.name}", flush=True)
+    farm_dir = ROOT / stage / "local_inputs"
+    if farm_dir.exists():
+        for p in farm_dir.iterdir():
+            p.unlink()
+    else:
+        farm_dir.mkdir(parents=True, exist_ok=True)
+    merge = _merge_factor_for(stage, len(sources))
+    input_map = {}
+    for src in sources:
+        src = Path(src)
+        link = farm_dir / src.name
+        try:
+            os.link(src, link)
+        except OSError as e:
+            if e.errno != errno.EXDEV:
+                raise
+            shutil.copy2(src, link)
+        input_map[src.name] = merge
+    print(f"[{stage}] local-farmed {len(input_map)} file(s) into {farm_dir}")
+    return farm_dir, input_map
 
 
 TOKEN_REFRESH_AGE_S = 3600  # refresh the shared bearer token when >1h old
@@ -669,229 +976,457 @@ def _maybe_refresh_token(stage: str) -> None:
             tok.returncode, "getToken", output=tok.stdout, stderr=tok.stderr)
 
 
-def submit_stage(stage: str, env: dict, *, inputs_file: Path | None = None,
-                 staged_input_dir: Path | None = None, dry_run: bool = False) -> int | None:
-    """Build cnf via mu2ejobdef, smoke-test with mu2ejobfcl, submit via mu2ejobsub.
+def stamp_local_events(stage: str, events: int) -> Path:
+    """Stamp the LOCAL events-per-job so harvest scales by what actually ran.
 
-    Returns the cluster id (or None for dry-run).
+    harvest reads this file, not STAGES[stage]["events_per_job"]. Stamping the
+    configured value while running fewer events biases every derived metric by
+    the ratio -- the failure class of events-per-job-mid-flight-edit.
+    """
+    out = STATE / f"{stage}_events_per_job.txt"
+    out.write_text(f"{events}\n")
+    return out
+
+
+def _render_and_build_cnf(stage, cfg, entry_tmpl, *, desc, dsconf, stage_dir,
+                          env, njobs, events,
+                          staged_inputs) -> tuple[Path, Path, Path, str | None]:
+    """Shared render -> build sequence for both the grid path
+    (submit_stage_prodtools) and cmd_submit's --local runlocal branch:
+    write_code_tarball -> render_entry -> write_entry -> build_cnf.
+
+    Consolidated 2026-08-16 (review finding C1): the two call sites had
+    carried this sequence duplicated since Task 4/6, and the duplication is
+    exactly where the local branch's missing --inloc bug hid -- one call
+    site got a review fix (staged_inputs -> inloc) that the other silently
+    never picked up. One function now renders the SAME inloc expression for
+    both, and hands it back so a local caller can pass that exact value to
+    px.run_runlocal instead of re-deriving (and potentially re-diverging).
+
+    Deliberately NOT owning: `load_stage_entry` (the caller already needs
+    entry_tmpl before this call, to resolve its own events fallback
+    against the JSON default -- see submit_stage_prodtools vs the local
+    branch, which resolve it differently), njobs/events source (grid:
+    STAGES' tunable value; local: the local-scale resolver), staged input
+    computation, marker/cluster-file writes, and runlocal-vs-submit (all
+    executor-specific, stay at the call sites). memory IS owned here: the
+    cfg-over-JSON fallback is identical for both executors.
+    """
+    tarball = write_code_tarball(
+        stage_dir,
+        base_tarball=Path(cfg["code_tarball"]) if "code_tarball" in cfg else None,
+        extra_files=_stage_extra_files(entry_tmpl))
+    inloc = (f"dir:{staged_inputs[0]}" if staged_inputs
+            else entry_tmpl.get("inloc"))
+    entry = px.render_entry(
+        dsconf=dsconf, desc=desc, njobs=njobs, code_tarball=tarball,
+        fcl_name=entry_tmpl["fcl"],
+        fcl_overrides=_render_fcl_overrides(stage, entry_tmpl),
+        events=events, run=entry_tmpl.get("run"),
+        memory_mb=cfg.get("memory_mb", entry_tmpl.get("memory")),
+        input_data=(staged_inputs[1] if staged_inputs
+                   else entry_tmpl.get("input_data")),
+        inloc=inloc,
+        resampler_name=entry_tmpl.get("resampler_name"),
+        outloc=entry_tmpl.get("outloc"))
+    entry_path = px.write_entry(STATE, stage, entry)
+    cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
+                       _cnf_build_env(env))
+    return cnf, tarball, entry_path, inloc
+
+
+def submit_stage_prodtools(stage, env, *, staged_inputs=None,
+                           dry_run=False) -> int | None:
+    """Entry -> json2jobdef -> submit_entry. Returns the cluster id.
+
+    staged_inputs: (staged_dir, {basename: merge_or_count}) for
+    consuming stages, None otherwise. Writes the same state files the
+    mu2ejobsub path wrote (cluster.txt, events stamp, config sha) plus
+    the jobsub id for jobwait.
     """
     cfg = STAGES[stage]
-    desc = _stage_desc(stage)
+    desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
     stage_dir = ROOT / stage
     stage_dir.mkdir(parents=True, exist_ok=True)
-
-    # Materialize the template (substitute geom basename) into state/.
-    template_fcl = _materialize_template(stage)
-
-    dsconf = _stage_dsconf(stage)
-    cnf = stage_dir / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
-    if cnf.exists():
-        print(f"[{stage}] removing existing cnf: {cnf.name}")
-        cnf.unlink()
-
-    jobdef = ["mu2ejobdef", "--dsconf", dsconf, "--dsowner", USER, "--desc", desc,
-              "--embed", str(template_fcl)]
-    if cfg["ships_geom"]:
-        base = Path(cfg["code_tarball"]) if "code_tarball" in cfg else None
-        tarball = write_code_tarball(stage_dir, base_tarball=base)
-        jobdef += ["--code", str(tarball)]
-    else:
-        jobdef += ["--setup", _grid_setup_sh()]
+    # stage_entries/<stage>.json (Task 14): fcl/resampler_name/static Cat
+    # input_data/inloc/run/memory/default events -- everything about this
+    # (stage, CONFIG) pair that ISN'T runtime/tunable. events/memory prefer
+    # STAGES' live value (the tunable one -- stage_tuning updates it via
+    # _apply_stage_tuning) and fall back to the JSON's default only when
+    # STAGES doesn't carry that key for this stage (e.g. concat has no
+    # events_per_job -- see STAGES' comment block).
+    entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
+    cnf, _tarball, entry_path, _inloc = _render_and_build_cnf(
+        stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf, stage_dir=stage_dir,
+        env=env, njobs=cfg["njobs"],
+        events=cfg.get("events_per_job", entry_tmpl.get("events")),
+        staged_inputs=staged_inputs)
     if "events_per_job" in cfg:
-        jobdef += ["--run-number", str(cfg["run_number"]),
-                   "--events-per-job", str(cfg["events_per_job"])]
-        # Stamp the per-stage events_per_job at submit time so harvest reads
-        # the actual value used, not the current (possibly edited) dict.
-        # Without this, editing STAGES[*]["events_per_job"] between submit
-        # and harvest mis-scales ce_simulated_events / mubeam_sim_total
-        # → biases sob (helicalP01 false high, 2026-05-21).
-        (STATE / f"{stage}_events_per_job.txt").write_text(
-            f"{cfg['events_per_job']}\n"
-        )
-    if "merge_factor" in cfg:
-        if inputs_file is None:
-            raise SystemExit(f"[{stage}] needs --inputs file but none provided")
-        jobdef += ["--inputs", str(inputs_file), "--merge-factor", str(cfg["merge_factor"])]
-    if "auxinput" in cfg:
-        jobdef += [f"--auxinput={cfg['auxinput']}"]
-
-    # mu2ejobdef writes cnf.* in cwd
-    print(f"$ (cd {stage_dir} && {shlex.join(jobdef)})", flush=True)
-    subprocess.run(jobdef, cwd=stage_dir, env=env, check=True)
-
-    # smoke-test: ask mu2ejobfcl to print job-0's resolved fcl, then probe
-    # that the resolved input URLs are actually readable (liveness gate).
-    default_loc = f"dir:{staged_input_dir}" if staged_input_dir else cfg["default_loc"]
-    fcl_check = ["mu2ejobfcl", "--jobdef", cnf.name, "--index", "0",
-                 "--default-proto", "root", "--default-loc", default_loc]
-    print(f"$ (cd {stage_dir} && {shlex.join(fcl_check)})", flush=True)
-    fcl_proc = subprocess.run(fcl_check, cwd=stage_dir, env=env, check=True,
-                              capture_output=True, text=True)
-    _probe_input_urls(stage, fcl_proc.stdout)
-
+        stamp_local_events(stage, cfg["events_per_job"])
     if dry_run:
-        print(f"[{stage}] DRY-RUN: would submit {cfg['njobs']} job(s)")
+        print(f"[{stage}] DRY-RUN: cnf built, not submitted: {cnf.name}")
         return None
-
-    # Host-wide serialization of the token-refresh + submit block. Under
-    # concurrent load condor_vault_storer races; the lock guarantees only one
-    # process at a time touches the bearer token + mu2ejobsub.
     with _submit_lock(stage):
         _maybe_refresh_token(stage)
-
-        submit = ["mu2ejobsub", "--jobdef", cnf.name,
-                  "--firstjob", "0", "--njobs", str(cfg["njobs"]),
-                  "--default-location", default_loc, "--default-protocol", "root",
-                  "--predefined-args=al9"]
-        if "memory_mb" in cfg:
-            submit += ["--memory", f"{cfg['memory_mb']}MB"]
-        print(f"[{stage}] submitting: {shlex.join(submit)}")
-        try:
-            out = subprocess.run(submit, cwd=stage_dir, env=env, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as e:
-            # check=True raises BEFORE the print lines below, and str(exc) omits
-            # stderr → every mu2ejobsub rc!=0 was opaque (see wiki
-            # jobsub-disk-quota-stderr-swallowed). Surface stdout+stderr into the
-            # submit log before re-raising so the real cause is diagnosable.
-            print(e.stdout or "")
-            print("MU2EJOBSUB STDERR:\n" + (e.stderr or "(empty)"), file=sys.stderr)
-            raise
-        print(out.stdout)
-        if out.stderr.strip():
-            print("STDERR:", out.stderr, file=sys.stderr)
-
-        # parse "<N> job(s) submitted to cluster <CLUSTER>."
-        m = re.search(r"submitted to cluster\s+(\d+)", out.stdout)
-        if not m:
-            raise SystemExit(f"[{stage}] could not parse cluster id from mu2ejobsub output")
-        cluster = int(m.group(1))
-        (STATE / f"{stage}_cluster.txt").write_text(f"{cluster}\n")
-        _stamp_stage_config_sha(stage)
-        print(f"[{stage}] cluster={cluster}")
-        return cluster
+        cluster, jobsub_id = px.submit_cnf(
+            stage_dir, entry_path, LEDGER_DB,
+            f"autoresearch:{CONFIG}/{stage}", env)
+    (STATE / f"{stage}_cluster.txt").write_text(f"{cluster}\n")
+    (STATE / f"{stage}_jobsub_id.txt").write_text(f"{jobsub_id}\n")
+    _stamp_stage_config_sha(stage)
+    print(f"[{stage}] cluster={cluster} ({jobsub_id})")
+    return cluster
 
 
-def poll_cluster(stage: str, cluster: int, *, quorum: float = 0.9,
-                 cap_hours: float = 24.0, runner=None) -> None:
-    """Wait until stage-out convergence (or wall-clock cap).
+# Stages the local executor (cmd_submit's --local branch) can run today.
+#
+# mubeam, run1b_mubeam and elebeam_flash resample an EXTERNAL SAM dataset
+# (each stage's stage_entries/<stage>.json static `input_data`/
+# `resampler_name`) and consume no prior stage's output -- cmd_submit's
+# local branch renders staged_inputs=None for them, so there is nothing to
+# stage.
+#
+# concat and mustops_ce do consume a prior stage: cmd_submit's local branch
+# resolves the previous stage inline (mustops_ce via hv.concatless, same
+# stamp-first rule the grid branch follows) and stages its outputs through
+# local_input_farm before rendering the entry. A stage absent from
+# LOCAL_SUPPORTED_STAGES is refused by _require_local_stage rather than
+# handed an entry with no inputs, which prodtools would accept and which
+# would then yield a job that silently reads nothing.
+LOCAL_SUPPORTED_STAGES = ("mubeam", "run1b_mubeam", "elebeam_flash",
+                          "concat", "mustops_ce")
 
-    Convergence = (jobs left queue >= target) AND (settled bare-form
-    outstage dirs >= target). Polling jobsub_q alone is a lying proxy:
-    jobs exit the queue when they *start finishing*, but stage-out
-    (worker -> /pnfs copy + jobsub_lite hash->bare rename) is async and
-    lags by minutes. Without the outstage check, list_outputs would race
-    with stage-out and SystemExit on a missing base or undercount on a
-    partial dir. By gating poll on the same /pnfs ls that list_outputs
-    ultimately reads, we make list_outputs's precondition structural,
-    not hopeful. See wiki/incidents/stage-out-lag.md.
+
+def _require_local_stage(stage: str) -> None:
+    """Refuse a stage the local executor cannot stage inputs for.
+
+    Called both by cmd_submit's --local branch and directly by callers that
+    need the same three refusals (stage support, config-bound, grid-cluster
+    overwrite) without going through a full submit -- keeping it as one
+    helper means there is nowhere for the checks to drift apart.
     """
-    cfg = STAGES[stage]
-    target = max(1, int(cfg["njobs"] * quorum))
-    base = OUTSTAGE / str(cluster) / "00"
-    deadline = time.time() + cap_hours * 3600
-    while time.time() < deadline:
-        out = (runner or subprocess.run)(
-            ["jobsub_q", "-G", "mu2e", f"--user={USER}",
-             "--constraint", f"ClusterId=={cluster}"],
-            capture_output=True, text=True,
-        )
-        if out.returncode != 0:
-            # Don't silently treat a jobsub_q failure as "queue is empty" - that
-            # let the poll claim 200/200 finished within seconds of submission.
-            print(f"WARN: jobsub_q rc={out.returncode}; will retry. stderr:\n{out.stderr}",
-                  file=sys.stderr)
-            time.sleep(60)
-            continue
-        in_queue = sum(1 for line in out.stdout.splitlines()
-                       if re.match(rf"^{cluster}\.\d+@", line))
-        finished_q = cfg["njobs"] - in_queue
-        if base.exists():
-            # settled = bare-form (`00000`) only. jobsub_lite stages into
-            # hash form (`00000.6d475c59`), then renames to bare ONCE THE
-            # JOB EXITS ZERO. A perma-hash dir is either rename-in-flight
-            # or a FAILED job that wrote only the log — counting it as
-            # settled risks declaring success on a cluster where every job
-            # crashed. See wiki/incidents/stage-out-rename-race.md and
-            # concat-xrootd-fileopen-postendjob.md.
-            settled = sum(1 for d in base.iterdir() if d.name.isdigit())
-            # all_dirs = bare + hash-suffix. If queue is drained AND every
-            # job has produced *some* dir (bare or hash), stage-out is done
-            # one way or another; let list_outputs sort it out (it drains
-            # the genuine rename-in-flight tail and warns on the rest).
-            all_dirs = sum(1 for d in base.iterdir()
-                           if d.name.split(".", 1)[0].isdigit())
+    if stage not in LOCAL_SUPPORTED_STAGES:
+        raise SystemExit(
+            f"[{stage}] the local executor supports "
+            f"{', '.join(LOCAL_SUPPORTED_STAGES)} only.")
+    # STATE's unbound default is Path(), i.e. the CURRENT DIRECTORY -- so a
+    # caller that skipped _bind_config writes <stage>_cluster.txt and friends
+    # into cwd instead of the config's state dir. main() always binds, but a
+    # test or a future caller need not: this cost a scatter of state files in
+    # the repo root the first time this verb was reached unbound.
+    if not CONFIG:
+        raise SystemExit(
+            f"[{stage}] no config bound -- pass --config, or call "
+            f"_bind_config() first. STATE would otherwise resolve to cwd.")
+    # A cluster file with no marker holds a REAL ClusterId. A local submit
+    # goes on to overwrite it (and <stage>_events_per_job.txt, which harvest
+    # divides by), so running local over a finished grid stage would
+    # silently rewrite that Eval's provenance -- the
+    # events-per-job-mid-flight-edit failure with a worse blast radius,
+    # since the true cluster id is then unrecoverable. cmd_submit's
+    # idempotency guard covers its own (grid) path; this covers the local one.
+    cluster_file = STATE / f"{stage}_cluster.txt"
+    if cluster_file.exists() and not local_marker(stage).exists():
+        raise SystemExit(
+            f"[{stage}] {cluster_file} holds grid cluster "
+            f"{cluster_file.read_text().strip()} -- refusing to overwrite it "
+            f"with a local runid. Use a different --config.")
+
+
+def local_marker(stage: str) -> Path:
+    """Marker file: state/<stage>_cluster.txt holds a runid, NOT a cluster id.
+
+    Single source of truth for "this stage ran locally". AUTORESEARCH_LOCAL
+    alone cannot carry it: `submit --local` is a FLAG, so a later `poll` or
+    `list-outputs` in a fresh process (no env var) would take the literal "1"
+    written by a local submit for a real ClusterId -- handing it to
+    `px.run_jobwait` (which has no internal timeout by design) as a jobid
+    for a cluster that was never submitted to condor, or reading a
+    <stage>_wait.json that runlocal, not jobwait, actually wrote.
+    """
+    return STATE / f"{stage}_local.txt"
+
+
+def _is_local_stage(stage: str) -> bool:
+    """DETECTION: did THIS stage actually run locally? Marker file only.
+
+    Deliberately NOT `or os.environ.get("AUTORESEARCH_LOCAL")`. The env var
+    is an ACTIVATION switch (cmd_submit reads it, directly or via the env
+    var, to choose its --local branch), and that branch is the ONE path
+    that runs local jobs today (local-build/local-run and their
+    cmd_local_run were retired with the mu2ejobdef-based local executor --
+    prodtools-switch deletion sweep): it writes the marker FIRST, then the
+    literal runid "1" into <stage>_cluster.txt, before handing off to
+    px.run_runlocal. So the disjunct would add no capability and one
+    failure mode: an operator who exports AUTORESEARCH_LOCAL=1 for a study
+    and later launches a campaign from that shell would make cmd_poll a
+    no-op on a LIVE GRID CLUSTER, and cmd_list_outputs read a stale or
+    nonexistent local wait.json, for stages that never went near the local
+    executor.
+    """
+    return local_marker(stage).exists()
+
+
+def _resolve_scale(values, default: int, stage: str) -> int:
+    """One repeatable --local-njobs/--local-events flag for a stage.
+
+    Free-standing copy of the retired local_exec.resolve_scale (module dies
+    with the lx-based local executor; cmd_submit's runlocal branch must not
+    depend on it) -- same resolution semantics, byte-for-byte: a bare value
+    sets the default for every stage, a <stage>=<int> entry overrides it for
+    that stage only, entries are applied in order, and last-bare-value wins
+    over an earlier one.
+    """
+    if not values:
+        return default
+    bare, per_stage = default, {}
+    for raw in values:
+        item = str(raw)
+        if "=" in item:
+            key, _, val = item.partition("=")
+            key = key.strip()
+            if not key:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected <stage>=<int>")
+            try:
+                parsed = int(val.strip())
+            except ValueError:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected <stage>=<int>")
+            if parsed < 1:
+                raise ValueError(
+                    f"bad per-stage value {item!r}: expected an int >= 1")
+            per_stage[key] = parsed
         else:
-            settled = 0
-            all_dirs = 0
-        ts = dt.datetime.now().strftime("%H:%M:%S")
-        print(f"[{ts}] [{stage} cluster={cluster}] "
-              f"queue:{finished_q}/{cfg['njobs']} settled:{settled}/{cfg['njobs']} "
-              f"(target={target})", flush=True)
-        if finished_q >= target and settled >= target:
-            print(f"[{stage}] converged (queue={finished_q}, settled={settled})")
-            return
-        # Failure-aware exit: queue fully drained AND every job left some
-        # outstage dir (bare or hash). Bare-count <target means jobs failed;
-        # break loudly so list_outputs + harvest surface the failure rather
-        # than hang forever waiting for a rename that will never happen.
-        if in_queue == 0 and all_dirs >= cfg["njobs"] and settled < target:
-            print(f"[{stage}] WARN: queue drained, all {cfg['njobs']} dirs "
-                  f"present but only {settled}/{target} settled (bare-form). "
-                  f"{all_dirs - settled} dir(s) stuck in hash form — likely "
-                  f"failed jobs (e.g. xrootd PostEndJob). Proceeding so "
-                  f"list_outputs + harvest fail loudly.")
-            return
-        time.sleep(120)
-    print(f"[{stage}] WARN: 24h cap hit, proceeding with whatever landed")
+            try:
+                parsed = int(item)
+            except ValueError:
+                raise ValueError(
+                    f"bad value {item!r}: expected an int or <stage>=<int>")
+            if parsed < 1:
+                raise ValueError(f"bad value {item!r}: expected an int >= 1")
+            bare = parsed
+    return per_stage.get(stage, bare)
 
 
-def list_outputs(stage: str, cluster: int) -> list[Path]:
-    """Glob outstage for stage outputs; persist as <stage>_outputs.txt.
+def _scale_default(env_var: str, fallback: int) -> int:
+    """Default for a --local-njobs/--local-events/--local-pool flag.
 
-    Precondition: poll_cluster has converged, so `base` exists with at
-    least `quorum * njobs` bare-form subdirs. /pnfs may still be renaming
-    a small tail of hash-suffix subdirs; we drain those before globbing
-    so bare-only enumeration doesn't undercount. See incidents
-    stage-out-lag and stage-out-rename-race.
+    Free-standing copy of the retired local_exec.scale_default -- see
+    _resolve_scale's docstring for why this can't just import lx. The graph
+    runner shells out to `pipeline.py submit` and cannot pass those flags, so
+    without this env seam a whole local campaign is pinned to the argparse
+    defaults. An explicit flag still wins: this only supplies
+    _resolve_scale's default.
     """
-    cfg = STAGES[stage]
-    base = OUTSTAGE / str(cluster) / "00"
-    if not base.exists():
-        # poll_cluster's convergence gate is supposed to guarantee this.
-        # If it fires, the gate has a bug or the cap-hours warning path
-        # let us through with nothing on disk - either way, fail loudly.
-        raise SystemExit(f"[{stage}] outstage missing after poll converged: {base}")
+    raw = os.environ.get(env_var)
+    if raw is None or not raw.strip():
+        return fallback
+    try:
+        val = int(raw.strip())
+    except ValueError:
+        raise ValueError(f"${env_var}={raw!r}: expected an int >= 1")
+    if val < 1:
+        raise ValueError(f"${env_var}={raw!r}: expected an int >= 1")
+    return val
 
-    pattern = f"[0-9][0-9][0-9][0-9][0-9]/{cfg['output_glob']}"
-    for attempt in range(20):  # 20 × 30s = 10 min cap
-        pending = [d.name for d in base.iterdir()
-                   if "." in d.name and d.name.split(".", 1)[0].isdigit()]
-        if not pending:
-            break
-        print(f"[{stage}] {len(pending)} job dir(s) still mid-rename "
-              f"(e.g. {pending[0]}); sleeping 30s "
-              f"(attempt {attempt + 1}/20)")
-        time.sleep(30)
-    else:
-        print(f"[{stage}] WARN: rename pass did not quiesce after 10 min; "
-              f"globbing bare form anyway (may undercount)")
 
-    files = sorted(base.glob(pattern))
-    out_list = STATE / f"{stage}_outputs.txt"
-    out_list.write_text("\n".join(str(f) for f in files) + "\n")
-    print(f"[{stage}] {len(files)} output file(s) -> {out_list}")
-    return files
+# Local job pool size default (--local-pool / $AUTORESEARCH_LOCAL_POOL),
+# matching the retired local_exec.DEFAULT_POOL.
+DEFAULT_LOCAL_POOL = 4
+
+
+def _local_scale(args, stage: str) -> tuple:
+    """(njobs, events) for one stage: flag, else env seam, else the default.
+
+    THE resolver for local-scale resolution (submit --local's runlocal
+    branch, its only call site since local-build/local-run were retired).
+    """
+    return (
+        _resolve_scale(getattr(args, "local_njobs", None),
+                       _scale_default("AUTORESEARCH_LOCAL_NJOBS", 1),
+                       stage),
+        _resolve_scale(getattr(args, "local_events", None),
+                       _scale_default("AUTORESEARCH_LOCAL_EVENTS", 200),
+                       stage),
+    )
 
 
 def cmd_submit(args):
+    cluster_file = STATE / f"{args.stage}_cluster.txt"
+    # ACTIVATION (as opposed to _is_local_stage's detection): --local, or the
+    # env var so a graph-runner child inherits local mode without every call
+    # site growing a flag.
+    want_local = bool(getattr(args, "local", False)) or bool(
+        os.environ.get("AUTORESEARCH_LOCAL"))
+    # A grid submit invalidates any marker a prior `--local` run left behind:
+    # the cluster file is about to hold a genuine cluster id again, and a stale
+    # marker would no-op the poll of a live grid cluster.
+    #
+    # This runs BEFORE the idempotency guard, and that ordering is the point.
+    # The guard cannot tell a runid from a ClusterId, so with the clear placed
+    # after it a plain (un-forced) `submit mubeam` following any local run
+    # printed "already submitted (cluster=1)" and silently did nothing -- on
+    # the exact path a graph child takes. --force happened to work; the path
+    # that matters did not.
+    #
+    # INVARIANT (clear half): drop the runid and its marker TOGETHER, runid
+    # first. submit_stage_prodtools only rewrites <stage>_cluster.txt AFTER
+    # submit_cnf parses a cluster id, so unlinking the marker alone would
+    # leave the local runid behind, unmarked, on every path that never
+    # reaches that write: --dry-run returns early, and template
+    # materialization / code-tarball build / json2jobdef (build_cnf) / token
+    # refresh / submit_entry (submit_cnf) can each raise before it. A later
+    # poll would then take that runid for a ClusterId and hand it to
+    # px.run_jobwait -- the exact confusion the marker exists to prevent,
+    # reintroduced by the marker's own cleanup.
+    if not want_local and local_marker(args.stage).exists():
+        cluster_file.unlink(missing_ok=True)
+        local_marker(args.stage).unlink(missing_ok=True)
     # Idempotency guard: if a prior submit already produced a cluster file,
     # treat re-entry as a no-op so a killed-and-resumed graph node doesn't
     # double-submit. --force overrides.
-    cluster_file = STATE / f"{args.stage}_cluster.txt"
     if cluster_file.exists() and not getattr(args, "force", False):
         cid = cluster_file.read_text().strip()
         print(f"[{args.stage}] already submitted (cluster={cid}); skip submit "
               f"(use --force to override)")
+        return
+    if want_local:
+        stage = args.stage
+        # Scope split (2026-08-16 controller resolution): non-consuming
+        # stages (mubeam / run1b_mubeam / elebeam_flash) render with
+        # staged_inputs=None -- input_data is still the non-None static
+        # Cat-dataset dict from stage_entries/<stage>.json, inloc is the
+        # JSON's default `inloc`. concat and mustops_ce consume a prior
+        # LOCAL stage's outputs, so
+        # they need a local_input_farm dir before render_entry can point
+        # inloc at it.
+        _require_local_stage(stage)
+        pool = (getattr(args, "local_pool", None)
+               or _scale_default("AUTORESEARCH_LOCAL_POOL", DEFAULT_LOCAL_POOL))
+        cfg = STAGES[stage]
+        desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
+        stage_dir = ROOT / stage
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        env = sourced_env()
+
+        # Base resolution through the ONE shared resolver (both verbs +
+        # this branch must agree -- see TestLocalScaleEnvSeam). njobs here
+        # is the plain default (1, or --local-njobs/env override); concat
+        # below recomputes it against the staged source count, but an
+        # explicit --local-njobs still wins either way (operator wins:
+        # _resolve_scale only falls back to a default when no override was
+        # passed, and it is re-consulted with the SAME args.local_njobs).
+        njobs, events = _local_scale(args, stage)
+
+        staged_inputs = None
+        if stage in ("concat", "mustops_ce"):
+            # Same previous-stage rule cmd_submit's grid staging follows
+            # (_input_stage_for). The stamp-first hv.concatless read inside
+            # it also covers the local branch, which never writes the
+            # stage-chain stamp itself (only the grid branch below does):
+            # a legacy concat-era local config still falls back to the
+            # module-level CONCATLESS default correctly.
+            prev_stage = _input_stage_for(stage)
+            # Same refusal _local_stage_inputs made for the old
+            # mu2ejobdef-based local executor: the prior stage must have run
+            # LOCALLY, or <prev>_outputs.txt holds /pnfs paths and farming
+            # those locally is a grid chain wearing a local hat.
+            if not local_marker(prev_stage).exists():
+                raise SystemExit(
+                    f"[{stage}] consumes {prev_stage}, which has no local "
+                    f"run ({local_marker(prev_stage)} missing). Run "
+                    f"'--config {CONFIG} submit {prev_stage} --local' and "
+                    f"'list-outputs {prev_stage}' first.")
+            prev_outputs = STATE / f"{prev_stage}_outputs.txt"
+            if not prev_outputs.exists():
+                raise SystemExit(
+                    f"Run 'list-outputs {prev_stage}' first to populate "
+                    f"{prev_outputs.name}")
+            sources = [Path(p) for p in prev_outputs.read_text().splitlines()
+                      if p.strip()]
+            if not sources:
+                raise SystemExit(
+                    f"[{stage}] {prev_outputs.name} is empty -- the local "
+                    f"{prev_stage} run produced no output. Check its job "
+                    f"log before rebuilding.")
+            farm_dir, input_map = local_input_farm(stage, sources)
+            staged_inputs = (farm_dir, input_map)
+            if stage == "concat":
+                merge = _merge_factor_for("concat", len(sources))
+                njobs_default = -(-len(sources) // merge)  # ceil division
+                njobs = _resolve_scale(getattr(args, "local_njobs", None),
+                                       njobs_default, stage)
+        # Same render/build sequence submit_stage_prodtools uses for the grid
+        # path (Code-mode ships the geom AND the extras fcl, if any, through
+        # the tarball's setup_post.sh search path -- runlocal unpacks it
+        # exactly as a grid worker does, so there is no local-only env
+        # mechanism to keep in sync with it), except njobs/events come from
+        # the LOCAL scale, not STAGES[stage]. `run` is never local-scaled
+        # (it's a fixed cnf run-number, not a job count), so it comes
+        # straight from the JSON default either way (_render_and_build_cnf
+        # always pulls it from entry_tmpl).
+        entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
+        cnf, tarball, _entry_path, inloc = _render_and_build_cnf(
+            stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf,
+            stage_dir=stage_dir, env=env, njobs=njobs, events=events,
+            staged_inputs=staged_inputs)
+        if args.dry_run:
+            # Same contract the grid path gives the flag: build everything,
+            # dispatch nothing. Until 2026-08-17 --dry-run was simply not
+            # read here, so `submit <stage> --local --dry-run` ran the jobs
+            # for real -- the flag's whole promise, inverted, on the one
+            # path where "dispatch" means "start burning this node's cores".
+            #
+            # Deliberately BEFORE the marker/cluster writes below: those
+            # declare "this stage ran locally", and writing them without a
+            # run leaves cmd_poll/cmd_list_outputs hunting a wait.json that
+            # will never exist. Nothing above this point mutates stage
+            # state -- the cnf and code tarball are content-addressed build
+            # products, which is exactly what a dry run is FOR.
+            print(f"[{stage}] DRY-RUN: cnf built, not run: {cnf.name}")
+            return
+        # INVARIANT (write half): marker FIRST, then the runid into
+        # <stage>_cluster.txt. If the process dies between these two writes,
+        # the residue is a marker with no cluster file (poll no-ops;
+        # harmless) rather than a runid nothing distinguishes from a real
+        # ClusterId (poll hands it to px.run_jobwait as a jobid for a
+        # cluster that was never submitted). With runlocal owning execution
+        # there is no run-numbering to manage -- the marker file is what
+        # carries "local"; the cluster file just needs a parseable int, so
+        # it is always the literal "1".
+        local_marker(stage).write_text("1\n")
+        (STATE / f"{stage}_cluster.txt").write_text("1\n")
+        stamp_local_events(stage, events)
+        # A local job resamples its beam/stop inputs over xrootd exactly as a
+        # grid worker does, so it needs a live bearer token exactly as much.
+        # No _submit_lock here: the lock exists to serialize
+        # condor_vault_storer against concurrent grid submits, and a local
+        # run makes none.
+        _maybe_refresh_token(stage)
+        # C1 fix (2026-08-16 review): `inloc` (dir:<local farm> for a
+        # consuming stage, else the stage_entries default) MUST reach
+        # runlocal -- without it, prodtools defaults to --inloc tape and
+        # synthesizes its jobdesc from that default, resolving a
+        # locally-farmed basename against /pnfs/mu2e/tape instead of the
+        # local farm dir this branch just built. `inloc` here is the exact
+        # value _render_and_build_cnf already resolved for the entry (same
+        # expression as the grid path), not re-derived.
+        px.run_runlocal(stage_dir, cnf, njobs,
+                        px.wait_json_path(STATE, stage), env,
+                        code_tarball=tarball, pool=pool, inloc=inloc)
+        # M5: runlocal's own acceptance policy is caller's (same split as
+        # jobwait/cmd_poll) -- read the wait.json back and WARN naming which
+        # indices came up short, but never SystemExit here: wait.json stays
+        # authoritative and a partial local run is still consumable
+        # (list-outputs divides by the true ok count). Mirrors the old
+        # (pre-prodtools-switch) cmd_local_run's failed-list print.
+        wait = px.read_wait(STATE, stage)
+        ok = wait.get("ok", 0)
+        if ok < njobs:
+            print(f"[{stage}] WARN: {ok}/{njobs} local job(s) ok "
+                  f"(failed={wait.get('failed')}, "
+                  f"unknown={wait.get('unknown', [])})")
         return
     # Stage-chain stamp: record THIS Eval's chain at first submit so harvest
     # and template materialization never re-interpret an old config under the
@@ -900,44 +1435,57 @@ def cmd_submit(args):
     if not (STATE / hv.STAGE_CHAIN_STAMP).exists():
         hv.stamp_stage_chain(STATE, list(GRID_STAGES))
     env = sourced_env()
-    inputs_file = None
-    staged_input_dir = None
-    if args.stage == "concat":
-        mubeam_list = STATE / "mubeam_outputs.txt"
-        if not mubeam_list.exists():
-            raise SystemExit("Run 'list-outputs mubeam' first to populate mubeam_outputs.txt")
-        sources = [Path(p) for p in mubeam_list.read_text().splitlines() if p.strip()]
-        staged_input_dir, inputs_file = stage_hardlink_farm("concat", sources)
-    elif args.stage == "mustops_ce":
-        # Resamples concat MuminusStopsCat via TargetStopResampler.
-        # auxinput list file requires basenames (same restriction as
-        # --inputs): hard-link concat outputs into a /pnfs stage dir so
-        # xrootd can resolve them when --default-location dir:STAGED
-        # expands the basenames.
-        # Concat-less chains resample the mu--pure mubeam TargetStops files
-        # directly (auxinput=1 -> one file-slice per job, same structure as
-        # mubeam<->MuBeamCat).
-        # Stamp-first (hv.concatless): a concat-era config resubmitted under
-        # a concat-less env must keep staging its concat outputs.
-        prev_stage = "mubeam" if hv.concatless(STATE, CONCATLESS) else "concat"
+    staged_inputs = None
+    if args.stage in ("concat", "mustops_ce"):
+        # Consuming stages (topology: _input_stage_for; mustops_ce
+        # resamples the previous stage's MuminusStops via
+        # TargetStopResampler, concat-less chains resampling the mu--pure
+        # mubeam TargetStops files directly, one file-slice per job).
+        # input_data requires basenames (same restriction the old --inputs/
+        # --auxinput mu2ejobdef flags had): hard-link the previous stage's
+        # outputs into a /pnfs stage dir so xrootd can resolve them when
+        # inloc dir:STAGED expands the basenames. The merge factor is the
+        # clamped one (_merge_factor_for; 1 for mustops_ce).
+        prev_stage = _input_stage_for(args.stage)
         prev = STATE / f"{prev_stage}_outputs.txt"
         if not prev.exists():
             raise SystemExit(f"Run 'list-outputs {prev_stage}' first to populate {prev.name}")
         sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
-        staged_input_dir, basenames_file = stage_hardlink_farm(args.stage, sources)
-        STAGES[args.stage]["auxinput"] = (
-            f"1:physics.filters.TargetStopResampler.fileNames:{basenames_file}"
-        )
-    submit_stage(args.stage, env, inputs_file=inputs_file,
-                 staged_input_dir=staged_input_dir, dry_run=args.dry_run)
+        staged_dir = stage_hardlink_farm(args.stage, sources)
+        merge = _merge_factor_for(args.stage, len(sources))
+        staged_inputs = (staged_dir, {p.name: merge for p in sources})
+    submit_stage_prodtools(args.stage, env, staged_inputs=staged_inputs,
+                           dry_run=args.dry_run)
 
 
 def cmd_poll(args):
+    if _is_local_stage(args.stage):
+        print(f"[{args.stage}] local mode: jobs already complete; poll is a no-op")
+        return
     _check_stage_config_sha(args.stage)
-    cluster_file = STATE / f"{args.stage}_cluster.txt"
-    cluster = int(cluster_file.read_text().strip())
-    quorum = args.quorum if args.quorum is not None else STAGES[args.stage].get("quorum", 0.9)
-    poll_cluster(args.stage, cluster, quorum=quorum, cap_hours=args.cap_hours)
+    cfg = STAGES[args.stage]
+    stage_dir = ROOT / args.stage
+    jid_file = STATE / f"{args.stage}_jobsub_id.txt"
+    jobid = (jid_file.read_text().strip() if jid_file.exists()
+             else (STATE / f"{args.stage}_cluster.txt").read_text().strip())
+    cnf = px.cnf_path(stage_dir, _stage_desc(args.stage), _stage_dsconf(args.stage))
+    px.run_jobwait(stage_dir, cnf, jobid, cfg["njobs"],
+                   px.wait_json_path(STATE, args.stage), sourced_env())
+    # Acceptance is autoresearch policy, not the tool's (spec): a partial
+    # cluster proceeds -- harvest divides by the true ok count -- but a
+    # below-quorum stage is loud, and zero ok jobs fails the stage here
+    # (same behavior the old convergence gate's failure-aware exit had).
+    wait = px.read_wait(STATE, args.stage)
+    quorum = getattr(args, "quorum", None)
+    quorum = quorum if quorum is not None else cfg.get("quorum", 0.9)
+    target = max(1, int(cfg["njobs"] * quorum))
+    if wait["ok"] == 0:
+        raise SystemExit(
+            f"[{args.stage}] 0/{cfg['njobs']} jobs succeeded "
+            f"(failed={wait.get('failed')}, unknown={wait.get('unknown')})")
+    if wait["ok"] < target:
+        print(f"[{args.stage}] WARN: {wait['ok']}/{cfg['njobs']} ok "
+              f"(< quorum target {target}); proceeding with what landed")
 
 
 def cmd_list_outputs(args):
@@ -946,14 +1494,20 @@ def cmd_list_outputs(args):
     # still resolves on /pnfs, skip the re-glob. --force overrides.
     outputs_file = STATE / f"{args.stage}_outputs.txt"
     if outputs_file.exists() and not getattr(args, "force", False):
-        paths = [p for p in outputs_file.read_text().splitlines() if p.strip()]
-        if paths and all(Path(p).exists() for p in paths):
-            print(f"[{args.stage}] outputs already listed ({len(paths)} files); "
+        listed = [p for p in outputs_file.read_text().splitlines() if p.strip()]
+        if listed and all(Path(p).exists() for p in listed):
+            print(f"[{args.stage}] outputs already listed ({len(listed)} files); "
                   f"skip (use --force to override)")
             return
-    cluster_file = STATE / f"{args.stage}_cluster.txt"
-    cluster = int(cluster_file.read_text().strip())
-    list_outputs(args.stage, cluster)
+    # One code path for grid and local -- both executors write the same
+    # wait.json (spec decision 5), so "where did the files land" has one
+    # reader instead of the old glob-walker pair.
+    wait = px.read_wait(STATE, args.stage)
+    files = px.outputs_from_wait(wait, STAGES[args.stage]["output_glob"])
+    outputs_file.write_text("\n".join(files) + "\n")
+    print(f"[{args.stage}] {len(files)} output file(s) "
+          f"(ok={wait.get('ok')}, failed={wait.get('failed')}, "
+          f"unknown={wait.get('unknown', [])}) -> {outputs_file}")
 
 
 # Constant from extract_analysis_results._MUBEAM_INPUT_EFFICIENCY_BY_FCL["run1a_beam/mubeam.fcl"].
@@ -962,7 +1516,7 @@ def cmd_list_outputs(args):
 RUN1A_MUBEAM_INPUT_CORRECTION = hv.RUN1A_MUBEAM_INPUT_CORRECTION  # single source in harvest.py
 
 # Path to the autoresearch repo so we can find the EdepAna fcl + ROOT macro.
-AUTORESEARCH = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
+from paths import REPO_ROOT as AUTORESEARCH  # see core/paths.py
 
 # EdepAna / sensitivity-macro Steps 1+4 (incl. the sci-notation count fix,
 # and EDEP_FCL/SENSITIVITY_MACRO path consts) live in harvest.py:
@@ -1240,8 +1794,8 @@ def cmd_harvest(args):
     # (bo-foilsflash 2nd objective). Gallery extractor sums StrawGasStep
     # ionizingEdep (tag compressDetStepMCs, process EleBeamResampler).
     # Only present when the foilsflash chain ran the elebeam_flash stage.
-    # The template overrides EarlyPrescaleFilter.nPrescale=1 (NO prescale — prod
-    # default drops 999/1000; see pipeline_templates/elebeam_flash/template.fcl:19),
+    # stage_entries/elebeam_flash.json overrides EarlyPrescaleFilter.nPrescale=1
+    # (NO prescale — prod default drops 999/1000),
     # so flash_edep_total_MeV is the FULL early-flash total. The BO objective is
     # flash_edep_per_pot = total / (n_input_electrons * POT_PER_ELECTRON) — the
     # geometry-sensitive lever. flash_edep_per_event (mean over the flash-event
@@ -1322,17 +1876,30 @@ def main():
     p_sub.add_argument("--dry-run", action="store_true")
     p_sub.add_argument("--force", action="store_true",
                        help="Re-submit even if state/<stage>_cluster.txt exists.")
+    p_sub.add_argument("--local", action="store_true",
+                       help="run this stage locally instead of submitting")
+    p_sub.add_argument("--local-njobs", action="append",
+                       help="--local only: int, or <stage>=<int>; repeatable "
+                            "(default 1)")
+    p_sub.add_argument("--local-events", action="append",
+                       help="--local only: int, or <stage>=<int>; repeatable "
+                            "(default 200)")
+    p_sub.add_argument("--local-pool", type=int, default=None,
+                       help="--local only: max concurrent local jobs "
+                            "(default 4)")
     p_sub.set_defaults(func=cmd_submit)
 
-    p_poll = sub.add_parser("poll", help="Poll a stage's cluster until quorum or cap")
+    p_poll = sub.add_parser("poll", help="Wait for a stage's cluster via prodtools jobwait")
     p_poll.add_argument("stage", choices=list(STAGES))
     p_poll.add_argument("--quorum", type=float, default=None,
                         help="Fraction of jobs required (default: per-stage "
                              "STAGES['quorum'] if set, else 0.9)")
-    p_poll.add_argument("--cap-hours", type=float, default=24.0)
     p_poll.set_defaults(func=cmd_poll)
 
-    p_ls = sub.add_parser("list-outputs", help="Glob outstage and persist file list")
+    p_ls = sub.add_parser(
+        "list-outputs",
+        help="Read the stage's wait.json (runlocal/jobwait) and persist "
+             "its ok-job output paths")
     p_ls.add_argument("stage", choices=list(STAGES))
     p_ls.add_argument("--force", action="store_true",
                       help="Re-glob even if state/<stage>_outputs.txt validates.")

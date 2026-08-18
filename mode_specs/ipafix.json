@@ -2,8 +2,8 @@
   "name": "ipafix",
   "note": "IPA-position A/B, ipafix. A/B ARM A (control, CORRECT). protonabsorber.distFromTargetEnd 491.666672 holds the IPA at its true hardware position 6901-7901 for this 1066.67 mm stack. Identical to the live foilsflash spec. Throwaway measurement mode -- DELETE after the A/B lands.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
   },
   "run": {
     "stages": [

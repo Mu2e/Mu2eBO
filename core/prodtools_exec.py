@@ -1,0 +1,409 @@
+"""Prodtools execution seam: entry rendering + tool invocation.
+
+Everything autoresearch says to prodtools goes through this module:
+render a json2jobdef entry, build the cnf, run it (runlocal), submit it
+(submit_entry via core/prodtools_submit_driver.py), wait on it (jobwait),
+and read back the shared wait.json summary. pipeline.py's verbs call in;
+nothing here knows about modes, leaderboards, or harvest.
+
+Spec: docs/superpowers/specs/2026-08-16-prodtools-switch-design.md.
+"""
+import getpass
+import json
+import os
+import re
+import shutil
+import subprocess
+from fnmatch import fnmatch
+from pathlib import Path
+
+from paths import REPO_ROOT, prodtools_root
+
+USER = os.environ.get("USER") or getpass.getuser()
+
+# Checked-in json2jobdef-native entry templates, one per stage (Task 14 --
+# retiring core/pipeline.py's STAGE_FCL + the STAGES fields that never
+# varied at runtime: fcl, fcl_overrides, resampler_name, static Cat
+# input_data, inloc, outloc, run, memory, default events). See
+# load_stage_entry.
+STAGE_ENTRIES_DIR = REPO_ROOT / "stage_entries"
+
+# Substitution is explicit and closed: ONLY these two placeholders are
+# recognized inside a stage_entries/<stage>.json string value. Runtime
+# fields (njobs, events/memory overrides from stage_tuning, staged
+# input_data/inloc, the concat-less MaxEventsToSkip conditional) are never
+# templated -- they are merged in by the caller (core/pipeline.py) after
+# load_stage_entry returns.
+_STAGE_ENTRY_PLACEHOLDERS = ("cfg", "geom")
+_PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
+
+
+def _substitute_placeholders(value, mapping: dict, where: str):
+    """Recursively substitute `{cfg}`/`{geom}` in string values.
+
+    Applies to strings anywhere inside dicts/lists (nested arbitrarily
+    deep -- see stage_entries/mubeam.json's ParticleCodes list). Any other
+    `{token}` is a loud ValueError naming the offending key path: a typo'd
+    placeholder must fail at load time, not render as a literal
+    `{typo}` string inside a submitted FHiCL override. Always builds NEW
+    containers (dict/list comprehensions, regex substitution returns a new
+    str) -- never mutates `value` in place, so repeated calls over the same
+    cached raw JSON can never alias or leak between callers.
+    """
+    if isinstance(value, str):
+        def repl(m):
+            token = m.group(1)
+            if token not in mapping:
+                raise ValueError(
+                    f"stage_entries: unknown placeholder {{{token}}} at "
+                    f"{where!r} -- only {_STAGE_ENTRY_PLACEHOLDERS} are "
+                    f"substituted")
+            return str(mapping[token])
+        return _PLACEHOLDER_RE.sub(repl, value)
+    if isinstance(value, list):
+        return [_substitute_placeholders(v, mapping, f"{where}[{i}]")
+                for i, v in enumerate(value)]
+    if isinstance(value, dict):
+        return {k: _substitute_placeholders(v, mapping, f"{where}.{k}")
+                for k, v in value.items()}
+    return value
+
+
+def load_stage_entry(stage: str, *, cfg: str, geom: str,
+                     entries_dir=None) -> dict:
+    """Load stage_entries/<stage>.json with `{cfg}`/`{geom}` substituted.
+
+    Returns the per-stage entry TEMPLATE: whatever subset of `fcl`,
+    `fcl_overrides`, `resampler_name`, `input_data`, `inloc`, `outloc`,
+    `run`, `memory`, `events` that stage's JSON file declares (a merge
+    stage like concat has neither `run` nor `events`; a staged-input stage
+    like mustops_ce has no `input_data`). `_comment` rides along
+    unsubstituted (json2jobdef ignores unknown entry keys -- verified
+    against utils/jobdesc.py validate_entry_value's "keys other than the
+    ones it knows are ignored, not rejected" -- but render_entry never
+    forwards it either way, since its signature has no `_comment` param).
+
+    `entries_dir` overrides STAGE_ENTRIES_DIR for tests; real callers never
+    pass it.
+    """
+    d = Path(entries_dir) if entries_dir is not None else STAGE_ENTRIES_DIR
+    path = d / f"{stage}.json"
+    if not path.exists():
+        raise SystemExit(
+            f"stage_entries: no template for stage {stage!r} at {path}")
+    raw = json.loads(path.read_text())
+    return _substitute_placeholders(raw, {"cfg": cfg, "geom": geom}, stage)
+
+# Same outstage root the mu2ejobsub era used (pipeline.py's retired
+# OUTSTAGE constant);
+# prodtools computes it as {wftop}/{user}/workflow/{wfproject}/outstage.
+WFTOP = "/pnfs/mu2e/scratch/users"
+WFPROJECT = "default"
+
+
+def outstage_root() -> str:
+    return f"{WFTOP}/{USER}/workflow/{WFPROJECT}/outstage"
+
+
+def cluster_worker_logs(cluster_dir) -> list:
+    """Worker .log files under one cluster's outstage dir, across both
+    layouts this root has ever held: legacy mu2ejobsub
+    (`<cluster>/00/<00000>/*.log`) first, then prodtools direct's flat
+    per-proc layout (`<cluster>/<proc>/*.log`). A cluster submitted
+    pre-switch can only ever have the legacy shape, so checking it first
+    is also the tie-break: if both somehow have files, legacy wins.
+    Owned here, beside outstage_root(), so a prodtools-side layout change
+    has one place to land -- callers (graph/pipeline_io.py's worker-log
+    fallback) hold no layout knowledge of their own."""
+    cluster_dir = Path(cluster_dir)
+    legacy = sorted(cluster_dir.glob("00/*/*.log"))
+    if legacy:
+        return legacy
+    return sorted(cluster_dir.glob("*/*.log"))
+
+
+_DEFAULT_OUTLOC = {"*.art": "outstage", "*.root": "outstage"}
+
+
+def render_entry(*, dsconf, desc, njobs,
+                 code_tarball, fcl_name, events=None, run=None,
+                 memory_mb=None, input_data=None, inloc=None,
+                 resampler_name=None, fcl_overrides=None,
+                 outloc=None) -> dict:
+    """One json2jobdef entry dict for a (config, stage).
+
+    M3 (2026-08-16 review): dropped the leading `stage, stage_cfg, *,
+    config` params -- none of the three were ever read in the body (every
+    value the entry actually needs -- desc/dsconf/fcl_name/... -- already
+    arrives as its own keyword); callers that used to pass them
+    (core/pipeline.py's submit_stage_prodtools / cmd_submit local branch,
+    both now routed through the shared `_render_and_build_cnf`) dropped
+    them too.
+
+    `fcl_name` is the entry's `fcl` field -- since Task 13 (retiring the
+    hand-written pipeline_templates/<stage>/template.fcl files) this is the
+    PUBLISHED Production FCL path (stage_entries/<stage>.json "fcl", loaded
+    via load_stage_entry -- Task 14 moved it out of core/pipeline.py's
+    STAGE_FCL dict), not a per-config materialized file's basename;
+    `fcl_overrides` (when
+    given) is copied into the entry verbatim -- prodtools' write_fcl_template
+    renders it directly (json.dumps per value) on top of that base FCL.
+    Code-mode for every stage: the per-config Code tarball ships the geom
+    (and, for the two stages whose overrides need one, a static extras fcl
+    -- see pipeline.py _stage_extra_files), so grid and local read the
+    identical FCL (the env-divergence class of incidents is closed by
+    construction, not by care).
+
+    `outloc`: caller-supplied (a stage_entries/<stage>.json "outloc", every
+    real caller) wins; `_DEFAULT_OUTLOC` is the fallback ONLY for a caller
+    that passes none (e.g. a test building an entry directly), so editing a
+    stage's outloc in the JSON actually takes effect instead of being
+    silently shadowed by a hardcoded literal here (task-14 review finding).
+    """
+    entry = {
+        "desc": desc,
+        "dsconf": dsconf,
+        "owner": USER,
+        "fcl": fcl_name,
+        "code": str(code_tarball),
+        "njobs": njobs,
+        "outloc": dict(outloc) if outloc is not None else dict(_DEFAULT_OUTLOC),
+    }
+    if events is not None:
+        entry["events"] = events
+        entry["run"] = run
+    if memory_mb is not None:
+        entry["memory"] = f"{memory_mb}MB"
+    if input_data is not None:
+        entry["input_data"] = input_data
+        entry["inloc"] = inloc
+    if resampler_name is not None:
+        entry["resampler_name"] = resampler_name
+    if fcl_overrides is not None:
+        entry["fcl_overrides"] = dict(fcl_overrides)
+    return entry
+
+
+def write_entry(state_dir: Path, stage: str, entry: dict) -> Path:
+    """state/<stage>_entry.json, as the one-element list json2jobdef reads."""
+    out = state_dir / f"{stage}_entry.json"
+    out.write_text(json.dumps([entry], indent=1) + "\n")
+    return out
+
+
+def wait_json_path(state_dir: Path, stage: str) -> Path:
+    return state_dir / f"{stage}_wait.json"
+
+
+def read_wait(state_dir: Path, stage: str) -> dict:
+    p = wait_json_path(state_dir, stage)
+    if not p.exists():
+        raise SystemExit(
+            f"[{stage}] {p} missing -- the runner (runlocal/jobwait) died "
+            f"before writing its summary; re-run 'poll {stage}'")
+    return json.loads(p.read_text())
+
+
+def run_jobwait(stage_dir, cnf, jobid, njobs, wait_json, env,
+                runner=subprocess.run, poll_s=300) -> int:
+    """Block on a submitted cluster via prodtools jobwait; return its rc.
+
+    jobwait has no internal timeout by design (the closed-loop barrier
+    timeout is the backstop) and its rc reflects the cluster outcome, NOT
+    a tool failure -- a partial cluster (some jobs failed) is a nonzero rc
+    that callers here still treat as a normal return; SystemExit is
+    reserved for the one true tool failure: jobwait dying before it wrote
+    its wait.json summary, which leaves callers with nothing to read.
+    """
+    cmd = [str(prodtools_root() / "bin" / "jobwait"),
+           "--jobdef", str(cnf), "--cluster", str(jobid),
+           "--njobs", str(njobs), "--outstage", outstage_root(),
+           "--poll-s", str(poll_s), "--json", str(wait_json)]
+    res = runner(cmd, cwd=str(stage_dir), env=env)
+    if not Path(wait_json).exists():
+        raise SystemExit(
+            f"jobwait exited rc={res.returncode} without writing "
+            f"{wait_json} -- it died before the cluster drained")
+    return res.returncode
+
+
+def cnf_path(stage_dir, desc, dsconf) -> Path:
+    """The cnf tarball path json2jobdef writes for (stage_dir, desc, dsconf).
+
+    ONE naming rule (M1): json2jobdef's own convention
+    (`cnf.<owner>.<desc>.<dsconf>.0.tar`, `.0` = the fixed jobdef-revision
+    suffix, `owner` = this process' USER, same as the entry's `owner`
+    field). build_cnf derives the path it expects json2jobdef to have
+    written; core/pipeline.py's cmd_poll re-derives the SAME path (no
+    entry.json to re-read at poll time) to hand jobwait the cnf it must
+    block on -- both used to inline this f-string separately, so an edit to
+    one silently diverged from the other.
+    """
+    return Path(stage_dir) / f"cnf.{USER}.{desc}.{dsconf}.0.tar"
+
+
+def build_cnf(stage_dir, entry_path, desc, dsconf, env,
+             runner=subprocess.run) -> Path:
+    """Build a cnf tarball via prodtools json2jobdef; return its path.
+
+    SystemExit (stderr surfaced -- c2b154d convention) on a non-zero rc
+    or on a rc==0 that somehow didn't produce the expected tarball.
+    """
+    cmd = [str(prodtools_root() / "bin" / "json2jobdef"),
+           "--json", str(entry_path), "--desc", desc, "--dsconf", dsconf]
+    res = runner(cmd, cwd=str(stage_dir), env=env,
+                 capture_output=True, text=True)
+    if res.returncode != 0:
+        raise SystemExit(f"json2jobdef failed rc={res.returncode}:\n"
+                         f"{res.stdout}\n{res.stderr}")
+    cnf = cnf_path(stage_dir, desc, dsconf)
+    if not cnf.exists():
+        raise SystemExit(f"json2jobdef succeeded but {cnf} is missing")
+    return cnf
+
+
+_CODE_ID = ".autoresearch-code-id"
+
+
+def _invalidate_stale_code_tree(workdir: Path, code_tarball: Path) -> bool:
+    """Drop `<workdir>/code` when it was unpacked from a DIFFERENT tarball.
+    Returns True if a stale tree was removed.
+
+    runlocal unpacks the code tarball once per workdir and reuses it
+    forever after, guarded by its own `.unpack-complete` sentinel
+    (utils/runlocal.py:unpack_code). That sentinel answers "is this tree
+    complete", never "is it the tree THIS tarball would produce" -- so
+    re-submitting the same (config, stage) after the tarball changed runs
+    the OLD code, silently. Measured 2026-08-17: an edited extras fcl was
+    ignored this way, and the job failed rc=90 against a deleted include
+    while the correct file sat unread in the new tarball. The reuse is
+    deliberate and worth keeping (several GB per unpack), so this
+    invalidates rather than disables it.
+
+    Identity is (resolved path, size, mtime_ns), NOT the path alone: the
+    cache filename's token covers extra_files only, so a rebuilt tarball
+    carrying a NEW GEOM lands at the same path -- the failure that would
+    hide is a job silently running the previous BO point's geometry, which
+    is worse than a stale include and invisible in the metrics.
+
+    Campaigns never hit this (a fresh config name means a fresh workdir);
+    it is an iteration hazard, which is exactly why it must not depend on
+    anyone remembering it.
+    """
+    code_root = workdir / "code"
+    if not code_tarball.exists():
+        # No identity to compare against. Leave the tree alone and let
+        # runlocal fail on the missing tarball with its own message rather
+        # than raising a less informative FileNotFoundError from here.
+        return False
+    st = code_tarball.stat()
+    ident = f"{code_tarball.resolve()}\n{st.st_size}\n{st.st_mtime_ns}\n"
+    stamp = code_root / _CODE_ID
+    stale = code_root.exists() and (
+        not stamp.is_file() or stamp.read_text() != ident)
+    if stale:
+        print(f"[local] code tarball changed -- discarding stale unpack at "
+              f"{code_root}")
+        shutil.rmtree(code_root)
+    code_root.mkdir(parents=True, exist_ok=True)
+    # Written BEFORE the run: it records which tarball this tree is FOR,
+    # while runlocal's own sentinel records whether the tree is complete.
+    # An interrupted unpack therefore still re-extracts (no sentinel) --
+    # the two markers answer different questions and must stay separate.
+    stamp.write_text(ident)
+    return stale
+
+
+def run_runlocal(stage_dir, cnf, njobs, wait_json, env, *, code_tarball,
+                 inloc=None, pool=4, runner=subprocess.run) -> int:
+    """Run njobs jobs on THIS node via prodtools runlocal; return its rc.
+
+    The local counterpart of run_jobwait: runlocal builds the same cnf the
+    grid path builds and executes it here, writing the same wait.json shape
+    (see _WAIT_LOCAL in tests/test_prodtools_exec.py) so cmd_list_outputs is
+    executor-blind. The entry's events are already baked into the cnf (see
+    render_entry), so there is no --nevts flag here.
+
+    Same acceptance split as run_jobwait: a died-before-summary runlocal is
+    a tool failure (SystemExit -- nothing to read downstream); a completed
+    run with some jobs failed is a normal return, whose acceptance policy
+    belongs to the caller.
+    """
+    workdir = Path(stage_dir) / "local"
+    workdir.mkdir(parents=True, exist_ok=True)
+    _invalidate_stale_code_tree(workdir, Path(code_tarball))
+    cmd = [str(prodtools_root() / "bin" / "runlocal"),
+           "--jobdef", str(cnf), "--first", "0", "--num", str(njobs),
+           "-j", str(pool), "--workdir", str(workdir),
+           "--code", str(code_tarball), "--json", str(wait_json)]
+    if inloc is not None:
+        cmd += ["--inloc", str(inloc)]
+    res = runner(cmd, cwd=str(stage_dir), env=env)
+    if not Path(wait_json).exists():
+        raise SystemExit(
+            f"runlocal exited rc={res.returncode} without writing "
+            f"{wait_json} -- it died before finishing the local run")
+    return res.returncode
+
+
+def submit_cnf(stage_dir, entry_path, ledger_db, origin, env,
+               runner=subprocess.run, dry_run=False) -> tuple[int, str]:
+    """Submit a built cnf via core/prodtools_submit_driver.py; return
+    (cluster_id, jobsub_id). jobsub_id is normalized to NNNN@schedd (the
+    shape jobwait wants), dropping the .PROC suffix the driver may pass
+    through.
+
+    SystemExit (driver's stderr) if no cluster id came back -- the
+    driver's submit_entry already closed the ledger reservation on
+    failure, so there is nothing here to unwind. Also SystemExit if
+    cluster_id came back but jobsub_id is missing/malformed (no "@schedd"
+    to parse): a bare cluster id can't be jobwait'd, so silently returning
+    one here would only surface as a confusing jobwait failure downstream
+    instead of a clear one at submit time.
+    """
+    driver = Path(__file__).resolve().parent / "prodtools_submit_driver.py"
+    cmd = ["python3", str(driver),
+           "--prodtools", str(prodtools_root()),
+           "--entry", str(entry_path), "--ledger", str(ledger_db),
+           "--origin", origin,
+           "--wftop", WFTOP, "--wfproject", WFPROJECT]
+    if dry_run:
+        cmd.append("--dry-run")
+    res = runner(cmd, cwd=str(stage_dir), env=env,
+                 capture_output=True, text=True)
+    for line in (res.stdout or "").splitlines():
+        if line.startswith("SUBMIT_RESULT "):
+            data = json.loads(line[len("SUBMIT_RESULT "):])
+            if data.get("cluster_id"):
+                jobsub = data.get("jobsub_id") or ""
+                cluster = int(data["cluster_id"])
+                if "@" not in jobsub:
+                    raise SystemExit(
+                        f"prodtools submitted cluster {cluster} but returned "
+                        f"no usable jobsub_id (got {jobsub!r}) -- cannot "
+                        f"derive a schedd for jobwait. Raw SUBMIT_RESULT: "
+                        f"{line.strip()}")
+                # NNNN.P@schedd -> NNNN@schedd (what jobwait wants).
+                schedd = jobsub.split("@", 1)[1]
+                return cluster, f"{cluster}@{schedd}"
+    raise SystemExit(f"prodtools submit failed rc={res.returncode}:\n"
+                     f"{res.stdout}\n{res.stderr}")
+
+
+def outputs_from_wait(wait: dict, output_glob: str) -> list[str]:
+    """Output paths of jobs that exited 0, filtered to the stage's glob.
+
+    rc None (unknown -- condor history had no record) is NOT ok: an
+    unverifiable job never contributes files to harvest denominators.
+    """
+    outs = []
+    for job in wait.get("jobs", []):
+        if job.get("rc") != 0:
+            continue
+        for o in job.get("outputs", []):
+            if not fnmatch(Path(o).name, output_glob):
+                continue
+            if not os.path.isabs(o) and job.get("dir"):
+                o = str(Path(job["dir"]) / o)
+            outs.append(o)
+    return sorted(outs)

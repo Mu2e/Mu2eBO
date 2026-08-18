@@ -47,6 +47,12 @@ leaderboard file already claimed by another mode.
 - **`pot_only` is not usable from a JSON mode** unless you also declare
   prodtarget's `grid_tarball`: `core/pipeline.py` hardcodes that stage's
   `code_tarball` and it wins over the spec's.
+- **`musing` and `grid_tarball` are written as `${ARTIFACT}/<path>`.** The
+  token expands against this operator's artifact root —
+  `$AUTORESEARCH_ARTIFACT_ROOT`, or `/exp/mu2e/app/users/$USER` by default —
+  falling through to the `backing` link for anything not built locally
+  (`./setup.sh --backing <path>`). A bare absolute path under a user area is
+  rejected at load: it would make the mode runnable by exactly one account.
 
 ## Why not `modes/`?
 

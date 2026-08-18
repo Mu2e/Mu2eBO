@@ -18,7 +18,7 @@ import fcntl
 import json
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -127,6 +127,7 @@ class Leaderboard:
     knob_names: tuple
     knob_fmts: tuple
     metric_cols: tuple   # exactly (sob-like, calo-like, "alpha", "obj")
+    archive_path: Path | None = None   # committed read-only priors
 
     def __post_init__(self):
         if len(self.metric_cols) != 4:
@@ -139,11 +140,16 @@ class Leaderboard:
                 f"({len(self.knob_names)} vs {len(self.knob_fmts)})")
 
     @classmethod
-    def from_spec(cls, spec, root: Path) -> "Leaderboard":
-        return cls(path=root / spec.leaderboard_rel, name=spec.name,
+    def from_spec(cls, spec, *, live_root: Path,
+                  archive_root: Path) -> "Leaderboard":
+        """live_root is this operator's flat board directory; archive_root is
+        the repo, where the committed priors keep their relative path."""
+        rel = Path(spec.leaderboard_rel)
+        return cls(path=live_root / rel.name, name=spec.name,
                    knob_names=tuple(spec.knob_names),
                    knob_fmts=tuple(spec.knob_fmts),
-                   metric_cols=tuple(spec.metric_cols))
+                   metric_cols=tuple(spec.metric_cols),
+                   archive_path=archive_root / rel)
 
     # --- history -----------------------------------------------------------
     def header(self) -> str:
@@ -153,14 +159,24 @@ class Leaderboard:
     def quarantine_path(self) -> Path:
         return self.path.with_name(self.path.name + ".quarantine.tsv")
 
-    def load(self) -> list[Point]:
-        if not self.path.exists():
+    def _load_one(self, path: Path, *, lock: bool = True) -> list[Point]:
+        """lock=False for the committed archive.
+
+        _lock_path CREATES <dir>/locks/<name>.lock, so taking even a SHARED
+        lock on the archive needs WRITE access to the repo -- which a user
+        running from someone else's checkout does not have (PermissionError
+        at propose, mmackenz 2026-08-13). Nothing here writes the archive: it
+        changes only by a reviewed git commit, which no flock serializes
+        against anyway. The lock bought nothing there and cost read-only
+        deployments everything.
+        """
+        if not path.exists():
             return []
         out = []
-        with _flock_sh(self.path), self.path.open() as f:
+        with (_flock_sh(path) if lock else nullcontext()), path.open() as f:
             first = f.readline()
             if first.rstrip("\n") != self.header().rstrip("\n"):
-                raise SchemaMismatch(self.path, self.header(), first)
+                raise SchemaMismatch(path, self.header(), first)
             cols = ("config", *self.knob_names, *self.metric_cols)
             reader = csv.DictReader(f, fieldnames=cols, delimiter="\t")
             for line_no, row in enumerate(reader, start=2):
@@ -171,8 +187,22 @@ class Leaderboard:
                         sob=float(row[self.metric_cols[0]]),
                         calo=float(row[self.metric_cols[1]])))
                 except (KeyError, ValueError, TypeError) as e:
-                    raise RowParseError(self.path, line_no, e) from e
+                    raise RowParseError(path, line_no, e) from e
         return out
+
+    def load(self) -> list[Point]:
+        """Committed priors first, then this operator's own rows.
+
+        A config appearing in BOTH is counted once, archive-wins: promoting
+        live rows into the committed archive is a manual git commit, so a
+        row left behind in the live file would otherwise enter the GP
+        training set twice.
+        """
+        archive = (self._load_one(self.archive_path, lock=False)
+                   if self.archive_path else [])
+        seen = {p.cfg for p in archive}
+        live = [p for p in self._load_one(self.path) if p.cfg not in seen]
+        return archive + live
 
     def _format_line(self, p: Point, alpha: float) -> str:
         knobs = "\t".join(
@@ -182,6 +212,7 @@ class Leaderboard:
 
     def append(self, p: Point, alpha: float) -> None:
         line = self._format_line(p, alpha)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         with _flock_ex(self.path):
             if not self.path.exists():
                 self.path.write_text(self.header() + line)

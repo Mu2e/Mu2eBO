@@ -167,6 +167,7 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         mode = JsonMode(self.name)
         # Never touch a real leaderboard under leaderboards/.
         mode.leaderboard = self.tmp / f"leaderboard_bo_{self.name}.tsv"
+        mode.leaderboard_archive = None
         mode.proposal_dir = self.tmp / "proposals"
         bo_driver.MODES[self.name] = mode
         self.addCleanup(bo_driver.MODES.pop, self.name, None)

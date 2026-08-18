@@ -2,8 +2,8 @@
   "name": "foilspfbpx",
   "note": "CLEAN CEILING TEST for foilspfbp: byte-identical to mode_specs/foilspfbp.json EXCEPT the rOut box, widened [50,120] -> [30,150] (knob min/max + rOut_p clip). Parameterization (f x rOut), pinned deployed pitch (extent 1066.666667, 49 foils, deltaZ 22.2222), hT and f boxes, software stack and preflight gates are ALL unchanged, so foilspfbp's 93 evals remain valid training data and the leaderboard is SEEDED by copying leaderboard_bo_foilspfbp.tsv (this also carries the header -- do NOT `touch` a fresh leaderboard, see incident touched-leaderboard-headerless-history-loss). MOTIVATION (2026-08-07): on the DEPLOYABLE slice of foilspfbp (damage <= deployed, 74 designs), 9 of the top 15 press the 120 ceiling and 6 press the 50 floor -- the rOut box is squeezed at both ends by the designs we would actually field, including bp04R00_02 (50.0/120.0/72.4). 150 mm is MEASURED buildable: the RCLEAR150 preflight returned PASS with total_hits=0 unique_volumes=0, 49/49 foils GDML-verified. WHY ONE VARIABLE: foilspfbw moved the ceiling AND the parameterization together, which forfeited both the attribution and the 93-row warm start, and settled nothing. This changes one knob's box so the answer is attributable and the history transfers. DECISION RULE fixed in advance: designs outside [50,120] push best-sob-at-deployed-damage above 4.00 => the box was binding; best-at-budget stays ~4.00 with picks staying interior => settled negative and the line is finished.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
   },
   "run": {
     "stages": [

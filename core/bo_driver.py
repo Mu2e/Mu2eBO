@@ -44,7 +44,9 @@ from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
     Leaderboard, Point, to_py_scalars,   # are public API of this module)
     _flock_ex, _flock_sh, _lock_path)
 
-ROOT = Path("/exp/mu2e/app/users/oksuzian/autoresearch")
+from paths import REPO_ROOT as ROOT  # single root resolver, see core/paths.py
+from paths import BO_WORK, GRID_DATA_ROOT
+from paths import leaderboard_archive, leaderboard_live
 
 # graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
 # "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —
@@ -184,9 +186,10 @@ class BOMode(ABC):
     # --- leaderboard + pending I/O: owned by core/leaderboard.py -----------
     def leaderboard_io(self) -> Leaderboard:
         lb = getattr(self, "_lb_cache", None)
-        # Rebuild whenever `self.leaderboard` no longer matches the cached
-        # instance's path, not just on first access. `mock.patch.object(mode,
-        # "leaderboard", tmp_path)` is the standard test seam across this
+        # Rebuild whenever `self.leaderboard` or `self.leaderboard_archive` no
+        # longer matches the cached instance's paths, not just on first
+        # access. `mock.patch.multiple(mode, leaderboard=tmp_path,
+        # leaderboard_archive=None)` is the standard test seam across this
         # suite (test_botorch_predict.py, test_seam_protocol.py) and the
         # botorch_predict --leaderboard CLI override does the same directly;
         # a path-blind cache would silently keep serving the PRE-patch (or,
@@ -194,12 +197,14 @@ class BOMode(ABC):
         # call had populated it -- exactly the failure mode
         # touched-leaderboard-headerless-history-loss warns about, just at
         # the object-cache layer instead of the TSV layer.
-        if lb is None or lb.path != self.leaderboard:
+        archive = getattr(self, "leaderboard_archive", None)
+        if lb is None or lb.path != self.leaderboard or lb.archive_path != archive:
             spec = _modes.SPECS[self.name]
             lb = Leaderboard(path=self.leaderboard, name=self.name,
                              knob_names=tuple(spec.knob_names),
                              knob_fmts=tuple(spec.knob_fmts),
-                             metric_cols=tuple(spec.metric_cols))
+                             metric_cols=tuple(spec.metric_cols),
+                             archive_path=archive)
             self._lb_cache = lb
         return lb
 
@@ -237,9 +242,12 @@ class JsonMode(BOMode):
         if spec.geom is None:
             raise ValueError(f"{name}: JsonMode requires a geom template")
         self.name = name
-        self.leaderboard = ROOT / spec.leaderboard_rel
-        self.proposal_dir = ROOT / "bo_work" / "proposals" / name
-        self.preflight_dir = ROOT / "bo_work" / "preflight" / name
+        # Live rows go to this operator's own /data board; the committed
+        # leaderboards/ are read-only priors both operators start warm from.
+        self.leaderboard = leaderboard_live(spec.leaderboard_rel)
+        self.leaderboard_archive = leaderboard_archive(spec.leaderboard_rel)
+        self.proposal_dir = BO_WORK / "proposals" / name
+        self.preflight_dir = BO_WORK / "preflight" / name
 
     def _geom_text(self, x) -> str:
         return _modes.SPECS[self.name].geom.render(x)
@@ -425,7 +433,7 @@ def _cmd_propose_locked(args, mode, names):
         geom = mode.render_proposal(name, x)
         # Auto-stage geom into the parametric pipeline's per-config work tree
         # (see wiki/incidents/template-fcl-staleness.md).
-        work_geom_dir = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid") / name / "geom"
+        work_geom_dir = GRID_DATA_ROOT / name / "geom"
         work_geom_dir.mkdir(parents=True, exist_ok=True)
         work_geom = work_geom_dir / f"autoresearch_{name}_geom.txt"
         shutil.copy(geom, work_geom)
@@ -686,6 +694,15 @@ def write_json_atomic(path: Path, payload: dict) -> None:
 
 def _cmd_preflight_impl(args):
     mode = MODES[args.mode]
+
+    import harvest as _harvest
+    import paths as _paths
+    # Preflight is the first thing every chain runs, so it is where a missing
+    # backing has to surface -- including harvest's Run1BAna artifacts, which
+    # no earlier step touches and which a fresh clone does not have.
+    _paths.verify([_modes.SPECS[mode.name]],
+                  extra=_harvest.REQUIRED_ARTIFACTS, make_dirs=False)
+
     name = args.config_name
     geom = mode.proposal_dir / f"{name}_geom.txt"
     if not geom.exists():
@@ -830,8 +847,7 @@ def _cmd_preflight_impl(args):
               f"verified against as-built GDML (rIn/rOut/thickness)")
         # Preserve the verified as-built GDML alongside the config's grid
         # artifacts (the /tmp workdir is node-local and tmpwatch-cleaned).
-        keep_dir = (Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
-                    / name / "geom")
+        keep_dir = GRID_DATA_ROOT / name / "geom"
         keep_dir.mkdir(parents=True, exist_ok=True)
         keep_path = keep_dir / f"asbuilt_{name}.gdml"
         shutil.copyfile(gdml_path, keep_path)
@@ -847,8 +863,7 @@ def _cmd_preflight_impl(args):
                   f"{PREFLIGHT_GDML_NAME} not produced — cannot preserve "
                   f"as-built geometry (writeGDML missing from env?)")
             return 1
-        keep_dir = (Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
-                    / name / "geom")
+        keep_dir = GRID_DATA_ROOT / name / "geom"
         keep_dir.mkdir(parents=True, exist_ok=True)
         keep_path = keep_dir / f"asbuilt_{name}.gdml"
         shutil.copyfile(gdml_path, keep_path)

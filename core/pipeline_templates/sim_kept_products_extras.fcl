@@ -1,0 +1,38 @@
+# Shared @sequence::-bearing outputCommands overrides for the two resampler
+# stages, mubeam and run1b_mubeam. Split out 2026-08-17: these blocks were
+# byte-identical in the former mubeam_extras.fcl and run1b_mubeam_extras.fcl,
+# so a change to the kept-products shape had to be made twice or silently
+# diverge. mubeam's targetStopPath restatement -- the ONLY thing that ever
+# differed between the two -- now lives beside it in
+# mubeam_targetstop_path.fcl, included only by that stage.
+#
+# Why a file at all, rather than a JSON fcl_overrides value: json2jobdef's
+# write_fcl_template (prodtools utils/prod_utils.py) renders every override
+# value through json.dumps, which can only emit quoted strings / bracketed
+# lists -- it cannot emit the unquoted @sequence:: preprocessor token, and a
+# quoted "@sequence::..." is a literal string that matches nothing rather
+# than an error. The '#include' key is the one key that loop writes verbatim,
+# so raw FHiCL rides in through it. Kept FIRST among the overrides, so every
+# later per-key override in fcl_overrides still wins over whatever this sets.
+#
+# Shipped inside the code tarball's Code/ dir (write_code_tarball extra_files,
+# selected by core/pipeline.py:_stage_extra_files from the '#include' list --
+# a bare basename must ship, a Production/... path resolves from the release),
+# and found at job runtime via Code/setup_post.sh's FHICL_FILE_PATH prepend --
+# the same search-path mechanism the per-BO geom overlay uses.
+#
+# Load-bearing rationale for each block lives in core/pipeline.py's comment
+# block above _render_fcl_overrides (the "mubeam.json:" section), not here.
+
+outputs.TargetStopOutput.outputCommands: [
+  "drop *_*_*_*",
+  @sequence::Pileup.SimKeptProducts,
+  "drop *_IPAStopFilter_*_*",
+  "drop *_FlashFilter_*_*"
+]
+outputs.FlashOutput.outputCommands: [
+  "drop *_*_*_*",
+  @sequence::Pileup.SimKeptProducts,
+  "drop *_IPAStopFilter_*_*",
+  "drop *_TargetStopFilter_*_*"
+]

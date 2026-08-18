@@ -40,6 +40,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 import bo_driver as bo  # noqa: E402
+import paths  # noqa: E402
 
 GOLDENS = ROOT / "tests" / "goldens"
 FROZEN_LB = GOLDENS / "leaderboard_bo_foilsflash.frozen.tsv"
@@ -95,12 +96,14 @@ def section_b():
     """
     import botorch_predict as bp
     mode = bo.MODES["foilsflash"]
-    orig = mode.leaderboard
+    orig, orig_arch = mode.leaderboard, mode.leaderboard_archive
     mode.leaderboard = FROZEN_LB
+    mode.leaderboard_archive = None
     try:
         X, Y, bounds, int_dims = bp._load_history_tensor("foilsflash")
     finally:
         mode.leaderboard = orig
+        mode.leaderboard_archive = orig_arch
     return {
         "X_shape": list(X.shape), "Y_shape": list(Y.shape),
         "sha_X": hashlib.sha256(X.numpy().tobytes()).hexdigest(),
@@ -111,7 +114,7 @@ def section_b():
 
 def _pick_replay_config():
     mode = bo.MODES["foilsflash"]
-    grid = Path("/exp/mu2e/data/users/oksuzian/autoresearch_grid")
+    grid = paths.GRID_DATA_ROOT
     for p in reversed(mode.load_history()):
         geom = mode.proposal_dir / f"{p.cfg}_geom.txt"
         summary = grid / p.cfg / "harvest" / "summary.json"
@@ -128,8 +131,9 @@ def section_c():
     tmp = Path(tempfile.mkdtemp())
     lb_copy = tmp / mode.leaderboard.name
     shutil.copyfile(mode.leaderboard, lb_copy)
-    orig = mode.leaderboard
+    orig, orig_arch = mode.leaderboard, mode.leaderboard_archive
     mode.leaderboard = lb_copy
+    mode.leaderboard_archive = None
     try:
         buf = io.StringIO()
         args = SimpleNamespace(mode="foilsflash", config_name=cfg,
@@ -147,6 +151,7 @@ def section_c():
             result["evaluate"]["json"] = json.loads(Path(ej).read_text())
     finally:
         mode.leaderboard = orig
+        mode.leaderboard_archive = orig_arch
     # -- preflight replay (real G4 init, ~2 min) --
     buf = io.StringIO()
     args = SimpleNamespace(mode="foilsflash", config_name=cfg)

@@ -2,8 +2,8 @@
   "name": "foilspf2k",
   "note": "9D SHAPE-ONLY sibling of foilspf: identical geometry model, but `extent` is PINNED at 2000 (a geom const, not a knob) so the search is purely over the three quadratic profiles. Created 2026-08-03 after foilspf04 pinned the extent ceiling for the second time -- 7/20 of its rows and its top FOUR sob values all sat at exactly 2000, corr(extent,sob)=+0.56. Unlike the 1100 pin (an unrevisited number with 640mm behind it), 2000 is the DS ENVELOPE: only 51mm of total slack remains (21mm upstream to the relocated EMC_Source at 4850, which is already at its 4800 floor; 30mm downstream to protonabs1 via ST_Out, which is REAL MATERIAL and not relocatable), and z0=5871 is already within 4.5mm of the optimal centre so sliding it buys ~9mm. Length is exhausted as a lever; shape is not. Seeded with the 15 foilspf rows that sat at exactly extent 2000 (sob 0.97-4.75), which ARE valid 9D evaluations of this exact problem -- so this line starts with real history, not a cold Sobol start. foilspf itself is UNCHANGED and keeps its 80-row record.",
   "software": {
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2"
   },
   "run": {
     "stages": [
