@@ -1,42 +1,6 @@
 {
-  "foils": {
-    "rows": 92,
-    "skipped": 0,
-    "mismatch_idx": [
-      52,
-      69
-    ],
-    "header_matches_disk": true,
-    "sha256": "12ecfdede4ee053170a8c2481dcff5859b6747949c3d2acd09cd7236ddddf6c0"
-  },
-  "foilsf": {
-    "rows": 586,
-    "skipped": 0,
-    "mismatch_idx": [
-      22,
-      33,
-      42,
-      43,
-      48,
-      62,
-      101,
-      140,
-      195,
-      289,
-      354,
-      427,
-      443,
-      478,
-      499,
-      500,
-      506,
-      576
-    ],
-    "header_matches_disk": true,
-    "sha256": "fda7b53ca242df5fbc2c48f6cb8d14e8f985a006935bc49ff4d998ab51e730e7"
-  },
   "foilsflash": {
-    "rows": 304,
+    "rows": 414,
     "skipped": 0,
     "mismatch_idx": [
       0,
@@ -91,30 +55,86 @@
       104,
       119,
       157,
-      296
+      296,
+      361
     ],
     "header_matches_disk": true,
-    "sha256": "af2f7a91dd9e620a858f87d3fa027225d55b11a25cc0ffdf8f1db403d09cdee2"
+    "sha256": "13efd8520ed1a0ff6e419a397fdd3d08a97c8cf7c1d0eed84133903fe59c79de"
   },
-  "foilsg": {
+  "foilspf": {
+    "rows": 90,
+    "skipped": 0,
+    "mismatch_idx": [
+      1
+    ],
+    "header_matches_disk": true,
+    "sha256": "e56b2c51d8bb545f4f3380936317134a26f1f072c6b8fa7c05794e97c0f39a7f"
+  },
+  "foilspf2k": {
+    "rows": 35,
+    "skipped": 0,
+    "mismatch_idx": [],
+    "header_matches_disk": true,
+    "sha256": "a46e9c31da8d6a66cbd32a42a1f56dd3e3337b611818a6a248d76f52ccc97ee4"
+  },
+  "foilspfbp": {
+    "rows": 93,
+    "skipped": 0,
+    "mismatch_idx": [
+      78
+    ],
+    "header_matches_disk": true,
+    "sha256": "934539b30ef6f6a202da9e2a80c638ce5ce2bfb58e837e1c2bc53a24d99caacc"
+  },
+  "foilspfbpx": {
+    "rows": 133,
+    "skipped": 0,
+    "mismatch_idx": [
+      78
+    ],
+    "header_matches_disk": true,
+    "sha256": "9e00ff2b3ee1568323fba58e467be8bbe0a617a322e45b68e19b8aea281b8c89"
+  },
+  "foilspfbpz": {
+    "rows": 173,
+    "skipped": 0,
+    "mismatch_idx": [],
+    "header_matches_disk": true,
+    "sha256": "153c7a84a174297ab80a370c6837f60c9d81ed7b286eceab3243733ff7270456"
+  },
+  "foilspfbw": {
+    "rows": 20,
+    "skipped": 0,
+    "mismatch_idx": [],
+    "header_matches_disk": true,
+    "sha256": "11b5fae52009e127a535747d888244f0562866bb346afb6c611796b2d555781a"
+  },
+  "ipa625": {
     "rows": 1,
     "skipped": 0,
     "mismatch_idx": [],
     "header_matches_disk": true,
-    "sha256": "a56af5a492cf393b5ea1d694e27c950c9562c005daf5169de150521bbd48679b"
+    "sha256": "0f08cd0190a687efafd4c5096fd7a776eb0f52122914478876b5f81186a216ae"
   },
-  "prodtarget": {
-    "rows": 39,
+  "ipafix": {
+    "rows": 1,
     "skipped": 0,
     "mismatch_idx": [],
     "header_matches_disk": true,
-    "sha256": "e81f60c9f4c2585dd1859b5fe53276e14acb081787bdad809f1787999a81595e"
+    "sha256": "79d4ef9bc4cc89c7b3cf87e35b57d4cd2e9bb8a43f19056195ff8d3f4dfee0f0"
   },
-  "prodtarget6d": {
-    "rows": 380,
+  "ipaovr": {
+    "rows": 1,
     "skipped": 0,
     "mismatch_idx": [],
     "header_matches_disk": true,
-    "sha256": "3fed632ee3cf655c419b7115e8bdf501e923e5667410af8fb9d1363c1f762e34"
+    "sha256": "6a89b441dcc7ea195163158c08690503cd0b7502e26115c22c39f8e5bff799c0"
+  },
+  "nominal": {
+    "rows": 1,
+    "skipped": 0,
+    "mismatch_idx": [],
+    "header_matches_disk": true,
+    "sha256": "1eec973f1ff9bca20f6ea4406a61c35cbb8355e128fbb7c6bf94eb80b3137d47"
   }
 }
