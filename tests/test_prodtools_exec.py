@@ -23,6 +23,23 @@ import prodtools_exec as pex
 import pipeline_io as pio
 
 
+def _stage_cfg_override(stage, **overrides):
+    """Patch pipeline.stage_cfg so `stage`'s merged config carries
+    `overrides` on top of the REAL stage_entries/<stage>.json + mode-spec
+    data -- the STAGES module dict this task retired used to be a plain
+    dict any test could mock.patch.dict directly; stage_cfg() computes its
+    return fresh on every call, so tests patch the function instead."""
+    real = pipeline.stage_cfg
+
+    def fake(s, mode=None):
+        cfg = real(s, mode)
+        if s == stage:
+            cfg.update(overrides)
+        return cfg
+
+    return mock.patch.object(pipeline, "stage_cfg", side_effect=fake)
+
+
 class TestProdtoolsRoot(unittest.TestCase):
     def test_unset_env_names_the_variable(self):
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -333,8 +350,7 @@ class TestListOutputsFromWait(unittest.TestCase):
     def test_outputs_txt_has_ok_jobs_only(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
-             mock.patch.dict(pipeline.STAGES["mubeam"],
-                             {"output_glob": "sim.*.art"}):
+             _stage_cfg_override("mubeam", output_glob="sim.*.art"):
             pipeline._bind_config("cfg001")
             pipeline.STATE.mkdir(parents=True)
             (pipeline.STATE / "mubeam_wait.json").write_text(
@@ -429,8 +445,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
             return jobwait_rc
 
         with mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
-             mock.patch.dict(pipeline.STAGES["mubeam"],
-                             {"njobs": njobs, "quorum": quorum}), \
+             _stage_cfg_override("mubeam", njobs=njobs, quorum=quorum), \
              mock.patch.object(pipeline, "sourced_env", return_value={}), \
              mock.patch.object(pipeline.px, "run_jobwait",
                                side_effect=fake_run_jobwait) as self.rj:
@@ -531,8 +546,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
     def test_jobsub_id_file_wins_over_cluster_txt(self):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
-                 mock.patch.dict(pipeline.STAGES["mubeam"],
-                                 {"njobs": 3, "quorum": 0.9}), \
+                 _stage_cfg_override("mubeam", njobs=3, quorum=0.9), \
                  mock.patch.object(pipeline, "sourced_env",
                                    return_value={}), \
                  mock.patch.object(pipeline.px, "run_jobwait") as rj:
@@ -665,8 +679,7 @@ class TestListOutputsFromWaitLocal(unittest.TestCase):
     def test_outputs_txt_from_a_runlocal_shaped_wait_json(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
-             mock.patch.dict(pipeline.STAGES["mubeam"],
-                             {"output_glob": "sim.*.art"}):
+             _stage_cfg_override("mubeam", output_glob="sim.*.art"):
             pipeline._bind_config("cfg001")
             pipeline.STATE.mkdir(parents=True)
             (pipeline.STATE / "mubeam_wait.json").write_text(

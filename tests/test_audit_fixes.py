@@ -95,10 +95,13 @@ class TestStageShaCheckCallsites(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
+            # STAGES is gone (Task 6): _stage_config_sha now hashes
+            # stage_cfg(stage, MODE)'s return, so patch stage_cfg itself with
+            # a mutable fake dict instead of the retired module-level dict.
+            fake_cfg = {"events": 1}
             with mock.patch.object(pipeline, "STATE", tmp), \
-                 mock.patch.dict(pipeline.STAGES,
-                                 {"poke": {"events_per_job": 1}},
-                                 clear=False):
+                 mock.patch.object(pipeline, "stage_cfg",
+                                   lambda stage, mode=None: fake_cfg):
                 # 1) No stamp → silent return.
                 pipeline._check_stage_config_sha("poke")  # no raise
 
@@ -106,8 +109,8 @@ class TestStageShaCheckCallsites(unittest.TestCase):
                 pipeline._stamp_stage_config_sha("poke")
                 pipeline._check_stage_config_sha("poke")  # no raise
 
-                # 3) Mutate STAGES → mismatch → warn to stderr, no raise.
-                pipeline.STAGES["poke"]["events_per_job"] = 2
+                # 3) Mutate the fake cfg → mismatch → warn to stderr, no raise.
+                fake_cfg["events"] = 2
                 buf = io.StringIO()
                 with mock.patch.object(sys, "stderr", buf):
                     pipeline._check_stage_config_sha("poke")

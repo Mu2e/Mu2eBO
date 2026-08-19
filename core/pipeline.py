@@ -16,12 +16,13 @@ the rest of a json2jobdef entry that don't vary at runtime. `px.
 load_stage_entry` loads a stage's JSON and substitutes its `{cfg}`/`{geom}`
 placeholders; `_render_fcl_overrides` layers on the one substitution that
 JSON can't express (mustops_ce's stamp-first concat-less MaxEventsToSkip
-toggle). STAGES below keeps only the fields that mode_specs `stage_tuning`
-and `STAGE_TARGETS` actually tune (njobs/events_per_job/memory_mb/quorum),
-plus orchestration residue (desc_fmt/output_glob/merge_factor/
-dsconf_musing) -- see the comment block above `_render_fcl_overrides` for
-the per-stage-JSON-key rationale that used to sit beside STAGE_FCL's/
-STAGES' literals. The two stages whose overrides need an
+toggle). `stage_cfg(stage, mode)` (Task 6, retiring the old module-level
+STAGES dict) merges the same JSON's njobs/events/memory_mb/quorum/desc_fmt/
+output_glob/merge_factor with a mode spec's `run.jobs_per_stage`/
+`run.stage_tuning` overrides on top -- see the comment block above
+`_render_fcl_overrides` for the per-stage-JSON-key rationale that used to
+sit beside STAGE_FCL's/STAGES' literals. The two stages whose overrides
+need an
 @sequence::-bearing FHiCL block that can't ride a JSON value (mubeam,
 run1b_mubeam) pull it in from static pipeline_templates/*.fcl files via the
 `'#include'` override key, shipped in the code tarball (write_code_tarball
@@ -102,12 +103,17 @@ TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 # runtime, so setdefault is a no-op for them; a bare `import pipeline`
 # (tests, ad-hoc scripts) gets a live JSON mode either way.
 os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
+# The process's mode for the lifetime of this interpreter -- resolved ONCE,
+# used everywhere pipeline.py needs "the mode spec" (MUSE_BASE_TARBALL below,
+# every stage_cfg() call site). pipeline.py, like core/runtime.py, only ever
+# operates on one mode per process; a genuinely different mode is a fresh
+# subprocess with a different AUTORESEARCH_MODE, not a runtime switch.
+MODE = os.environ.get("AUTORESEARCH_MODE", "foilsflash")
 from paths import GRID_DATA_ROOT as DATA_ROOT  # noqa: E402
 from runtime import (  # noqa: E402
     GRID_STAGES,
     MUSING,
     SETUPMU2E,
-    STAGE_TARGETS,
 )
 
 # Concat-less chains (foilsflash since 2026-07-10): the mubeam template's
@@ -145,8 +151,7 @@ import prodtools_exec as px  # noqa: E402
 # MUSE_TARBALL_BY_MODE dict's silent `.get(..., michael)` fallback — the
 # mechanism behind the foilsflash-tarball-mode-key-omission incident — is
 # gone: an unknown mode is now a loud KeyError at import.
-MUSE_BASE_TARBALL = Path(
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilsflash")].grid_tarball)
+MUSE_BASE_TARBALL = Path(_modes.SPECS[MODE].grid_tarball)
 USER = os.environ["USER"]
 
 # Runtime state for the prodtools submission ledger (9f0c43c convention:
@@ -172,8 +177,8 @@ def _bind_config(cfg: str) -> None:
     STATE = ROOT / "state"
     GEOM_FILE = ROOT / "geom" / f"autoresearch_{cfg}_geom.txt"
     # DSCONF default reflects the dominant musing (Run1Bak — michael/helical/
-    # foils). Per-stage override via STAGES[s]["dsconf_musing"] for a stage
-    # backing a different Musing than the config's default.
+    # foils). Per-stage override via stage_cfg(s)["dsconf_musing"] for a
+    # stage backing a different Musing than the config's default.
     DSCONF = f"Run1Bak_{cfg}"
     PNFS_STAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/autoresearch_grid/{cfg}/staged")
 
@@ -181,21 +186,28 @@ def _bind_config(cfg: str) -> None:
 def _stage_dsconf(stage: str) -> str:
     """Return the dsconf string for this stage. Per-stage `dsconf_musing` key
     wins; otherwise the module-global DSCONF (Run1Bak_<cfg>) is used."""
-    musing = STAGES[stage].get("dsconf_musing")
+    musing = stage_cfg(stage, MODE).get("dsconf_musing")
     return f"{musing}_{CONFIG}" if musing else DSCONF
 
 
-# Orchestration residue (Task 14): only the fields mode_specs `stage_tuning`
-# and core/runtime.py STAGE_TARGETS actually tune, plus desc_fmt/glob/
-# merge_factor, which never vary at runtime but aren't part of a
-# json2jobdef entry either. Everything that WAS here and IS static
-# json2jobdef-entry data (run_number, memory_mb, default_loc, the dead
-# `auxinput`/`ships_geom` fields) moved to stage_entries/<stage>.json or
-# was dropped -- see the comment block below _stage_extra_files for the
-# per-key rationale that used to sit beside those literals.
+# The old STAGES module-level dict (Task 14: only njobs/events_per_job/
+# desc_fmt/output_glob/merge_factor -- everything else had already moved to
+# stage_entries/<stage>.json) is GONE (Task 6, 2026-08-19). It was a SILENT
+# SHADOW: stage_entries/<stage>.json already carried an `events` key with the
+# SAME value as STAGES[...]["events_per_job"] (mubeam 5000, mustops_ce 2500,
+# elebeam_flash 2500, run1b_mubeam 5000), and every read below resolved
+# `cfg.get("events_per_job", entry_tmpl.get("events"))` -- STAGES always won,
+# so editing the JSON did nothing, silently. desc_fmt/output_glob/njobs/
+# merge_factor moved verbatim into stage_entries/<stage>.json (they are
+# stage properties, not mode-tunable ones -- sim.*.TargetStops.*.art is what
+# mubeam emits regardless of geometry). `stage_cfg()` below is the one
+# reader now: stage_entries/<stage>.json is the default, a mode spec's
+# `run.jobs_per_stage`/`run.stage_tuning` (core/modes.py ModeSpec.
+# stage_target_overrides/stage_tuning) overrides it, and nothing overrides
+# the mode spec.
 #
 # `auxinput` (mubeam/run1b_mubeam/elebeam_flash) and `ships_geom` (every
-# stage) were DEAD before this task touched them -- grepped zero readers
+# stage) were DEAD before Task 14 touched them -- grepped zero readers
 # anywhere in core/ or graph/, leftover from the pre-prodtools-switch
 # mu2ejobdef era (`auxinput` named a `*Cat.txt` filelist under
 # core/pipeline_templates/<stage>/ that today's SAM-query `input_data`/
@@ -204,56 +216,52 @@ def _stage_dsconf(stage: str) -> str:
 # files are themselves now orphaned on disk, out of this task's scope).
 # Not carried forward: reintroducing either would be inventing a field STAGES
 # never actually used, not preserving one it did.
-STAGES = {
-    "mubeam": {
-        "desc_fmt": "Run1A_MuBeam_{cfg}",
-        "njobs": STAGE_TARGETS["mubeam"],
-        "events_per_job": 5000,
-        "output_glob": "sim.*.TargetStops.*.art",
-    },
-    "run1b_mubeam": {
-        "desc_fmt": "Run1B_MuBeam_{cfg}",
-        "njobs": STAGE_TARGETS["run1b_mubeam"],
-        "events_per_job": 5000,
-        "output_glob": "nts.*.mubeam.*.root",
-    },
-    "concat": {
-        "desc_fmt": "Run1A_MuStopsCat_{cfg}",
-        "njobs": STAGE_TARGETS["concat"],
-        "merge_factor": 200,
-        "output_glob": "sim.*.MuminusStopsCat.*.art",
-    },
-    "mustops_ce": {
-        "desc_fmt": "Run1A_CeEndpoint_{cfg}",
-        # 100 jobs per A/B noise test on helical001 (2026-05-16): half-vs-half
-        # ce_seen agreed to 0.4% at 97 jobs each — well below GP noise floor.
-        "njobs": STAGE_TARGETS["mustops_ce"],
-        # njobs=200 driven by STAGE_TARGETS["mustops_ce"] in core/runtime.py.
-        # 2500 events/job paired with njobs=200 (set in core/runtime.py
-        # STAGE_TARGETS) preserves total CE statistics at 500k events but
-        # halves per-job wall-time and doubles per-cluster parallelism.
-        # 2026-05-21 PM: SR00_00 long-tail (dx=0.011 → N_crit≈4144 → 3-4h
-        # CPU/job, 5× normal) showed the implicit throughput gate; halving
-        # events_per_job halves the per-job CPU cost at constant total
-        # statistics. The earlier 2026-05-21 AM reversion to 5000 was made
-        # WITHOUT compensating with njobs, which halved stats and hurt
-        # σ(sob) 0.10→0.14; this configuration restores σ(sob).
-        # Stamped at submit (see [[events-per-job-mid-flight-edit]]).
-        "events_per_job": 2500,
-        "output_glob": "dts.*.CeEndpoint.*.art",
-    },
-    # Electron-beam early-flash stage for the foilsflash BO line. Resamples the
-    # external EleBeamCat dataset (like mubeam resamples MuBeamCat), DS-on,
-    # ships the per-BO foil geom, and writes EarlyEleBeamFlash StrawGasStep
-    # DetSteps. Harvest sums tracker ionizingEdep (reuses
-    # _extract_trk_edep_per_pot). See bo-foilsflash.
-    "elebeam_flash": {
-        "desc_fmt": "Run1A_EleBeamFlash_{cfg}",
-        "njobs": STAGE_TARGETS["elebeam_flash"],
-        "events_per_job": 2500,
-        "output_glob": "dts.*.EarlyEleBeamFlash.*.art",
-    },
-}
+
+
+def stage_cfg(stage: str, mode: str | None = None) -> dict:
+    """Merged stage config. ONE precedence rule, ONE direction.
+
+    mode spec (run.jobs_per_stage, run.stage_tuning) OVERRIDES
+    stage_entries/<stage>.json (the default). Nothing overrides the mode spec.
+
+    This replaces the STAGES literal, whose `events_per_job` shadowed the
+    `events` key that stage_entries/<stage>.json already carried with the same
+    value -- so editing the JSON was a silent no-op. Two files holding one
+    number with one quietly winning is the failure shape of the outloc
+    precedence bug and of events-per-job-mid-flight-edit.
+
+    Reads stage_entries/<stage>.json RAW (no {cfg}/{geom} substitution --
+    px.load_stage_entry does that for the job-description fields at submit
+    time; `desc_fmt` needs its literal `{cfg}` placeholder to survive here
+    for `_stage_desc`'s later `.format(cfg=CONFIG)`).
+    """
+    cfg = json.loads((px.STAGE_ENTRIES_DIR / f"{stage}.json").read_text())
+    if mode:
+        spec = _modes.SPECS[mode]
+        if stage in spec.stage_target_overrides:
+            cfg["njobs"] = spec.stage_target_overrides[stage]
+        tuning = spec.stage_tuning.get(stage, {})
+        if "events_per_job" in tuning:
+            cfg["events"] = tuning["events_per_job"]
+        for k in ("memory_mb", "quorum"):
+            if k in tuning:
+                cfg[k] = tuning[k]
+    # Pre-existing env seam (core/modes.py docstring), unrelated to the
+    # STAGES/JSON shadow this function removes -- preserved unchanged so
+    # njobs stays exactly what core/runtime.py STAGE_TARGETS["elebeam_flash"]
+    # would compute for the same env.
+    if stage == "elebeam_flash" and "AUTORESEARCH_ELEBEAM_NJOBS" in os.environ:
+        cfg["njobs"] = int(os.environ["AUTORESEARCH_ELEBEAM_NJOBS"])
+    return cfg
+
+
+# The 5 grid stages pipeline.py knows a job description for -- independent of
+# any one mode's GRID_STAGES subset (a mode may skip run1b_mubeam, but
+# `submit`/`poll`/`list-outputs` still need it in --help's stage choices for
+# a legacy or cross-mode chain). Order matches the STAGES-era dict's
+# insertion order (mubeam, run1b_mubeam, concat, mustops_ce, elebeam_flash).
+ALL_STAGES = ("mubeam", "run1b_mubeam", "concat", "mustops_ce", "elebeam_flash")
+
 
 def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
     """Extras FCLs to ship in the submit's code tarball, derived from the
@@ -400,7 +408,7 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #     post_line rule as mubeam.json above.
 #   fcl_overrides['physics.filters.EarlyPrescaleFilter.nPrescale'] = 1 --
 #     early-flash peak = un-time-cut stream -> harvest globs the
-#     EarlyEleBeamFlash file (see STAGES['elebeam_flash']['output_glob']).
+#     EarlyEleBeamFlash file (see this file's own 'output_glob' key).
 #     NO PRESCALE: the production default drops 999/1000 early events
 #     (EarlyEleBeamFlashPrescale=1000, a data-volume convenience). The
 #     early flash is OUR BO OBJECTIVE, so we keep every event (nPrescale=1)
@@ -444,53 +452,29 @@ def _render_fcl_overrides(stage: str, entry_tmpl: dict | None = None) -> dict:
     return overrides
 
 
-# There is NO mode-specific tuning block here. Per-stage tuning for the flash
-# lines (foilsflash/foilspf) is declared in mode_specs/<mode>.json
-# `run.stage_tuning` and applied by the generic _apply_stage_tuning() call
-# below. The hardcoded `AUTORESEARCH_MODE == "foilsflash"` block that used to
-# sit at this spot was RETIRED 2026-07-26 with the Python FoilsFlashMode; its
-# values moved verbatim into the JSON (mubeam 200k ev / 2000 MB / quorum 0.8,
+# Per-stage tuning for the flash lines (foilsflash/foilspf) is declared in
+# mode_specs/<mode>.json `run.stage_tuning` and applied by stage_cfg() (Task
+# 6; was the module-level `_apply_stage_tuning(STAGES, ...)` mutation, run
+# once at import -- stage_cfg() applies the same override on every call
+# instead, so there is exactly one place events_per_job/memory_mb/quorum can
+# come from: the mode spec if it sets them, else stage_entries/<stage>.json).
+# The hardcoded `AUTORESEARCH_MODE == "foilsflash"` block that used to sit at
+# this spot was RETIRED 2026-07-26 with the Python FoilsFlashMode; its values
+# moved verbatim into the JSON (mubeam 200k ev / 2000 MB / quorum 0.8,
 # mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 / default quorum).
-# Two mechanisms writing the same three stages would have let the generic one
-# silently win (it runs last), so an edit here would have done nothing while
-# looking like it worked.
 #
 # WHY those values, since the JSON records only the numbers: they size
 # events_per_job for ~30-min payloads (measured per-event: mubeam 9.1 ms,
 # mustops_ce 24.1 ms, elebeam_flash 16.6 ms) instead of the ~45-s default, so
 # the payload dominates the ~44-s muse/setup overhead (~80% grid efficiency vs
-# ~15-30%). Paired with njobs=100 (core/runtime.py STAGE_TARGETS override) →
+# ~15-30%). Paired with njobs=100 (mode spec's run.jobs_per_stage override) →
 # ~15-20× total stats: σ(sob)~0.09% (overkill, harmless) + σ(flash) ~3.8×
 # tighter (~59k flash events; flash is the binding noise channel). mubeam and
-# mustops_ce events_per_job are SHARED defaults, which is exactly why these are
-# per-mode overrides and not edits to STAGES above. Stamped-at-submit (see
-# wiki/incidents/events-per-job-mid-flight-edit.md); safe for a FRESH campaign
-# (kill+relaunch), NOT for mid-flight edits. See wiki/concepts/bo-noise-budget.md.
-
-
-def _apply_stage_tuning(stages: dict, tuning: dict) -> None:
-    """Apply a mode's ModeSpec.stage_tuning (core/mode_json.py `run.stage_tuning`)
-    onto `stages` in place -- each stage key updates that stage's dict with
-    the tuning dict's keys (events_per_job/memory_mb/quorum; already
-    type/range-validated at JSON-load time by mode_json._validate_stage_tuning).
-    A stage name that doesn't exist in `stages` is a loud ValueError, not a
-    silently-created no-op entry.
-    """
-    for stage, overrides in tuning.items():
-        if stage not in stages:
-            raise ValueError(
-                f"stage_tuning references unknown stage {stage!r}; known "
-                f"pipeline stages are {sorted(stages)}")
-        stages[stage].update(overrides)
-
-
-# Per-mode stage tuning (core/mode_json.py `run.stage_tuning`) — the SOLE
-# mechanism since 2026-07-26. The five Python modes all declare
-# stage_tuning={} (core/modes.py), so this is a no-op for every mode except a
-# JSON mode that sets it.
-_apply_stage_tuning(
-    STAGES,
-    _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilsflash")].stage_tuning)
+# mustops_ce events_per_job are SHARED defaults, which is exactly why these
+# are per-mode overrides and not edits to stage_entries/<stage>.json.
+# Stamped-at-submit (see wiki/incidents/events-per-job-mid-flight-edit.md);
+# safe for a FRESH campaign (kill+relaunch), NOT for mid-flight edits. See
+# wiki/concepts/bo-noise-budget.md.
 
 
 # EleBeamCat resampler normalization: each resampled electron corresponds to
@@ -501,18 +485,18 @@ _apply_stage_tuning(
 
 
 def _stage_desc(stage: str) -> str:
-    return STAGES[stage]["desc_fmt"].format(cfg=CONFIG)
+    return stage_cfg(stage, MODE)["desc_fmt"].format(cfg=CONFIG)
 
 
 def _stage_config_sha(stage: str) -> str:
-    """Stable SHA-256 of STAGES[stage] — the per-stage config snapshot.
+    """Stable SHA-256 of stage_cfg(stage, MODE) — the per-stage config snapshot.
 
     Stamped at submit, re-read at harvest. Generalizes the events_per_job
     stamp (which only covered one field) to the whole stage dict.
     Path objects are coerced to str so the serialization is reproducible.
     See wiki/incidents/events-per-job-mid-flight-edit.md.
     """
-    payload = json.dumps(STAGES[stage], sort_keys=True, default=str)
+    payload = json.dumps(stage_cfg(stage, MODE), sort_keys=True, default=str)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -521,7 +505,7 @@ def _stamp_stage_config_sha(stage: str) -> None:
 
 
 def _check_stage_config_sha(stage: str) -> None:
-    """Warn (do not fail) if STAGES[stage] changed between submit and read.
+    """Warn (do not fail) if stage_cfg(stage, MODE) changed between submit and read.
 
     Called from cmd_poll, cmd_list_outputs, and cmd_harvest. Silent if no
     stamp file (legacy chains submitted before this guard existed).
@@ -533,7 +517,7 @@ def _check_stage_config_sha(stage: str) -> None:
     current = _stage_config_sha(stage)
     if stamped != current:
         print(
-            f"[pipeline] WARN: STAGES[{stage!r}] changed since submit "
+            f"[pipeline] WARN: stage_cfg({stage!r}) changed since submit "
             f"(stamp={stamped[:12]}, current={current[:12]}). "
             f"Downstream poll/list-outputs/harvest may use mismatched "
             f"events_per_job or quorum; see "
@@ -777,7 +761,7 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
 
     base_tarball overrides MUSE_BASE_TARBALL — used by a stage whose backing
     musing differs from the default helical-patched Run1Bak tree (via
-    STAGES[stage]["code_tarball"]).
+    stage_cfg(stage, MODE)["code_tarball"]).
 
     extra_files: additional files copied into Code/ beside the geom -- since
     Task 13, the static mubeam/run1b_mubeam extras fcl (_stage_extra_files;
@@ -865,7 +849,7 @@ def _merge_factor_for(stage: str, n_sources: int) -> int:
     prodtools' behavior at that corner is unvalidated, so the clamp is
     our guard, applied by every input_map builder through this one
     function."""
-    cfg = STAGES[stage]
+    cfg = stage_cfg(stage, MODE)
     return min(cfg["merge_factor"], n_sources) if "merge_factor" in cfg else 1
 
 
@@ -977,9 +961,9 @@ def _maybe_refresh_token(stage: str) -> None:
 def stamp_local_events(stage: str, events: int) -> Path:
     """Stamp the LOCAL events-per-job so harvest scales by what actually ran.
 
-    harvest reads this file, not STAGES[stage]["events_per_job"]. Stamping the
-    configured value while running fewer events biases every derived metric by
-    the ratio -- the failure class of events-per-job-mid-flight-edit.
+    harvest reads this file, not stage_cfg(stage, MODE)["events"]. Stamping
+    the configured value while running fewer events biases every derived
+    metric by the ratio -- the failure class of events-per-job-mid-flight-edit.
     """
     out = STATE / f"{stage}_events_per_job.txt"
     out.write_text(f"{events}\n")
@@ -1005,7 +989,7 @@ def _render_and_build_cnf(stage, cfg, entry_tmpl, *, desc, dsconf, stage_dir,
     entry_tmpl before this call, to resolve its own events fallback
     against the JSON default -- see submit_stage_prodtools vs the local
     branch, which resolve it differently), njobs/events source (grid:
-    STAGES' tunable value; local: the local-scale resolver), staged input
+    stage_cfg()'s tunable value; local: the local-scale resolver), staged input
     computation, marker/cluster-file writes, and runlocal-vs-submit (all
     executor-specific, stay at the call sites). memory IS owned here: the
     cfg-over-JSON fallback is identical for both executors.
@@ -1042,25 +1026,26 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
     mu2ejobsub path wrote (cluster.txt, events stamp, config sha) plus
     the jobsub id for jobwait.
     """
-    cfg = STAGES[stage]
+    cfg = stage_cfg(stage, MODE)
     desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
     stage_dir = ROOT / stage
     stage_dir.mkdir(parents=True, exist_ok=True)
     # stage_entries/<stage>.json (Task 14): fcl/resampler_name/static Cat
-    # input_data/inloc/run/memory/default events -- everything about this
-    # (stage, CONFIG) pair that ISN'T runtime/tunable. events/memory prefer
-    # STAGES' live value (the tunable one -- stage_tuning updates it via
-    # _apply_stage_tuning) and fall back to the JSON's default only when
-    # STAGES doesn't carry that key for this stage (e.g. concat has no
-    # events_per_job -- see STAGES' comment block).
+    # input_data/inloc/run/memory -- everything about this (stage, CONFIG)
+    # pair that ISN'T runtime/tunable. cfg.get("events") (Task 6: stage_cfg()'s
+    # merged view -- the mode spec's stage_tuning value if it overrides this
+    # stage, else stage_entries/<stage>.json's own default) is the ONE source
+    # for events now; there is no second `events_per_job` key to fall back to.
+    # concat has no "events" key at all (a merge stage takes no events param),
+    # so this stays a .get(), same None as the old
+    # `cfg.get("events_per_job", entry_tmpl.get("events"))` gave it.
     entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
     cnf, _tarball, entry_path, _inloc = _render_and_build_cnf(
         stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf, stage_dir=stage_dir,
-        env=env, njobs=cfg["njobs"],
-        events=cfg.get("events_per_job", entry_tmpl.get("events")),
+        env=env, njobs=cfg["njobs"], events=cfg.get("events"),
         staged_inputs=staged_inputs)
-    if "events_per_job" in cfg:
-        stamp_local_events(stage, cfg["events_per_job"])
+    if "events" in cfg:
+        stamp_local_events(stage, cfg["events"])
     if dry_run:
         print(f"[{stage}] DRY-RUN: cnf built, not submitted: {cnf.name}")
         return None
@@ -1302,7 +1287,7 @@ def cmd_submit(args):
         _require_local_stage(stage)
         pool = (getattr(args, "local_pool", None)
                or _scale_default("AUTORESEARCH_LOCAL_POOL", DEFAULT_LOCAL_POOL))
-        cfg = STAGES[stage]
+        cfg = stage_cfg(stage, MODE)
         desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
         stage_dir = ROOT / stage
         stage_dir.mkdir(parents=True, exist_ok=True)
@@ -1360,7 +1345,7 @@ def cmd_submit(args):
         # the tarball's setup_post.sh search path -- runlocal unpacks it
         # exactly as a grid worker does, so there is no local-only env
         # mechanism to keep in sync with it), except njobs/events come from
-        # the LOCAL scale, not STAGES[stage]. `run` is never local-scaled
+        # the LOCAL scale, not stage_cfg(stage, MODE). `run` is never local-scaled
         # (it's a fixed cnf run-number, not a job count), so it comes
         # straight from the JSON default either way (_render_and_build_cnf
         # always pulls it from entry_tmpl).
@@ -1461,7 +1446,7 @@ def cmd_poll(args):
         print(f"[{args.stage}] local mode: jobs already complete; poll is a no-op")
         return
     _check_stage_config_sha(args.stage)
-    cfg = STAGES[args.stage]
+    cfg = stage_cfg(args.stage, MODE)
     stage_dir = ROOT / args.stage
     jid_file = STATE / f"{args.stage}_jobsub_id.txt"
     jobid = (jid_file.read_text().strip() if jid_file.exists()
@@ -1501,7 +1486,7 @@ def cmd_list_outputs(args):
     # wait.json (spec decision 5), so "where did the files land" has one
     # reader instead of the old glob-walker pair.
     wait = px.read_wait(STATE, args.stage)
-    files = px.outputs_from_wait(wait, STAGES[args.stage]["output_glob"])
+    files = px.outputs_from_wait(wait, stage_cfg(args.stage, MODE)["output_glob"])
     outputs_file.write_text("\n".join(files) + "\n")
     print(f"[{args.stage}] {len(files)} output file(s) "
           f"(ok={wait.get('ok')}, failed={wait.get('failed')}, "
@@ -1636,11 +1621,11 @@ def _events_per_job(stage: str) -> int:
     """Resolve the per-stage events_per_job actually used at submit time.
 
     Reads STATE/<stage>_events_per_job.txt (stamped by submit_stage). Falls back
-    to STAGES[stage]["events_per_job"] for chains submitted before the stamping
-    fix landed (2026-05-21). Without this, editing STAGES[*]["events_per_job"]
-    between submit and harvest mis-scales metrics — see helicalP01 incident.
+    to stage_cfg(stage, MODE)["events"] for chains submitted before the stamping
+    fix landed (2026-05-21). Without this, editing stage_entries/<stage>.json's
+    events between submit and harvest mis-scales metrics — see helicalP01 incident.
     """
-    return hv.events_per_job(STATE, stage, STAGES[stage]["events_per_job"])
+    return hv.events_per_job(STATE, stage, stage_cfg(stage, MODE)["events"])
 
 
 def _extract_calo_per_pot(run1b_files, env):
@@ -1654,7 +1639,7 @@ def _extract_calo_per_pot(run1b_files, env):
     """
     if not run1b_files:
         return None, None, None
-    # Use len(run1b_files), not STAGES.njobs — same OOM-bias rationale as ce branch.
+    # Use len(run1b_files), not the configured njobs — same OOM-bias rationale as ce branch.
     total_events = len(run1b_files) * _events_per_job("run1b_mubeam")
 
     script = _CALO_EXTRACT_SCRIPT.format(mats=list(_CALO_STOP_MATERIALS))
@@ -1733,8 +1718,8 @@ def cmd_harvest(args):
     # decision (stage-chain stamp first, file presence for legacy configs).
     muminus_files, muminus_source = hv.resolve_muminus_inputs(STATE)
 
-    # Derive denominators from the actual files we'll harvest, not STAGES.njobs
-    # — if any grid jobs were lost (OOM, held), STAGES.njobs over-counts and biases
+    # Derive denominators from the actual files we'll harvest, not the configured
+    # njobs — if any grid jobs were lost (OOM, held), that over-counts and biases
     # ce_abs_eff / s_over_sqrt_b high by the loss fraction. See A/B test on
     # helical001 (2026-05-16) which surfaced this.
     mubeam_files = hv.read_outputs(STATE, "mubeam") or []
@@ -1870,7 +1855,7 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     p_sub = sub.add_parser("submit", help="Submit one stage")
-    p_sub.add_argument("stage", choices=list(STAGES))
+    p_sub.add_argument("stage", choices=list(ALL_STAGES))
     p_sub.add_argument("--dry-run", action="store_true")
     p_sub.add_argument("--force", action="store_true",
                        help="Re-submit even if state/<stage>_cluster.txt exists.")
@@ -1888,17 +1873,17 @@ def main():
     p_sub.set_defaults(func=cmd_submit)
 
     p_poll = sub.add_parser("poll", help="Wait for a stage's cluster via prodtools jobwait")
-    p_poll.add_argument("stage", choices=list(STAGES))
+    p_poll.add_argument("stage", choices=list(ALL_STAGES))
     p_poll.add_argument("--quorum", type=float, default=None,
                         help="Fraction of jobs required (default: per-stage "
-                             "STAGES['quorum'] if set, else 0.9)")
+                             "stage_cfg()'s quorum if set, else 0.9)")
     p_poll.set_defaults(func=cmd_poll)
 
     p_ls = sub.add_parser(
         "list-outputs",
         help="Read the stage's wait.json (runlocal/jobwait) and persist "
              "its ok-job output paths")
-    p_ls.add_argument("stage", choices=list(STAGES))
+    p_ls.add_argument("stage", choices=list(ALL_STAGES))
     p_ls.add_argument("--force", action="store_true",
                       help="Re-glob even if state/<stage>_outputs.txt validates.")
     p_ls.set_defaults(func=cmd_list_outputs)

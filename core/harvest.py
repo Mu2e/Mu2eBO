@@ -224,7 +224,8 @@ def resolve_muminus_inputs(state_dir: Path) -> tuple[list[Path], str]:
 
 def events_per_job(state_dir: Path, stage: str, fallback: int) -> int:
     """SUBMIT-stamped events/job (events-per-job-mid-flight-edit incident);
-    `fallback` is STAGES[stage]['events_per_job'] for pre-stamp configs."""
+    `fallback` is pipeline.stage_cfg(stage, MODE)['events'] for pre-stamp
+    configs (was STAGES[stage]['events_per_job'] before Task 6)."""
     stamp = state_dir / f"{stage}_events_per_job.txt"
     if stamp.exists():
         return int(stamp.read_text().strip())
