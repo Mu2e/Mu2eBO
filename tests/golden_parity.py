@@ -27,7 +27,7 @@ Usage:
     the Phase 1 schema refactor could break: leaderboard row ->
     (X, Y, bounds, int_dims) assembly.
 (c) seam replay: evaluate (in-process, tmp leaderboard copy) + preflight
-    (real G4, ~2 min) for a completed foilsflash config. Baseline = rc,
+    (real G4, ~2 min) for a completed config of the live line (C_MODE). Baseline = rc,
     obj, appended line, verdict line — and, once Phase 2 lands, the
     emitted JSON payloads (re-capture then).
 Never writes to leaderboards/ — evaluate replays into a tmp copy.
@@ -54,6 +54,16 @@ FROZEN_LB = GOLDENS / "leaderboard_bo_foilsflash.frozen.tsv"
 B_BASE = GOLDENS / "history_tensor_fingerprint.json"
 A_BASE = GOLDENS / "parity_a_baseline.json"
 C_BASE = GOLDENS / "seam_replay_baseline.json"
+
+# Section (c) replays the LIVE line, not the retired one. foilsflash cannot be
+# used: 461 of its 464 stored geoms carry the real TT_MidInner->DS2Vacuum
+# override (`bool tracker.inDS2Vacuum`), that line ended BEFORE the 2026-07-28
+# Run1Bap migration removed it, and preflight replays the STORED geom rather
+# than re-rendering -- so every foilsflash replay trips require_zero_overlaps
+# (added 2026-07-28, after the original (c) baseline) on the classic
+# EMC_0_Front -> StoppingTargetMother overlap. foilspfbpz is post-migration:
+# 0 of 244 geoms carry the override, 241 have a harvest summary.
+C_MODE = "foilspfbpz"
 
 
 def _roundtrip_file(path, lb):
@@ -154,7 +164,7 @@ def _pick_replay_config():
     config's geom or summary is ever cleaned up, this falls back to the scan
     and the operator re-captures.
     """
-    mode = bo.MODES["foilsflash"]
+    mode = bo.MODES[C_MODE]
     grid = paths.GRID_DATA_ROOT
 
     def artifacts(cfg):
@@ -171,7 +181,7 @@ def _pick_replay_config():
     for p in reversed(hist):
         if artifacts(p.cfg):
             return p, grid / p.cfg / "harvest" / "summary.json"
-    raise SystemExit("no completed foilsflash config with geom+summary found")
+    raise SystemExit(f"no completed {C_MODE} config with geom+summary found")
 
 
 def section_c():
@@ -186,7 +196,7 @@ def section_c():
     # copies a file that does not exist. Separate subdirs because
     # leaderboard_live() flattens to the basename, so archive and live share
     # a filename and would collide in one tmp dir.
-    mode = bo.MODES["foilsflash"]
+    mode = bo.MODES[C_MODE]
     tmp = Path(tempfile.mkdtemp())
     orig, orig_arch = mode.leaderboard, mode.leaderboard_archive
     tmp_arch = None
@@ -211,7 +221,7 @@ def section_c():
         # is still exercised end to end.
         mode.append_pending(cfg, point.x, bo.DEFAULT_ALPHA)
         buf = io.StringIO()
-        args = SimpleNamespace(mode="foilsflash", config_name=cfg,
+        args = SimpleNamespace(mode=C_MODE, config_name=cfg,
                                summary=str(summary), alpha=bo.DEFAULT_ALPHA,
                                emit_json=str(tmp / "evaluate_result.json"))
         with contextlib.redirect_stdout(buf):
@@ -229,7 +239,7 @@ def section_c():
         mode.leaderboard_archive = orig_arch
     # -- preflight replay (real G4 init, ~2 min) --
     buf = io.StringIO()
-    args = SimpleNamespace(mode="foilsflash", config_name=cfg)
+    args = SimpleNamespace(mode=C_MODE, config_name=cfg)
     with contextlib.redirect_stdout(buf):
         rc = bo.cmd_preflight(args)
     verdict_lines = [ln for ln in buf.getvalue().splitlines()
