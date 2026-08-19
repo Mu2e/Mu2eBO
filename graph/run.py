@@ -1,8 +1,8 @@
-"""Headless driver: invoke the BO iteration graph once with a SqliteSaver.
+"""Headless driver: invoke the BO iteration graph once, no checkpointer.
 
 This is the standard entrypoint (the `langgraph dev` Studio/Streamlit overlay
 was retired 2026-07-17) — used directly for one-off chains and spawned per
-child by graph/closed_loop.py.
+child by graph/pool.py's run_rolling (graph/closed_loop.py's parent).
 
 Usage:
   source .venv/bin/activate
@@ -31,14 +31,11 @@ presniff_mode()
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from langgraph.checkpoint.sqlite import SqliteSaver  # noqa: E402
-
 from build import build_graph  # noqa: E402
 from config import (  # noqa: E402
     DEFAULT_ALPHA,
     DEFAULT_MODE,
     GRAPH_DATA,
-    open_saver_conn,
 )
 
 
@@ -56,9 +53,13 @@ def main() -> int:
     args = ap.parse_args()
 
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
-    saver = SqliteSaver(open_saver_conn())
 
-    graph = build_graph().compile(checkpointer=saver)
+    # No checkpointer. Audited 51 campaigns: 44 clean, 7 died mid-flight, 0
+    # ever resumed from a checkpoint -- while it CAUSED 5 incidents, and in
+    # sqlite-wal-corrupt-after-kill it blocked the restart outright. The
+    # useful half of resume is assign_names skipping names already in the
+    # leaderboard, which is the leaderboard's doing and survives this.
+    graph = build_graph().compile()
 
     thread_id = args.thread_id or f"cli-{uuid.uuid4().hex[:8]}"
     # Pinned, not left to the library default: langgraph 1.2.9 has no
