@@ -1,140 +1,177 @@
 {
   "foilsflash": {
-    "rows": 414,
-    "skipped": 0,
-    "mismatch_idx": [
-      0,
-      1,
-      2,
-      3,
-      4,
-      5,
-      6,
-      7,
-      8,
-      9,
-      10,
-      11,
-      12,
-      13,
-      14,
-      15,
-      16,
-      17,
-      18,
-      19,
-      20,
-      21,
-      22,
-      23,
-      24,
-      25,
-      26,
-      27,
-      28,
-      29,
-      30,
-      31,
-      32,
-      33,
-      34,
-      35,
-      36,
-      37,
-      38,
-      39,
-      40,
-      41,
-      42,
-      43,
-      44,
-      45,
-      46,
-      47,
-      48,
-      104,
-      119,
-      157,
-      296,
-      361
-    ],
-    "header_matches_disk": true,
-    "sha256": "13efd8520ed1a0ff6e419a397fdd3d08a97c8cf7c1d0eed84133903fe59c79de"
+    "archive": {
+      "rows": 414,
+      "skipped": 0,
+      "mismatch_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        104,
+        119,
+        157,
+        296,
+        361
+      ],
+      "header_matches_disk": true,
+      "sha256": "13efd8520ed1a0ff6e419a397fdd3d08a97c8cf7c1d0eed84133903fe59c79de"
+    },
+    "live": null
   },
   "foilspf": {
-    "rows": 90,
-    "skipped": 0,
-    "mismatch_idx": [
-      1
-    ],
-    "header_matches_disk": true,
-    "sha256": "e56b2c51d8bb545f4f3380936317134a26f1f072c6b8fa7c05794e97c0f39a7f"
+    "archive": {
+      "rows": 90,
+      "skipped": 0,
+      "mismatch_idx": [
+        1
+      ],
+      "header_matches_disk": true,
+      "sha256": "e56b2c51d8bb545f4f3380936317134a26f1f072c6b8fa7c05794e97c0f39a7f"
+    },
+    "live": null
   },
   "foilspf2k": {
-    "rows": 35,
-    "skipped": 0,
-    "mismatch_idx": [],
-    "header_matches_disk": true,
-    "sha256": "a46e9c31da8d6a66cbd32a42a1f56dd3e3337b611818a6a248d76f52ccc97ee4"
+    "archive": {
+      "rows": 35,
+      "skipped": 0,
+      "mismatch_idx": [],
+      "header_matches_disk": true,
+      "sha256": "a46e9c31da8d6a66cbd32a42a1f56dd3e3337b611818a6a248d76f52ccc97ee4"
+    },
+    "live": null
   },
   "foilspfbp": {
-    "rows": 93,
-    "skipped": 0,
-    "mismatch_idx": [
-      78
-    ],
-    "header_matches_disk": true,
-    "sha256": "934539b30ef6f6a202da9e2a80c638ce5ce2bfb58e837e1c2bc53a24d99caacc"
+    "archive": {
+      "rows": 93,
+      "skipped": 0,
+      "mismatch_idx": [
+        78
+      ],
+      "header_matches_disk": true,
+      "sha256": "934539b30ef6f6a202da9e2a80c638ce5ce2bfb58e837e1c2bc53a24d99caacc"
+    },
+    "live": null
   },
   "foilspfbpx": {
-    "rows": 133,
-    "skipped": 0,
-    "mismatch_idx": [
-      78
-    ],
-    "header_matches_disk": true,
-    "sha256": "9e00ff2b3ee1568323fba58e467be8bbe0a617a322e45b68e19b8aea281b8c89"
+    "archive": {
+      "rows": 133,
+      "skipped": 0,
+      "mismatch_idx": [
+        78
+      ],
+      "header_matches_disk": true,
+      "sha256": "9e00ff2b3ee1568323fba58e467be8bbe0a617a322e45b68e19b8aea281b8c89"
+    },
+    "live": null
   },
   "foilspfbpz": {
-    "rows": 173,
-    "skipped": 0,
-    "mismatch_idx": [],
-    "header_matches_disk": true,
-    "sha256": "153c7a84a174297ab80a370c6837f60c9d81ed7b286eceab3243733ff7270456"
+    "archive": {
+      "rows": 374,
+      "skipped": 0,
+      "mismatch_idx": [
+        251,
+        288,
+        320
+      ],
+      "header_matches_disk": true,
+      "sha256": "69363becc93d58bfe58b4b502db1b414d7aaa520be779c3de414d857dd3b1517"
+    },
+    "live": null
   },
   "foilspfbw": {
-    "rows": 20,
-    "skipped": 0,
-    "mismatch_idx": [],
-    "header_matches_disk": true,
-    "sha256": "11b5fae52009e127a535747d888244f0562866bb346afb6c611796b2d555781a"
+    "archive": {
+      "rows": 20,
+      "skipped": 0,
+      "mismatch_idx": [],
+      "header_matches_disk": true,
+      "sha256": "11b5fae52009e127a535747d888244f0562866bb346afb6c611796b2d555781a"
+    },
+    "live": null
   },
   "ipa625": {
-    "rows": 1,
-    "skipped": 0,
-    "mismatch_idx": [],
-    "header_matches_disk": true,
-    "sha256": "0f08cd0190a687efafd4c5096fd7a776eb0f52122914478876b5f81186a216ae"
+    "archive": {
+      "rows": 1,
+      "skipped": 0,
+      "mismatch_idx": [],
+      "header_matches_disk": true,
+      "sha256": "0f08cd0190a687efafd4c5096fd7a776eb0f52122914478876b5f81186a216ae"
+    },
+    "live": null
   },
   "ipafix": {
-    "rows": 1,
-    "skipped": 0,
-    "mismatch_idx": [],
-    "header_matches_disk": true,
-    "sha256": "79d4ef9bc4cc89c7b3cf87e35b57d4cd2e9bb8a43f19056195ff8d3f4dfee0f0"
+    "archive": {
+      "rows": 1,
+      "skipped": 0,
+      "mismatch_idx": [],
+      "header_matches_disk": true,
+      "sha256": "79d4ef9bc4cc89c7b3cf87e35b57d4cd2e9bb8a43f19056195ff8d3f4dfee0f0"
+    },
+    "live": null
   },
   "ipaovr": {
-    "rows": 1,
-    "skipped": 0,
-    "mismatch_idx": [],
-    "header_matches_disk": true,
-    "sha256": "6a89b441dcc7ea195163158c08690503cd0b7502e26115c22c39f8e5bff799c0"
+    "archive": {
+      "rows": 1,
+      "skipped": 0,
+      "mismatch_idx": [],
+      "header_matches_disk": true,
+      "sha256": "6a89b441dcc7ea195163158c08690503cd0b7502e26115c22c39f8e5bff799c0"
+    },
+    "live": null
   },
   "nominal": {
-    "rows": 1,
-    "skipped": 0,
-    "mismatch_idx": [],
-    "header_matches_disk": true,
-    "sha256": "1eec973f1ff9bca20f6ea4406a61c35cbb8355e128fbb7c6bf94eb80b3137d47"
+    "archive": {
+      "rows": 1,
+      "skipped": 0,
+      "mismatch_idx": [],
+      "header_matches_disk": true,
+      "sha256": "1eec973f1ff9bca20f6ea4406a61c35cbb8355e128fbb7c6bf94eb80b3137d47"
+    },
+    "live": null
   }
 }

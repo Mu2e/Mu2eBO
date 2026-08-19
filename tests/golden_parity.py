@@ -6,9 +6,16 @@ Usage:
     PYTHONPATH= .venv/bin/python tests/golden_parity.py check   [a b c]
 
 (a) per-mode leaderboard round-trip: parse -> core/leaderboard.py's
-    Leaderboard formatter over every live leaderboard; baseline = per-mode
-    row counts, skip counts, mismatch-index set, sha256 of regenerated
-    lines. Pins reader+writer.
+    Leaderboard formatter over BOTH boards the archive/live split created
+    (committed in-repo archive, and this operator's live board on
+    $DATA_ROOT), reported under separate "archive"/"live" keys. Baseline =
+    per-board row counts, skip counts, mismatch-index set, sha256 of
+    regenerated lines. Pins reader+writer.
+    Note: `mismatch_idx` is expected to be non-empty in places. `obj` is a
+    DERIVED column, so re-deriving it from the disk-rounded sob/calo/alpha
+    can differ from the full-precision original in the last decimal
+    (3.10825 vs 3.10826). Those entries pin that rounding, they do not
+    report corruption.
 (b) loader fingerprint: `botorch_predict._load_history_tensor("foilsflash")`
     on the frozen leaderboard copy, hashed (sha256 of X/Y tensor bytes +
     shapes + bounds + int_dims). Exact-compare only.
@@ -49,15 +56,11 @@ A_BASE = GOLDENS / "parity_a_baseline.json"
 C_BASE = GOLDENS / "seam_replay_baseline.json"
 
 
-def _roundtrip_mode(name):
-    """Reader+writer parity pin over the on-disk leaderboard."""
-    mode = bo.MODES[name]
-    if not mode.leaderboard.exists():
-        return None
-    lb = mode.leaderboard_io()
-    raw_lines = mode.leaderboard.read_text().splitlines(keepends=True)
+def _roundtrip_file(path, lb):
+    """Reader+writer parity pin over ONE board file."""
+    raw_lines = path.read_text().splitlines(keepends=True)
     regen, mismatches, skipped = [], [], 0
-    with mode.leaderboard.open() as f:
+    with path.open() as f:
         rows = list(DictReader(f, delimiter="\t"))
     for i, (row, raw) in enumerate(zip(rows, raw_lines[1:])):
         try:
@@ -80,8 +83,37 @@ def _roundtrip_mode(name):
     }
 
 
+def _roundtrip_mode(name):
+    """Both boards the archive/live split created, pinned separately.
+
+    `mode.leaderboard` means the operator's LIVE board on $DATA_ROOT;
+    `mode.leaderboard_archive` is the committed in-repo priors. Reporting
+    them under separate keys is load-bearing: this function used to read
+    only `mode.leaderboard` and return a bare None when it was absent, so
+    after the split it returned None for EVERY mode and section (a) read as
+    an 11-mode data regression rather than a harness that had stopped
+    seeing its input. An absent board must be legible as absent.
+    """
+    mode = bo.MODES[name]
+    lb = mode.leaderboard_io()
+    return {
+        slot: (_roundtrip_file(path, lb) if path and path.exists() else None)
+        for slot, path in (("archive", mode.leaderboard_archive),
+                           ("live", mode.leaderboard))
+    }
+
+
 def section_a():
-    return {name: _roundtrip_mode(name) for name in sorted(bo.MODES)}
+    result = {name: _roundtrip_mode(name) for name in sorted(bo.MODES)}
+    if not any(per_mode[slot]
+               for per_mode in result.values() for slot in ("archive", "live")):
+        raise SystemExit(
+            "[a] pinned ZERO board files across all modes — the harness is "
+            "reporting on boards it cannot see, which compares unequal and "
+            "looks exactly like a data regression. Check that "
+            "$AUTORESEARCH_DATA_ROOT is not redirecting the live tree and "
+            "that the committed archives under leaderboards/ are present.")
+    return result
 
 
 def section_b():
