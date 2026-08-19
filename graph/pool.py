@@ -290,14 +290,15 @@ def _default_run_child(mode, alpha):
 def _pending_names(mode) -> set:
     """Names carrying an unresolved row in the mode's pending TSV.
 
-    Guarded exactly like _default_row_landed's MODES check: a synthetic test
-    mode is not in bo_driver.MODES and has no pending file, so it contributes
-    nothing rather than raising. A genuinely broken pending file still
-    propagates -- this guard is scoped to the registry lookup only.
+    An unregistered mode raises KeyError from the registry lookup rather
+    than returning an empty set. It used to be guarded so a synthetic test
+    mode could fall through, but that made an unreachable-in-production
+    branch the only thing standing between a mode-registry mismatch and a
+    silently EMPTY busy-name set -- i.e. the double-launch guard above
+    quietly finding nothing to skip. Tests inject `next_pick` or patch this
+    function; nothing needs the guard.
     """
     import bo_driver as bo  # noqa: WPS433
-    if mode not in bo.MODES:
-        return set()
     return {n for n, _x in bo.MODES[mode].load_pending()}
 
 
@@ -443,19 +444,27 @@ def _default_pick_source(name_prefix):
 
 
 def _default_row_landed(name, mode):
+    """Did this child land a leaderboard row? THE signal `_should_abort`
+    reads.
+
+    No registry guard, deliberately. An unregistered mode used to return
+    True here -- "every child landed a row" -- so that tests using a
+    synthetic mode could fall through to this default. Production cannot
+    reach that branch (main() validates --mode against sorted(modes.SPECS)
+    before run_rolling is called), but a branch that cannot fire is not the
+    same as a branch that is safe: fail-open on the ONE signal the no-row
+    streak abort guard reads means a mode-registry mismatch -- the shape of
+    foilsflash-tarball-mode-key-omission and
+    preflight-mode-tuple-prodtarget6d-omission, both of which happened --
+    reports a campaign of silently-failing children as fully successful and
+    the abort guard never fires. That is this project's characteristic
+    failure (silent eval loss) wearing the guard's own uniform.
+
+    So an unregistered mode now raises from the registry lookup, loudly, and
+    tests inject `row_landed=` the way they already inject `broken=`.
+    """
     import bo_driver as bo  # noqa: WPS433
-    if mode not in bo.MODES:
-        # `mode` is unregistered in bo_driver.MODES -- e.g. tests/test_pool.py's
-        # synthetic mode="m". Production main() validates --mode against
-        # sorted(modes.SPECS) before run_rolling is ever called, so this
-        # branch cannot fire for a real campaign. Scoped to exactly this
-        # check (not wrapped around the whole leaderboard read) so that a
-        # REAL KeyError raised from inside a registered mode's
-        # load_history() -- a genuinely broken leaderboard file, say -- is
-        # NOT swallowed and turned into "landed": fail-open on the one
-        # signal the whole no-row-streak abort guard reads is exactly
-        # backwards.
-        return True
+    bo.MODES[mode]   # loud KeyError on an unregistered mode (ADR-0002)
     import closed_loop as cl
     return name in cl._leaderboard_names(mode)
 

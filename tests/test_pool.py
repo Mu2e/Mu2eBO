@@ -46,6 +46,13 @@ def _picker(n_dims=2):
 # unit tests depend on operator environment state.
 _NOT_BROKEN = lambda name: False  # noqa: E731
 
+# Neutral row_landed= fake, same reasoning as _NOT_BROKEN one line up. These
+# cases are about pool MECHANICS (width, stagger, drain, abort arithmetic),
+# not about whether a row landed, so they want "every child landed" without
+# reaching _default_row_landed -- which stats the live grid data root and,
+# until this seam was made explicit, fell open to True for a synthetic mode.
+_ROW_LANDED = lambda name, mode: True  # noqa: E731
+
 
 class TestPoolWidth(unittest.TestCase):
     def test_never_exceeds_q_in_flight(self):
@@ -84,7 +91,7 @@ class TestPoolWidth(unittest.TestCase):
                          name_prefix="t", run_child=run_child,
                          next_pick=next_pick,
                          stop_flag=lambda: False, renew=lambda: None,
-                         broken=_NOT_BROKEN, stagger=0)
+                         row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         t.cancel()
         self.assertLessEqual(peak["max"], 3)
         # x_pending is the in-flight set BEFORE this pick is added, so it
@@ -101,7 +108,7 @@ class TestReplenish(unittest.TestCase):
                          name_prefix="t", run_child=lambda n, x: 0,
                          next_pick=next_pick,
                          stop_flag=lambda: False, renew=lambda: None,
-                         broken=_NOT_BROKEN, stagger=0)
+                         row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(counter["i"], 5)
 
     def test_x_pending_equals_in_flight_set(self):
@@ -123,7 +130,7 @@ class TestReplenish(unittest.TestCase):
                          name_prefix="t", run_child=run_child,
                          next_pick=next_pick,
                          stop_flag=lambda: False, renew=lambda: None,
-                         broken=_NOT_BROKEN, stagger=0)
+                         row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         t.cancel()
         self.assertEqual(seen[0], [])
         self.assertEqual(seen[1], [[0.0]])
@@ -144,7 +151,7 @@ class TestDrain(unittest.TestCase):
                                alpha=1.0, name_prefix="t",
                                run_child=run_child, next_pick=next_pick,
                                stop_flag=lambda: False, renew=lambda: None,
-                               broken=_NOT_BROKEN, stagger=0)
+                               row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(len(finished), 4)
         self.assertEqual(len(res["outcomes"]), 4)
 
@@ -219,7 +226,7 @@ class TestStopFlag(unittest.TestCase):
                                run_child=run_child, next_pick=next_pick,
                                stop_flag=lambda: stop["v"],
                                renew=lambda: None,
-                               broken=_NOT_BROKEN, stagger=0)
+                               row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertLess(res["launched"], 20)
         self.assertEqual(len(res["outcomes"]), len(done))
 
@@ -244,7 +251,7 @@ class TestRenewHook(unittest.TestCase):
                                alpha=1.0, name_prefix="t",
                                run_child=lambda n, x: 0, next_pick=next_pick,
                                stop_flag=lambda: False, renew=renew,
-                               broken=_NOT_BROKEN, stagger=0)
+                               row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(res["launched"], 7)
         self.assertEqual(len(res["outcomes"]), 7)
         self.assertEqual(calls["n"], 14)  # 7 launches + 7 resolutions
@@ -259,7 +266,7 @@ class TestRenewHook(unittest.TestCase):
                              alpha=1.0, name_prefix="t",
                              run_child=lambda n, x: 0, next_pick=next_pick,
                              stop_flag=lambda: False, renew=renew,
-                             broken=_NOT_BROKEN, stagger=0)
+                             row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
 
 
 class TestStagger(unittest.TestCase):
@@ -278,7 +285,7 @@ class TestStagger(unittest.TestCase):
                              alpha=1.0, name_prefix="t",
                              run_child=lambda n, x: 0, next_pick=next_pick,
                              stop_flag=lambda: False, renew=lambda: None,
-                             broken=_NOT_BROKEN, stagger=0)
+                             row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         m.assert_not_called()
 
     def test_stagger_sleeps_between_but_not_before_first_launch(self):
@@ -290,7 +297,7 @@ class TestStagger(unittest.TestCase):
                                    next_pick=next_pick,
                                    stop_flag=lambda: False,
                                    renew=lambda: None,
-                                   broken=_NOT_BROKEN, stagger=42)
+                                   row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=42)
         # 3 launches -> 2 gaps between them, none before the first.
         self.assertEqual(m.call_args_list, [mock.call(42), mock.call(42)])
         self.assertEqual(res["launched"], 3)
@@ -302,7 +309,7 @@ class TestStagger(unittest.TestCase):
                              alpha=1.0, name_prefix="t",
                              run_child=lambda n, x: 0, next_pick=next_pick,
                              stop_flag=lambda: False, renew=lambda: None,
-                             broken=_NOT_BROKEN)  # stagger omitted
+                             row_landed=_ROW_LANDED, broken=_NOT_BROKEN)  # stagger omitted
         import runtime
         m.assert_called_once_with(runtime.CLOSED_LOOP_STAGGER_SEC)
 
@@ -490,10 +497,11 @@ class TestNameSkip(unittest.TestCase):
 
 
 class TestPendingNames(unittest.TestCase):
-    def test_unregistered_mode_contributes_nothing(self):
-        # Synthetic test modes (mode="m") are not in bo_driver.MODES and
-        # have no pending file; the guard must not raise.
-        self.assertEqual(pool._pending_names("definitely-not-a-mode"), set())
+    def test_unregistered_mode_raises(self):
+        # Was: returned set(). An empty busy-name set silently disarms the
+        # double-launch guard, so the registry lookup stays loud.
+        with self.assertRaises(KeyError):
+            pool._pending_names("definitely-not-a-mode")
 
     def test_reads_names_from_the_mode_pending_file(self):
         import bo_driver as bo
@@ -505,14 +513,14 @@ class TestPendingNames(unittest.TestCase):
 
 
 class TestDefaultRowLanded(unittest.TestCase):
-    """IMPORTANT 2, review round 2: _default_row_landed must fail CLOSED
-    (return False / propagate) on a real error, and only special-case the
-    synthetic-test-mode KeyError, narrowly."""
+    """_default_row_landed must fail CLOSED on every error, including an
+    unregistered mode. It used to return True there so synthetic-mode tests
+    could fall through; "every child landed a row" is the wrong answer to
+    give the one signal the abort guard reads."""
 
-    def test_unregistered_mode_returns_true(self):
-        # tests/test_pool.py's own mode="m" -- production main() never
-        # reaches this branch (argparse restricts --mode to real modes).
-        self.assertTrue(pool._default_row_landed("c0", "definitely-not-a-real-mode"))
+    def test_unregistered_mode_raises(self):
+        with self.assertRaises(KeyError):
+            pool._default_row_landed("c0", "definitely-not-a-real-mode")
 
     def test_real_mode_membership(self):
         import closed_loop as cl
