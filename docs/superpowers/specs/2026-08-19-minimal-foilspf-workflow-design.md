@@ -224,12 +224,52 @@ prodtools-repo changes.
 Five commits on a branch off `json-modes`, suite green after each, each
 independently revertible. Claude does not push; the operator pushes.
 
-**Step 0 (blocker).** Repair `tests/golden_parity.py` section `[a]`, which
-currently reports `MISMATCH` with `current=None` for all 11 modes. Verified
-pre-existing on this branch and identical under both our `.venv` and the
-`ana_v2.8.0` env, so it is not environmental. Until it is green it cannot serve
-as the refactor gate, and refactor breakage would be indistinguishable from
-noise already present.
+**Step 0 (blocker) — DONE 2026-08-19** (`8aa867b`, `7d51236`).
+
+`[a]` and `[b]` are green; the suite is 620. `[a]`'s `MISMATCH` with
+`current=None` for all 11 modes was never a data regression — the harness had
+stopped seeing its input. `_roundtrip_mode` read `mode.leaderboard`, which the
+archive/live split redefined as the operator's live board on `$DATA_ROOT`; that
+tree is empty, so it returned `None` for every mode. Pointing the round-trip at
+the archive reproduced 10 of 11 baselines byte-identically, which is what makes
+the diagnosis exact rather than plausible. The 11th (`foilspfbpz`, 173 → 374
+rows) was a second, independent staleness the first bug had masked. Both boards
+are now pinned under separate `archive`/`live` keys, and `section_a()` raises
+when it can pin zero files — the silence was the real defect.
+
+`[c]` had decayed against four migrations (BO_WORK relocation without a data
+move; the archive/live pair in its tmp sandbox; the JSON-mode migration
+retiring geometry parsers so `x` is only recoverable from the pending TSV; and
+a replay-config selector that drifted as history grew). All four are fixed and
+its **evaluate half is byte-identical to the 2026-07-19 baseline**.
+
+**`[c]` remains MISMATCH on one point, deliberately not re-captured** — see
+§7.1. It is a real finding, not harness drift, and it does **not** block the
+orchestration work: `[a]` and `[b]` cover the leaderboard reader/writer and the
+row → tensor assembly, which are what this refactor can actually break.
+
+### 7.1 Open: foilsflash preflight now fails a baseline overlap
+
+Replaying `foilsflash18R05_00` — same config, same geom file — now FAILs
+preflight where the 2026-07-19 baseline PASSed:
+
+```
+surface-check total_hits=1 unique_volumes=1 baseline=1 managed=0
+VirtualDetector_EMC_0_Front:119 (G4Tubs) overlaps
+StoppingTargetMother:0 (G4Tubs) by 24.8844 cm
+```
+
+Classified `baseline=1 managed=0`: the overlap is in the stock geometry, not
+produced by the BO knobs — yet the zero-overlap policy counts it. Ruled out:
+neither `foilsflash` nor `foilspf` still carries the TT_MidInner→DS2Vacuum
+override (named in `foilspf.json` as what "held the last EMC_0_Front overlap"),
+and both are on the same `Offline_run1bap_partial` musing.
+
+Needs operator triage. Re-capturing would assert that foilsflash preflight is
+*expected* to fail, which is a claim nobody has verified. Note `foilsflash` is a
+superseded line, so the operational impact is low — but if the same baseline
+overlap reaches the foilspf family it would fail every preflight, which is why
+it is recorded rather than dropped.
 
 1. **Pin `recursion_limit` explicitly** in both `.stream()` calls. One line.
    Valuable independently: langgraph 1.2.9 (ours) has no practical cap
