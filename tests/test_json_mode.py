@@ -221,8 +221,10 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
 
     # -- F7 case 1: UNRESOLVED second objective ----------------------------
     def test_evaluate_substitutes_zero_for_an_unresolved_second_objective(self):
-        """The qlnei picker stamps AUTORESEARCH_NO_RUN1B=1 and drops the
-        run1b_mubeam stage BY DESIGN. Python modes return None there and
+        """AUTORESEARCH_NO_RUN1B=1 drops the run1b_mubeam stage BY DESIGN.
+        It is a MANUAL env seam: the `--picker qlnei` auto-stamp that used
+        to set it died with graph/presniff.py (2026-08-19) and was not
+        restored. Python modes return None there and
         cmd_evaluate substitutes 0.0 so the row still lands; JsonMode used to
         raise KeyError instead, so every child failed at evaluate.
 

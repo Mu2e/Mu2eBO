@@ -169,8 +169,11 @@ class TestCmdEvaluateEmit(unittest.TestCase):
     def test_zero_flash_is_never_substituted_for_a_flash_mode(self):
         """The 7-poison-row guard, generically.
 
-        AUTORESEARCH_NO_RUN1B=1 exists so qlnei can drop run1b_mubeam and
-        still land a sob-only row with calo=0. foilsflash has no
+        AUTORESEARCH_NO_RUN1B=1 exists so a sob-only campaign can drop
+        run1b_mubeam and still land a row with calo=0. Nothing auto-stamps
+        it any more -- the `--picker qlnei` stamp died with
+        graph/presniff.py (2026-08-19); it is a manual seam. foilsflash has
+        no
         run1b_mubeam stage at all, so a missing second objective means the
         elebeam stage failed fail-soft — substituting 0.0 there would append
         a fake zero-flash row at good sob that dominates the Pareto front at

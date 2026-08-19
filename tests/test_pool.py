@@ -422,6 +422,43 @@ class TestNameSkip(unittest.TestCase):
             x, name = next_pick("foilspf", "hybrid", [])
         self.assertEqual(name, "fooR03_00")
 
+    def test_skip_logging_is_capped_and_summarised(self):
+        """Finding M-b: each SKIP line carries a multi-line recovery recipe,
+        so an uncapped loop over a long-lived --name-prefix floods the
+        parent log at exactly the moment an operator is reading it, before
+        the first launch. Cap the full lines, then count the rest."""
+        import closed_loop as cl
+        n_busy = pool.SKIP_LOG_LIMIT + 20
+        busy = {f"fooR{i:02d}_00" for i in range(n_busy)}
+        next_pick = pool._default_pick_source("foo")
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl, lb=busy):
+                st.enter_context(p)
+            buf = st.enter_context(mock.patch("builtins.print"))
+            x, name = next_pick("foilspf", "hybrid", [])
+        lines = [str(c.args[0]) for c in buf.call_args_list]
+        skips = [ln for ln in lines if ln.startswith("[pool] SKIP ")]
+        self.assertEqual(len(skips), pool.SKIP_LOG_LIMIT)
+        summary = [ln for ln in lines if "further" in ln]
+        self.assertEqual(len(summary), 1)
+        self.assertIn(str(n_busy - pool.SKIP_LOG_LIMIT), summary[0])
+        self.assertIn(name, summary[0])
+        self.assertEqual(name, f"fooR{n_busy:02d}_00")
+
+    def test_skips_below_the_cap_are_all_logged_in_full(self):
+        import closed_loop as cl
+        busy = {f"fooR{i:02d}_00" for i in range(2)}
+        next_pick = pool._default_pick_source("foo")
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl, lb=busy):
+                st.enter_context(p)
+            buf = st.enter_context(mock.patch("builtins.print"))
+            next_pick("foilspf", "hybrid", [])
+        lines = [str(c.args[0]) for c in buf.call_args_list]
+        self.assertEqual(
+            len([ln for ln in lines if ln.startswith("[pool] SKIP ")]), 2)
+        self.assertFalse([ln for ln in lines if "further" in ln])
+
     def test_skip_always_yields_a_name_never_an_empty_launch(self):
         """The monotonic-counter property that makes this safe: unlike the
         retired node_launch_children (which filtered a FIXED list of q names

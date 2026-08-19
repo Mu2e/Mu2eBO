@@ -50,6 +50,12 @@ HEARTBEAT_S = 15 * 60
 # child is outside every documented normal duration.
 STALL_WARN_S = 24 * 3600
 
+# How many busy-name skips are logged in full before the rest are summarised
+# as a count. Each SKIP line carries a multi-line recovery recipe, so an
+# uncapped loop over a long-lived --name-prefix floods the parent log right
+# where an operator is looking for the first launch.
+SKIP_LOG_LIMIT = 5
+
 
 def _log_inflight(inflight, started, log, now=None, warn_after=STALL_WARN_S):
     """One heartbeat line: what is in flight and for how long.
@@ -300,7 +306,7 @@ def _pending_names(mode) -> set:
 def _name_busy_reason(cl, name, lb_names, pending_names):
     """Why `name` must not be launched again, or None if it is free.
 
-    Three signals, and they are NOT the same kind of thing:
+    FOUR signals, in two groups that are NOT the same kind of thing:
 
       leaderboard row / broken.txt   -- the name is already RESOLVED by an
                                         earlier process.
@@ -380,13 +386,28 @@ def _default_pick_source(name_prefix):
         i = counter["i"]
         lb_names = cl._leaderboard_names(mode)
         pending_names = _pending_names(mode)
+        skipped = 0
         while True:
             name = f"{name_prefix}R{i:02d}_00"
             why = _name_busy_reason(cl, name, lb_names, pending_names)
             if why is None:
                 break
-            print(f"[pool] SKIP {name}: {why}", flush=True)
+            # First few in full, then count-and-summarise. A long-lived
+            # prefix can have hundreds of busy names, and dumping one
+            # multi-line SKIP per name floods the parent log at exactly the
+            # moment an operator is reading it -- before the first launch.
+            # The full text of the first few is what carries the recovery
+            # recipe, so it must not be the part that gets truncated.
+            if skipped < SKIP_LOG_LIMIT:
+                print(f"[pool] SKIP {name}: {why}", flush=True)
+            skipped += 1
             i += 1
+        if skipped > SKIP_LOG_LIMIT:
+            print(f"[pool] ... and {skipped - SKIP_LOG_LIMIT} further "
+                  f"consecutive busy names skipped (last was "
+                  f"{name_prefix}R{i - 1:02d}_00); resuming at {name}. "
+                  f"Reasons are the same four signals as above -- see "
+                  f"graph/pool.py::_name_busy_reason.", flush=True)
         counter["i"] = i + 1
         picks = cl._botorch_picks_subprocess(mode, q=1, round_idx=i,
                                              picker=picker, pending=x_pending)
