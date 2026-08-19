@@ -5,10 +5,17 @@ node_launch_children + node_barrier + node_decide_next + child_tracker.py --
 roughly 700 LOC expressing a bounded work pool across four graph nodes and a
 checkpointed state dict.
 
-A child resolves when its SUBPROCESS EXITS. That is one truth source,
-replacing five (checkpoint terminal, pid_alive, *_cluster.txt, broken.txt,
-leaderboard membership). Four incidents stop being possible rather than
-guarded:
+A child resolves when its SUBPROCESS EXITS. That is one RESOLUTION truth
+source, replacing five (checkpoint terminal, pid_alive, *_cluster.txt,
+broken.txt, leaderboard membership). Note that *_cluster.txt survives here in
+a different role: `_name_busy_reason` reads it at LAUNCH time as an
+already-submitted signal (the double-launch guard the retired
+node_launch_children called `_already_running`). Retiring it as a resolution
+signal and retiring it as a launch guard are two different things -- the
+first draft of this module conflated them and dropped the guard, which is
+final-review finding C1.
+
+Four incidents stop being possible rather than guarded:
 
   barrier-false-positive-round1          no checkpoint `.next` to misread
   closed-loop-barrier-timeout-zero-rows  no parent-level barrier timeout
@@ -176,18 +183,95 @@ def _default_run_child(mode, alpha):
     return run_child
 
 
+def _pending_names(mode) -> set:
+    """Names carrying an unresolved row in the mode's pending TSV.
+
+    Guarded exactly like _default_row_landed's MODES check: a synthetic test
+    mode is not in bo_driver.MODES and has no pending file, so it contributes
+    nothing rather than raising. A genuinely broken pending file still
+    propagates -- this guard is scoped to the registry lookup only.
+    """
+    import bo_driver as bo  # noqa: WPS433
+    if mode not in bo.MODES:
+        return set()
+    return {n for n, _x in bo.MODES[mode].load_pending()}
+
+
+def _name_busy_reason(cl, name, lb_names, pending_names):
+    """Why `name` must not be launched again, or None if it is free.
+
+    Three signals, and they are NOT the same kind of thing:
+
+      leaderboard row / broken.txt   -- the name is already RESOLVED by an
+                                        earlier process.
+      *_cluster.txt / pending row    -- the name has WORK IN FLIGHT (or
+                                        abandoned mid-flight) from an
+                                        earlier process.
+
+    The second pair is the double-launch guard that `_already_running` used
+    to carry in the retired node_launch_children, and it is what stops the
+    corruption described in the final-review finding C1: relaunching under
+    the same --name-prefix (the STANDARD recovery move, see run_rolling's
+    caller and README "Recovering from a crashed parent") while a detached
+    child from the prior run is still alive. A second `graph.run` under the
+    same name would delete child 1's pending row and re-propose with child
+    2's x (graph/nodes.py caller_pinned branch), then find child 1's
+    `<stage>_cluster.txt` already present and SKIP submit (core/pipeline.py's
+    submit idempotency guard) -- so child 2 polls child 1's clusters and
+    harvests child 1's outputs. core/leaderboard.py append() has no
+    duplicate-name guard, so two rows land under one name with two different
+    x values, BOTH carrying child 1's geometry's metrics, and the GP then
+    trains on a point whose x does not describe the geometry that produced
+    it. Nothing errors.
+
+    This cannot recreate closed-loop-stale-cluster-silent-no-launch (0
+    children launched, barrier polls forever): that bug filtered a FIXED list
+    of q names and ended with pending == []. Here the index counter is
+    monotonic, so a skip ADVANCES to a fresh unused name rather than removing
+    a launch from the batch. `next_pick` always returns a name.
+    """
+    if name in lb_names:
+        return (f"already has a leaderboard row from a PRIOR run under this "
+                f"--name-prefix -- skipping so this child is not credited "
+                f"with that run's outcome")
+    if cl._child_is_broken(name):
+        return (f"already carries broken.txt from a PRIOR run under this "
+                f"--name-prefix -- skipping so this child is not credited "
+                f"with that run's outcome")
+    state_dir = cl._child_state_dir(name)
+    if any(state_dir.glob("*_cluster.txt")):
+        return (
+            f"has *_cluster.txt in {state_dir} -- a grid submission under "
+            f"this name is IN FLIGHT or was abandoned by a prior run. "
+            f"Launching a second graph.run here would re-use that cluster "
+            f"and land TWO leaderboard rows under one name, both carrying "
+            f"the FIRST child's metrics. Advancing to the next index. "
+            f"RECOVERY: confirm nothing is alive for it "
+            f"(pgrep -f 'graph.run.*{name}'), then either "
+            f"`rm {state_dir}/*_cluster.txt` and relaunch, or relaunch with "
+            f"a different --name-prefix")
+    if name in pending_names:
+        return (
+            f"has an unresolved row in the pending TSV -- a prior run "
+            f"proposed under this name and never resolved it (it may still "
+            f"be in preflight, which can take up to PREFLIGHT_TIMEOUT_S per "
+            f"attempt, before any cluster file exists). Advancing to the "
+            f"next index rather than racing it. If that attempt is dead, "
+            f"`core/bo_driver.py --mode <mode> pending-prune` clears the row")
+    return None
+
+
 def _default_pick_source(name_prefix):
     """Closure so the picker sees the running launch index for its name and
     round-seed. Imports closed_loop lazily -- closed_loop imports pool.
 
-    Skips any candidate name already resolved by an EARLIER process --
-    present in the leaderboard, or carrying broken.txt. Relaunching under
-    the same --name-prefix is the STANDARD recovery move in this project;
-    without this skip, a fresh in-process counter starting at i=0 collides
-    with the prior run's names, and _default_row_landed/_default_broken then
-    read the OLD run's outcome (a leaderboard row, a broken.txt) as if it
-    belonged to the NEW child -- reporting the wrong campaign's success or
-    failure. See Task 3 review round 2, CRITICAL 1.
+    Skips any candidate name an EARLIER process already resolved OR still has
+    work in flight for; see `_name_busy_reason` for the four signals and why
+    the cluster-file/pending pair is a DOUBLE-LAUNCH guard rather than a
+    resolution signal. Relaunching under the same --name-prefix is the
+    STANDARD recovery move in this project, so this path is on the normal
+    operating envelope, not an exotic corner. See Task 3 review round 2,
+    CRITICAL 1 and the final-review finding C1.
     """
     counter = {"i": 0}
 
@@ -195,14 +279,14 @@ def _default_pick_source(name_prefix):
         import closed_loop as cl
         i = counter["i"]
         lb_names = cl._leaderboard_names(mode)
-        name = f"{name_prefix}R{i:02d}_00"
-        while name in lb_names or cl._child_is_broken(name):
-            print(f"[pool] {name} already resolved (leaderboard row or "
-                  f"broken.txt) from a PRIOR run under this --name-prefix "
-                  f"-- skipping to avoid reporting its outcome as this "
-                  f"child's", flush=True)
-            i += 1
+        pending_names = _pending_names(mode)
+        while True:
             name = f"{name_prefix}R{i:02d}_00"
+            why = _name_busy_reason(cl, name, lb_names, pending_names)
+            if why is None:
+                break
+            print(f"[pool] SKIP {name}: {why}", flush=True)
+            i += 1
         counter["i"] = i + 1
         picks = cl._botorch_picks_subprocess(mode, q=1, round_idx=i,
                                              picker=picker, pending=x_pending)

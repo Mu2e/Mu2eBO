@@ -5,6 +5,7 @@ terminal, pid_alive, *_cluster.txt, broken.txt, leaderboard membership). The
 pool has ONE: a child resolves when its subprocess exits. run_child is an
 injected callable, so none of this touches the grid, sqlite, or a subprocess.
 """
+import contextlib
 import os
 import sys
 import tempfile
@@ -303,61 +304,163 @@ class TestStagger(unittest.TestCase):
 
 
 class TestNameSkip(unittest.TestCase):
-    """CRITICAL 1, review round 2: _default_pick_source must skip any
-    candidate name already resolved by a PRIOR run under the same
-    --name-prefix -- the standard recovery move in this project. Without
-    this, a fresh in-process counter starting at i=0 collides with the
-    prior run's names, and _default_row_landed/_default_broken then read
-    the OLD run's outcome for the NEW child: a campaign where every child
-    fails could still report rows=launched, aborted=False if every name
-    happens to be a prior success."""
+    """CRITICAL 1, review round 2 + finding C1, final review:
+    _default_pick_source must skip any candidate name a PRIOR run under the
+    same --name-prefix already RESOLVED (leaderboard row / broken.txt) or
+    still has WORK IN FLIGHT for (*_cluster.txt / pending TSV row).
+    Relaunching under the same prefix is the standard recovery move here.
+
+    Without the resolution half, a fresh in-process counter starting at i=0
+    collides with the prior run's names and _default_row_landed/
+    _default_broken read the OLD run's outcome for the NEW child. Without
+    the in-flight half, a second graph.run launches alongside a surviving
+    detached child, re-uses its cluster files, and lands TWO leaderboard
+    rows under one name -- both carrying the FIRST child's metrics.
+    """
+
+    def setUp(self):
+        # Hermetic: neither the live grid state root nor the live pending
+        # TSV may decide a unit test. Each case overrides as needed.
+        self._td = tempfile.TemporaryDirectory()
+        self.state_root = Path(self._td.name)
+        self.addCleanup(self._td.cleanup)
+
+    def _state_dir(self, name):
+        d = self.state_root / name / "state"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _patches(self, cl, *, lb=frozenset(), broken=(), pending=frozenset(),
+                 picks=((1.0, 2.0),)):
+        return (
+            mock.patch.object(cl, "_leaderboard_names",
+                              return_value=set(lb)),
+            mock.patch.object(cl, "_child_is_broken",
+                              side_effect=lambda n: n in broken),
+            mock.patch.object(cl, "_child_state_dir",
+                              side_effect=self._state_dir),
+            mock.patch.object(pool, "_pending_names",
+                              return_value=set(pending)),
+            mock.patch.object(cl, "_botorch_picks_subprocess",
+                              return_value=list(picks)),
+        )
 
     def test_skips_name_already_in_leaderboard(self):
         import closed_loop as cl
         next_pick = pool._default_pick_source("foo")
-        with mock.patch.object(cl, "_leaderboard_names",
-                               return_value={"fooR00_00"}), \
-             mock.patch.object(cl, "_child_is_broken", return_value=False), \
-             mock.patch.object(cl, "_botorch_picks_subprocess",
-                               return_value=[(1.0, 2.0)]):
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl, lb={"fooR00_00"}):
+                st.enter_context(p)
             x, name = next_pick("foilspf", "hybrid", [])
         self.assertEqual(name, "fooR01_00")
 
     def test_skips_broken_name(self):
         import closed_loop as cl
         next_pick = pool._default_pick_source("foo")
-        with mock.patch.object(cl, "_leaderboard_names", return_value=set()), \
-             mock.patch.object(cl, "_child_is_broken",
-                               side_effect=lambda n: n == "fooR00_00"), \
-             mock.patch.object(cl, "_botorch_picks_subprocess",
-                               return_value=[(1.0, 2.0)]):
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl, broken={"fooR00_00"}):
+                st.enter_context(p)
+            x, name = next_pick("foilspf", "hybrid", [])
+        self.assertEqual(name, "fooR01_00")
+
+    def test_skips_name_with_stale_cluster_file(self):
+        """Finding C1: a surviving child from a crashed parent has NO
+        leaderboard row and NO broken.txt -- its only trace is the
+        `<stage>_cluster.txt` its submit wrote. Launching a second
+        graph.run under that name double-submits and lands two corrupt
+        rows. FAILS without the *_cluster.txt condition in
+        _name_busy_reason (the pool hands back fooR00_00)."""
+        import closed_loop as cl
+        (self._state_dir("fooR00_00") / "mubeam_cluster.txt").write_text("12345\n")
+        next_pick = pool._default_pick_source("foo")
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl):
+                st.enter_context(p)
+            x, name = next_pick("foilspf", "hybrid", [])
+        self.assertEqual(name, "fooR01_00")
+
+    def test_cluster_skip_logs_the_recovery_recipe(self):
+        """Finding I3's diagnostic half: the deleted STALE_CLUSTER
+        Resolution carried an actionable message; the skip must too."""
+        import closed_loop as cl
+        sd = self._state_dir("fooR00_00")
+        (sd / "mustops_ce_cluster.txt").write_text("999\n")
+        next_pick = pool._default_pick_source("foo")
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl):
+                st.enter_context(p)
+            buf = st.enter_context(mock.patch("builtins.print"))
+            next_pick("foilspf", "hybrid", [])
+        printed = " ".join(str(c.args[0]) for c in buf.call_args_list)
+        self.assertIn("fooR00_00", printed)
+        self.assertIn(str(sd), printed)
+        self.assertIn("_cluster.txt", printed)
+        self.assertIn("--name-prefix", printed)
+
+    def test_skips_name_with_unresolved_pending_row(self):
+        """The pre-submit half of the same window: a prior child that died
+        in propose/preflight has a pending TSV row and nothing else."""
+        import closed_loop as cl
+        next_pick = pool._default_pick_source("foo")
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl, pending={"fooR00_00"}):
+                st.enter_context(p)
             x, name = next_pick("foilspf", "hybrid", [])
         self.assertEqual(name, "fooR01_00")
 
     def test_skips_multiple_consecutive_collisions(self):
         import closed_loop as cl
         next_pick = pool._default_pick_source("foo")
-        with mock.patch.object(cl, "_leaderboard_names",
-                               return_value={"fooR00_00", "fooR01_00",
-                                             "fooR02_00"}), \
-             mock.patch.object(cl, "_child_is_broken", return_value=False), \
-             mock.patch.object(cl, "_botorch_picks_subprocess",
-                               return_value=[(1.0, 2.0)]):
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl, lb={"fooR00_00", "fooR02_00"},
+                                   pending={"fooR01_00"}):
+                st.enter_context(p)
             x, name = next_pick("foilspf", "hybrid", [])
         self.assertEqual(name, "fooR03_00")
+
+    def test_skip_always_yields_a_name_never_an_empty_launch(self):
+        """The monotonic-counter property that makes this safe: unlike the
+        retired node_launch_children (which filtered a FIXED list of q names
+        and could end with pending == [] -- closed-loop-stale-cluster-
+        silent-no-launch), a skip here ADVANCES to a fresh index. Every
+        next_pick returns a usable name, however many are busy."""
+        import closed_loop as cl
+        busy = {f"fooR{i:02d}_00" for i in range(7)}
+        next_pick = pool._default_pick_source("foo")
+        with contextlib.ExitStack() as st:
+            for p in self._patches(cl, lb=busy):
+                st.enter_context(p)
+            names = [next_pick("foilspf", "hybrid", [])[1] for _ in range(3)]
+        self.assertEqual(names, ["fooR07_00", "fooR08_00", "fooR09_00"])
 
     def test_no_collision_uses_first_name(self):
         import closed_loop as cl
         next_pick = pool._default_pick_source("foo")
-        with mock.patch.object(cl, "_leaderboard_names", return_value=set()), \
-             mock.patch.object(cl, "_child_is_broken", return_value=False), \
-             mock.patch.object(cl, "_botorch_picks_subprocess",
-                               return_value=[(1.0, 2.0)]) as m:
+        with contextlib.ExitStack() as st:
+            ps = self._patches(cl)
+            for p in ps[:-1]:
+                st.enter_context(p)
+            m = st.enter_context(ps[-1])
             x, name = next_pick("foilspf", "hybrid", [])
         self.assertEqual(name, "fooR00_00")
         self.assertEqual(x, [1.0, 2.0])
         # round_idx passed to the picker subprocess is the POST-skip index.
         self.assertEqual(m.call_args.kwargs["round_idx"], 0)
+
+
+class TestPendingNames(unittest.TestCase):
+    def test_unregistered_mode_contributes_nothing(self):
+        # Synthetic test modes (mode="m") are not in bo_driver.MODES and
+        # have no pending file; the guard must not raise.
+        self.assertEqual(pool._pending_names("definitely-not-a-mode"), set())
+
+    def test_reads_names_from_the_mode_pending_file(self):
+        import bo_driver as bo
+        fake = mock.Mock()
+        fake.load_pending.return_value = [("aR00_00", [1.0]), ("aR01_00", [2.0])]
+        with mock.patch.dict(bo.MODES, {"zz": fake}, clear=False):
+            self.assertEqual(pool._pending_names("zz"),
+                             {"aR00_00", "aR01_00"})
 
 
 class TestDefaultRowLanded(unittest.TestCase):
