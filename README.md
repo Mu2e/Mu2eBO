@@ -53,7 +53,7 @@ source .venv/bin/activate && source setup.sh                 # <- every new shel
 - **`--status`** prints the resolved roots and the venv with where each came
   from. If a line surprises you, stop before submitting jobs.
 
-Next: smoke-test one chain with `--mock`
+Next: smoke-test one chain
 ([Running a single evaluation](#running-a-single-evaluation)), then
 [Running an optimization campaign](#running-an-optimization-campaign). With no
 grid access — or to study one job's FCL by hand — go straight to
@@ -218,12 +218,9 @@ One chain end-to-end, without the multi-round parent:
 ```bash
 python -m graph.run \
   --mode foilspf \
-  --config-name mytest01 --thread-id mytest01 \
-  --no-mock
+  --config-name mytest01 --thread-id mytest01
 ```
 
-- `--mock` replaces the grid with synthetic metrics (fast smoke test of the
-  graph itself); `--no-mock` runs the real chain. The flag is required.
 - `--x-point v1,v2,...` forces a **designed point** (comma-separated values in
   the mode's knob order) instead of a BO ask — used for A/B arms, replicates,
   and controlled scans. Rows land in the same leaderboard as BO rows.
@@ -290,7 +287,7 @@ export AUTORESEARCH_DATA_ROOT=/exp/mu2e/data/users/$USER/localtest   # 4. sandbo
 ./setup.sh --status                                   # 5. read this before step 6
 
 AUTORESEARCH_LOCAL=1 python -m graph.run \
-  --mode foilspf --config-name local01 --thread-id local01 --no-mock   # 6.
+  --mode foilspf --config-name local01 --thread-id local01   # 6.
 ```
 
 Steps 1 and 3 are the [Quick start](#quick-start). Step 2 is not optional
@@ -351,7 +348,7 @@ paid once per job (~25 s of it, measured across 200 → 10⁴ events per job).
 ```bash
 AUTORESEARCH_LOCAL=1 AUTORESEARCH_LOCAL_NJOBS=8 \
 AUTORESEARCH_LOCAL_EVENTS=12500 AUTORESEARCH_LOCAL_POOL=8 \
-python -m graph.run --mode foilspf --config-name local02 --thread-id local02 --no-mock
+python -m graph.run --mode foilspf --config-name local02 --thread-id local02
 ```
 
 Even then the row is far noisier than a grid evaluation (~10⁷ events), which

@@ -51,6 +51,17 @@ class TestMockModeRetired(unittest.TestCase):
             nodes.route_after_preflight({"preflight": "pass", "attempts": {}}),
             "real")
 
+    def test_node_propose_does_not_write_mock(self):
+        import nodes
+        result = nodes.node_propose({"mode": "foilspf", "config_name": "test", "alpha": 0.1})
+        self.assertNotIn("mock", result,
+                         "node_propose returned a 'mock' key; the state field was deleted but "
+                         "the write-site at nodes.py:112 survives")
+
+    def test_tools_run_local_sh_does_not_pass_no_mock(self):
+        self.assertNotIn("--no-mock",
+                         (ROOT / "tools" / "run_local.sh").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

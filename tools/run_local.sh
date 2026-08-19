@@ -81,4 +81,4 @@ echo "run_local: config=$CONFIG mode=$MODE" \
      "scale=${AUTORESEARCH_LOCAL_NJOBS}x${AUTORESEARCH_LOCAL_EVENTS}"
 
 exec python -m graph.run --mode "$MODE" \
-    --config-name "$CONFIG" --thread-id "$CONFIG" --no-mock
+    --config-name "$CONFIG" --thread-id "$CONFIG"

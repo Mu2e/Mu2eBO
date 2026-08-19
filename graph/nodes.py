@@ -109,7 +109,6 @@ def node_propose(state: BOIterationState) -> dict:
         "objective": None,
         "attempts": {**state.get("attempts", {}), "propose": state.get("attempts", {}).get("propose", 0) + 1},
         "errors": state.get("errors", []),
-        "mock": state.get("mock", True),
     }
 
 
@@ -117,7 +116,7 @@ def node_render_preflight(state: BOIterationState) -> dict:
     """Run mu2e -n 1 + surface-check on the proposal.
 
     Outcomes (vocabulary: bo_driver.PREFLIGHT_VERDICTS + "timeout"):
-    - pass → real/mock grid chain
+    - pass → real grid chain
     - fail_managed → retry propose (managed-volume overlap, BO-fixable)
     - ambiguous (rc=3) → retry propose. rc=3 = subprocess died early
       without a regex-matchable G4 init signature (OOM under concurrent
@@ -143,8 +142,6 @@ def node_render_preflight(state: BOIterationState) -> dict:
 def make_stage_node(stage: str):
     """Build a graph node that runs one stage (submit→poll→list-outputs).
 
-    Real-grid path only — the mock path is handled by `node_mock_grid`,
-    which bypasses the entire stage chain (preflight routes to it directly).
     Per-stage idempotency lives in pipeline.py guards, so re-entry after a
     checkpoint kill is safe.
     """
