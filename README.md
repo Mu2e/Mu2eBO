@@ -157,21 +157,22 @@ that happened.
 
 ## Running an optimization campaign
 
-The standard entrypoint is the multi-round closed loop. It launches `q`
-single-evaluation children in parallel, waits at a barrier, refits the GP on
-the updated leaderboard, and picks the next batch:
+The standard entrypoint is the closed loop. It is a bounded **work pool**:
+it keeps `q` single-evaluation children in flight at once and launches a
+replacement — refitting the GP against the leaderboard as it stands at that
+moment — each time one exits, until `--max-evals` have been launched and the
+pool drains. There are no rounds and no barrier.
 
 ```bash
 cd /exp/mu2e/app/users/$USER/autoresearch    # wherever you cloned it
 source .venv/bin/activate
 source setup.sh   # exports AUTORESEARCH_DATA_ROOT / AUTORESEARCH_ARTIFACT_ROOT used below
-export AUTORESEARCH_CHECKPOINT_DIR=/tmp/$USER/<prefix>   # SQLite checkpoints off CephFS
 
 nohup python -m graph.closed_loop \
   --mode foilspf \
   --picker hybrid \
-  --q 10 \
-  --rolling --max-evals 20 \
+  --q 20 \
+  --max-evals 40 \
   --name-prefix foilspf05 \
   > "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/foilspf05_parent.log" 2>&1 &
 echo "PID=$!"
@@ -182,16 +183,20 @@ Key flags (`python -m graph.closed_loop --help` for the full list):
 | flag | meaning |
 |---|---|
 | `--mode` | which optimization line (registry above) |
-| `--picker` | acquisition: `hybrid` (qNEHVI+qNParEGO, default), `qnehvi`, `qnparego`, `qlnei` (sob-only), `pareto_sob` (GP-corner exploit) |
-| `--q` | children in flight per round |
-| `--rolling --max-evals N` | rolling replacement up to N total evaluations (preferred over fixed `--max-rounds`) |
-| `--name-prefix` | unique campaign name; child configs become `<prefix>R<round>_<i>` |
+| `--picker` | acquisition: `hybrid` (qNEHVI+qNParEGO, default), `qnehvi`, `qnparego`, `qlnei` (sob-only acquisition — it no longer drops a stage; that auto-stamp died with `graph/presniff.py`), `pareto_sob` (GP-corner exploit), `budget_sob` (sob corner within the damage budget) |
+| `--q` | pool width: children kept in flight at once |
+| `--max-evals` | total evaluations to launch before draining (defaults to `q * --max-rounds`; `--max-rounds` survives only as that multiplier — there are no rounds) |
+| `--name-prefix` | campaign name; child configs become `<prefix>R<i>_00`, `<i>` counting launches |
 
 **Pre-launch checklist** (each item has a root-caused incident behind it):
 
-1. **Unique `--name-prefix`** — never reuse one that appears in the
-   leaderboard, the pending TSV, or `state/*_cluster.txt`. Reuse silently
-   launches zero children (`wiki/incidents/closed-loop-stale-cluster-silent-no-launch.md`).
+1. **`--name-prefix`** — for a NEW campaign, pick one no past campaign used.
+   Reusing a prefix is not an error (it is the documented crash-recovery
+   move, below): the pool skips any candidate name that already has a
+   leaderboard row, a `broken.txt`, a `state/*_cluster.txt`, or an
+   unresolved pending-TSV row, and advances to the next free index, logging
+   each skip. It will not silently launch zero children — but a reused
+   prefix does interleave two campaigns' evals under one name series.
 2. **Nothing already running for the mode**:
    `pgrep -f "closed_loop.*<prefix>"`.
 3. **Fresh Kerberos ticket** (a successful submit within the last hour counts).
@@ -201,9 +206,41 @@ Key flags (`python -m graph.closed_loop --help` for the full list):
 
 **Stopping**: `source setup.sh` (if not already done in this shell), then
 `touch "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/STOP_CLOSED_LOOP"`
-for a clean stop at the next round boundary (remove the file afterwards).
+(remove the file afterwards). The pool stops LAUNCHING at its next top-up
+check; children already in flight are never signalled, and the parent then
+**blocks until every one of them exits** — which can be hours. That is
+deliberate (it is the structural fix for
+`wiki/incidents/closed-loop-final-round-orphan-children.md`), but it means
+STOP is not a fast exit. To stop sooner you must deal with the children
+yourself (`jobsub_rm`, then kill the `graph.run` processes).
 
-**Monitoring**: parent log (path in the launch line above); per-child logs at
+### Recovering from a crashed parent
+
+Children are launched with `start_new_session=True`, so **killing or losing
+the parent does not stop them** — they keep polling the grid and can still
+land leaderboard rows on their own.
+
+1. Check what survived: `pgrep -f "graph.run.*<prefix>"`.
+2. Wait for those to finish, or `jobsub_rm` their clusters and kill them.
+   Relaunching under the same `--name-prefix` while a child from the prior
+   run is still in flight is the one genuinely unsafe move: two `graph.run`
+   processes under one config name re-use each other's per-stage
+   `cluster.txt` files and can land two leaderboard rows under that name,
+   both carrying the first child's metrics.
+3. Then relaunch with the same `--mode`, `--picker` and `--name-prefix`. The
+   pool resumes by SKIPPING names the prior run already resolved or left
+   work in flight for (see checklist item 1) and continuing from the next
+   free index. Nothing else is resumed — there is no checkpointer.
+
+There is no mid-chain resume for an individual eval either. A relaunched
+child under an existing name re-attaches to whatever its stages already
+submitted (per-stage `cluster.txt` idempotency in `core/pipeline.py`) rather
+than resubmitting — which is exactly why step 2 matters.
+
+**Monitoring**: parent log (path in the launch line above) — it prints one
+`[pool] heartbeat: N in flight (name Xh, ...)` line every 15 minutes while it
+is waiting, so a frozen log means the PARENT is wedged, not the grid, and a
+child listed at >24h gets an explicit WARNING; per-child logs at
 `<graph_data>/closed_loop_logs/<child>.log`; grid queue via
 `jobsub_q -G mu2e --user=$USER`; results via
 `tail "$AUTORESEARCH_DATA_ROOT/autoresearch_leaderboards/leaderboard_bo_<mode>.tsv"`
@@ -395,10 +432,12 @@ autoresearch/
 │                            #   for the per-mode runtime knobs layered on top
 ├── graph/                   # LangGraph orchestration
 │   ├── run.py               #   single-evaluation entrypoint (one chain = one graph run)
-│   ├── closed_loop.py       #   multi-round parent: q children, barrier, GP refit, pickers
+│   ├── closed_loop.py       #   campaign parent CLI: picker subprocess, krb5
+│   │                        #   renewal, STOP flag; drives pool.run_rolling
+│   ├── pool.py              #   the parent itself: q children in flight, one
+│   │                        #   replacement per exit (no rounds, no barrier)
 │   ├── nodes.py             #   graph nodes (propose, preflight, stages, harvest, evaluate)
 │   ├── build.py / state.py  #   graph wiring + typed state
-│   ├── child_tracker.py     #   sole resolver of child state at the barrier
 │   ├── pipeline_io.py       #   proposal/leaderboard file I/O, name allocation
 │   └── sourced_bash.py      #   env-sourcing subprocess helper
 ├── mode_specs/              # JSON mode definitions (see its README)

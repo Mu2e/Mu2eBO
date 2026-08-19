@@ -357,3 +357,47 @@ Total live cost: 9 evaluations.
   `graph/child_tracker.py`, `graph/pipeline_io.py`, `core/pipeline.py:209`
   (`STAGES`), `core/pipeline.py:1062` (the shadowing resolution),
   `graph/config.py:86` (`STAGE_TARGETS`)
+
+## 10. As built (2026-08-19)
+
+Recorded after the fact. **§8's forecasts above are left exactly as written** —
+a design doc rewritten to match its outcome stops being a record of what was
+predicted.
+
+Measured over the implementation range `e63f79d..005d120` (the 12 commits after
+Step 0), restricted to code paths (`graph/ core/ tests/ tools/ stage_entries/
+mode_specs/ README.md CONTEXT.md`; the all-paths figure adds ~1,350 lines of
+spec/plan/ledger prose):
+
+| | predicted | actual |
+|---|---:|---:|
+| `graph/` orchestration | ~900 | **1,700** |
+| `tests/test_closed_loop.py` | ~250 | 216 |
+| `tests/test_child_tracker.py` | 0 | 0 |
+| `tests/test_wal_multiwriter_stress.py` | 0 | 0 |
+| `core/pipeline.py` | ~1,700 | **1,922** |
+| net LOC removed | ≈3,000 | **1,274** (3,051 deleted, 1,777 added) |
+
+The gross deletion figure landed on target — 3,051 lines really did go. The
+*net* is less than half the forecast, for two reasons, both structural rather
+than execution slippage:
+
+1. **`graph/pipeline_io.py` (461 LOC) was budgeted as mostly-deleted and was
+   not deleted at all.** The forecast assumed its subprocess hops would
+   collapse into in-process calls; that conversion is formally PARKED (§7),
+   so the module survives whole. It is a third of the `graph/` overshoot on
+   its own, and it is the single biggest remaining lever if the parked work
+   is ever taken up.
+
+2. **`stage_cfg` and its comments cost about what retiring the `STAGES`
+   literal saved.** Task 6 moved per-stage job descriptions out of a literal
+   dict in `core/pipeline.py` into checked-in `stage_entries/*.json`. That is
+   a real win in *shape* — the job description is now data an operator can
+   diff, and the `STAGE_TARGETS`/`STAGES` njobs shadow is gone — but the
+   resolution function, its precedence rules, and the carried-forward tuning
+   rationale are roughly as many lines as the literal they replaced. It moved
+   the complexity to a better place; it did not remove it.
+
+Neither reason undercuts the goal in §1: the incident wins (five barrier truth
+sources down to one; four incidents made impossible rather than guarded) are
+about *structure*, and they landed. LOC was the proxy, not the target.
