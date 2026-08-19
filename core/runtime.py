@@ -77,19 +77,15 @@ CLOSED_LOOP_STAGGER_SEC = 90
 # next stop_flag() check exits cleanly without affecting in-flight children.
 STOP_FLAG = GRAPH_DATA / "STOP_CLOSED_LOOP"
 
-# ============================================================================
-# Per-stage njobs targets (core/pipeline.py:STAGES, retired into
-# stage_entries/ by a later task) -- canonical source of truth for both
-# njobs at submit and read_stage_status's n_failed inference.
-# ============================================================================
-STAGE_TARGETS = {
-    "mubeam":       200,
-    "run1b_mubeam": 200,
-    "concat":         1,
-    "mustops_ce":   200,
-    # bo-foilsflash electron-beam early-flash stage (tracker StrawGasStep Edep).
-    "elebeam_flash": 100,
-}
-STAGE_TARGETS.update(_SPEC.stage_target_overrides)
-if "AUTORESEARCH_ELEBEAM_NJOBS" in os.environ:
-    STAGE_TARGETS["elebeam_flash"] = int(os.environ["AUTORESEARCH_ELEBEAM_NJOBS"])
+# Per-stage njobs targets used to live here (STAGE_TARGETS, retired 2026-08-19
+# in the same cleanup that retired core/pipeline.py:STAGES -- see
+# wiki/incidents/events-per-job-mid-flight-edit.md for the failure shape both
+# retirements were closing). It does NOT feed submit any more --
+# core/pipeline.py's stage_cfg(stage, mode) reads njobs from
+# stage_entries/<stage>.json, overridden by the mode spec's
+# run.jobs_per_stage, same as this dict used to be built (base literal +
+# _SPEC.stage_target_overrides + the AUTORESEARCH_ELEBEAM_NJOBS env seam --
+# all three now live in stage_cfg()). graph/pipeline_io.py's
+# read_stage_status (n_failed inference) reads pipeline.stage_cfg() directly
+# instead of importing a second copy of the same number, so there is exactly
+# one place njobs comes from.

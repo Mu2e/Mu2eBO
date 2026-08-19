@@ -44,11 +44,11 @@ class ModeSpec:
     grid_tarball: str                 # Code.tar.bz2 shipped to grid workers
     grid_stages: Tuple[str, ...]      # ordered stage chain
     harvest_verb: str                 # pipeline.py verb: "harvest"
-    stage_target_overrides: Dict[str, int]   # njobs overrides on runtime.STAGE_TARGETS
+    stage_target_overrides: Dict[str, int]   # njobs overrides read by pipeline.stage_cfg()
     presubmit_after: Dict[str, Tuple[str, ...]]  # after-stage -> stages to presubmit
-    # Per-stage core/pipeline.py STAGES overrides (events_per_job/memory_mb/
-    # quorum), applied by pipeline.py's _apply_stage_tuning on top of the
-    # pipeline defaults. The five Python modes pass {} explicitly (this
+    # Per-stage stage_entries/<stage>.json overrides (events_per_job/memory_mb/
+    # quorum), applied by pipeline.py's stage_cfg() on top of the
+    # stage_entries defaults. The five Python modes pass {} explicitly (this
     # module's rule: a missing fact is an import error, never a default);
     # JSON modes populate this from `run.stage_tuning` (core/mode_json.py),
     # which has been the sole stage-tuning mechanism since the hardcoded

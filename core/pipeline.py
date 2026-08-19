@@ -219,10 +219,19 @@ def _stage_dsconf(stage: str) -> str:
 
 
 def stage_cfg(stage: str, mode: str | None = None) -> dict:
-    """Merged stage config. ONE precedence rule, ONE direction.
+    """Merged stage config. ONE precedence rule, ONE direction -- with ONE
+    pre-existing, narrower exception.
 
     mode spec (run.jobs_per_stage, run.stage_tuning) OVERRIDES
-    stage_entries/<stage>.json (the default). Nothing overrides the mode spec.
+    stage_entries/<stage>.json (the default). Nothing overrides the mode
+    spec, EXCEPT AUTORESEARCH_ELEBEAM_NJOBS, which overrides
+    `elebeam_flash`'s njobs LAST, after the mode spec -- a pre-existing env
+    seam (core/modes.py:20), not a new shadow this function introduces: it
+    already outranked the mode spec's `run.jobs_per_stage.elebeam_flash`
+    before this function existed (it was applied to core/runtime.py
+    STAGE_TARGETS, which core/pipeline.py's old STAGES literal read njobs
+    from), and dropping it here would have been a silent behavior change,
+    not a simplification.
 
     This replaces the STAGES literal, whose `events_per_job` shadowed the
     `events` key that stage_entries/<stage>.json already carried with the same
@@ -246,10 +255,12 @@ def stage_cfg(stage: str, mode: str | None = None) -> dict:
         for k in ("memory_mb", "quorum"):
             if k in tuning:
                 cfg[k] = tuning[k]
-    # Pre-existing env seam (core/modes.py docstring), unrelated to the
-    # STAGES/JSON shadow this function removes -- preserved unchanged so
-    # njobs stays exactly what core/runtime.py STAGE_TARGETS["elebeam_flash"]
-    # would compute for the same env.
+    # THE one exception to "nothing overrides the mode spec" -- see the
+    # docstring above. Pre-existing env seam (core/modes.py docstring),
+    # unrelated to the STAGES/JSON shadow this function removes -- preserved
+    # unchanged so njobs stays exactly what the old STAGES literal (seeded
+    # from the now-retired core/runtime.py STAGE_TARGETS, which applied this
+    # same env var last) would have computed for the same env.
     if stage == "elebeam_flash" and "AUTORESEARCH_ELEBEAM_NJOBS" in os.environ:
         cfg["njobs"] = int(os.environ["AUTORESEARCH_ELEBEAM_NJOBS"])
     return cfg
@@ -495,8 +506,17 @@ def _stage_config_sha(stage: str) -> str:
     stamp (which only covered one field) to the whole stage dict.
     Path objects are coerced to str so the serialization is reproducible.
     See wiki/incidents/events-per-job-mid-flight-edit.md.
+
+    `_comment` is excluded: it's prose (stage_entries/<stage>.json's own
+    rationale note), not a tunable value a mid-flight edit could silently
+    mis-scale a metric with. Hashing it would make a comment-only JSON edit
+    -- e.g. this task's own rewrite of every stage entry's `_comment` --
+    trip the "changed since submit" WARN forever after for any chain that
+    happened to be in flight across the edit, naming the exact field
+    (events_per_job) an operator is trained to treat as a real incident.
     """
-    payload = json.dumps(stage_cfg(stage, MODE), sort_keys=True, default=str)
+    cfg = {k: v for k, v in stage_cfg(stage, MODE).items() if k != "_comment"}
+    payload = json.dumps(cfg, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 

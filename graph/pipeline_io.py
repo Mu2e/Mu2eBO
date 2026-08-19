@@ -24,6 +24,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
+# read_stage_status's n_failed inference reads njobs through
+# pipeline.stage_cfg() (Task 6 fix round) -- the SAME function core/
+# pipeline.py's own submit/poll/list-outputs read, instead of a second
+# runtime.STAGE_TARGETS copy of the same number that could silently drift
+# from it (the exact shape events-per-job-mid-flight-edit and the STAGES/
+# stage_entries shadow this task retired both were). Safe to import
+# in-process: pipeline.py never imports graph/pipeline_io.py, so there is no
+# cycle, and this module already imports bo_driver/harvest/modes/
+# prodtools_exec from the same core/ tree.
+import pipeline as _pipeline  # noqa: E402
 import prodtools_exec as _prodtools_exec  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from runtime import (  # noqa: E402
@@ -34,7 +44,6 @@ from runtime import (  # noqa: E402
     GRID_STAGES,
     PIPELINE_DRIVER,
     PREFLIGHT_TIMEOUT_S,
-    STAGE_TARGETS,
 )
 
 
@@ -226,7 +235,9 @@ def read_stage_status(config_name: str, stage: str) -> dict:
     cluster_file = state_dir / f"{stage}_cluster.txt"
     cid = cluster_file.read_text().strip() if cluster_file.exists() else None
     outputs = hv.read_outputs(state_dir, stage) or []
-    target = STAGE_TARGETS.get(stage, 0)
+    # Same njobs pipeline.py's own submit/poll/list-outputs use for this
+    # stage under this process's mode -- see the import comment above.
+    target = _pipeline.stage_cfg(stage, _pipeline.MODE)["njobs"]
     n_done = len(outputs)
     status = "done" if (cid and outputs) else ("in_flight" if cid else "pending")
     return {
