@@ -68,6 +68,11 @@ def main() -> int:
     graph = build_graph().compile(checkpointer=saver)
 
     thread_id = args.thread_id or f"cli-{uuid.uuid4().hex[:8]}"
+    # Pinned, not left to the library default: langgraph 1.2.9 has no
+    # practical cap but 0.2.50 (the ana_v2.8.0 pyenv candidate) defaults to
+    # 25. The child chain is ~8 supersteps plus up to MAX_PROPOSE_RETRIES
+    # re-proposes; 100 is far above that and far below anything runaway.
+    cfg = {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
     init = {
         "mode": args.mode,
         "alpha": args.alpha,
@@ -81,7 +86,7 @@ def main() -> int:
     print(f"[run] thread_id={thread_id}", flush=True)
     expected_name = args.config_name
     final = None
-    for ev in graph.stream(init, {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}, stream_mode="values"):
+    for ev in graph.stream(init, cfg, stream_mode="values"):
         final = ev
         # Config-name swap guard: if a stale SqliteSaver checkpoint resumes
         # a different thread's state mid-stream, abort loudly rather than

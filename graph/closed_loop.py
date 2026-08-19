@@ -925,7 +925,7 @@ def main() -> int:
     else:
         stream_input = init
     final = None
-    for ev in graph.stream(stream_input, {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}, stream_mode="values"):
+    for ev in graph.stream(stream_input, cfg, stream_mode="values"):
         final = ev
         snap = {
             "round_idx": ev.get("round_idx"),
