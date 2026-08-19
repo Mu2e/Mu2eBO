@@ -102,9 +102,12 @@ class TestRecursionLimitPinned(unittest.TestCase):
                           "graph/run.py .stream() must pin recursion_limit")
 
     def test_closed_loop_stream_pins_recursion_limit(self):
-        calls = self._stream_calls("graph/closed_loop.py")
-        self.assertTrue(calls, "no .stream() call found in graph/closed_loop.py")
-        for c in calls:
+        # Deliberately does NOT require a .stream() to exist: Task 3 deletes
+        # the parent graph outright. The invariant is "no UNBOUNDED stream
+        # anywhere", which holds both before and after that. Asserting
+        # existence would force Task 3 to delete a passing test, hiding
+        # whether it also dropped the pin on run.py.
+        for c in self._stream_calls("graph/closed_loop.py"):
             self.assertIn("recursion_limit", c,
                           "graph/closed_loop.py .stream() must pin recursion_limit")
 
@@ -116,7 +119,7 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `PYTHONPATH= .venv/bin/python -m unittest tests.test_recursion_limit -v`
-Expected: FAIL ×2 — `AssertionError: 'recursion_limit' not found in ...`
+Expected: FAIL — `AssertionError: 'recursion_limit' not found in ...` (both calls exist today and neither pins it)
 
 - [ ] **Step 3: Add the limit to `graph/run.py`**
 
@@ -199,6 +202,7 @@ a pipeline_io function. Dropping any one of those and leaving the rest is the
 failure this guards -- a --mock flag that routes nowhere, or a mock_grid node
 with no edge into it, both fail at runtime rather than import.
 """
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -206,6 +210,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT / "graph"))
+
+# graph/config.py resolves its mode spec at IMPORT time and its "foils"
+# default is dangling (that spec was retired), so a bare `import build` raises
+# KeyError('foils'). Set the mode explicitly rather than depend on the default.
+os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
 
 
 class TestMockModeRetired(unittest.TestCase):
@@ -906,7 +915,10 @@ from pathlib import Path
 import modes as _modes
 from paths import GRAPH_DATA, REPO_ROOT
 
-_SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")]
+# Default is foilspf, NOT the historical "foils": that spec was retired and
+# the lookup has been dangling since -- a bare `import config` raised
+# KeyError('foils'). See ledger Ruling 2.
+_SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilspf")]
 
 MUSING = _SPEC.musing
 GRID_STAGES = list(_SPEC.grid_stages)
@@ -918,7 +930,7 @@ BOTORCH_PREDICT = REPO_ROOT / "core" / "botorch_predict.py"
 BOTORCH_VENV_PY = Path(os.environ.get(
     "AUTORESEARCH_BOTORCH_VENV", str(REPO_ROOT / ".venv"))) / "bin" / "python"
 
-DEFAULT_MODE = "foils"
+DEFAULT_MODE = "foilspf"
 DEFAULT_ALPHA = 1.0e5
 MAX_PROPOSE_RETRIES = 3
 PREFLIGHT_TIMEOUT_S = 1200
@@ -931,6 +943,20 @@ STOP_FLAG = GRAPH_DATA / "STOP_CLOSED_LOOP"
 ```
 
 Check `graph/config.py` for the exact `BOTORCH_VENV_PY` expression and copy it rather than the sketch above if it differs.
+
+**Ruling 2 applies here (from the SDD ledger):** do NOT copy `"foils"` forward.
+That spec was retired, so `SPECS["foils"]` is a dangling lookup — verify with
+`PYTHONPATH= .venv/bin/python -c "import sys;sys.path.insert(0,'core');sys.path.insert(0,'graph');import config"`,
+which raises `KeyError: 'foils'` today. Both the `_SPEC` lookup default and
+`DEFAULT_MODE` become `"foilspf"`. Add a test to
+`tests/test_runtime_constants.py`:
+
+```python
+    def test_default_mode_is_a_live_mode(self):
+        import modes
+        import runtime
+        self.assertIn(runtime.DEFAULT_MODE, modes.SPECS)
+```
 
 - [ ] **Step 4: Repoint every importer**
 
