@@ -106,17 +106,15 @@ class TestPassBanner(unittest.TestCase):
                          " and zero surface-check overlaps")
 
     def test_banner_reports_managed_policy(self):
-        # Repointed 2026-08-08: "foils" (Run1Bak-backed, non-strict) was
-        # archived. Pick any live mode with the "managed, non-strict"
-        # combination this banner variant covers, rather than hardcoding a
-        # name from the ipa625/ipafix/ipaovr/nominal A/B throwaway set (all
-        # explicitly "DELETE after the A/B lands" per their mode_specs/
-        # notes, so a hardcoded name here would rot again soon).
-        managed_name = next(
-            name for name, spec in modes.SPECS.items()
-            if spec.checks_managed_overlap and not spec.require_zero_overlaps)
-        self.assertEqual(_overlap_banner(managed_name),
-                         " and no managed-volume overlap")
+        # Task 5 (2026-08-19): the "managed, non-strict" modes (ipa625/ipafix/
+        # ipaovr/nominal) were the sole carriers of this policy and have been
+        # archived; all live modes now carry "strict" (require_zero_overlaps=True).
+        # This test has no candidate to run against, so skip it rather than
+        # hardcode a dead-end name into an archived set that may never return.
+        self.skipTest(
+            "No live modes carry the 'managed, non-strict' overlap policy; "
+            "all archived A/B one-shots (ipa625/ipafix/ipaovr/nominal) have "
+            "been moved to mode_specs/archive/")
 
 
 class TestJsonSchemaRequiresTheKey(unittest.TestCase):

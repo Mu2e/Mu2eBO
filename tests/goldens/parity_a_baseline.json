@@ -133,45 +133,5 @@
       "sha256": "11b5fae52009e127a535747d888244f0562866bb346afb6c611796b2d555781a"
     },
     "live": null
-  },
-  "ipa625": {
-    "archive": {
-      "rows": 1,
-      "skipped": 0,
-      "mismatch_idx": [],
-      "header_matches_disk": true,
-      "sha256": "0f08cd0190a687efafd4c5096fd7a776eb0f52122914478876b5f81186a216ae"
-    },
-    "live": null
-  },
-  "ipafix": {
-    "archive": {
-      "rows": 1,
-      "skipped": 0,
-      "mismatch_idx": [],
-      "header_matches_disk": true,
-      "sha256": "79d4ef9bc4cc89c7b3cf87e35b57d4cd2e9bb8a43f19056195ff8d3f4dfee0f0"
-    },
-    "live": null
-  },
-  "ipaovr": {
-    "archive": {
-      "rows": 1,
-      "skipped": 0,
-      "mismatch_idx": [],
-      "header_matches_disk": true,
-      "sha256": "6a89b441dcc7ea195163158c08690503cd0b7502e26115c22c39f8e5bff799c0"
-    },
-    "live": null
-  },
-  "nominal": {
-    "archive": {
-      "rows": 1,
-      "skipped": 0,
-      "mismatch_idx": [],
-      "header_matches_disk": true,
-      "sha256": "1eec973f1ff9bca20f6ea4406a61c35cbb8355e128fbb7c6bf94eb80b3137d47"
-    },
-    "live": null
   }
 }

@@ -468,6 +468,9 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
         return {}
     out: Dict[str, object] = {}
     seen_leaderboards: Dict[str, Path] = {}
+    # Flat glob on purpose: mode_specs/archive/ holds retired one-shot A/B specs
+    # whose leaderboards are still readable. A recursive glob would resurrect them
+    # into the registry.
     for path in sorted(directory.glob("*.json")):
         spec = load_mode_file(path)
         # Registered modes must be findable by file name. Checked HERE, not in
