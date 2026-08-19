@@ -33,6 +33,11 @@ import closed_loop as cl  # noqa: E402
 
 
 class TestRenewToken(unittest.TestCase):
+    """renew_token() is a plain zero-arg callable (no more RoundState/round_idx
+    shape) wired into run_rolling as `renew=renew_token` -- see
+    tests/test_pool.py::TestRenewHook for the call-once-per-launch and
+    exception-propagation contracts at the pool level."""
+
     @staticmethod
     def _ok():
         return mock.Mock(returncode=0, stderr="")
@@ -44,36 +49,39 @@ class TestRenewToken(unittest.TestCase):
     # kinit -R goes through cl.subprocess.run; getToken now goes through the
     # shared cl.run_sourced_bash helper (retry-protected), so the two are
     # mocked separately rather than as one ordered side_effect list.
-    def test_happy_path_no_errors(self):
-        state = {"round_idx": 0, "errors": []}
+    def test_happy_path_returns_normally(self):
         with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
              mock.patch.object(cl, "run_sourced_bash", return_value=self._ok()):
-            out = cl.node_renew_token(state)
-        self.assertEqual(out["errors"], [])
+            self.assertIsNone(cl.renew_token())
 
     def test_getToken_nonzero_rc_exits(self):
-        state = {"round_idx": 0, "errors": []}
         with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
              mock.patch.object(cl, "run_sourced_bash", return_value=self._fail()):
             with self.assertRaises(SystemExit) as cm:
-                cl.node_renew_token(state)
+                cl.renew_token()
         self.assertEqual(cm.exception.code, 2)
 
     def test_getToken_raises_exits(self):
-        state = {"round_idx": 0, "errors": []}
         with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
              mock.patch.object(cl, "run_sourced_bash", side_effect=OSError("ENOKEY")):
             with self.assertRaises(SystemExit) as cm:
-                cl.node_renew_token(state)
+                cl.renew_token()
         self.assertEqual(cm.exception.code, 2)
 
     def test_kinit_failure_does_not_exit(self):
         # kinit -R is best-effort; only getToken failure is fatal
-        state = {"round_idx": 0, "errors": []}
         with mock.patch.object(cl.subprocess, "run", return_value=self._fail()), \
              mock.patch.object(cl, "run_sourced_bash", return_value=self._ok()):
-            out = cl.node_renew_token(state)
-        self.assertTrue(any("kinit -R" in e for e in out["errors"]))
+            self.assertIsNone(cl.renew_token())
+
+    def test_wired_into_run_rolling_call(self):
+        # The actual regression this whole class guards against: run_rolling
+        # supporting a `renew` hook is necessary but not sufficient -- main()
+        # has to actually pass one. Before this fix, main() called
+        # run_rolling() with no `renew=` at all, silently defaulting to a
+        # no-op and dropping krb5 renewal entirely (kerberos-mid-run-expiry).
+        src = (PROJECT_ROOT / "graph" / "closed_loop.py").read_text()
+        self.assertIn("renew=renew_token", src)
 
 
 class TestPredictPicks(unittest.TestCase):

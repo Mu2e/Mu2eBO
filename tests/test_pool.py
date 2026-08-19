@@ -165,5 +165,37 @@ class TestStopFlag(unittest.TestCase):
         self.assertEqual(len(res["outcomes"]), len(done))
 
 
+class TestRenewHook(unittest.TestCase):
+    """The `renew` injection point fires before every launch (not once per
+    round -- there are no rounds). See graph/closed_loop.py's `renew_token`,
+    which run_rolling's production caller wires in as `renew=renew_token`;
+    a fatal renewal failure (kinit/getToken) must not be swallowed."""
+
+    def test_renew_called_once_per_launch(self):
+        calls = {"n": 0}
+
+        def renew():
+            calls["n"] += 1
+
+        next_pick, _ = _picker()
+        res = pool.run_rolling(mode="m", picker="p", q=3, max_evals=7,
+                               alpha=1.0, name_prefix="t",
+                               run_child=lambda n, x: 0, next_pick=next_pick,
+                               stop_flag=lambda: False, renew=renew)
+        self.assertEqual(calls["n"], res["launched"])
+        self.assertEqual(calls["n"], 7)
+
+    def test_renew_failure_propagates_not_swallowed(self):
+        def renew():
+            raise RuntimeError("getToken rc=1: krb5 expired")
+
+        next_pick, _ = _picker()
+        with self.assertRaises(RuntimeError):
+            pool.run_rolling(mode="m", picker="p", q=2, max_evals=5,
+                             alpha=1.0, name_prefix="t",
+                             run_child=lambda n, x: 0, next_pick=next_pick,
+                             stop_flag=lambda: False, renew=renew)
+
+
 if __name__ == "__main__":
     unittest.main()

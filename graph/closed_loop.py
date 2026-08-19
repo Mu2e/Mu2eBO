@@ -5,10 +5,12 @@ up as each one exits, until `max_evals` have been launched and the pool
 drains. All of that lives in `graph/pool.py::run_rolling`; this module wires
 CLI args to it and keeps the pieces `run_rolling` depends on:
 
-  renew_token             — kerberos + bearer refresh (defined here as a
-                             plain function; not currently wired into
-                             run_rolling's `renew` hook — see the module
-                             docstring in pool.py for the injection seam).
+  renew_token             — kerberos + bearer refresh; passed to
+                             run_rolling as `renew=renew_token` and called
+                             once before EVERY child launch (not once per
+                             round — there are no rounds anymore). kinit -R
+                             on a healthy ticket is a cheap no-op, so the
+                             higher call frequency is safe.
   predict_picks           — refit GP, return q picks (non-rolling shape;
                              kept for `--dry-run` and for anyone driving it
                              directly. `pool.py`'s own `_default_pick_source`
@@ -107,53 +109,64 @@ def _leaderboard_len(mode: str) -> int:
 
 
 # ============================================================================
-# Renew token (plain function; not currently wired into run_rolling)
+# Renew token — wired into run_rolling as `renew=renew_token`
 # ============================================================================
 
-def node_renew_token(state: dict) -> dict:
-    """Refresh krb5 ticket + bearer token.
+def renew_token() -> None:
+    """Refresh krb5 ticket + bearer token. Called by run_rolling before
+    every child launch (no `state`/round shape left — the pool has no
+    rounds; this is a plain zero-arg callable, per run_rolling's `renew`
+    injection seam).
 
     Closed-loop campaigns run many hours wall; default krb5 lifetime is ~25h,
     so a long rolling run can easily outlive the ticket. First post-expiry
     subprocess.run raises Errno 127 (ENOKEY) and the inner graph terminates
-    before harvest. See wiki/incidents/kerberos-mid-run-expiry.md.
+    before harvest — the eval is silently LOST (no leaderboard row, no loud
+    failure) rather than visibly failed. See
+    wiki/incidents/kerberos-mid-run-expiry.md.
 
     Hard gate: if `getToken` fails (proxy for "can we actually submit?"),
-    `sys.exit(2)` with an actionable message.
+    `sys.exit(2)` with an actionable message. This is a SystemExit, not an
+    Exception subclass, so it is never caught by run_rolling's
+    `except Exception` around a resolved future's `.result()` — it
+    propagates straight out of the launch loop, out of the
+    `with ThreadPoolExecutor(...)` block (which still drains any already-
+    launched, already-running children via its own `shutdown(wait=True)`
+    on unwind, so nothing already submitted to the grid is abandoned
+    mid-flight), out of run_rolling, out of main(), and terminates the
+    process with exit code 2. No new children are launched past this
+    point; children already handed to the grid are on their own from here
+    (they don't need the parent's local ticket once submitted).
 
     `kinit -R` is best-effort (it's normal for it to fail if the ticket
     is past its renewable lifetime); the load-bearing check is `getToken`.
     """
-    errors = list(state.get("errors", []))
     try:
         r = subprocess.run(["kinit", "-R"], capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
-            errors.append(f"renew_token[r{state.get('round_idx')}]: kinit -R rc={r.returncode}: "
-                          f"{r.stderr.strip()[:200]}")
+            print(f"[closed_loop] renew_token: kinit -R rc={r.returncode}: "
+                  f"{r.stderr.strip()[:200]}", flush=True)
     except Exception as exc:  # noqa: BLE001
-        errors.append(f"renew_token[r{state.get('round_idx')}]: kinit -R failed: {exc}")
+        print(f"[closed_loop] renew_token: kinit -R failed: {exc}", flush=True)
     cmd = "source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh && getToken"
     try:
         # getToken shares the cvmfs/spack flake class -> retry via the shared
         # helper (was a bare one-shot subprocess.run). A persistent rc!=0 after
         # retries is still FATAL (krb5 likely expired); a transient flake now
         # recovers instead of hard-exiting the whole campaign.
-        r = run_sourced_bash(cmd, login=True, timeout=120,
-                             label=f"renew_token[r{state.get('round_idx')}]")
+        r = run_sourced_bash(cmd, login=True, timeout=120, label="renew_token")
     except Exception as exc:  # noqa: BLE001
-        msg = (f"[closed_loop] FATAL renew_token[r{state.get('round_idx')}]: "
-               f"getToken raised: {exc}. "
+        msg = (f"[closed_loop] FATAL renew_token: getToken raised: {exc}. "
                f"Run `kinit` then retry.")
         print(msg, flush=True)
         sys.exit(2)
     if r.returncode != 0:
-        msg = (f"[closed_loop] FATAL renew_token[r{state.get('round_idx')}]: "
-               f"getToken rc={r.returncode}: {r.stderr.strip()[:400]}. "
-               f"Run `kinit` (krb5 likely past renewable lifetime) then retry.")
+        msg = (f"[closed_loop] FATAL renew_token: getToken rc={r.returncode}: "
+               f"{r.stderr.strip()[:400]}. Run `kinit` (krb5 likely past "
+               f"renewable lifetime) then retry.")
         print(msg, flush=True)
         sys.exit(2)
-    print(f"[closed_loop] renew_token[r{state.get('round_idx')}]: krb5 + bearer refreshed", flush=True)
-    return {"errors": errors}
+    print("[closed_loop] renew_token: krb5 + bearer refreshed", flush=True)
 
 
 # ============================================================================
@@ -305,7 +318,8 @@ def main() -> int:
     result = run_rolling(
         mode=args.mode, picker=args.picker, q=args.q,
         max_evals=args.max_evals or (args.q * args.max_rounds),
-        alpha=args.alpha, name_prefix=args.name_prefix)
+        alpha=args.alpha, name_prefix=args.name_prefix,
+        renew=renew_token)
     print(f"[closed_loop] done: launched={result['launched']} "
           f"rows={result['rows']} aborted={result['aborted']}", flush=True)
     return 1 if result["aborted"] else 0
