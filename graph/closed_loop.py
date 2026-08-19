@@ -8,9 +8,12 @@ CLI args to it and keeps the pieces `run_rolling` depends on:
   renew_token             — kerberos + bearer refresh; passed to
                              run_rolling as `renew=renew_token` and called
                              once before EVERY child launch (not once per
-                             round — there are no rounds anymore). kinit -R
-                             on a healthy ticket is a cheap no-op, so the
-                             higher call frequency is safe.
+                             round — there are no rounds anymore). Time-gated
+                             internally (see RENEW_MIN_INTERVAL_S) so the
+                             higher call frequency doesn't multiply exposure
+                             to the /cvmfs sourcing flake class.
+  _stop_requested          — the STOP_CLOSED_LOOP kill switch; passed to
+                             run_rolling as `stop_flag=_stop_requested`.
   predict_picks           — refit GP, return q picks (non-rolling shape;
                              kept for `--dry-run` and for anyone driving it
                              directly. `pool.py`'s own `_default_pick_source`
@@ -37,6 +40,8 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import time
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -68,6 +73,13 @@ from config import (  # noqa: E402
 )
 
 from sourced_bash import run_sourced_bash  # noqa: E402
+
+# Module-level (not lazy inside main()) specifically so `run_rolling` is a
+# patchable attribute of THIS module (cl.run_rolling) for
+# tests/test_closed_loop.py::test_wired_into_run_rolling_call -- pool.py
+# only imports closed_loop lazily inside its own function bodies, so this
+# has no circular-import hazard at module load time.
+from pool import run_rolling  # noqa: E402
 
 # cl_min retired per ADR-0001 (2026-07-06, deleted 2026-07-11): the closed
 # loop must never import code outside this repo; all pickers route through
@@ -112,11 +124,30 @@ def _leaderboard_len(mode: str) -> int:
 # Renew token — wired into run_rolling as `renew=renew_token`
 # ============================================================================
 
+# Minimum spacing between successful renewals. run_rolling calls renew()
+# once per LAUNCH (up to ~40 times in a q=20 max_evals=40 campaign, vs ~2
+# under the old once-per-round parent) -- amends the original per-launch
+# ruling: wall cost was never the issue (kinit -R IS cheap), FAILURE SURFACE
+# is. Every call sources setupmu2e-art.sh from /cvmfs, and both
+# wiki/incidents/sourced-env-stderr-swallowed.md and
+# wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md document that sourcing
+# as a known flake class (the second is *triggered* by concurrent lock
+# churn on exactly this path) -- and a persistent failure here is FATAL. 20x
+# the attempts is 20x the chances that all retries land on a bad window.
+# Same freshness guarantee (krb5 lifetime is ~25h; 30min is a tiny fraction
+# of that), a twentieth of the exposure. Kept inside renew_token (not at the
+# call site) so the gate can't be bypassed by a caller.
+RENEW_MIN_INTERVAL_S = 30 * 60
+
+_last_renewed_at = 0.0
+
+
 def renew_token() -> None:
     """Refresh krb5 ticket + bearer token. Called by run_rolling before
     every child launch (no `state`/round shape left — the pool has no
     rounds; this is a plain zero-arg callable, per run_rolling's `renew`
-    injection seam).
+    injection seam). Time-gated: a no-op if the last successful renewal was
+    under RENEW_MIN_INTERVAL_S ago.
 
     Closed-loop campaigns run many hours wall; default krb5 lifetime is ~25h,
     so a long rolling run can easily outlive the ticket. First post-expiry
@@ -136,11 +167,18 @@ def renew_token() -> None:
     mid-flight), out of run_rolling, out of main(), and terminates the
     process with exit code 2. No new children are launched past this
     point; children already handed to the grid are on their own from here
-    (they don't need the parent's local ticket once submitted).
+    (they don't need the parent's local ticket once submitted). The FATAL
+    print says this explicitly — the process can then take up to the
+    longest still-running child's wall time (hours) to actually exit, and
+    an operator watching the tail without that context could mistake the
+    drain for a hang.
 
     `kinit -R` is best-effort (it's normal for it to fail if the ticket
     is past its renewable lifetime); the load-bearing check is `getToken`.
     """
+    global _last_renewed_at
+    if time.time() - _last_renewed_at < RENEW_MIN_INTERVAL_S:
+        return
     try:
         r = subprocess.run(["kinit", "-R"], capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
@@ -157,15 +195,22 @@ def renew_token() -> None:
         r = run_sourced_bash(cmd, login=True, timeout=120, label="renew_token")
     except Exception as exc:  # noqa: BLE001
         msg = (f"[closed_loop] FATAL renew_token: getToken raised: {exc}. "
-               f"Run `kinit` then retry.")
+               f"Run `kinit` then retry. No new children will launch; "
+               f"already-running children are being drained (may take up "
+               f"to hours -- this has NOT hung) before this process exits "
+               f"with code 2.")
         print(msg, flush=True)
         sys.exit(2)
     if r.returncode != 0:
         msg = (f"[closed_loop] FATAL renew_token: getToken rc={r.returncode}: "
                f"{r.stderr.strip()[:400]}. Run `kinit` (krb5 likely past "
-               f"renewable lifetime) then retry.")
+               f"renewable lifetime) then retry. No new children will "
+               f"launch; already-running children are being drained (may "
+               f"take up to hours -- this has NOT hung) before this "
+               f"process exits with code 2.")
         print(msg, flush=True)
         sys.exit(2)
+    _last_renewed_at = time.time()
     print("[closed_loop] renew_token: krb5 + bearer refreshed", flush=True)
 
 
@@ -314,14 +359,20 @@ def main() -> int:
               f"foilsf (v3 fractional) campaign but mode=foils writes v2 "
               f"(absolute rIn). Did you mean --mode foilsf?", flush=True)
 
-    from pool import run_rolling
     result = run_rolling(
         mode=args.mode, picker=args.picker, q=args.q,
         max_evals=args.max_evals or (args.q * args.max_rounds),
         alpha=args.alpha, name_prefix=args.name_prefix,
-        renew=renew_token)
+        renew=renew_token, stop_flag=_stop_requested)
+    # Tally by outcome reason so a multi-day log ends with the failure
+    # breakdown on one line instead of scattered through thousands of
+    # per-child lines (MINOR 13, review round 2).
+    tally = Counter(oc.reason for oc in result["outcomes"])
+    tally_str = ", ".join(f"{reason}={n}" for reason, n in
+                          sorted(tally.items(), key=lambda kv: -kv[1]))
     print(f"[closed_loop] done: launched={result['launched']} "
-          f"rows={result['rows']} aborted={result['aborted']}", flush=True)
+          f"rows={result['rows']} aborted={result['aborted']} | {tally_str}",
+          flush=True)
     return 1 if result["aborted"] else 0
 
 

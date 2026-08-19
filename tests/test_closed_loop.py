@@ -38,6 +38,12 @@ class TestRenewToken(unittest.TestCase):
     tests/test_pool.py::TestRenewHook for the call-once-per-launch and
     exception-propagation contracts at the pool level."""
 
+    def setUp(self):
+        # RENEW_MIN_INTERVAL_S gate state is module-global (deliberately --
+        # it must survive across run_rolling's many renew() calls within one
+        # campaign); reset it so tests don't leak state into each other.
+        cl._last_renewed_at = 0.0
+
     @staticmethod
     def _ok():
         return mock.Mock(returncode=0, stderr="")
@@ -74,14 +80,58 @@ class TestRenewToken(unittest.TestCase):
              mock.patch.object(cl, "run_sourced_bash", return_value=self._ok()):
             self.assertIsNone(cl.renew_token())
 
+    def test_time_gate_skips_within_window(self):
+        # IMPORTANT 7, review round 2: run_rolling calls renew() once per
+        # LAUNCH (~40/campaign vs ~2 before), and every real call sources
+        # setupmu2e-art.sh from /cvmfs -- a known flake class that is FATAL
+        # on persistent failure. The gate caps exposure regardless of call
+        # frequency.
+        with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
+             mock.patch.object(cl, "run_sourced_bash",
+                               return_value=self._ok()) as m_bash:
+            cl.renew_token()  # first call: real, sets _last_renewed_at
+            m_bash.assert_called_once()
+            m_bash.reset_mock()
+            cl.renew_token()  # second call, same instant: gated, no-op
+        m_bash.assert_not_called()
+
+    def test_time_gate_allows_after_window_elapses(self):
+        with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
+             mock.patch.object(cl, "run_sourced_bash",
+                               return_value=self._ok()) as m_bash:
+            cl.renew_token()
+            cl._last_renewed_at -= (cl.RENEW_MIN_INTERVAL_S + 1)
+            m_bash.reset_mock()
+            cl.renew_token()
+        m_bash.assert_called_once()
+
     def test_wired_into_run_rolling_call(self):
         # The actual regression this whole class guards against: run_rolling
-        # supporting a `renew` hook is necessary but not sufficient -- main()
-        # has to actually pass one. Before this fix, main() called
-        # run_rolling() with no `renew=` at all, silently defaulting to a
-        # no-op and dropping krb5 renewal entirely (kerberos-mid-run-expiry).
-        src = (PROJECT_ROOT / "graph" / "closed_loop.py").read_text()
-        self.assertIn("renew=renew_token", src)
+        # supporting `renew`/`stop_flag` hooks is necessary but not
+        # sufficient -- main() has to actually pass them. Before the round-1
+        # fix, main() called run_rolling() with no `renew=` at all, silently
+        # dropping krb5 renewal (kerberos-mid-run-expiry); before round 2,
+        # `stop_flag=` was likewise never passed, so STOP_CLOSED_LOOP did
+        # nothing. run_rolling is imported at module level specifically so
+        # it's a patchable cl.run_rolling attribute here (MINOR 12, review
+        # round 2 -- this used to grep the source text, which also caught
+        # the regression but doesn't survive a reformat).
+        fake_result = {"launched": 0, "rows": 0, "aborted": False, "outcomes": []}
+        argv = ["closed_loop.py", "--mode", "foilspf", "--q", "2",
+                "--max-evals", "4", "--name-prefix", "zz"]
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            with mock.patch.object(cl, "run_rolling",
+                                   return_value=fake_result) as m, \
+                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
+                 mock.patch("paths.verify"), \
+                 mock.patch.object(sys, "argv", argv):
+                rc = cl.main()
+        m.assert_called_once()
+        kwargs = m.call_args.kwargs
+        self.assertIs(kwargs.get("renew"), cl.renew_token)
+        self.assertIs(kwargs.get("stop_flag"), cl._stop_requested)
+        self.assertEqual(rc, 0)
 
 
 class TestPredictPicks(unittest.TestCase):

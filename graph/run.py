@@ -57,8 +57,13 @@ def main() -> int:
     # No checkpointer. Audited 51 campaigns: 44 clean, 7 died mid-flight, 0
     # ever resumed from a checkpoint -- while it CAUSED 5 incidents, and in
     # sqlite-wal-corrupt-after-kill it blocked the restart outright. The
-    # useful half of resume is assign_names skipping names already in the
-    # leaderboard, which is the leaderboard's doing and survives this.
+    # useful half of resume -- not relaunching a config a prior run already
+    # resolved -- survives this: graph/pool.py's _default_pick_source skips
+    # any candidate name already in the leaderboard or carrying broken.txt
+    # (Task 3 review round 2, CRITICAL 1), which is what actually matters
+    # for the standard recovery move (relaunch under the same --name-prefix)
+    # since that's a fresh `python -m graph.closed_loop` invocation, not a
+    # resumed `python -m graph.run` thread_id.
     graph = build_graph().compile()
 
     thread_id = args.thread_id or f"cli-{uuid.uuid4().hex[:8]}"
