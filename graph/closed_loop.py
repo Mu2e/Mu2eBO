@@ -873,7 +873,9 @@ def main() -> int:
     graph = _build_outer_graph().compile(checkpointer=saver)
 
     thread_id = args.thread_id or f"closed-{uuid.uuid4().hex[:8]}"
-    cfg = {"configurable": {"thread_id": thread_id}}
+    # 6 supersteps per round; 100 covers max_rounds well past any real
+    # campaign. See graph/run.py for why this is pinned and not defaulted.
+    cfg = {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
     init: RoundState = {
         "mode": args.mode,
         "alpha": args.alpha,
@@ -923,7 +925,7 @@ def main() -> int:
     else:
         stream_input = init
     final = None
-    for ev in graph.stream(stream_input, cfg, stream_mode="values"):
+    for ev in graph.stream(stream_input, {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}, stream_mode="values"):
         final = ev
         snap = {
             "round_idx": ev.get("round_idx"),

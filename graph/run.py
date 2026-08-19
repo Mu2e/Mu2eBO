@@ -68,7 +68,6 @@ def main() -> int:
     graph = build_graph().compile(checkpointer=saver)
 
     thread_id = args.thread_id or f"cli-{uuid.uuid4().hex[:8]}"
-    cfg = {"configurable": {"thread_id": thread_id}}
     init = {
         "mode": args.mode,
         "alpha": args.alpha,
@@ -82,7 +81,7 @@ def main() -> int:
     print(f"[run] thread_id={thread_id}", flush=True)
     expected_name = args.config_name
     final = None
-    for ev in graph.stream(init, cfg, stream_mode="values"):
+    for ev in graph.stream(init, {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}, stream_mode="values"):
         final = ev
         # Config-name swap guard: if a stale SqliteSaver checkpoint resumes
         # a different thread's state mid-stream, abort loudly rather than
