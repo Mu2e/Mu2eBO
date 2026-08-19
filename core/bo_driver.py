@@ -62,7 +62,7 @@ from paths import leaderboard_archive, leaderboard_live
 # `--mode foilspfbw` gave runtime._SPEC.name == "foilspf" and
 # pipeline.MODE == "foilsflash" (final review, finding I1). Both entrypoints
 # now also abort loudly on any disagreement via modes.assert_mode_stamped().
-os.environ.setdefault("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)
+os.environ.setdefault("AUTORESEARCH_MODE", _modes.resolve_env_mode())
 from runtime import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
 sys.path.insert(0, str(ROOT / "graph"))
 from sourced_bash import run_sourced_bash  # noqa: E402

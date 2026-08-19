@@ -119,13 +119,13 @@ import modes as _modes  # noqa: E402
 # `--mode foilspfbw` gave runtime._SPEC.name == "foilspf" and
 # pipeline.MODE == "foilsflash" (final review, finding I1). Both entrypoints
 # now also abort loudly on any disagreement via modes.assert_mode_stamped().
-os.environ.setdefault("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)
+os.environ.setdefault("AUTORESEARCH_MODE", _modes.resolve_env_mode())
 # The process's mode for the lifetime of this interpreter -- resolved ONCE,
 # used everywhere pipeline.py needs "the mode spec" (MUSE_BASE_TARBALL below,
 # every stage_cfg() call site). pipeline.py, like core/runtime.py, only ever
 # operates on one mode per process; a genuinely different mode is a fresh
 # subprocess with a different AUTORESEARCH_MODE, not a runtime switch.
-MODE = os.environ.get("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)
+MODE = _modes.resolve_env_mode()
 from paths import GRID_DATA_ROOT as DATA_ROOT  # noqa: E402
 from runtime import (  # noqa: E402
     GRID_STAGES,

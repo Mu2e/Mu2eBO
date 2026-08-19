@@ -43,7 +43,10 @@ from paths import GRAPH_DATA, REPO_ROOT
 # this module, core/pipeline.py and core/bo_driver.py each used to carry
 # their own, and two of them disagreed -- which made omitting `--mode` a
 # three-way "mode disagreement" FATAL built entirely out of fallbacks.
-_SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)]
+# resolve_env_mode, not a bare dict lookup: unset falls through to
+# DEFAULT_MODE, but a SET-BUT-UNKNOWN value is fatal with a message naming
+# the bad value and the live modes, instead of KeyError('bogusmode').
+_SPEC = _modes.SPECS[_modes.resolve_env_mode()]
 
 MUSING = _SPEC.musing
 GRID_STAGES = list(_SPEC.grid_stages)

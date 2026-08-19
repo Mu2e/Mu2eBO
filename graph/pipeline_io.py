@@ -40,7 +40,6 @@ from runtime import (  # noqa: E402
     BO_DRIVER,
     BOTORCH_VENV_PY,
     DEFAULT_ALPHA,
-    DEFAULT_MODE,
     GRID_STAGES,
     PIPELINE_DRIVER,
     PREFLIGHT_TIMEOUT_S,
@@ -218,7 +217,7 @@ def run_harvest(config_name: str, mode: str | None = None) -> dict:
     legacy 4-stage `harvest` for backward compat when no mode is passed.
     """
     if mode is None:
-        mode = os.environ.get("AUTORESEARCH_MODE", DEFAULT_MODE)
+        mode = _modes.resolve_env_mode()
     verb = _modes.SPECS[mode].harvest_verb  # loud KeyError on unknown mode (ADR-0002)
     _run_pipeline_verb(config_name, verb, None)
     summary_path = GRID_DATA_ROOT / config_name / "harvest" / "summary.json"

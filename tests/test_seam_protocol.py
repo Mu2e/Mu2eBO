@@ -173,8 +173,7 @@ class TestCmdEvaluateEmit(unittest.TestCase):
         run1b_mubeam and still land a row with calo=0. Nothing auto-stamps
         it any more -- the `--picker qlnei` stamp died with
         graph/presniff.py (2026-08-19); it is a manual seam. foilsflash has
-        no
-        run1b_mubeam stage at all, so a missing second objective means the
+        no run1b_mubeam stage at all, so a missing second objective means the
         elebeam stage failed fail-soft — substituting 0.0 there would append
         a fake zero-flash row at good sob that dominates the Pareto front at
         the next GP refit (2026-07-10). The retired FoilsFlashMode refused

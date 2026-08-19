@@ -167,7 +167,53 @@ assert DEFAULT_MODE in SPECS, (
 # CLI --mode -> AUTORESEARCH_MODE stamp
 # ============================================================================
 
-def stamp_mode_from_argv(argv=None) -> Optional[str]:
+def _unknown_mode_message(source: str, value) -> str:
+    """One message shape for every "that is not a mode" failure, whether it
+    came from `--mode` or from AUTORESEARCH_MODE. Always names the bad value
+    AND lists the live ones -- the live names differ by one or two
+    characters (foilspf / foilspfbw / foilspfbp / foilspfbpx / foilspfbpz),
+    so "invalid mode" alone does not tell an operator what they mistyped.
+    """
+    return (f"[mode] FATAL unknown {source} {value!r}. Known modes: "
+            f"{', '.join(sorted(SPECS))}. (Mode specs live in mode_specs/; "
+            f"retired ones are under mode_specs/archive/.)")
+
+
+def resolve_env_mode() -> str:
+    """The process's mode from AUTORESEARCH_MODE, VALIDATED.
+
+    UNSET (or empty) falls through to `DEFAULT_MODE` -- that is the
+    supported flagless invocation. SET BUT NOT A LIVE SPEC is FATAL, never a
+    silent fallback: an unknown value used to be coerced to DEFAULT_MODE, so
+    a single-character typo or a stale export naming a mode archived in
+    Task 5 launched a full campaign at rc=0 against the wrong bounds, the
+    wrong geometry and the wrong LEADERBOARD. That last one is the most
+    expensive silent failure available here, because the leaderboard is what
+    the GP refits on. `--mode nosuchmode` was already loud on both
+    entrypoints; this closes the asymmetry.
+
+    Every module-level reader of AUTORESEARCH_MODE calls THIS --
+    core/runtime.py, core/pipeline.py, core/bo_driver.py,
+    graph/pipeline_io.py, and rung 2 of
+    `stamp_mode_from_argv` -- so the validation cannot be bypassed by
+    reaching a reader that does not go through an entrypoint. A standalone
+    `python core/pipeline.py` previously died with a bare
+    KeyError('bogusmode') from core/runtime.py's dict lookup: same failure,
+    much worse message. It now gets this one.
+
+    SystemExit rather than a custom exception so the message reaches the
+    operator verbatim, with no traceback, whether it fires during a CLI's
+    argument handling or during a module import.
+    """
+    raw = os.environ.get("AUTORESEARCH_MODE")
+    if not raw:
+        return DEFAULT_MODE
+    if raw not in SPECS:
+        raise SystemExit(_unknown_mode_message("AUTORESEARCH_MODE", raw))
+    return raw
+
+
+def stamp_mode_from_argv(argv=None) -> str:
     """Stamp `AUTORESEARCH_MODE` from a `--mode` on the command line.
 
     Both core/runtime.py (`_SPEC`) and core/pipeline.py (`MODE`) resolve THE
@@ -199,8 +245,14 @@ def stamp_mode_from_argv(argv=None) -> Optional[str]:
     Precedence, highest first:
 
       1. an explicit `--mode <spec>` on the command line
-      2. an already-set AUTORESEARCH_MODE naming a live spec (the documented
-         way to pick a mode without the flag)
+      2. an already-set AUTORESEARCH_MODE naming a live spec -- the
+         supported way to pick a mode without the flag. (Not "documented":
+         it appears nowhere in README.md, only in
+         wiki/incidents/harvest-pyroot-nfs-rpc-hang.md and two
+         docs/superpowers/plans/* files, always as an
+         `AUTORESEARCH_MODE=<m> python ... pipeline.py` recovery recipe.
+         Honouring it is still right -- clobbering an operator's explicit
+         export with DEFAULT_MODE would be its own silent substitution.)
       3. `DEFAULT_MODE`
 
     It ALWAYS stamps, even in case 3. Returning without stamping is what
@@ -226,9 +278,9 @@ def stamp_mode_from_argv(argv=None) -> Optional[str]:
         elif tok.startswith("--mode="):
             mode = tok.split("=", 1)[1]
     if mode not in SPECS:
-        mode = os.environ.get("AUTORESEARCH_MODE")
-    if mode not in SPECS:
-        mode = DEFAULT_MODE
+        # Rung 2 + 3. resolve_env_mode RAISES on a set-but-unknown env value
+        # rather than coercing it to DEFAULT_MODE -- see its docstring.
+        mode = resolve_env_mode()
     os.environ["AUTORESEARCH_MODE"] = mode
     return mode
 
@@ -249,11 +301,9 @@ def assert_mode_stamped(cli_mode: str) -> None:
         # Distinct message: `graph/run.py`'s --mode has no argparse choices
         # (the pool passes an already-validated mode), so a typo lands here
         # rather than at argparse. Without this branch it would be reported
-        # as an import-order problem, which it is not.
-        raise SystemExit(
-            f"[mode] FATAL unknown --mode {cli_mode!r}. Known modes: "
-            f"{', '.join(sorted(SPECS))}. (Mode specs live in mode_specs/; "
-            f"retired ones are under mode_specs/archive/.)")
+        # as an import-order problem, which it is not. Same shape as the
+        # AUTORESEARCH_MODE version -- see _unknown_mode_message.
+        raise SystemExit(_unknown_mode_message("--mode", cli_mode))
     env = os.environ.get("AUTORESEARCH_MODE")
     got = {"--mode": cli_mode, "AUTORESEARCH_MODE": env,
            "runtime._SPEC.name": _runtime._SPEC.name,

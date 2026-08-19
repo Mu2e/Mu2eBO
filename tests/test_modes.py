@@ -6,6 +6,7 @@ silently building the wrong geometry on the grid.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -416,8 +417,10 @@ class TestModeStamping(unittest.TestCase):
             self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspfbw")
 
     def test_no_mode_flag_keeps_an_already_set_env(self):
-        """Precedence rung 2: AUTORESEARCH_MODE is the documented way to
-        pick a mode without the flag, so the stamp must not clobber it."""
+        """Precedence rung 2: AUTORESEARCH_MODE is the supported way to
+        pick a mode without the flag, so the stamp must not clobber it --
+        overwriting an operator's explicit export with DEFAULT_MODE would be
+        its own silent substitution."""
         with mock.patch.dict(modes.os.environ,
                              {"AUTORESEARCH_MODE": "foilspfbw"}, clear=False):
             self.assertEqual(modes.stamp_mode_from_argv(["--q", "2"]),
@@ -519,13 +522,20 @@ class TestModeStamping(unittest.TestCase):
                 continue
             yield line
 
+    # A module-scope read of the process mode, in either spelling: the raw
+    # env var, or the canonical resolver every reader now calls. Keying on
+    # the env-var name ALONE silently blinded this detector the moment the
+    # readers were routed through modes.resolve_env_mode() -- caught by
+    # test_env_reader_detection_finds_the_known_readers, which is exactly
+    # what that guard-the-guard is for.
+    _READS_MODE_RE = re.compile(r"AUTORESEARCH_MODE|resolve_env_mode\(")
+
     @classmethod
     def _env_readers(cls, sources):
-        """Modules whose IMPORT resolves AUTORESEARCH_MODE, transitively."""
-        import re
+        """Modules whose IMPORT resolves the process mode, transitively."""
         direct = {
             name for name, text in sources.items()
-            if any("AUTORESEARCH_MODE" in ln
+            if any(cls._READS_MODE_RE.search(ln)
                    for ln in cls._module_scope_lines(text))
         }
         imports = {
@@ -533,6 +543,10 @@ class TestModeStamping(unittest.TestCase):
                    for m in [re.match(r"(?:from|import)\s+(\w+)", ln)] if m}
             for name, text in sources.items()
         }
+        # `modes` DEFINES resolve_env_mode but only reads the env inside a
+        # function body, so it is not itself an import-time reader; excluding
+        # it keeps the closure from tainting every module in the tree.
+        direct.discard("modes")
         tainted, changed = set(direct), True
         while changed:
             changed = False
@@ -567,21 +581,50 @@ class TestModeStamping(unittest.TestCase):
         readers = self._env_readers(self._module_sources(self.ROOT))
         for path in eps:
             rel = path.relative_to(self.ROOT)
-            text = path.read_text()
             with self.subTest(entrypoint=str(rel)):
-                stamp = re.search(r"stamp_mode_from_argv\(", text)
-                self.assertIsNotNone(
-                    stamp, f"{rel} takes --mode but never stamps it")
-                for ln in self._module_scope_lines(text):
-                    m = re.match(r"(?:from|import)\s+(\w+)", ln)
-                    if not m or m.group(1) not in readers:
-                        continue
-                    at = text.index(ln)
-                    self.assertLess(
-                        stamp.start(), at,
-                        f"{rel}: `{ln.strip()}` imports a module that "
-                        f"resolves AUTORESEARCH_MODE at import time, but "
-                        f"runs BEFORE stamp_mode_from_argv()")
+                self.assertEqual(
+                    self._stamp_violations(path.read_text(), readers), [],
+                    f"{rel}: see message(s) above")
+
+    # The locator is ^-anchored to the assignment, NOT a bare
+    # `stamp_mode_from_argv\(` search over the whole file. A prose mention in
+    # a comment ABOVE a bad import would otherwise satisfy the search and
+    # make this check pass on a genuinely broken file -- it only failed to
+    # do so because the two existing prose mentions happen to lack a
+    # trailing "(". Round-3 minor 1.
+    _STAMP_RE = re.compile(r"^_MODE = _modes\.stamp_mode_from_argv\(", re.M)
+
+    @classmethod
+    def _stamp_violations(cls, text, readers):
+        out = []
+        stamp = cls._STAMP_RE.search(text)
+        if stamp is None:
+            return ["takes --mode but never assigns "
+                    "_MODE = _modes.stamp_mode_from_argv(...)"]
+        for ln in cls._module_scope_lines(text):
+            m = re.match(r"(?:from|import)\s+(\w+)", ln)
+            if not m or m.group(1) not in readers:
+                continue
+            if text.index(ln) < stamp.start():
+                out.append(f"`{ln.strip()}` imports a module that resolves "
+                           f"AUTORESEARCH_MODE at import time, but runs "
+                           f"BEFORE stamp_mode_from_argv()")
+        return out
+
+    def test_stamp_locator_is_not_comment_defeatable(self):
+        """Guard-the-guard, locator axis (round-3 minor 1). A comment
+        mentioning the stamp must not stand in for the stamp itself."""
+        decoy = ("# NB: this module calls stamp_mode_from_argv() further "
+                 "down.\nimport runtime\n"
+                 "_MODE = _modes.stamp_mode_from_argv()\n")
+        self.assertNotEqual(
+            self._stamp_violations(decoy, {"runtime"}), [],
+            "a prose mention of stamp_mode_from_argv() satisfied the "
+            "locator, so the check passes on a broken file")
+        good = ("_MODE = _modes.stamp_mode_from_argv()\nimport runtime\n")
+        self.assertEqual(self._stamp_violations(good, {"runtime"}), [])
+        missing = "import runtime\n"
+        self.assertNotEqual(self._stamp_violations(missing, {"runtime"}), [])
 
     # --- omitting --mode is a SUPPORTED invocation -------------------------
 
@@ -643,15 +686,119 @@ class TestModeStamping(unittest.TestCase):
                     f"{rel}: --mode's argparse default must be the stamped "
                     f"mode")
 
+    # --- a set-but-UNKNOWN AUTORESEARCH_MODE must be LOUD ------------------
+
+    def _bad_env_probe(self, module):
+        """Import an entrypoint with AUTORESEARCH_MODE set to a name that is
+        not a live spec. Returns (rc, stderr)."""
+        script = (
+            "import sys\n"
+            f"sys.argv = ['{module}.py']\n"
+            f"sys.path[:0] = [{str(self.ROOT / 'graph')!r}, "
+            f"{str(self.ROOT / 'core')!r}]\n"
+            f"import {module}\n"
+            "print('STARTED')\n"
+        )
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        env["AUTORESEARCH_MODE"] = "bogusmode"
+        r = subprocess.run([sys.executable, "-c", script], env=env,
+                           capture_output=True, text=True, cwd=str(self.ROOT))
+        return r.returncode, r.stderr, r.stdout
+
+    def test_unknown_env_mode_is_loud_on_closed_loop(self):
+        """Round-3 Important: rung 2 read AUTORESEARCH_MODE without checking
+        it names a live spec, so an unknown value fell through to
+        DEFAULT_MODE and a campaign launched at rc=0 against the wrong
+        bounds, geometry and LEADERBOARD. The live names differ by one
+        character (foilspf / foilspfbw / foilspfbp / foilspfbpx /
+        foilspfbpz), and writing rows into another mode's leaderboard is the
+        most expensive silent failure in this system -- it is what the GP
+        refits on. --mode nosuchmode was already loud; this closes the
+        asymmetry."""
+        rc, err, out = self._bad_env_probe("closed_loop")
+        self.assertNotEqual(rc, 0, f"started anyway: {out!r}")
+        self.assertNotIn("STARTED", out)
+        self.assertIn("bogusmode", err)
+        self.assertIn("AUTORESEARCH_MODE", err)
+        self.assertIn(modes.DEFAULT_MODE, err)  # lists the known modes
+
+    def test_unknown_env_mode_is_loud_on_run(self):
+        rc, err, out = self._bad_env_probe("run")
+        self.assertNotEqual(rc, 0, f"started anyway: {out!r}")
+        self.assertIn("bogusmode", err)
+
+    def test_unknown_env_mode_is_loud_for_a_bare_pipeline_import(self):
+        """The two stamping entrypoints were not the only readers: a
+        standalone `python core/pipeline.py` resolved the same env var and
+        died with a bare KeyError('bogusmode'). Same failure, worse message
+        -- so the check lives in the ONE resolver every reader now calls."""
+        script = (
+            "import sys\n"
+            f"sys.path[:0] = [{str(self.ROOT / 'core')!r}]\n"
+            "import pipeline\n"
+            "print('STARTED')\n"
+        )
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        env["AUTORESEARCH_MODE"] = "bogusmode"
+        r = subprocess.run([sys.executable, "-c", script], env=env,
+                           capture_output=True, text=True, cwd=str(self.ROOT))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("bogusmode", r.stderr)
+        self.assertIn("AUTORESEARCH_MODE", r.stderr)
+        self.assertNotIn("KeyError", r.stderr)
+
+    def test_resolve_env_mode_unset_falls_through_to_the_default(self):
+        env = dict(modes.os.environ)
+        env.pop("AUTORESEARCH_MODE", None)
+        with mock.patch.dict(modes.os.environ, env, clear=True):
+            self.assertEqual(modes.resolve_env_mode(), modes.DEFAULT_MODE)
+
+    def test_resolve_env_mode_empty_falls_through_to_the_default(self):
+        with mock.patch.dict(modes.os.environ,
+                             {"AUTORESEARCH_MODE": ""}, clear=False):
+            self.assertEqual(modes.resolve_env_mode(), modes.DEFAULT_MODE)
+
+    def test_resolve_env_mode_passes_a_live_spec_through(self):
+        with mock.patch.dict(modes.os.environ,
+                             {"AUTORESEARCH_MODE": "foilspfbw"}, clear=False):
+            self.assertEqual(modes.resolve_env_mode(), "foilspfbw")
+
+    def test_resolve_env_mode_raises_on_a_set_but_unknown_value(self):
+        with mock.patch.dict(modes.os.environ,
+                             {"AUTORESEARCH_MODE": "foilspfbx"}, clear=False):
+            with self.assertRaises(SystemExit) as cm:
+                modes.resolve_env_mode()
+        msg = str(cm.exception)
+        self.assertIn("foilspfbx", msg)
+        self.assertIn("AUTORESEARCH_MODE", msg)
+        for m in modes.SPECS:
+            self.assertIn(m, msg)
+
+    def test_stamp_does_not_coerce_a_set_but_unknown_env(self):
+        with mock.patch.dict(modes.os.environ,
+                             {"AUTORESEARCH_MODE": "bogusmode"}, clear=False):
+            with self.assertRaises(SystemExit):
+                modes.stamp_mode_from_argv([])
+
     def test_one_default_mode_literal_in_the_tree(self):
         """The shadow shape this branch existed to delete: core/runtime.py,
         core/pipeline.py and core/bo_driver.py each carried their own
-        module-level fallback literal, and two of them disagreed."""
-        import re
+        module-level fallback literal, and two of them disagreed.
+
+        Globbed, not a hardcoded three: the whole point is that the reader
+        set is NOT a fixed list. graph/pipeline_io.py was a live reader
+        outside the original tuple (round-3 minor 2), and the sibling
+        reachability test on this page already derives its file set the same
+        way."""
         offenders = []
-        for rel in ("core/runtime.py", "core/pipeline.py", "core/bo_driver.py"):
-            for ln, line in enumerate(
-                    (self.ROOT / rel).read_text().splitlines(), 1):
+        files = sorted((self.ROOT / "core").glob("*.py")) + \
+            sorted((self.ROOT / "graph").glob("*.py"))
+        self.assertGreater(len(files), 10, "glob found suspiciously few files")
+        for path in files:
+            rel = path.relative_to(self.ROOT)
+            for ln, line in enumerate(path.read_text().splitlines(), 1):
                 if line.lstrip().startswith("#"):
                     continue
                 if re.search(r'(setdefault|environ\.get)\(\s*'
