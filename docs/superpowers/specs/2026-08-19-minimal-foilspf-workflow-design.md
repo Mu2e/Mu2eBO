@@ -243,111 +243,42 @@ retiring geometry parsers so `x` is only recoverable from the pending TSV; and
 a replay-config selector that drifted as history grew). All four are fixed and
 its **evaluate half is byte-identical to the 2026-07-19 baseline**.
 
-**`[c]` remains MISMATCH on one point, deliberately not re-captured** — see
-§7.1. It is a real finding, not harness drift, and it does **not** block the
-orchestration work: `[a]` and `[b]` cover the leaderboard reader/writer and the
-row → tensor assembly, which are what this refactor can actually break.
+`[c]`'s one remaining MISMATCH is **RESOLVED** — see §7.1. It was a stale
+artifact meeting a newer policy, not a regression; `[c]` is re-pointed to the
+live `foilspfbpz` line and re-captured. **All three sections green, suite
+620.**
 
-### 7.1 Open: foilsflash preflight now fails a baseline overlap
+### 7.1 RESOLVED: the foilsflash preflight FAIL was not a regression
 
-Replaying `foilsflash18R05_00` — same config, same geom file — now FAILs
-preflight where the 2026-07-19 baseline PASSed:
+Two independent changes stacked. The replayed geom
+`foilsflash18R05_00_geom.txt` is dated **Jul 15** and carries the real
+override `bool tracker.inDS2Vacuum = true; double ds2.halfLength = 3825;`,
+and preflight replays the **stored** geom rather than re-rendering. Separately,
+`require_zero_overlaps` landed **2026-07-28**, *after* the `[c]` baseline was
+captured 2026-07-19. July: one `EMC_0_Front → StoppingTargetMother` overlap,
+tolerated, PASS. Today: same single overlap, forbidden, FAIL. Both correct.
 
-```
-surface-check total_hits=1 unique_volumes=1 baseline=1 managed=0
-VirtualDetector_EMC_0_Front:119 (G4Tubs) overlaps
-StoppingTargetMother:0 (G4Tubs) by 24.8844 cm
-```
+The fix had already shipped on 2026-07-28 — the Run1Bap migration removed the
+override. Measured 2×2 on foilspf corner_hi: Run1Bak+override 1 overlap,
+Run1Bap+override 1, Run1Bak−override 6 + rc=134, **Run1Bap−override 0**.
 
-Classified `baseline=1 managed=0`: the overlap is in the stock geometry, not
-produced by the BO knobs — yet the zero-overlap policy counts it. Ruled out:
-neither `foilsflash` nor `foilspf` still carries the TT_MidInner→DS2Vacuum
-override (named in `foilspf.json` as what "held the last EMC_0_Front overlap"),
-and both are on the same `Offline_run1bap_partial` musing.
+Real override keys per line (comments excluded): foilsflash **461/464**,
+foilspf **8/121**, foilspfbpz **0/244**. So `[c]` could never pass on any
+foilsflash config — that line ended before the migration.
 
-Needs operator triage. Re-capturing would assert that foilsflash preflight is
-*expected* to fail, which is a claim nobody has verified. Note `foilsflash` is a
-superseded line, so the operational impact is low — but if the same baseline
-overlap reaches the foilspf family it would fail every preflight, which is why
-it is recorded rather than dropped.
+`[c]` re-pointed to **foilspfbpz** (`1b51767`): post-migration, and the live
+line rather than a retired one. Re-captured on `foilspfbpz07R00_08`; preflight
+verdict is now `PASS init=True; no geom-fail signature and zero surface-check
+overlaps`. **`[a]`, `[b]`, `[c]` all green; suite 620.**
 
-1. **Pin `recursion_limit` explicitly** in both `.stream()` calls. One line.
-   Valuable independently: langgraph 1.2.9 (ours) has no practical cap
-   (verified to 200 supersteps), but langgraph 0.2.50 — the version in the
-   `ana_v2.8.0` pyenv candidate — defaults to 25, and the parent burns 6 per
-   round, so a `--max-rounds 5` campaign would die at round ~4 with
-   `GraphRecursionError`. The 617-test suite does not catch this because no
-   test runs five parent rounds.
-2. **Delete mock mode** — `node_mock_grid`, its routing branch, `--mock` /
-   `--no-mock`.
-3. **Parent → pool loop.** Atomic: drop the checkpointer, replace the barrier
-   with `as_completed`, delete `child_tracker.py`. These cannot be separated —
-   the barrier is the checkpointer's only consumer, so dropping the checkpointer
-   first would leave the barrier polling something that no longer exists.
-4. **Plumbing** — `pipeline_io` in-process, `presniff.py` deleted,
-   `graph/config.py` folded into `core/paths.py`.
-5. **Archive the four A/B mode specs.**
-6. **Delete `core/pipeline.py`'s `STAGES` literal** (§5.1). Must come after
-   step 4, because `STAGE_TARGETS` currently lives in `graph/config.py` and
-   needs a new home once that file is folded away.
-
-### 5.1 Retiring the `STAGES` literal
-
-`STAGES` (`core/pipeline.py:209`) holds five stages × four fields. The fields
-have four different stories, and only one of them is a real gap:
-
-| Field | Status today |
-|---|---|
-| `njobs` | Already mode-driven — `STAGE_TARGETS[stage]`, overridden by the mode spec's `run.jobs_per_stage` (foilspf: 15 / 15 / 100) |
-| `events_per_job` | A default the mode spec overrides via `run.stage_tuning.<stage>.events_per_job` (foilspf: 200000 / 75000 / 110000) |
-| `desc_fmt` | Hardcoded. **Zero** overrides across all 11 mode specs |
-| `output_glob` | Hardcoded. **Zero** overrides across all 11 mode specs |
-| `merge_factor` | Hardcoded (concat only) |
-
-`desc_fmt` and `output_glob` should *not* become mode-driven. They are
-properties of the **stage**: `sim.*.TargetStops.*.art` is what mubeam emits
-regardless of the geometry fed to it. The Task-14 migration moved everything
-mode-*varying* into `stage_entries/<stage>.json`; what remains in `STAGES` is
-the residue that does not vary. The defect is not "insufficiently generic" —
-it is that stage-level data sits in a module-level Python global instead of the
-per-stage file that already exists beside it.
-
-**There is an active shadowing hazard.** `stage_entries/<stage>.json` already
-carries an `events` key holding the *same values* as
-`STAGES[…]["events_per_job"]` — mubeam 5000, mustops_ce 2500, elebeam_flash
-2500, run1b_mubeam 5000. `core/pipeline.py:1062` resolves them as
-`events=cfg.get("events_per_job", entry_tmpl.get("events"))`, so `STAGES` wins
-and the JSON never fires. The two files agree today by coincidence; editing the
-JSON is a **silent no-op**. That is the same failure shape as the outloc bug
-(`load_stage_entry` precedence) and as
-`wiki/incidents/events-per-job-mid-flight-edit.md`.
-
-**The change:** delete `STAGES`. Move `desc_fmt`, `output_glob`, `merge_factor`,
-and the `njobs` defaults from `STAGE_TARGETS` into `stage_entries/<stage>.json`;
-drop `events_per_job` entirely, since `events` is already there. One precedence
-rule, one direction, no shadowing:
-
-> mode spec (`run.jobs_per_stage`, `run.stage_tuning`) **overrides**
-> `stage_entries/<stage>.json` (the default). Nothing overrides the mode spec.
-
-The load-bearing tuning rationale currently in `STAGES` comments — especially
-the mustops_ce `events_per_job` history (the 2026-05-21 revert that halved
-statistics and moved σ(sob) 0.10 → 0.14) — must travel into the stage entry's
-existing `_comment` key. It is measured knowledge, not decoration.
-
-**Why this is step 6 and not part of ExtractAna's approach.** The `ExtractAna`
-branch (`3e3e277`, michaelmackenzie) adds a `run.stage_defs` block carrying
-exactly `desc_fmt` and `output_glob` — but to the **mode** spec. Measured, all
-11 blocks are byte-identical (sha `4b82462f`). That duplication is not
-sloppiness and does not need an `$inherit` mechanism: it is the unavoidable cost
-of putting stage-level data in a mode-level file, paid once per mode, forever.
-Landing these fields in `stage_entries/` instead yields exactly one copy, needs
-no inheritance machinery, and cannot produce that branch's `KeyError: 'concat'`
-— the stage entry files for `concat` and `run1b_mubeam` already exist.
-
-**Acceptance for step 6:** for each of the 11 modes × 5 stages, the rendered
-prodtools entry must be byte-identical before and after. This is pure data
-relocation; any diff is a bug.
+Separately measured: the overlap is absent in **MDC2025av (Offline
+v13_35_00)** because the volume no longer exists — the calorimeter disk VDs
+were restructured into `VirtualDetector_EMC_Disk_{0,1}_{SurfIn,SurfOut,EdgeIn,
+EdgeOut}` + `EMC_FEB_*`. A surface check on av's shipped
+`geom_SurfaceCheck_run1a.txt` gives **0 overlaps over 10,485 volumes**, with
+the Run1A stopping target genuinely built, and the 111
+`FoilSupportStructure_*` overlaps gone too. See
+`wiki/external/mu2e-overlap-check.md`.
 
 ## 6. Testing
 
@@ -369,8 +300,9 @@ with **zero grid contact** (no `mu2ejobsub`, no `jobsub_q`); run as
 
 ## 7. Acceptance
 
-**Offline gates:** full suite green, and golden parity `[a]`, `[b]`, `[c]` green
-after the Step 0 repair.
+**Offline gates:** full suite green, and golden parity `[a]`, `[b]`, `[c]` green.
+All satisfied as of 2026-08-19 (`8aa867b`, `7d51236`, `1b51767`): suite 620, all
+three sections OK.
 
 **Live gate — controlled A/B, requires explicit operator approval at the point
 of launch.** This design's approval does not authorize submission.
