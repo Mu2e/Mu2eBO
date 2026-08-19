@@ -247,6 +247,67 @@ noise already present.
 4. **Plumbing** — `pipeline_io` in-process, `presniff.py` deleted,
    `graph/config.py` folded into `core/paths.py`.
 5. **Archive the four A/B mode specs.**
+6. **Delete `core/pipeline.py`'s `STAGES` literal** (§5.1). Must come after
+   step 4, because `STAGE_TARGETS` currently lives in `graph/config.py` and
+   needs a new home once that file is folded away.
+
+### 5.1 Retiring the `STAGES` literal
+
+`STAGES` (`core/pipeline.py:209`) holds five stages × four fields. The fields
+have four different stories, and only one of them is a real gap:
+
+| Field | Status today |
+|---|---|
+| `njobs` | Already mode-driven — `STAGE_TARGETS[stage]`, overridden by the mode spec's `run.jobs_per_stage` (foilspf: 15 / 15 / 100) |
+| `events_per_job` | A default the mode spec overrides via `run.stage_tuning.<stage>.events_per_job` (foilspf: 200000 / 75000 / 110000) |
+| `desc_fmt` | Hardcoded. **Zero** overrides across all 11 mode specs |
+| `output_glob` | Hardcoded. **Zero** overrides across all 11 mode specs |
+| `merge_factor` | Hardcoded (concat only) |
+
+`desc_fmt` and `output_glob` should *not* become mode-driven. They are
+properties of the **stage**: `sim.*.TargetStops.*.art` is what mubeam emits
+regardless of the geometry fed to it. The Task-14 migration moved everything
+mode-*varying* into `stage_entries/<stage>.json`; what remains in `STAGES` is
+the residue that does not vary. The defect is not "insufficiently generic" —
+it is that stage-level data sits in a module-level Python global instead of the
+per-stage file that already exists beside it.
+
+**There is an active shadowing hazard.** `stage_entries/<stage>.json` already
+carries an `events` key holding the *same values* as
+`STAGES[…]["events_per_job"]` — mubeam 5000, mustops_ce 2500, elebeam_flash
+2500, run1b_mubeam 5000. `core/pipeline.py:1062` resolves them as
+`events=cfg.get("events_per_job", entry_tmpl.get("events"))`, so `STAGES` wins
+and the JSON never fires. The two files agree today by coincidence; editing the
+JSON is a **silent no-op**. That is the same failure shape as the outloc bug
+(`load_stage_entry` precedence) and as
+`wiki/incidents/events-per-job-mid-flight-edit.md`.
+
+**The change:** delete `STAGES`. Move `desc_fmt`, `output_glob`, `merge_factor`,
+and the `njobs` defaults from `STAGE_TARGETS` into `stage_entries/<stage>.json`;
+drop `events_per_job` entirely, since `events` is already there. One precedence
+rule, one direction, no shadowing:
+
+> mode spec (`run.jobs_per_stage`, `run.stage_tuning`) **overrides**
+> `stage_entries/<stage>.json` (the default). Nothing overrides the mode spec.
+
+The load-bearing tuning rationale currently in `STAGES` comments — especially
+the mustops_ce `events_per_job` history (the 2026-05-21 revert that halved
+statistics and moved σ(sob) 0.10 → 0.14) — must travel into the stage entry's
+existing `_comment` key. It is measured knowledge, not decoration.
+
+**Why this is step 6 and not part of ExtractAna's approach.** The `ExtractAna`
+branch (`3e3e277`, michaelmackenzie) adds a `run.stage_defs` block carrying
+exactly `desc_fmt` and `output_glob` — but to the **mode** spec. Measured, all
+11 blocks are byte-identical (sha `4b82462f`). That duplication is not
+sloppiness and does not need an `$inherit` mechanism: it is the unavoidable cost
+of putting stage-level data in a mode-level file, paid once per mode, forever.
+Landing these fields in `stage_entries/` instead yields exactly one copy, needs
+no inheritance machinery, and cannot produce that branch's `KeyError: 'concat'`
+— the stage entry files for `concat` and `run1b_mubeam` already exist.
+
+**Acceptance for step 6:** for each of the 11 modes × 5 stages, the rendered
+prodtools entry must be byte-identical before and after. This is pure data
+relocation; any diff is a bug.
 
 ## 6. Testing
 
@@ -314,6 +375,13 @@ Total live cost: 9 evaluations.
   of the 5-barrier-truth-sources problem
 - `wiki/concepts/mode-registry-childtracker-design.md` — designed the
   `ChildTracker` this removes
+- `wiki/incidents/events-per-job-mid-flight-edit.md` — the shadowing hazard in
+  §5.1 is the same failure shape
 - `docs/pyenv-publication-plan.md` — unaffected; see §2 cost note
+- `Mu2e/Mu2eBO` branch `ExtractAna` (`3e3e277`) — independent attempt at the
+  §5.1 problem, placing the same fields at mode level; see §5.1 for why
+  `stage_entries/` is the better home
 - Source: `graph/closed_loop.py`, `graph/build.py`, `graph/nodes.py`,
-  `graph/child_tracker.py`, `graph/pipeline_io.py`, `core/pipeline.py`
+  `graph/child_tracker.py`, `graph/pipeline_io.py`, `core/pipeline.py:209`
+  (`STAGES`), `core/pipeline.py:1062` (the shadowing resolution),
+  `graph/config.py:86` (`STAGE_TARGETS`)
