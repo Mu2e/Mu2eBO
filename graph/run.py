@@ -1,8 +1,7 @@
 """Headless driver: invoke the BO iteration graph once, no checkpointer.
 
-This is the standard entrypoint (the `langgraph dev` Studio/Streamlit overlay
-was retired 2026-07-17) — used directly for one-off chains and spawned per
-child by graph/pool.py's run_rolling (graph/closed_loop.py's parent).
+Used directly for one-off chains, and spawned per child by
+graph/pool.py's run_rolling (graph/closed_loop.py's parent).
 
 Usage:
   source .venv/bin/activate
@@ -25,13 +24,13 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # MUST precede `from build import ...` / `from runtime import ...`: both
-# core/runtime.py (_SPEC) and core/pipeline.py (MODE) resolve the process's
-# mode from AUTORESEARCH_MODE at IMPORT time and cannot be re-pointed later.
-# Rationale and precedence rules: core/modes.py::stamp_mode_from_argv.
-# main() re-checks with assert_mode_stamped().
+# core/runtime.py (_SPEC) and core/pipeline.py (MODE) resolve mode from
+# AUTORESEARCH_MODE at import time, un-repointable later. Rationale/
+# precedence: core/modes.py::stamp_mode_from_argv; main() re-checks with
+# assert_mode_stamped().
 import modes as _modes  # noqa: E402
-# The RETURN VALUE becomes --mode's argparse default below, so `args.mode`
-# IS the resolved mode rather than a second constant that happens to match it.
+# Its RETURN VALUE becomes --mode's argparse default, so `args.mode` IS
+# the resolved mode, not a second constant that happens to match it.
 _MODE = _modes.stamp_mode_from_argv()
 
 from build import build_graph  # noqa: E402
@@ -55,34 +54,27 @@ def main() -> int:
                     help="comma-separated forced x (e.g. '0.587,304.77,198.91,94.17'). "
                          "Skips BO propose and uses this point directly.")
     args = ap.parse_args()
-    # Loud, cheap: a mode disagreement between the CLI, the env stamp,
-    # runtime._SPEC and pipeline.MODE is otherwise SILENT -- the grid just
-    # quietly runs another mode's events_per_job / njobs / grid tarball /
-    # stage chain, which is a metric denominator error with no error surface
-    # (wiki/incidents/events-per-job-mid-flight-edit.md).
+    # Loud, cheap: a mode mismatch between CLI/env-stamp/_SPEC/pipeline.MODE
+    # is otherwise SILENT -- the grid runs another mode's events_per_job/
+    # njobs/tarball/stage chain with no error surface (wiki/incidents/
+    # events-per-job-mid-flight-edit.md).
     _modes.assert_mode_stamped(args.mode)
 
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
 
-    # No checkpointer. Audited 51 campaigns: 44 clean, 7 died mid-flight, 0
-    # ever resumed from a checkpoint -- while it CAUSED 5 incidents, and in
-    # sqlite-wal-corrupt-after-kill it blocked the restart outright. The
-    # useful half of resume -- not relaunching a config a prior run already
-    # resolved, and not launching a second child on top of one whose grid
-    # work is still in flight -- survives this: graph/pool.py's
-    # _default_pick_source skips any candidate name with a leaderboard row,
-    # a broken.txt, a *_cluster.txt or an unresolved pending row (Task 3
-    # review round 2 CRITICAL 1; final review C1). That is what actually
-    # matters for the standard recovery move (relaunch under the same
-    # --name-prefix), since that's a fresh `python -m graph.closed_loop`
-    # invocation, not a resumed `python -m graph.run` thread_id.
+    # No checkpointer: audited 51 campaigns, 0 resumes ever, 5 incidents
+    # caused (one blocked restart outright: wiki/incidents/sqlite-wal-
+    # corrupt-after-kill.md). The useful half of resume -- skip a resolved
+    # config, don't double-launch one in flight -- survives via
+    # graph/pool.py's _default_pick_source (reads leaderboard rows,
+    # broken.txt, *_cluster.txt, pending rows). That backs the standard
+    # recovery: relaunch under the same --name-prefix.
     graph = build_graph().compile()
 
     thread_id = args.thread_id or f"cli-{uuid.uuid4().hex[:8]}"
-    # Pinned, not left to the library default: langgraph 1.2.9 has no
-    # practical cap but 0.2.50 (the ana_v2.8.0 pyenv candidate) defaults to
-    # 25. The child chain is ~8 supersteps plus up to MAX_PROPOSE_RETRIES
-    # re-proposes; 100 is far above that and far below anything runaway.
+    # Pinned: langgraph 1.2.9 has no practical cap, but 0.2.50 (ana_v2.8.0
+    # pyenv candidate) defaults to 25. Chain is ~8 supersteps plus up to
+    # MAX_PROPOSE_RETRIES re-proposes; 100 covers that with margin.
     cfg = {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
     init = {
         "mode": args.mode,
@@ -98,16 +90,10 @@ def main() -> int:
     final = None
     for ev in graph.stream(init, cfg, stream_mode="values"):
         final = ev
-        # Config-name swap guard. UNREACHABLE as written: it existed for
-        # closed-loop-thread-id-checkpoint-collision, where a stale
-        # SqliteSaver checkpoint resumed a different thread's state
-        # mid-stream and the wrong row went to the leaderboard -- and there
-        # is no checkpointer any more (retired 2026-08-19), so nothing can
-        # inject another config_name into this stream. KEPT DELIBERATELY as
-        # cheap insurance: it is one string compare per superstep, and the
-        # failure it catches (a leaderboard row under the wrong name) is
-        # both silent and unrecoverable. Do not read its presence as
-        # evidence that a resume mechanism still exists.
+        # Config-name swap guard, unreachable now (no checkpointer) --
+        # existed for wiki/incidents/closed-loop-thread-id-checkpoint-
+        # collision.md. Kept as cheap insurance against a silent,
+        # unrecoverable wrong-name leaderboard row.
         if expected_name is not None:
             got = ev.get("config_name")
             if got is not None and got != expected_name:

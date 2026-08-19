@@ -1,21 +1,19 @@
 """Eval-summary module: the schema and pure logic behind `pipeline.py harvest`.
 
-This is the deep half of cmd_harvest (see wiki
-concepts/architecture-friction-survey-2026-07, 2026-07-11 re-survey FP-1/FP-2):
-everything that can be computed or decided WITHOUT touching the grid, a muse
+Everything that can be computed or decided WITHOUT touching the grid, a muse
 env, or a subprocess lives here, behind small typed interfaces. pipeline.py
 keeps the CLI verb, env sourcing, and the subprocess-invoking extractors, and
-passes those extractors IN as callables — so every branch in this module is
+passes those extractors IN as callables — so every branch here is
 unit-testable from tests/ (no grid, no ROOT).
 
 Vocabulary (CONTEXT.md): an **Eval summary** is the explicit product of
 harvest — the typed key set below, written to harvest/summary.json; the
 leaderboard row is derived from it by the driver's extract_metrics.
 
-Invariant ownership (FP-2): whether concat ran for THIS Eval is decided by
+Invariant ownership: whether concat ran for THIS Eval is decided by
 `resolve_muminus_inputs` from the Eval's state dir alone (stage-chain stamp
-if present, else file presence) — never from the process env. The same stamp
-is what submit-side template materialization must consult.
+if present, else file presence) — never from the process env. Submit-side
+template materialization must consult the same stamp.
 """
 from __future__ import annotations
 
@@ -25,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-# --- physics/parse constants (moved verbatim from pipeline.py) --------------
+# --- physics/parse constants -------------------------------------------------
 
 RUN1A_MUBEAM_INPUT_CORRECTION = 0.01278168
 POT_PER_ELECTRON = 25_000_000 / 2_166_994  # EleBeamCat dh.gencount / event_count
@@ -64,14 +62,12 @@ def parse_s_over_sqrt_b(stdout: str) -> float:
 # Run1BAna (github.com/michaelmackenzie/Run1BAna) supplies EdepAna's FCL and
 # the sensitivity macro. It is an ARTIFACT, not source -- gitignored, never
 # tracked here -- so it resolves through artifact()/backing exactly like the
-# muse work area that holds EdepAna's built lib (pipeline.py's `_muse`, the
-# same `autoresearch_muse` root). Resolving it from REPO_ROOT instead meant a
-# fresh clone had no Run1BAna at all and died here, after every stage had run.
-#
-# Anchoring on MUSE_WORKAREA also makes the #include below honest: harvest
-# runs with that work area on FHICL_FILE_PATH, so the workarea-relative string
-# is what actually resolves the file. The old form derived that same string
-# from REPO_ROOT while FHiCL resolved it from the work area.
+# muse work area holding EdepAna's built lib (the same `autoresearch_muse`
+# root). Resolving it from REPO_ROOT instead left a fresh clone with no
+# Run1BAna at all, dying here after every stage had run. Anchoring on
+# MUSE_WORKAREA also keeps the #include below honest: harvest runs with that
+# work area on FHICL_FILE_PATH, so a workarea-relative string is what
+# actually resolves the file.
 from paths import artifact  # see core/paths.py
 
 MUSE_WORKAREA = artifact("autoresearch_muse")
@@ -80,8 +76,8 @@ SENSITIVITY_MACRO = (MUSE_WORKAREA /
                      "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C")
 
 # Checked by paths.verify() at preflight so a missing backing fails in the
-# first minute rather than after the last stage. Not per-mode ModeSpec fields:
-# every mode's harvest needs both.
+# first minute rather than after the last stage. Not per-mode: every mode's
+# harvest needs both.
 REQUIRED_ARTIFACTS = (
     (EDEP_FCL, "EdepAna FCL (Run1BAna)"),
     (SENSITIVITY_MACRO, "sensitivity macro (Run1BAna)"),
@@ -92,10 +88,9 @@ def run_edepana(harvest_dir: Path, ce_files: Sequence[Path], *, runner):
     """Harvest Step 1: EdepAna over the CeEndpoint art files.
 
     Returns (ce_seen, nts_path). Writes ce_files.txt, edep_wrapper.fcl and
-    edep.log into harvest_dir. runner(cmd, cwd) -> proc-like; the caller
-    binds env/FHICL_FILE_PATH. HARD-fail (SystemExit) on rc != 0 or an
-    unparseable 'Saw N events' line — this is the sob numerator, never
-    fail-soft (unlike extract_secondary_edep).
+    edep.log into harvest_dir; the caller binds env/FHICL_FILE_PATH.
+    HARD-fail (SystemExit) on rc != 0 or an unparseable 'Saw N events' line
+    — this is the sob numerator, never fail-soft.
     """
     ce_list = harvest_dir / "ce_files.txt"
     ce_list.write_text("\n".join(str(p) for p in ce_files) + "\n")
@@ -147,7 +142,7 @@ def run_sensitivity_macro(harvest_dir: Path, nts_path: Path,
 def stamp_stage_chain(state_dir: Path, stages: Sequence[str]) -> None:
     """Record the mode's stage chain at submit time (events_per_job pattern).
 
-    Written once per Eval alongside the first submit; harvest and template
+    Written once per Eval at first submit; harvest and template
     materialization read it back so a config evaluated under an older chain
     is never re-interpreted under the current env's chain.
     """
@@ -193,8 +188,8 @@ def resolve_muminus_inputs(state_dir: Path) -> tuple[list[Path], str]:
     template guarantees purity). Decision order:
       1. stage-chain stamp, when present (the authoritative record);
       2. else file presence: existing concat outputs are the truth for this
-         config regardless of the current env (ff11R00_07 +1.5% sob bias
-         taught us never to key this off the env).
+         config regardless of the current env (never key this off the env —
+         ff11R00_07 +1.5% sob bias).
     Raises SystemExit with a diagnosable message when inputs are missing.
     """
     chain = stamped_stage_chain(state_dir)
@@ -223,9 +218,9 @@ def resolve_muminus_inputs(state_dir: Path) -> tuple[list[Path], str]:
 
 
 def events_per_job(state_dir: Path, stage: str, fallback: int) -> int:
-    """SUBMIT-stamped events/job (events-per-job-mid-flight-edit incident);
-    `fallback` is pipeline.stage_cfg(stage, MODE)['events'] for pre-stamp
-    configs (was STAGES[stage]['events_per_job'] before Task 6)."""
+    """SUBMIT-stamped events/job (see
+    wiki/incidents/events-per-job-mid-flight-edit.md); `fallback` is
+    pipeline.stage_cfg(stage, MODE)['events'] for pre-stamp configs."""
     stamp = state_dir / f"{stage}_events_per_job.txt"
     if stamp.exists():
         return int(stamp.read_text().strip())
@@ -254,9 +249,8 @@ def extract_secondary_edep(state_dir: Path, stage: str,
     Returns None when the stage didn't run in this Eval's chain (no
     outputs.txt). Never raises: extraction failures come back as a
     SecondaryEdep carrying `error`, so harvest degrades to a metric-less
-    summary exactly as before — but the policy lives in one testable place.
-    `runner(files)` is pipeline.py's gallery extractor (subprocess); tests
-    inject a fake.
+    summary. `runner(files)` is pipeline.py's gallery extractor
+    (subprocess); tests inject a fake.
     """
     files = read_outputs(state_dir, stage)
     if files is None:
@@ -321,8 +315,8 @@ def winsorized_diagnostics(per_file: Optional[Sequence[float]], epj: int,
     Clips the heavy per-job tail (sd/mean 25-35%) that makes single runs
     swing ±5-11% (bo-noise-budget). Slightly biased low vs the physical mean
     (the tail is real flash), so the leaderboard objective STAYS the plain
-    mean; these fields exist for run-level QA (they are exactly what the
-    2026-07-09 sigma_flash split-half measurement needed).
+    mean; these fields exist for run-level QA (the sigma_flash split-half
+    measurement).
     """
     if not per_file or len(per_file) < min_files:
         return None, None
@@ -351,8 +345,7 @@ class EvalSummary:
 
     Every key the driver's extract_metrics, the graph's evaluate node, or a
     human reader may consume. Optional fields are the fail-soft secondary
-    objectives — None means 'stage absent or extraction degraded', and the
-    leaderboard row derived from this summary reflects that honestly.
+    objectives — None means 'stage absent or extraction degraded'.
     """
     config: str
     # primary (hard-fail) chain

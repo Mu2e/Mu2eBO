@@ -1,9 +1,8 @@
 """Graph nodes for the BO iteration.
 
-Each node is a pure function: state in → partial state out. LangGraph merges
-the returned dict into the running state. Nothing is checkpointed -- the
-child graph compiles without a checkpointer (retired 2026-08-19); durability
-comes from the on-disk artifacts each node writes (per-stage cluster.txt,
+Each node is a pure function: state in → partial state out; LangGraph
+merges the returned dict into the running state. Nothing is checkpointed --
+durability is the on-disk artifacts each node writes (cluster.txt,
 harvest/summary.json, the leaderboard row).
 """
 from __future__ import annotations
@@ -33,8 +32,8 @@ from state import BOIterationState  # noqa: E402
 def _record_zero_row(config_name: str, cause: str, tail: str) -> None:
     """Append a row to <grid_root>/<config_name>/scan_logs/evaluate_zero_row.tsv.
 
-    Sidecar survives state-dir cleanup so post-mortem of silent zero-objective
-    closed-loop children doesn't depend on graph_data/state/<child>/. See #8.
+    Sidecar survives state-dir cleanup, for post-mortem of silent
+    zero-objective closed-loop children.
     """
     out_dir = GRID_DATA_ROOT / config_name / "scan_logs"
     try:
@@ -61,15 +60,12 @@ def _record_zero_row(config_name: str, cause: str, tail: str) -> None:
 def node_propose(state: BOIterationState) -> dict:
     """Ask the BO model for the next x; materialize the geom file.
 
-    If state["x_point"] is already populated, skip the BO ask and force that
-    point (used to evaluate GP-Pareto picks). The propose attempt counter is
-    passed as the picker seed_idx so each preflight-driven retry draws a
-    fresh point (the seed varies) instead of re-asking for the same one.
+    A populated state["x_point"] skips the BO ask and forces that point
+    (GP-Pareto picks). The propose attempt counter feeds the picker as
+    seed_idx so each preflight-driven retry draws a fresh point.
     """
-    # state["mode"], not .get(..., DEFAULT_MODE): graph/run.py -- the only
-    # producer of this state -- always sets it, and BOIterationState declares
-    # it required. A default here was a second, silent mode-resolution path
-    # inside the child that could disagree with the process stamp.
+    # Not .get(..., DEFAULT_MODE): a default here would be a second,
+    # silent mode-resolution path that could disagree with run.py's stamp.
     mode = state["mode"]
     alpha = state.get("alpha", DEFAULT_ALPHA)
     caller_pinned = bool(state.get("config_name"))
@@ -82,22 +78,16 @@ def node_propose(state: BOIterationState) -> dict:
                                   seed_idx=seed_idx)
     except ValueError:
         if caller_pinned:
-            # Re-entry with the same caller-pinned name (preflight
-            # ambiguous/fail_managed → route_after_preflight loops to
-            # propose). The ValueError here can only be the pending-row
-            # collision from our own prior attempt: graph topology never
-            # lets a child reach leaderboard-append under a caller-pinned
-            # name before re-entering propose. Drop the stale pending row
-            # and retry under the SAME name — silent-renaming would break
-            # the closed-loop --name-prefix contract and trip the
-            # config_name swap guard in graph/run.py.
+            # Re-entry under the same pinned name: the ValueError can only
+            # be our own prior pending-row collision. Drop it and retry
+            # under the SAME name -- renaming would break the closed-loop
+            # --name-prefix contract and trip run.py's swap guard.
             bo.MODES[mode].remove_pending(name)
             x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
                                       seed_idx=seed_idx)
         else:
-            # Auto-named path (no --config-name on the CLI): a true name
-            # collision means a concurrent runner picked the same auto-name;
-            # fork to the next free name.
+            # Auto-named path: a true collision means a concurrent runner
+            # picked the same auto-name; fork to the next free one.
             retry_name = pio.next_config_name(mode)
             x, geom = pio.propose_one(mode, retry_name, alpha=alpha,
                                       x_override=forced, seed_idx=seed_idx)
@@ -121,16 +111,14 @@ def node_propose(state: BOIterationState) -> dict:
 def node_render_preflight(state: BOIterationState) -> dict:
     """Run mu2e -n 1 + surface-check on the proposal.
 
-    Outcomes (vocabulary: bo_driver.PREFLIGHT_VERDICTS + "timeout"):
+    Outcomes (bo_driver.PREFLIGHT_VERDICTS + "timeout"):
     - pass → real grid chain
     - fail_managed → retry propose (managed-volume overlap, BO-fixable)
-    - ambiguous (rc=3) → retry propose. rc=3 = subprocess died early
-      without a regex-matchable G4 init signature (OOM under concurrent
-      preflight load, transient FS, host load). Treated as retriable
-      2026-05-29 after foilsX04 incident where 20/20 children died here;
-      each propose retry bumps seed_idx so the botorch ask draws a
-      different `x` and a true geom bug doesn't infinite-loop. Bounded by
-      MAX_PROPOSE_RETRIES (core/runtime.py).
+    - ambiguous (rc=3: subprocess died early, no parseable G4 init
+      signature -- OOM/transient under concurrent load) → retry propose,
+      bounded by MAX_PROPOSE_RETRIES; each retry bumps seed_idx so a real
+      geom bug doesn't infinite-loop on the same x (wiki/incidents/
+      foilsx04-all-preflight-ambiguous.md).
     - fail_init → terminal (real G4 init failure; geom is broken)
     """
     mode = state["mode"]
@@ -138,8 +126,8 @@ def node_render_preflight(state: BOIterationState) -> dict:
     status, tail = pio.run_preflight(mode, name)
     errors = list(state.get("errors", []))
     if status not in ("pass",):
-        # Keep last 8 lines for ambiguous/fail_init so the rc=3 retry loop
-        # accumulates useful context across attempts instead of one opaque line.
+        # Last 8 lines: enough context across rc=3 retries without one
+        # opaque line.
         tail_msg = "\n".join(tail.splitlines()[-8:]) if tail else ""
         errors.append(f"preflight[{status}] {name}: {tail_msg}")
     return {"preflight": status, "errors": errors}
@@ -148,13 +136,11 @@ def node_render_preflight(state: BOIterationState) -> dict:
 def make_stage_node(stage: str):
     """Build a graph node that runs one stage (submit→poll→list-outputs).
 
-    Per-stage idempotency lives in pipeline.py guards (a stage whose
-    `<stage>_cluster.txt` already exists re-attaches instead of
-    resubmitting), so a RELAUNCHED child under the same config name does not
-    double-submit. That is now the only form of resume there is -- there is
-    no checkpointer and no mid-chain restart; graph/pool.py's
-    `_name_busy_reason` reads the same cluster files to stop a second child
-    launching under a name whose stages are already in flight.
+    Idempotency lives in pipeline.py (a `<stage>_cluster.txt` that already
+    exists re-attaches instead of resubmitting) -- the only resume
+    mechanism, since there's no checkpointer. graph/pool.py's
+    `_name_busy_reason` reads the same cluster files to stop a second
+    child launching under a busy name.
     """
     def _node(state: BOIterationState) -> dict:
         name = state["config_name"]
@@ -163,9 +149,9 @@ def make_stage_node(stage: str):
         try:
             stages[stage] = pio.run_stage(name, stage)
             # Overlap seam: early-submit data-independent downstream stages
-            # (e.g. foilsflash elebeam_flash after mubeam) so their grid time
-            # hides behind the intervening chain. Best-effort — on failure
-            # the stage's own node submits sequentially (idempotent guards).
+            # (e.g. foilsflash elebeam_flash after mubeam) so grid time
+            # hides behind the chain. Best-effort; on failure the stage's
+            # own node submits sequentially.
             for ps in PRESUBMIT_AFTER.get(stage, ()):
                 try:
                     pio.presubmit_stage(name, ps)
@@ -189,9 +175,8 @@ def make_stage_node(stage: str):
 def node_harvest(state: BOIterationState) -> dict:
     """Run pipeline.py harvest; populate metrics from summary.json.
 
-    Verb is mode-dispatched (ModeSpec.harvest_verb in modes.py): prodtarget
-    runs `harvest-pot-only` (uproot, mu_per_POT); others run `harvest`
-    (4-stage S/√B + calo).
+    Verb is mode-dispatched (ModeSpec.harvest_verb): prodtarget runs
+    `harvest-pot-only` (mu_per_POT); others run `harvest` (S/√B + calo).
     """
     name = state["config_name"]
     mode = state["mode"]
@@ -208,15 +193,12 @@ def node_harvest(state: BOIterationState) -> dict:
 
 
 def node_scan_logs(state: BOIterationState) -> dict:
-    """End-of-workflow log scan. Gates the leaderboard append on broken runs.
+    """End-of-workflow log scan; gates the leaderboard append on broken runs.
 
-    Walks every worker .log under the four stage outstage dirs and counts
-    G4Exception / Stuck Track / Warning / FATAL / SEGV hits. Writes a TSV +
-    JSON report under <grid_root>/<config_name>/scan_logs/. When the report
-    trips a SCAN_BROKEN_CODES pattern (today: any GeomSolids1001 hit;
-    see [[tessellated-solid-facet-orientation]]) the iteration's metrics
-    are physics-broken — sets `scan_logs_broken=True` and writes
-    `state/broken.txt`; node_evaluate then refuses to append the row.
+    Delegates to pipeline_io.scan_worker_logs. A SCAN_BROKEN_CODES hit
+    (today: GeomSolids1001, wiki/incidents/tessellated-solid-facet-
+    orientation.md) marks scan_logs_broken=True; node_evaluate then
+    refuses to append.
     """
     name = state["config_name"]
     errors = list(state.get("errors", []))
@@ -267,7 +249,6 @@ def node_evaluate(state: BOIterationState) -> dict:
     obj, tail = pio.run_evaluate(mode, name, metrics, alpha=alpha)
     if obj is None:
         errors.append(f"evaluate[{name}]: could not parse objective; tail={tail}")
-        # historical cause name; obj now arrives via evaluate_result.json
         _record_zero_row(name, "obj_unparseable", tail or "")
     return {"objective": obj, "errors": errors}
 
@@ -276,13 +257,10 @@ def node_evaluate(state: BOIterationState) -> dict:
 
 
 def route_after_preflight(state: BOIterationState) -> Literal["real", "propose", "__end__"]:
-    """Branch after preflight.
+    """Branch after preflight; outcome semantics live in node_render_preflight.
 
-    Both `fail_managed` (managed-overlap, BO-fixable) and `ambiguous`
-    (rc=3 — subprocess died early without a parseable G4 init signature;
-    typically OOM/transient under concurrent preflight load) re-propose
-    up to MAX_PROPOSE_RETRIES. `fail_init` is terminal (real geom bug).
-    Ambiguous-retriable added 2026-05-29 (foilsX04 incident).
+    `fail_managed`/`ambiguous` re-propose up to MAX_PROPOSE_RETRIES;
+    `fail_init` is terminal.
     """
     status = state.get("preflight", "pending")
     attempts = state.get("attempts", {}).get("propose", 0)
@@ -302,8 +280,8 @@ def route_after_preflight(state: BOIterationState) -> Literal["real", "propose",
 def route_after_stage(state: BOIterationState) -> Literal["next", "__end__"]:
     """Continue down the stage chain unless any stage is marked failed.
 
-    Walks state["stages"] for any failure; conservative — one bad stage
-    terminates the iteration so evaluate doesn't run with partial metrics.
+    Conservative: one bad stage terminates the iteration so evaluate never
+    runs on partial metrics.
     """
     stages = state.get("stages", {}) or {}
     failed = [k for k, s in stages.items() if (s or {}).get("status") == "failed"]

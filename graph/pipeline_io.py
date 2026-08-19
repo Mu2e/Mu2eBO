@@ -1,10 +1,8 @@
 """Thin wrappers around bo_driver.py + pipeline.py.
 
-BO ops go in-process via `import bo_driver as bo` (the BOMode
-adapters are clean — no need to fork a subprocess for those). Preflight,
-evaluate, and the grid-stage wrappers (run_stage / run_harvest, which shell
-out to pipeline.py's idempotent verbs) use subprocess to keep their I/O
-side-effects firewalled from the long-lived runner process.
+BO ops go in-process (bo_driver's BOMode adapters are clean). Preflight,
+evaluate, and grid-stage wrappers shell out via subprocess, firewalling
+their I/O from the long-lived runner process.
 """
 from __future__ import annotations
 
@@ -17,22 +15,16 @@ import tempfile
 import time
 from pathlib import Path
 
-# Ensure core/ (BO/pipeline modules, 2026-07-17 reorg) is importable so we can
-# pull the BO modes in-process.
+# Make core/ (BO/pipeline modules) importable for in-process BO calls.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 
 import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
-# read_stage_status's n_failed inference reads njobs through
-# pipeline.stage_cfg() (Task 6 fix round) -- the SAME function core/
-# pipeline.py's own submit/poll/list-outputs read, instead of a second
-# runtime.STAGE_TARGETS copy of the same number that could silently drift
-# from it (the exact shape events-per-job-mid-flight-edit and the STAGES/
-# stage_entries shadow this task retired both were). Safe to import
-# in-process: pipeline.py never imports graph/pipeline_io.py, so there is no
-# cycle, and this module already imports bo_driver/harvest/modes/
-# prodtools_exec from the same core/ tree.
+# read_stage_status reads njobs via pipeline.stage_cfg() -- the same
+# function pipeline.py's submit/poll/list-outputs use, not a copy that
+# could drift (wiki/incidents/events-per-job-mid-flight-edit.md). No import
+# cycle: pipeline.py doesn't import this module.
 import pipeline as _pipeline  # noqa: E402
 import prodtools_exec as _prodtools_exec  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
@@ -53,18 +45,15 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
                 x_override: list[float] | None = None, seed_idx: int = 0):
     """Propose a single config, materialize its geom, append to pending TSV.
 
-    If x_override is given, skip the BO ask and use that x directly (used to
-    force-evaluate GP-Pareto picks). The pending row is still written so
-    concurrent BO proposals see this point as in-flight.
+    x_override skips the BO ask and uses that x directly (forced GP-Pareto
+    picks); the pending row is still written so concurrent proposals see it
+    as in-flight. Otherwise asks bo.botorch_ask (botorch-venv subprocess,
+    fantasizing over pending x-points); seed_idx (node_propose's retry
+    counter) varies the picker seed so a re-propose after a preflight
+    failure draws a fresh point.
 
-    The BO ask is bo.botorch_ask (botorch-venv subprocess; the picker loads
-    priors+history itself and fantasizes over the pending x-points instead
-    of the retired skopt constant-liar suppression). seed_idx varies the
-    picker seed — node_propose passes its retry counter so a preflight-driven
-    re-propose draws a fresh point instead of the same one.
-
-    Returns: (x_point: list[float], geom_path: str). Raises ValueError if the
-    config name collides with an existing leaderboard or pending entry.
+    Returns (x_point, geom_path). Raises ValueError on a config-name
+    collision with the leaderboard or pending TSV.
     """
     mode = bo.MODES[mode_name]
 
@@ -81,29 +70,22 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
                             venv_py=BOTORCH_VENV_PY)
         x = xs[0]
         if not mode.is_buildable(x):
-            # x_override bypasses this check since the caller chose the point
-            # intentionally; here the pick came from the GP — surface it and
-            # let preflight reject it downstream.
+            # x_override bypasses this check (deliberate caller choice); a
+            # GP pick that fails is surfaced here and left for preflight to
+            # reject.
             print(f"WARN: submitting unbuildable pick {list(x)} "
                   f"(preflight will reject)", file=sys.stderr)
     geom_path = mode.render_proposal(config_name, x)
-    # Stage geom into pipeline.py's per-config work tree (mirror cmd_propose in
-    # bo_driver.py:567-570; pipeline.py's submit checks for this
-    # exact path and refuses otherwise).
+    # Stage geom into pipeline.py's per-config work tree (mirrors
+    # cmd_propose in bo_driver.py; submit checks this exact path).
     work_geom_dir = GRID_DATA_ROOT / config_name / "geom"
     work_geom_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(geom_path, work_geom_dir / f"autoresearch_{config_name}_geom.txt")
     mode.append_pending(config_name, x, alpha)
-    # Coerce numpy scalars to native Python types. Kept after the
-    # checkpointer's retirement (2026-08-19), which removed the original
-    # motive: LangGraph's SqliteSaver called ormsgpack on the state dict and
-    # np.int64 is not msgpack-serializable, so an unguarded np.int64 in
-    # x_point surfaced as `TypeError: Type is not msgpack serializable:
-    # numpy.int64` at end-of-run (wiki/incidents/langgraph-checkpoint-numpy-
-    # int64.md, prodtarget's Integer numberOfPlates dim -- archived). The
-    # coercion still earns its place: x_point is JSON-serialized into the
-    # picker subprocess and written to the leaderboard/pending TSVs, and
-    # np.int64 is no friendlier there.
+    # Coerce numpy scalars to native types for JSON (picker subprocess) and
+    # the leaderboard/pending TSVs. Originally guarded a now-retired
+    # SqliteSaver msgpack write against np.int64 (wiki/incidents/langgraph-
+    # checkpoint-numpy-int64.md); still needed for these.
     return bo.to_py_scalars(x), str(geom_path)
 
 
@@ -113,11 +95,10 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
 def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_TIMEOUT_S) -> tuple[str, str]:
     """Run `bo_driver.py preflight <cfg>` and read the typed verdict JSON.
 
-    Returns (status, log_tail). status ∈ {"pass", "fail_managed",
-    "fail_init", "ambiguous", "timeout"}. A missing/unparseable JSON
-    (process crash, transport failure) decodes as "ambiguous" with a loud
-    reason — fail-safe: ambiguous routes to retry/human review and never
-    silently passes.
+    status ∈ {"pass", "fail_managed", "fail_init", "ambiguous", "timeout"}.
+    Missing/unparseable JSON (process crash, transport failure) decodes as
+    "ambiguous" with a loud reason -- fail-safe, since ambiguous retries
+    and never silently passes.
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -142,14 +123,10 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
         status = json.loads(verdict_path.read_text())["verdict"]
     except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
         status = "ambiguous"
-        # No verdict means the subprocess died BEFORE writing one, and a
-        # python death writes its traceback to STDERR -- which the tail above
-        # does not include. So the one message explaining the failure was
-        # discarded and the operator saw "ambiguous" three times and nothing
-        # else (mmackenz 2026-08-13: a missing backing, whose PathsError names
-        # the exact fix, was invisible). Same swallowed-stderr class as the
-        # jobsub-disk-quota-stderr-swallowed and sourced-env-stderr-swallowed
-        # incidents.
+        # A python death writes its traceback to STDERR, not the stdout
+        # tail above -- capture it, or the operator sees only "ambiguous"
+        # (same swallowed-stderr class as wiki/incidents/jobsub-disk-quota-
+        # stderr-swallowed.md, sourced-env-stderr-swallowed.md).
         err = "\n".join(proc.stderr.splitlines()[-40:])
         tail = (f"(preflight verdict JSON missing/unparseable at "
                 f"{verdict_path}: {e!r}; rc={proc.returncode} — decoding as "
@@ -187,10 +164,9 @@ def _run_pipeline_verb(config_name: str, verb: str, stage: str | None) -> Path:
 def run_stage(config_name: str, stage: str) -> dict:
     """Run submit → poll → list-outputs for one stage. Returns a StageStatus.
 
-    Each pipeline.py verb is idempotent: submit no-ops if the cluster file
-    exists; list-outputs no-ops if the outputs file validates. Poll is
-    naturally re-entrant. So a killed-and-resumed graph node re-runs this
-    helper without double-submitting.
+    Each verb is idempotent (submit no-ops if the cluster file exists;
+    list-outputs no-ops if the outputs file validates; poll is naturally
+    re-entrant), so a killed-and-resumed graph node won't double-submit.
     """
     for verb in ("submit", "poll", "list-outputs"):
         _run_pipeline_verb(config_name, verb, stage)
@@ -200,10 +176,10 @@ def run_stage(config_name: str, stage: str) -> dict:
 def presubmit_stage(config_name: str, stage: str) -> None:
     """Early submit of a data-independent stage (see runtime.PRESUBMIT_AFTER).
 
-    Submit-only: the stage's own node later finds the cluster file (submit
-    no-ops), polls the already-running jobs, and lists outputs — so the
-    stage's grid time overlaps the intervening chain. Callers treat this as
-    best-effort; on failure the stage node just submits sequentially.
+    Submit-only: the stage's own node later finds the cluster (submit
+    no-ops) and polls/lists normally, so its grid time overlaps the
+    intervening chain. Best-effort -- on failure the stage node just
+    submits sequentially.
     """
     _run_pipeline_verb(config_name, "submit", stage)
 
@@ -211,10 +187,9 @@ def presubmit_stage(config_name: str, stage: str) -> None:
 def run_harvest(config_name: str, mode: str | None = None) -> dict:
     """Run pipeline.py harvest verb for the mode; return parsed summary.json.
 
-    Mode dispatch (2026-06-07): prodtarget chains a single `pot_only` stage
-    whose summary schema differs (`mu_per_POT`) from the 4-stage S/√B+calo
-    schema. Verb selection comes from the ModeSpec registry; defaults to the
-    legacy 4-stage `harvest` for backward compat when no mode is passed.
+    prodtarget's single `pot_only` stage has a different summary schema
+    (`mu_per_POT`) than the 4-stage S/√B+calo default. Verb comes from the
+    ModeSpec registry.
     """
     if mode is None:
         mode = _modes.resolve_env_mode()
@@ -229,16 +204,16 @@ def run_harvest(config_name: str, mode: str | None = None) -> dict:
 def read_stage_status(config_name: str, stage: str) -> dict:
     """Parse state/<stage>_cluster.txt + outputs.txt into a StageStatus dict.
 
-    Pure I/O — testable with a tmpdir of fake state files. n_failed is
-    inferred as `target - n_done`; with our idempotency guards, "stage done"
-    means submit + poll + list-outputs all returned, so n_done is final.
+    Pure I/O -- testable with a tmpdir of fake state files. n_failed is
+    `target - n_done`; idempotency guards mean "done" is final, not a poll
+    snapshot.
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
     cluster_file = state_dir / f"{stage}_cluster.txt"
     cid = cluster_file.read_text().strip() if cluster_file.exists() else None
     outputs = hv.read_outputs(state_dir, stage) or []
-    # Same njobs pipeline.py's own submit/poll/list-outputs use for this
-    # stage under this process's mode -- see the import comment above.
+    # Same njobs pipeline.py's submit/poll/list-outputs use -- see the
+    # import comment above.
     target = _pipeline.stage_cfg(stage, _pipeline.MODE)["njobs"]
     n_done = len(outputs)
     status = "done" if (cid and outputs) else ("in_flight" if cid else "pending")
@@ -265,38 +240,32 @@ _SCAN_PATTERNS = (
     ("Warning",                r"\bWarning\b"),
     ("FATAL",                  r"FATAL"),
     ("SEGV",                   r"SEGV|segmentation fault|Segmentation fault"),
-    # Report-only (NOT in SCAN_BROKEN_CODES): a few hits = transient xrootd
-    # flakes (concat-xrootd-fileopen-postendjob); hits across ALL jobs = a
-    # moved input dataset (elebeamcat-tape-migration-elebeam-wipeout). Gating
-    # on it would false-positive the transient case — surface, don't block.
+    # Report-only: a few hits are transient xrootd flakes (wiki/incidents/
+    # concat-xrootd-fileopen-postendjob.md); hits across ALL jobs mean a
+    # moved dataset (wiki/incidents/elebeamcat-tape-migration-elebeam-
+    # wipeout.md). Gating would false-positive the transient case.
     ("FileOpenError",          r"FileOpenError"),
 )
 
 
-# Outstage root prodtools writes to -- same root the mu2ejobsub era used
-# (core/prodtools_exec.py outstage_root()). Module-level so tests can point
-# it at a tmp dir via mock.patch.object(pipeline_io, "OUTSTAGE_ROOT", ...).
+# Outstage root prodtools writes to (core/prodtools_exec.py
+# outstage_root()). Module-level so tests can point it at a tmp dir via
+# mock.patch.object(pipeline_io, "OUTSTAGE_ROOT", ...).
 OUTSTAGE_ROOT = Path(_prodtools_exec.outstage_root())
 
 
 def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
     """Resolve every .log under the per-worker outstage dirs for one stage.
 
-    Primary source: `<state>/<stage>_outputs.txt` -- each .art path's parent
-    dir already IS the per-worker outstage dir, so globbing *.log there
-    self-adapts to whichever backend wrote it. Once outputs.txt has
-    entries, this is authoritative and returned as-is (even if empty --
-    e.g. stage-out-lag/-rename-race means a job's .log hasn't landed next
-    to its .art yet; falling through to a cluster-wide glob there would
-    risk attributing an unrelated proc's log to this one).
+    Primary source: `<state>/<stage>_outputs.txt` -- each .art's parent dir
+    IS the outstage dir, so globbing *.log there self-adapts to whichever
+    backend wrote it. Returned as-is even if empty rather than falling back
+    to a cluster-wide glob, which could attribute an unrelated job's log to
+    this one (a .log can lag its .art -- wiki/incidents/stage-out-lag.md,
+    stage-out-rename-race.md).
 
-    Fallback (outputs.txt missing/empty -- i.e. list-outputs hasn't run,
-    or every job in the cluster died before producing an .art, so there
-    is no per-worker dir to derive at all): glob the cluster's outstage
-    dir (`<state>/<stage>_cluster.txt`) via
-    prodtools_exec.cluster_worker_logs, which owns the known worker-log
-    layouts (legacy mu2ejobsub vs prodtools-direct flat) and their
-    tie-break.
+    Fallback when outputs.txt is missing/empty: glob the cluster's outstage
+    dir via prodtools_exec.cluster_worker_logs.
     """
     state_dir = GRID_DATA_ROOT / config_name / "state"
     outputs = hv.read_outputs(state_dir, stage)
@@ -347,11 +316,10 @@ def _scan_one_stage(config_name: str, stage: str, jobs: int = 16) -> dict[str, i
     return counts
 
 
-# Pattern codes whose nonzero count means the run is physics-broken (do not
-# trust the metrics). GeomSolids1001 is the smoking gun for the
-# tessellated-facet-orientation incident: a single misfacetted solid floods
-# logs with GeomNav1002 entries and silently corrupts particle navigation.
-# Any nonzero hit gates the leaderboard append.
+# Nonzero count here means the run is physics-broken; gates the leaderboard
+# append. GeomSolids1001 is the smoking gun for
+# wiki/incidents/tessellated-solid-facet-orientation.md (a misfacetted
+# solid silently corrupts particle navigation).
 SCAN_BROKEN_CODES = ("GeomSolids1001",)
 
 
@@ -367,11 +335,10 @@ def is_scan_broken(report: dict[str, dict[str, int]]) -> bool:
 def scan_worker_logs(config_name: str) -> tuple[dict[str, dict[str, int]], Path, bool]:
     """Scan all stages' worker logs for known issue patterns.
 
-    Returns ({stage: {code: count}}, report_path, broken). Always writes the
-    TSV even when all counts are zero — downstream visibility wants the row.
-    When `broken` is True (see SCAN_BROKEN_CODES), also writes
-    `<config>/state/broken.txt` so the closed-loop refit can filter the chain
-    out without re-running the scan.
+    Returns ({stage: {code: count}}, report_path, broken). Always writes
+    the TSV, even all-zero, for visibility. When broken (SCAN_BROKEN_CODES),
+    also writes `<config>/state/broken.txt` so the closed-loop refit can
+    filter the chain without re-scanning.
     """
     report_dir = GRID_DATA_ROOT / config_name / "scan_logs"
     report_dir.mkdir(parents=True, exist_ok=True)

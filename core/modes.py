@@ -1,30 +1,18 @@
 """ModeSpec registry: every per-mode FACT in one pure-data table (ADR-0002).
 
-A Mode's definition was scattered across ~20 dispatch sites in 6 files, several
-with silent fallbacks — the root soil of the foilsflash-tarball, preflight-
-tuple, and foilsg-tarball incident class. This module is the single source:
-frozen dataclasses, every field passed explicitly (a missing fact is an import
-error, never a default), stdlib-only so the project .venv (and any
-A/B picker venv) and pipeline.py can import it.
+Mode facts were once scattered across ~20 dispatch sites in 6 files, several
+with silent fallbacks -- the soil of the foilsflash-tarball, preflight-tuple
+and foilsg-tarball incident class. Here they are frozen dataclasses with
+every field passed explicitly (a missing fact is an import error, never a
+default), stdlib-only so any venv and pipeline.py can import it. Behavior
+stays on bo_driver.py's BOMode subclasses, which bind to their spec by name.
+Consumers: core/runtime.py, pipeline.py, botorch_predict.py, bo_driver.py.
+Completeness is pinned by tests/test_modes.py.
 
-Behavior stays on the driver's BOMode subclasses (bo_driver.py),
-which bind to their spec by name. Env seams deliberately stay env and are
-applied ON TOP of the spec by consumers:
-  AUTORESEARCH_NO_RUN1B        read by bo_driver.py cmd_evaluate's calo=None
-                                substitution guard; the presniff_picker()
-                                auto-stamp that used to set it from `--picker
-                                qlnei` was retired 2026-08-19 with
-                                graph/presniff.py -- dead weight even before
-                                that, since no live mode's grid_stages
-                                contains run1b_mubeam for the guard to gate on
-  AUTORESEARCH_ELEBEAM_NJOBS   override on foilsflash's stage_target_overrides
-
-Consumers: core/runtime.py (musing, stage chain, harvest verb, stage targets,
-presubmit map), pipeline.py (grid tarball), botorch_predict.py (bounds),
-bo_driver.py preflight (policy flags). Completeness is pinned by
-tests/test_modes.py: SPECS keys == driver MODES keys == graph/state.py mode
-Literal, and driver build_space bounds == spec bounds per mode (replacing the
-"MUST stay in lockstep" comment convention with an enforced test).
+Two seams stay env and are applied ON TOP of the spec: AUTORESEARCH_NO_RUN1B
+(bo_driver.py cmd_evaluate's calo=None substitution guard; nothing sets it
+automatically, and no live mode's grid_stages has run1b_mubeam to gate on)
+and AUTORESEARCH_ELEBEAM_NJOBS (foilsflash's stage_target_overrides).
 """
 from __future__ import annotations
 
@@ -48,59 +36,49 @@ class ModeSpec:
     harvest_verb: str                 # pipeline.py verb: "harvest"
     stage_target_overrides: Dict[str, int]   # njobs overrides read by pipeline.stage_cfg()
     presubmit_after: Dict[str, Tuple[str, ...]]  # after-stage -> stages to presubmit
-    # Per-stage stage_entries/<stage>.json overrides (events_per_job/memory_mb/
-    # quorum), applied by pipeline.py's stage_cfg() on top of the
-    # stage_entries defaults. Populated from `run.stage_tuning`
-    # (core/mode_json.py); a mode that declares none gets {} explicitly, per
-    # this module's rule that a missing fact is an import error never a default,
-    # which has been the sole stage-tuning mechanism since the hardcoded
-    # foilsflash block was retired from pipeline.py (2026-07-26).
+    # THE stage-tuning mechanism: per-stage events_per_job/memory_mb/quorum
+    # overrides from `run.stage_tuning` (core/mode_json.py), applied by
+    # pipeline.py's stage_cfg() over the stage_entries/<stage>.json defaults.
     stage_tuning: Dict[str, Dict[str, object]]
-    # Search-space box (numeric modes; michael's Categorical space is not a
-    # box — None is passed EXPLICITLY there, it is not a default).
+    # Search-space box. A non-box (categorical) space passes None
+    # EXPLICITLY; it is never a default.
     bounds_lo: Optional[Tuple[float, ...]]
     bounds_hi: Optional[Tuple[float, ...]]
     int_dims: Optional[Tuple[int, ...]]
-    # Preflight policy flags (replace the 6 hand-listed mode tuples in
-    # bo_driver.py; the managed-overlap banner derives from
-    # checks_managed_overlap, which retires the prodtarget6d banner drift).
+    # Preflight policy flags (replace 6 hand-listed mode tuples in
+    # bo_driver.py; the managed-overlap banner derives from the last one).
     dumps_gdml: bool                  # preflight FCL writes a GDML dump
     verifies_foil_gdml: bool          # per-foil GDML-vs-geom assertion (hard gate)
     preserves_gdml: bool              # GDML kept as artifact (emission-only check)
     checks_managed_overlap: bool      # surface-check managed-volume scan
-    # Strict overlap policy. True => preflight FAILS on ANY surface-check
-    # overlap, not just volumes the BO knobs build. Added 2026-07-28 after
-    # foilsflashRUN1BAP01 introduced 3 never-before-seen IPAsupport overlaps
-    # and still PASSED: the managed/baseline whitelist keys on volume NAME,
-    # but IPAsupport_* position derives from targetEnd, i.e. from our knobs.
-    # Only modes whose Musing can actually reach zero may set this.
+    # True => preflight FAILS on ANY surface-check overlap, not just volumes
+    # the BO knobs build: foilsflashRUN1BAP01 PASSED with 3 never-before-seen
+    # IPAsupport overlaps, because the managed/baseline whitelist keys on
+    # volume NAME while IPAsupport_* position derives from targetEnd, i.e.
+    # from our knobs. Only modes whose Musing can reach zero may set it.
     require_zero_overlaps: bool       # any overlap => fail_managed
 
-    # Leaderboard schema (single source — ADR-0002 extension, 2026-07-19).
-    # knob_names/knob_fmts: per-knob column names + per-position formats.
-    # metric_cols: the FULL post-knob column tail; the ProdTarget family's
-    # divergence (mu_per_POT/edep/peak-dose, no sob/calo/alpha) is data
-    # here, not a special case. The leading `config` column is a writer
-    # detail (golden (a) pins it).
+    # Leaderboard schema (single source). metric_cols is the FULL post-knob
+    # column tail, so the ProdTarget family's divergence (mu_per_POT/edep/
+    # peak-dose, no sob/calo/alpha) is data here, not a special case. The
+    # leading `config` column is a writer detail (golden parity (a) pins it).
     knob_names: Tuple[str, ...]
     knob_fmts: Tuple[str, ...]
     metric_cols: Tuple[str, ...]
 
-    # Measured observation noise, as ABSOLUTE sigma on each GP output axis
-    # (botorch_predict._load_history_tensor's Y columns, in that order).
-    # Fed to SingleTaskGP as train_Yvar so the GP stops inferring noise by
-    # MLL. Left free, the foilsflash fit lands at sigma(sob)=0.0507 against
-    # a replicate-measured 0.0051 — a 12x overestimate that shrank the
-    # line's best-ever eval (SOBX01, sob=3.90) to a predicted 3.787 and
-    # ranked it 16th of 324. See wiki/incidents/gp-free-noise-erases-champion.
-    # None means "axis-1 units are data-dependent, a fixed sigma is
-    # undefined" — passed EXPLICITLY by the ProdTarget family, not a default.
+    # Measured ABSOLUTE sigma per GP output axis (the Y column order of
+    # botorch_predict._load_history_tensor), fed to SingleTaskGP as
+    # train_Yvar so the GP stops inferring noise by MLL: left free, the
+    # foilsflash fit lands at sigma(sob)=0.0507 vs a replicate-measured
+    # 0.0051 -- a 12x overestimate that shrank the line's best-ever eval
+    # (SOBX01, sob=3.90) to a predicted 3.787, ranked 16th of 324. See
+    # wiki/incidents/gp-free-noise-erases-champion. None ("axis-1 units are
+    # data-dependent") is passed EXPLICITLY by ProdTarget, not defaulted.
     obs_noise: Optional[Tuple[float, ...]]
 
-    # Declarative geometry, metric mapping, and leaderboard path, from
-    # core/mode_json.py. Optional because ModeSpec predates the JSON
-    # conversion and still permits a spec built without them; every live
-    # mode in mode_specs/ populates all three.
+    # Declarative geometry, metric mapping and leaderboard path, from
+    # core/mode_json.py. Optional only because ModeSpec predates the JSON
+    # conversion; every live mode populates all three.
     geom: Optional[GeomTemplate]
     metrics: Optional[Dict[str, Tuple[str, ...]]]
     leaderboard_rel: Optional[str]
@@ -123,26 +101,20 @@ class ModeSpec:
 
 SPECS: Dict[str, ModeSpec] = {}
 
-# Every live mode is JSON (one file per mode in mode_specs/). The dict is
-# seeded empty and filled by load_mode_dir; the hardcoded Python mode table
-# this used to be merged on top of is gone -- core/bo_driver.py's JsonMode is
-# now the single concrete BOMode adapter. load_mode_dir still takes the
-# existing dict so a future non-JSON spec could not silently shadow a file.
+# Every live mode is JSON (one file per mode in mode_specs/); load_mode_dir
+# takes the existing dict so a non-JSON spec cannot be shadowed by a file.
 #
-# Import mirrors our own package-qualification (__package__): this module is
-# loaded two ways in production -- `core.modes` from the repo root, and bare
-# `modes` when bo_driver.py runs as a grid-submitted subprocess with only
-# core/ on sys.path (see tests/test_modes.py TestSubprocessImport, which
-# pins the bare path). A hardcoded `from core.mode_json import ...` fails
-# outright under the bare path (no `core` package to find there). A
-# hardcoded bare `from mode_json import ...` would, under the qualified
-# path, load core/mode_json.py a SECOND time under a different sys.modules
-# key, which in turn would need a second, non-identical copy of THIS
-# module's own ModeSpec to build specs from -- the exact
-# two-non-identical-classes bug fixed for GeomTemplate in Task 4 (commit
-# 9180eb3), resurrected here for ModeSpec. Mirroring __package__ guarantees
-# mode_json.py resolves the ALREADY-loaded `modes`/`core.modes` instead of
-# re-executing this file.
+# THE IMPORT MIRRORS OUR OWN PACKAGE-QUALIFICATION (__package__), because
+# this module loads two ways in production: `core.modes` from the repo root,
+# and bare `modes` when bo_driver.py runs as a grid subprocess with only
+# core/ on sys.path (pinned by tests/test_modes.py TestSubprocessImport). A
+# hardcoded qualified import fails outright on the bare path (no `core`
+# package there); a hardcoded bare import would, on the qualified path, load
+# core/mode_json.py a SECOND time under a different sys.modules key, which
+# would then need a second, non-identical copy of THIS module's ModeSpec to
+# build specs from -- the two-non-identical-classes bug already fixed once
+# for GeomTemplate. Mirroring __package__ makes mode_json.py resolve the
+# ALREADY-loaded `modes`/`core.modes`.
 if __package__:
     from core.mode_json import load_mode_dir  # noqa: E402 - SPECS must exist first
 else:
@@ -151,15 +123,11 @@ else:
 MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 SPECS.update(load_mode_dir(MODES_DIR, SPECS))
 
-# THE fallback mode, for every module that resolves AUTORESEARCH_MODE at
-# import time. Single-sourced here on purpose: core/runtime.py,
-# core/pipeline.py and core/bo_driver.py each used to carry their own
-# literal, and two of them disagreed ("foilspf" vs "foilsflash"), so
-# `python -m graph.closed_loop --dry-run` with no --mode produced a
-# three-way mode disagreement out of nothing but fallbacks. That is the
-# shadow shape this whole branch existed to delete -- see
-# tests/test_modes.py::test_one_default_mode_literal_in_the_tree, which
-# fails if a fourth reader adds a fifth literal.
+# THE fallback mode for every module that resolves AUTORESEARCH_MODE at
+# import time. Single-sourced because per-module literals drift: two of the
+# three readers once disagreed, making a flagless run a three-way mode
+# disagreement built out of nothing but fallbacks. Pinned by
+# tests/test_modes.py::test_one_default_mode_literal_in_the_tree.
 DEFAULT_MODE = "foilspf"
 assert DEFAULT_MODE in SPECS, (
     f"DEFAULT_MODE {DEFAULT_MODE!r} is not a live mode; mode_specs/ has "
@@ -171,11 +139,11 @@ assert DEFAULT_MODE in SPECS, (
 # ============================================================================
 
 def _unknown_mode_message(source: str, value) -> str:
-    """One message shape for every "that is not a mode" failure, whether it
-    came from `--mode` or from AUTORESEARCH_MODE. Always names the bad value
-    AND lists the live ones -- the live names differ by one or two
-    characters (foilspf / foilspfbw / foilspfbp / foilspfbpx / foilspfbpz),
-    so "invalid mode" alone does not tell an operator what they mistyped.
+    """One message shape for every "that is not a mode" failure, from
+    `--mode` or AUTORESEARCH_MODE. Names the bad value AND the live ones:
+    they differ by a character or two (foilspf / foilspfbw / foilspfbp /
+    foilspfbpx / foilspfbpz), so "invalid mode" alone would not tell an
+    operator what they mistyped.
     """
     return (f"[mode] FATAL unknown {source} {value!r}. Known modes: "
             f"{', '.join(sorted(SPECS))}. (Mode specs live in mode_specs/; "
@@ -185,28 +153,17 @@ def _unknown_mode_message(source: str, value) -> str:
 def resolve_env_mode() -> str:
     """The process's mode from AUTORESEARCH_MODE, VALIDATED.
 
-    UNSET (or empty) falls through to `DEFAULT_MODE` -- that is the
-    supported flagless invocation. SET BUT NOT A LIVE SPEC is FATAL, never a
-    silent fallback: an unknown value used to be coerced to DEFAULT_MODE, so
-    a single-character typo or a stale export naming a mode archived in
-    Task 5 launched a full campaign at rc=0 against the wrong bounds, the
-    wrong geometry and the wrong LEADERBOARD. That last one is the most
-    expensive silent failure available here, because the leaderboard is what
-    the GP refits on. `--mode nosuchmode` was already loud on both
-    entrypoints; this closes the asymmetry.
-
-    Every module-level reader of AUTORESEARCH_MODE calls THIS --
-    core/runtime.py, core/pipeline.py, core/bo_driver.py,
-    graph/pipeline_io.py, and rung 2 of
-    `stamp_mode_from_argv` -- so the validation cannot be bypassed by
-    reaching a reader that does not go through an entrypoint. A standalone
-    `python core/pipeline.py` previously died with a bare
-    KeyError('bogusmode') from core/runtime.py's dict lookup: same failure,
-    much worse message. It now gets this one.
-
-    SystemExit rather than a custom exception so the message reaches the
-    operator verbatim, with no traceback, whether it fires during a CLI's
-    argument handling or during a module import.
+    UNSET (or empty) falls through to `DEFAULT_MODE` -- the supported
+    flagless invocation. SET BUT NOT A LIVE SPEC is FATAL, never a silent
+    fallback: coerced, a one-character typo or a stale export naming an
+    archived mode launches a full campaign at rc=0 against the wrong bounds,
+    the wrong geometry and the wrong LEADERBOARD -- the last being the most
+    expensive silent failure available here, since the leaderboard is what
+    the GP refits on. Every module-level reader of AUTORESEARCH_MODE calls
+    THIS (core/runtime.py, core/pipeline.py, core/bo_driver.py,
+    graph/pipeline_io.py, stamp_mode_from_argv), so none can bypass the
+    validation by skipping the entrypoints. SystemExit so the message reaches
+    the operator verbatim, with no traceback, from a CLI or an import.
     """
     raw = os.environ.get("AUTORESEARCH_MODE")
     if not raw:
@@ -219,59 +176,32 @@ def resolve_env_mode() -> str:
 def stamp_mode_from_argv(argv=None) -> str:
     """Stamp `AUTORESEARCH_MODE` from a `--mode` on the command line.
 
-    Both core/runtime.py (`_SPEC`) and core/pipeline.py (`MODE`) resolve THE
-    process's mode at IMPORT time out of this env var, and neither can be
-    re-pointed afterwards. So a CLI entrypoint that takes `--mode` must stamp
-    it BEFORE the first `import runtime` / `import build`, or the whole
-    process runs against whatever mode happened to be the fallback -- with
-    no error anywhere.
+    core/runtime.py (`_SPEC`) and core/pipeline.py (`MODE`) each resolve THE
+    process's mode at IMPORT time from this env var and cannot be re-pointed
+    afterwards, so a CLI taking `--mode` MUST stamp BEFORE its first `import
+    runtime` / `import build`. Otherwise the process silently runs on
+    whatever the fallback was, and that governs events_per_job, njobs,
+    memory_mb, quorum, grid_tarball, dsconf_musing, MUSING and -- via
+    graph/build.py's STAGE_NODES -- the child's stage chain: another mode's
+    value on the grid is a metric DENOMINATOR error with no error surface
+    (wiki/incidents/events-per-job-mid-flight-edit.md). Callers pair this
+    with `assert_mode_stamped()` after argparse and use the RETURN VALUE as
+    their `--mode` argparse default. It lives in the registry because only
+    the registry can tell a real mode from a typo without importing a reader
+    of the env var.
 
-    graph/presniff.py used to do this and was deleted 2026-08-19 on the
-    argument that every live spec's `run.*` fields are currently identical,
-    so no mode-keyed lookup can disagree. That is true TODAY and is a
-    statement about the data, not about the code: the surface it governs is
-    events_per_job, njobs, memory_mb, quorum, grid_tarball, dsconf_musing,
-    MUSING and -- via graph/build.py's STAGE_NODES -- the child's stage chain
-    itself. The first per-mode edit to `run.stage_tuning.*` (exactly what
-    mode_specs/ exists to enable) silently ships another mode's value to the
-    grid, which is a metric DENOMINATOR error with no error surface. See
-    wiki/incidents/events-per-job-mid-flight-edit.md for that failure shape.
-    Callers pair this with `assert_mode_stamped()` after argparse, and use
-    the RETURN VALUE as their `--mode` argparse default so that `args.mode`
-    IS the resolved mode rather than a second constant that happens to
-    match it.
+    Precedence: an explicit `--mode <spec>`; else an already-set
+    AUTORESEARCH_MODE naming a live spec (the supported flagless way --
+    wiki/incidents/harvest-pyroot-nfs-rpc-hang.md's `AUTORESEARCH_MODE=<m>
+    python ... pipeline.py` recovery recipe; clobbering an operator's export
+    would be its own silent substitution); else `DEFAULT_MODE`. It ALWAYS
+    stamps, even in that last case, so every reader agrees BY CONSTRUCTION
+    instead of by separate fallbacks holding the same string.
 
-    Lives here rather than in a resurrected presniff module because this is
-    the registry: it is the only thing that can tell a real mode name from a
-    typo without importing anything that reads the env var.
-
-    Precedence, highest first:
-
-      1. an explicit `--mode <spec>` on the command line
-      2. an already-set AUTORESEARCH_MODE naming a live spec -- the
-         supported way to pick a mode without the flag. (Not "documented":
-         it appears nowhere in README.md, only in
-         wiki/incidents/harvest-pyroot-nfs-rpc-hang.md and two
-         docs/superpowers/plans/* files, always as an
-         `AUTORESEARCH_MODE=<m> python ... pipeline.py` recovery recipe.
-         Honouring it is still right -- clobbering an operator's explicit
-         export with DEFAULT_MODE would be its own silent substitution.)
-      3. `DEFAULT_MODE`
-
-    It ALWAYS stamps, even in case 3. Returning without stamping is what
-    made omitting `--mode` a hard startup FATAL: every module-level reader
-    then applied its OWN fallback, and they did not agree. Stamping the
-    default makes all of them agree BY CONSTRUCTION rather than by two
-    constants happening to hold the same string.
-
-    An UNKNOWN `--mode` is deliberately not stamped AS SUCH: stamping it
-    would make the caller's `from runtime import ...` die with a bare
-    `KeyError('foilspfbwq')` before argparse ever runs, replacing argparse's
-    "invalid choice: ... (choose from ...)" with a traceback. It falls
-    through to case 2/3 instead, and `assert_mode_stamped` reports the
-    unknown name properly a few lines later.
-
-    Returns the resolved mode (never None).
+    An UNKNOWN `--mode` is deliberately NOT stamped: that would make the
+    caller's `from runtime import ...` die with a bare KeyError before
+    argparse ever runs. It falls through, and `assert_mode_stamped` names it
+    properly a few lines later. Returns the resolved mode (never None).
     """
     argv = list(sys.argv[1:] if argv is None else argv)
     mode = None
@@ -281,8 +211,7 @@ def stamp_mode_from_argv(argv=None) -> str:
         elif tok.startswith("--mode="):
             mode = tok.split("=", 1)[1]
     if mode not in SPECS:
-        # Rung 2 + 3. resolve_env_mode RAISES on a set-but-unknown env value
-        # rather than coercing it to DEFAULT_MODE -- see its docstring.
+        # resolve_env_mode raises on a set-but-unknown env value.
         mode = resolve_env_mode()
     os.environ["AUTORESEARCH_MODE"] = mode
     return mode
@@ -292,20 +221,17 @@ def assert_mode_stamped(cli_mode: str) -> None:
     """Die loudly if the CLI's mode, the env stamp, runtime's spec and
     pipeline's MODE are not all the same string.
 
-    Belt-and-braces for `stamp_mode_from_argv`. The failure it guards is
-    silent by construction -- an import-order accident inside graph/build.py
-    decides which mode a stage-tuning lookup answers with -- so the check is
-    a loud startup abort rather than a warning. Cheap: both modules are
-    already imported by the time any caller reaches this.
+    Belt-and-braces for `stamp_mode_from_argv`: the failure it guards is
+    silent by construction (an import-order accident decides which mode a
+    stage-tuning lookup answers with), so it aborts loudly at startup rather
+    than warning. Cheap -- both modules are already imported by then.
     """
     import runtime as _runtime
     import pipeline as _pipeline
     if cli_mode not in SPECS:
-        # Distinct message: `graph/run.py`'s --mode has no argparse choices
-        # (the pool passes an already-validated mode), so a typo lands here
-        # rather than at argparse. Without this branch it would be reported
-        # as an import-order problem, which it is not. Same shape as the
-        # AUTORESEARCH_MODE version -- see _unknown_mode_message.
+        # `graph/run.py`'s --mode has no argparse choices (the pool passes an
+        # already-validated mode), so a typo lands here, not at argparse, and
+        # would otherwise be misreported as an import-order problem.
         raise SystemExit(_unknown_mode_message("--mode", cli_mode))
     env = os.environ.get("AUTORESEARCH_MODE")
     got = {"--mode": cli_mode, "AUTORESEARCH_MODE": env,

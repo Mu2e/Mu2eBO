@@ -5,35 +5,27 @@ up as each one exits, until `max_evals` have been launched and the pool
 drains. All of that lives in `graph/pool.py::run_rolling`; this module wires
 CLI args to it and keeps the pieces `run_rolling` depends on:
 
-  renew_token             — kerberos + bearer refresh; passed to
-                             run_rolling as `renew=renew_token` and called
-                             once before EVERY child launch (not once per
-                             round — there are no rounds anymore). Time-gated
-                             internally (see RENEW_MIN_INTERVAL_S) so the
-                             higher call frequency doesn't multiply exposure
-                             to the /cvmfs sourcing flake class.
-  _stop_requested          — the STOP_CLOSED_LOOP kill switch; passed to
-                             run_rolling as `stop_flag=_stop_requested`.
-  _botorch_picks_subprocess — the picker subprocess wrapper; this is what
-                             `pool.py` calls in production, once per pick,
-                             and what `--dry-run` previews. (`node_predict_
-                             picks` and `_leaderboard_len` were deleted in
-                             the final review, finding M2: both returned the
-                             retired RoundState shape and had no caller —
-                             `_dry_run` always called the wrapper directly.)
+  renew_token              — kerberos + bearer refresh; passed as
+                             `renew=renew_token` and called once before EVERY
+                             child launch. Time-gated internally (see
+                             RENEW_MIN_INTERVAL_S) so the call frequency
+                             doesn't multiply exposure to the /cvmfs sourcing
+                             flake class.
+  _stop_requested          — the STOP_CLOSED_LOOP kill switch; passed as
+                             `stop_flag=_stop_requested`.
+  _botorch_picks_subprocess — the picker subprocess wrapper; what `pool.py`
+                             calls in production, once per pick, and what
+                             `--dry-run` previews.
   _leaderboard_names / _child_is_broken — the two signals `pool.py` reads
                              at resolution time (rows landed / broken.txt).
 
-There is no outer LangGraph state machine anymore, and no SqliteSaver
-checkpoint for the parent. A child resolves when its subprocess EXITS —
-`run_rolling`'s `ThreadPoolExecutor` + `as_completed` IS the barrier. See
-graph/pool.py for the full rationale and the incidents this retires
-(barrier-false-positive-round1, closed-loop-barrier-timeout-zero-rows-
-falsepos, closed-loop-final-round-orphan-children,
-rolling-no-row-streak-false-increment).
+There is no LangGraph state machine and no SqliteSaver checkpoint for the
+parent. A child resolves when its subprocess EXITS — `run_rolling`'s
+`ThreadPoolExecutor` + `as_completed` IS the barrier. See graph/pool.py for
+the rationale and the incidents that retires.
 
-See wiki/concepts/closed-loop-bo-design.md (being superseded by this
-change) and wiki/drivers/closed-loop-runner.md.
+See wiki/concepts/closed-loop-bo-design.md and
+wiki/drivers/closed-loop-runner.md.
 """
 from __future__ import annotations
 
@@ -53,9 +45,9 @@ import modes as _modes  # noqa: E402
 # bo_driver` / `import pipeline` further down): both core/runtime.py (_SPEC)
 # and core/pipeline.py (MODE) resolve the process's mode from
 # AUTORESEARCH_MODE at IMPORT time and cannot be re-pointed later. The parent
-# also passes --mode explicitly to each child, but it must not hand children
-# an env that contradicts it. Rationale and precedence rules:
-# core/modes.py::stamp_mode_from_argv. main() re-checks with
+# also passes --mode explicitly to each child, so it must not hand children an
+# env that contradicts it. Precedence rules:
+# core/modes.py::stamp_mode_from_argv; main() re-checks with
 # assert_mode_stamped(). The RETURN VALUE becomes --mode's argparse default
 # below, so `args.mode` IS the resolved mode rather than a second constant.
 _MODE = _modes.stamp_mode_from_argv()
@@ -74,16 +66,15 @@ from runtime import (  # noqa: E402
 
 from sourced_bash import run_sourced_bash  # noqa: E402
 
-# Module-level (not lazy inside main()) specifically so `run_rolling` is a
-# patchable attribute of THIS module (cl.run_rolling) for
-# tests/test_closed_loop.py::test_wired_into_run_rolling_call -- pool.py
-# only imports closed_loop lazily inside its own function bodies, so this
-# has no circular-import hazard at module load time.
+# Module-level (not lazy inside main()) so `run_rolling` is a patchable
+# attribute of THIS module (cl.run_rolling) for tests/test_closed_loop.py.
+# No circular-import hazard: pool.py imports closed_loop only inside its own
+# function bodies.
 from pool import child_name, run_rolling  # noqa: E402
 
-# cl_min retired per ADR-0001 (2026-07-06, deleted 2026-07-11): the closed
-# loop must never import code outside this repo; all pickers route through
-# in-repo botorch_predict.py in the project .venv.
+# cl_min retired per ADR-0001: the closed loop must never import code outside
+# this repo; all pickers route through in-repo botorch_predict.py in the
+# project .venv.
 PICKER_CHOICES = ("qnehvi", "qlnei", "pareto_sob", "budget_sob",
                   "qnparego", "hybrid")
 DEFAULT_PICKER = "hybrid"
@@ -120,57 +111,45 @@ def _leaderboard_names(mode: str) -> set:
 # Renew token — wired into run_rolling as `renew=renew_token`
 # ============================================================================
 
-# Minimum spacing between successful renewals. run_rolling calls renew()
-# once per LAUNCH (up to ~40 times in a q=20 max_evals=40 campaign, vs ~2
-# under the old once-per-round parent) -- amends the original per-launch
-# ruling: wall cost was never the issue (kinit -R IS cheap), FAILURE SURFACE
-# is. Every call sources setupmu2e-art.sh from /cvmfs, and both
-# wiki/incidents/sourced-env-stderr-swallowed.md and
-# wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md document that sourcing
-# as a known flake class (the second is *triggered* by concurrent lock
-# churn on exactly this path) -- and a persistent failure here is FATAL. 20x
-# the attempts is 20x the chances that all retries land on a bad window.
-# Same freshness guarantee (krb5 lifetime is ~25h; 30min is a tiny fraction
-# of that), a twentieth of the exposure. Kept inside renew_token (not at the
-# call site) so the gate can't be bypassed by a caller.
+# Minimum spacing between successful renewals. run_rolling calls renew() once
+# per LAUNCH (up to ~40 times in a q=20 max_evals=40 campaign). The cost is
+# not wall time (kinit -R IS cheap) but FAILURE SURFACE: every call sources
+# setupmu2e-art.sh from /cvmfs, a known flake class
+# (wiki/incidents/sourced-env-stderr-swallowed.md and
+# wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md -- the second is
+# *triggered* by concurrent lock churn on exactly this path), and a
+# persistent failure here is FATAL. krb5 lifetime is ~25h, so 30 min gives
+# the same freshness guarantee at a twentieth of the exposure. Kept inside
+# renew_token (not at the call site) so the gate can't be bypassed.
 RENEW_MIN_INTERVAL_S = 30 * 60
 
 _last_renewed_at = 0.0
 
 
 def renew_token() -> None:
-    """Refresh krb5 ticket + bearer token. Called by run_rolling before
-    every child launch (no `state`/round shape left — the pool has no
-    rounds; this is a plain zero-arg callable, per run_rolling's `renew`
-    injection seam). Time-gated: a no-op if the last successful renewal was
-    under RENEW_MIN_INTERVAL_S ago.
+    """Refresh krb5 ticket + bearer token. A plain zero-arg callable per
+    run_rolling's `renew` seam, called before every child launch. Time-gated:
+    a no-op if the last successful renewal was under RENEW_MIN_INTERVAL_S ago.
 
-    Closed-loop campaigns run many hours wall; default krb5 lifetime is ~25h,
-    so a long rolling run can easily outlive the ticket. First post-expiry
-    subprocess.run raises Errno 127 (ENOKEY) and the inner graph terminates
-    before harvest — the eval is silently LOST (no leaderboard row, no loud
-    failure) rather than visibly failed. See
-    wiki/incidents/kerberos-mid-run-expiry.md.
+    Campaigns run many hours wall; default krb5 lifetime is ~25h, so a long
+    rolling run can outlive the ticket. The first post-expiry subprocess.run
+    raises Errno 127 (ENOKEY) and the inner graph terminates before harvest —
+    the eval is silently LOST (no leaderboard row, no loud failure) rather
+    than visibly failed. See wiki/incidents/kerberos-mid-run-expiry.md.
 
     Hard gate: if `getToken` fails (proxy for "can we actually submit?"),
-    `sys.exit(2)` with an actionable message. This is a SystemExit, not an
-    Exception subclass, so it is never caught by run_rolling's
-    `except Exception` around a resolved future's `.result()` — it
-    propagates straight out of the launch loop, out of the
-    `with ThreadPoolExecutor(...)` block (which still drains any already-
-    launched, already-running children via its own `shutdown(wait=True)`
-    on unwind, so nothing already submitted to the grid is abandoned
-    mid-flight), out of run_rolling, out of main(), and terminates the
-    process with exit code 2. No new children are launched past this
-    point; children already handed to the grid are on their own from here
-    (they don't need the parent's local ticket once submitted). The FATAL
-    print says this explicitly — the process can then take up to the
-    longest still-running child's wall time (hours) to actually exit, and
-    an operator watching the tail without that context could mistake the
-    drain for a hang.
+    `sys.exit(2)` with an actionable message. SystemExit is not an Exception
+    subclass, so run_rolling's `except Exception` around a resolved future
+    never swallows it; it propagates out of the launch loop and out of the
+    `with ThreadPoolExecutor(...)` block, whose `shutdown(wait=True)` on
+    unwind still drains already-launched children, so nothing already
+    submitted to the grid is abandoned mid-flight. No new children launch
+    past this point; already-submitted ones don't need the parent's local
+    ticket. The FATAL print says so explicitly, because the drain can take
+    hours and an operator watching the tail could mistake it for a hang.
 
-    `kinit -R` is best-effort (it's normal for it to fail if the ticket
-    is past its renewable lifetime); the load-bearing check is `getToken`.
+    `kinit -R` is best-effort (failing is normal past the renewable
+    lifetime); the load-bearing check is `getToken`.
     """
     global _last_renewed_at
     if time.time() - _last_renewed_at < RENEW_MIN_INTERVAL_S:
@@ -185,9 +164,9 @@ def renew_token() -> None:
     cmd = "source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh && getToken"
     try:
         # getToken shares the cvmfs/spack flake class -> retry via the shared
-        # helper (was a bare one-shot subprocess.run). A persistent rc!=0 after
-        # retries is still FATAL (krb5 likely expired); a transient flake now
-        # recovers instead of hard-exiting the whole campaign.
+        # helper. A persistent rc!=0 after retries is still FATAL (krb5 likely
+        # expired); a transient flake recovers instead of hard-exiting the
+        # whole campaign.
         r = run_sourced_bash(cmd, login=True, timeout=120, label="renew_token")
     except Exception as exc:  # noqa: BLE001
         msg = (f"[closed_loop] FATAL renew_token: getToken raised: {exc}. "
@@ -218,25 +197,19 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
                               pending: list | None = None) -> list[tuple]:
     """Shell into the botorch venv for q picks (thin wrapper on bo.botorch_ask).
 
-    Picker subprocess: bo.botorch_ask shells into BOTORCH_VENV_PY (the
-    project .venv by default; AUTORESEARCH_BOTORCH_VENV overrides). It owns
-    the subprocess + JSON round-trip; this wrapper pins the venv from
-    runtime.BOTORCH_VENV_PY (the AUTORESEARCH_BOTORCH_VENV A/B seam) and
-    keeps the historical list-of-tuples return contract.
+    bo.botorch_ask owns the subprocess + JSON round-trip; this wrapper pins
+    the venv from runtime.BOTORCH_VENV_PY (the AUTORESEARCH_BOTORCH_VENV A/B
+    seam) and keeps the list-of-tuples return contract.
 
-    picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj),
-    "qlnei" (single-obj sob -- acquisition ONLY: the
-    `AUTORESEARCH_NO_RUN1B=1` auto-stamp that used to make it also drop the
-    `run1b_mubeam` stage died with graph/presniff.py 2026-08-19 and was NOT
-    restored; no live mode's stage chain contains that stage anyway),
-    "pareto_sob" (GP-mean sob corner),
-    "budget_sob" (GP-mean sob corner constrained to the deployed damage
-    budget), "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
-    (~60% qnehvi + ~40% qnparego; recommended for new multi-objective lines).
-    `pending` carries in-flight x_points so replacements fantasize over them
-    (X_pending) instead of re-picking a point that's already being measured.
-    This is `graph/pool.py`'s test seam: `run_rolling`'s `next_pick` hook
-    wraps this call and passes it the literal in-flight set.
+    picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj), "qlnei"
+    (single-obj sob -- acquisition ONLY, it changes no stage chain),
+    "pareto_sob" (GP-mean sob corner), "budget_sob" (same, constrained to the
+    deployed damage budget), "qnparego" (random-Chebyshev-scalarization
+    spread), "hybrid" (~60% qnehvi + ~40% qnparego; recommended for new
+    multi-objective lines). `pending` carries in-flight x_points so
+    replacements fantasize over them (X_pending) instead of re-picking a
+    point already being measured; `run_rolling`'s `next_pick` hook passes it
+    the literal in-flight set.
     """
     import bo_driver as bo  # noqa: WPS433  (env-independent; safe pre-stamp)
     raw = bo.botorch_ask(mode, q, seed_idx=round_idx, picker=picker,
@@ -251,21 +224,18 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
 def _dry_run(args: argparse.Namespace) -> int:
     """Preview the picks and names a real launch would start with.
 
-    Names use the PRODUCTION shape `{prefix}R{i:02d}_00` (graph/pool.py's
-    `_default_pick_source`), not the retired round/child `R00_{j:02d}` — an
-    operator previewing names must not be shown names the campaign will
-    never use (final review, finding M3). The indices are still only
-    indicative: a live run advances past any name already resolved or with
-    work in flight (see `pool._name_busy_reason`), and refits the GP between
-    picks instead of drawing them as one batch.
+    Names come from `pool.child_name`, so an operator is never shown names the
+    campaign will not use. The indices are only indicative: a live run
+    advances past any name already resolved or with work in flight (see
+    `pool._name_busy_reason`), and refits the GP between picks instead of
+    drawing them as one batch.
     """
     picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, picker=args.picker)
     print(f"[dry-run] first {len(picks)} picks (mode={args.mode}, "
           f"picker={args.picker})")
     # Labels come from the registry (ModeSpec.knob_names, ADR-0002), not a
-    # hand-maintained table: the local copy this replaced covered 5 of the 11
-    # modes, so every JSON mode (foilspf, the A/B arms) printed bare x0..xN,
-    # and its labels had drifted from the leaderboard column names.
+    # hand-maintained table: the local copy this replaced covered 5 of 11
+    # modes, so every JSON mode printed bare x0..xN with drifted labels.
     labels = _modes.SPECS[args.mode].knob_names
     for j, p in enumerate(picks):
         name = child_name(args.name_prefix, j)
@@ -307,8 +277,8 @@ def main() -> int:
     args = ap.parse_args()
     # Loud, cheap: a mode disagreement between the CLI, the env stamp,
     # runtime._SPEC and pipeline.MODE is otherwise SILENT -- the grid just
-    # quietly runs another mode's events_per_job / njobs / grid tarball /
-    # stage chain, which is a metric denominator error with no error surface
+    # runs another mode's events_per_job / njobs / grid tarball / stage chain,
+    # a metric denominator error with no error surface
     # (wiki/incidents/events-per-job-mid-flight-edit.md).
     _modes.assert_mode_stamped(args.mode)
 
@@ -322,9 +292,9 @@ def main() -> int:
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
 
     # Resolve the target leaderboard so the banner is self-incriminating: a
-    # mode/prefix mismatch (e.g. --mode foils with a "foilsf" prefix landing
-    # rows in v2 instead of v3) is then visible in the first log line rather
-    # than only after the first eval completes. See wiki/datasets/leaderboards.md.
+    # mode/prefix mismatch (rows landing on the wrong board) is visible in the
+    # first log line rather than only after the first eval completes. See
+    # wiki/datasets/leaderboards.md.
     try:
         import bo_driver as _bo  # noqa: WPS433
         _lb = str(_bo.MODES[args.mode].leaderboard)
@@ -334,17 +304,13 @@ def main() -> int:
     print(f"[closed_loop] q={args.q} max_evals={max_evals} "
           f"prefix={args.name_prefix} mode={args.mode} leaderboard={_lb} "
           f"picker={args.picker}", flush=True)
-    # (The old foilsf/foils "v3 fractional vs v2 absolute" prefix warning was
-    # dropped here: --mode now carries choices=sorted(SPECS), and neither
-    # `foils` nor `foilsf` has been a live spec since the JSON-mode
-    # conversion, so the branch could not fire.)
     result = run_rolling(
         mode=args.mode, picker=args.picker, q=args.q, max_evals=max_evals,
         alpha=args.alpha, name_prefix=args.name_prefix,
         renew=renew_token, stop_flag=_stop_requested)
     # Tally by outcome reason so a multi-day log ends with the failure
     # breakdown on one line instead of scattered through thousands of
-    # per-child lines (MINOR 13, review round 2).
+    # per-child lines.
     tally = Counter(oc.reason for oc in result["outcomes"])
     tally_str = ", ".join(f"{reason}={n}" for reason, n in
                           sorted(tally.items(), key=lambda kv: -kv[1]))
