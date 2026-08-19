@@ -291,8 +291,11 @@ def _qlnei_picks(model, X, bounds, q: int, round_idx: int, x_pending=None):
     """Optimize qLogNoisyExpectedImprovement for q candidates over 1D Y (sob).
 
     Single-objective picker — use when you want to push sob ceiling and
-    don't care about calo trade-off. Drops the entire run1b_mubeam stage
-    (calo measurement is unused) and converges much faster on the plateau.
+    don't care about calo trade-off; converges much faster on the plateau.
+    It no longer drops the run1b_mubeam stage: the `AUTORESEARCH_NO_RUN1B=1`
+    auto-stamp that did that died with graph/presniff.py (2026-08-19) and
+    was not restored, and no live mode's stage chain contains that stage
+    anyway. The calo measurement is simply unused by this acquisition.
     x_pending: as in _qnehvi_picks.
     """
     from botorch.acquisition.logei import qLogNoisyExpectedImprovement
@@ -611,9 +614,11 @@ def compute_explore_picks(q: int = 5,
     """Explore-pick engine.
 
     picker = "qnehvi" (default, multi-objective Pareto-HV), "qlnei"
-    (single-objective qLogNoisyExpectedImprovement on sob only — drops calo
-    entirely; closed_loop stamps AUTORESEARCH_NO_RUN1B=1 so the DS-off stage
-    is skipped and the grid time is actually saved), "pareto_sob"
+    (single-objective qLogNoisyExpectedImprovement on sob only — ignores
+    calo. It used to also SAVE the DS-off stage's grid time, via a
+    closed_loop auto-stamp of AUTORESEARCH_NO_RUN1B=1; that stamp died with
+    graph/presniff.py 2026-08-19 and was not restored, so today this is an
+    acquisition choice with no wall-clock effect), "pareto_sob"
     (GP-mean sob corner), "budget_sob" (GP-mean sob corner CONSTRAINED to
     flash <= the deployed damage budget — the deployment-facing exploit),
     "qnparego"

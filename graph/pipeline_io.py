@@ -95,13 +95,16 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     work_geom_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(geom_path, work_geom_dir / f"autoresearch_{config_name}_geom.txt")
     mode.append_pending(config_name, x, alpha)
-    # Coerce numpy scalars to native Python types. np.int64 is NOT
-    # msgpack-serializable, and LangGraph's SqliteSaver
-    # checkpointer (graph/run.py default) calls ormsgpack on the state dict —
-    # so an unguarded np.int64 in x_point bubbles up as
-    # `TypeError: Type is not msgpack serializable: numpy.int64` at end-of-run.
-    # Affects prodtarget mode (N=numberOfPlates is the only Integer dim across
-    # all modes); see wiki/incidents/langgraph-checkpoint-numpy-int64.md.
+    # Coerce numpy scalars to native Python types. Kept after the
+    # checkpointer's retirement (2026-08-19), which removed the original
+    # motive: LangGraph's SqliteSaver called ormsgpack on the state dict and
+    # np.int64 is not msgpack-serializable, so an unguarded np.int64 in
+    # x_point surfaced as `TypeError: Type is not msgpack serializable:
+    # numpy.int64` at end-of-run (wiki/incidents/langgraph-checkpoint-numpy-
+    # int64.md, prodtarget's Integer numberOfPlates dim -- archived). The
+    # coercion still earns its place: x_point is JSON-serialized into the
+    # picker subprocess and written to the leaderboard/pending TSVs, and
+    # np.int64 is no friendlier there.
     return bo.to_py_scalars(x), str(geom_path)
 
 

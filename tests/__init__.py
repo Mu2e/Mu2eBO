@@ -32,6 +32,30 @@ This is safe for the runner and for tests that capture output:
 import os
 import sys
 
+# ---------------------------------------------------------------------------
+# The suite's mode, stamped ONCE, here.
+#
+# core/runtime.py (_SPEC) and core/pipeline.py (MODE) each resolve the
+# process's mode from AUTORESEARCH_MODE at IMPORT time and cannot be
+# re-pointed afterwards, so a single-process suite necessarily runs under ONE
+# mode. Before this stamp, that mode was decided by whichever test module
+# `discover` imported first: tests/test_closed_loop.py sorts ahead of
+# tests/test_pool.py and tests/test_no_mock_mode.py, so its
+# setdefault("foilsflash") won and THEIR setdefault("foilspf") lines were
+# silent no-ops. Two costs: the mode the suite actually exercised was an
+# accident of filename ordering, and a mode-stamping bug (final review,
+# finding I1) was untestable because every module already agreed by
+# accident. Setting it in the package __init__ makes the choice explicit and
+# single-sourced; the per-module setdefaults below it stay as harmless
+# belt-and-braces for `discover -s tests` without `-t .`, which never imports
+# this file.
+#
+# foilspf is the live default (core/runtime.py DEFAULT_MODE) and the mode
+# this branch's spec is named for. Tests that need a DIFFERENT mode must say
+# so per-test (see tests/test_modes.py::TestModeStamping, which spawns a
+# fresh interpreter rather than trying to re-point this one).
+os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
+
 
 class _Discard:
     """Minimal write-only sink. `print(..., flush=True)` needs flush()."""

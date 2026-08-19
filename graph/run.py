@@ -24,6 +24,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+# MUST precede `from build import ...` / `from runtime import ...`: both
+# core/runtime.py (_SPEC) and core/pipeline.py (MODE) resolve the process's
+# mode from AUTORESEARCH_MODE at IMPORT time and cannot be re-pointed later,
+# so without this the child runs whichever mode the fallbacks land on --
+# which, before this stamp was restored, was `foilspf` for runtime and
+# `foilsflash` for pipeline no matter what --mode said. Replaces the deleted
+# graph/presniff.py; see core/modes.py::stamp_mode_from_argv for why the
+# "all live specs are identical today" argument that deleted it does not
+# hold as a code invariant. main() re-checks with assert_mode_stamped().
+import modes as _modes  # noqa: E402
+_modes.stamp_mode_from_argv()
+
 from build import build_graph  # noqa: E402
 from paths import GRAPH_DATA  # noqa: E402
 from runtime import (  # noqa: E402
@@ -44,6 +56,12 @@ def main() -> int:
                     help="comma-separated forced x (e.g. '0.587,304.77,198.91,94.17'). "
                          "Skips BO propose and uses this point directly.")
     args = ap.parse_args()
+    # Loud, cheap: a mode disagreement between the CLI, the env stamp,
+    # runtime._SPEC and pipeline.MODE is otherwise SILENT -- the grid just
+    # quietly runs another mode's events_per_job / njobs / grid tarball /
+    # stage chain, which is a metric denominator error with no error surface
+    # (wiki/incidents/events-per-job-mid-flight-edit.md).
+    _modes.assert_mode_stamped(args.mode)
 
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
 
@@ -51,12 +69,14 @@ def main() -> int:
     # ever resumed from a checkpoint -- while it CAUSED 5 incidents, and in
     # sqlite-wal-corrupt-after-kill it blocked the restart outright. The
     # useful half of resume -- not relaunching a config a prior run already
-    # resolved -- survives this: graph/pool.py's _default_pick_source skips
-    # any candidate name already in the leaderboard or carrying broken.txt
-    # (Task 3 review round 2, CRITICAL 1), which is what actually matters
-    # for the standard recovery move (relaunch under the same --name-prefix)
-    # since that's a fresh `python -m graph.closed_loop` invocation, not a
-    # resumed `python -m graph.run` thread_id.
+    # resolved, and not launching a second child on top of one whose grid
+    # work is still in flight -- survives this: graph/pool.py's
+    # _default_pick_source skips any candidate name with a leaderboard row,
+    # a broken.txt, a *_cluster.txt or an unresolved pending row (Task 3
+    # review round 2 CRITICAL 1; final review C1). That is what actually
+    # matters for the standard recovery move (relaunch under the same
+    # --name-prefix), since that's a fresh `python -m graph.closed_loop`
+    # invocation, not a resumed `python -m graph.run` thread_id.
     graph = build_graph().compile()
 
     thread_id = args.thread_id or f"cli-{uuid.uuid4().hex[:8]}"
@@ -79,10 +99,16 @@ def main() -> int:
     final = None
     for ev in graph.stream(init, cfg, stream_mode="values"):
         final = ev
-        # Config-name swap guard: if a stale SqliteSaver checkpoint resumes
-        # a different thread's state mid-stream, abort loudly rather than
-        # silently writing the wrong row to the leaderboard.
-        # See [[closed-loop-thread-id-checkpoint-collision]].
+        # Config-name swap guard. UNREACHABLE as written: it existed for
+        # closed-loop-thread-id-checkpoint-collision, where a stale
+        # SqliteSaver checkpoint resumed a different thread's state
+        # mid-stream and the wrong row went to the leaderboard -- and there
+        # is no checkpointer any more (retired 2026-08-19), so nothing can
+        # inject another config_name into this stream. KEPT DELIBERATELY as
+        # cheap insurance: it is one string compare per superstep, and the
+        # failure it catches (a leaderboard row under the wrong name) is
+        # both silent and unrecoverable. Do not read its presence as
+        # evidence that a resume mechanism still exists.
         if expected_name is not None:
             got = ev.get("config_name")
             if got is not None and got != expected_name:

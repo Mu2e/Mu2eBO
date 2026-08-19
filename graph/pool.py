@@ -33,9 +33,74 @@ import sys
 import time
 import uuid
 from collections import namedtuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
+from concurrent.futures import as_completed
 
 Outcome = namedtuple("Outcome", "name x rc row_landed broken reason")
+
+# How often the parent prints what it is waiting on. Purely diagnostic --
+# see _wait_one. 15 min is short enough that a q=20 launch (30 min of
+# 90 s stagger before the first resolution can even be expected) is never
+# silent for long, and long enough that a multi-day campaign log stays
+# readable.
+HEARTBEAT_S = 15 * 60
+
+# Age at which an in-flight child gets a WARNING rather than a heartbeat
+# line. 24 h matches core/pipeline.py's own poll cap_hours: past that, the
+# child is outside every documented normal duration.
+STALL_WARN_S = 24 * 3600
+
+
+def _log_inflight(inflight, started, log, now=None, warn_after=STALL_WARN_S):
+    """One heartbeat line: what is in flight and for how long.
+
+    REPORT-ONLY, deliberately. It must never resolve, abandon or abort a
+    child: a parent-level timeout that DECIDES things is exactly
+    wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md, where
+    a 240-min barrier timeout was misread as "all children failed" and the
+    campaign exited with 8 orphans still running. The spec that produced
+    this module closed that incident by construction (a child resolves when
+    its subprocess exits, full stop) and this must not re-open it. The only
+    thing missing was DIAGNOSTICS: `as_completed` with no timeout means a
+    hung child (wiki/incidents/harvest-pyroot-nfs-rpc-hang.md: harvest in
+    D-state 5.5 h with no timeout at any layer;
+    wiki/incidents/poll-deadlock-missing-outstage-dirs.md: a full 24 h
+    cap_hours wait) freezes the parent log, and silence is indistinguishable
+    from healthy grid time.
+    """
+    now = time.time() if now is None else now
+    ages = sorted(((now - started.get(name, now)), name)
+                  for name, _x in inflight.values())
+    summary = ", ".join(f"{name} {age / 3600:.1f}h" for age, name in ages)
+    log(f"[pool] heartbeat: {len(inflight)} in flight ({summary})")
+    for age, name in ages:
+        if age < warn_after:
+            break
+        log(f"[pool] WARNING {name} has been in flight {age / 3600:.1f}h "
+            f"(> {warn_after / 3600:.0f}h). Nothing is being resolved or "
+            f"abandoned on its account -- the parent waits for its "
+            f"subprocess to exit, by design. To investigate: "
+            f"`pgrep -f 'graph.run.*{name}'`, its log under "
+            f"closed_loop_logs/{name}.log, and `jobsub_q -G mu2e "
+            f"--user=$USER`. If you kill it, clear its state before any "
+            f"relaunch under the same --name-prefix: "
+            f"`rm <grid>/{name}/state/*_cluster.txt` (only once no job of "
+            f"its is still landing outputs there), or relaunch with a "
+            f"different --name-prefix.")
+
+
+def _wait_one(inflight, started, log, heartbeat=HEARTBEAT_S):
+    """Block until one future resolves, emitting a heartbeat meanwhile.
+
+    Same contract as the bare `next(as_completed(...))` it replaces -- it
+    returns exactly when a child exits, never earlier. The timeout drives
+    logging only.
+    """
+    while True:
+        try:
+            return next(as_completed(list(inflight), timeout=heartbeat))
+        except _FutureTimeout:
+            _log_inflight(inflight, started, log)
 
 
 def classify(name, x, rc, mode, row_landed, broken) -> Outcome:
@@ -67,7 +132,8 @@ def _should_abort(streak: int, q: int) -> bool:
 
 def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
                 run_child=None, next_pick=None, stop_flag=None, renew=None,
-                row_landed=None, broken=None, log=print, stagger=None):
+                row_landed=None, broken=None, log=print, stagger=None,
+                heartbeat=HEARTBEAT_S):
     """Keep q children in flight until max_evals launched and the pool drains.
 
     Returns {"launched", "rows", "outcomes", "aborted"}.
@@ -82,6 +148,12 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
     (wiki/incidents/concurrent-token-contention.md, which measured 60-90s as
     safe). Defaults to `runtime.CLOSED_LOOP_STAGGER_SEC` when omitted; tests
     pass `stagger=0` so the suite doesn't sleep.
+
+    `heartbeat` seconds between "here is what I am waiting on" log lines
+    while the pool is blocked. REPORT-ONLY -- it never resolves or abandons
+    a child (see `_log_inflight`); it exists because a hung child otherwise
+    freezes the parent log indefinitely and silence is indistinguishable
+    from healthy grid time.
     """
     run_child = run_child or _default_run_child(mode, alpha)
     next_pick = next_pick or _default_pick_source(name_prefix)
@@ -94,6 +166,7 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
         stagger = CLOSED_LOOP_STAGGER_SEC
 
     inflight = {}
+    started = {}   # name -> launch timestamp, for the heartbeat's ages
     launched = 0
     rows = 0
     streak = 0
@@ -105,7 +178,25 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
         regardless of which site (main loop or drain) calls this -- the
         drain used to omit it, so an abort's abandoned children (up to
         q-1 of them) produced no diagnostics at exactly the moment an
-        operator most needs them."""
+        operator most needs them.
+
+        Also renews the ticket, AFTER the outcome is recorded. renew() used
+        to be called only in the top-up loop, so once the last child was
+        LAUNCHED a q=20 pool could drain for hours with no `kinit -R` -- and
+        children share the parent's ccache, so an expiry during a late stage
+        submit is wiki/incidents/kerberos-mid-run-expiry.md: the eval dies
+        before harvest and VANISHES (no row, no loud failure) rather than
+        failing visibly. renew_token is time-gated at RENEW_MIN_INTERVAL_S,
+        so the extra call sites cost nothing (final review, finding M7).
+
+        Failures here are REPORTED, not fatal -- deliberately asymmetric with
+        the pre-launch renew() in the top-up loop, which stays fatal. That
+        one answers "can we still submit?", and the honest answer to no is
+        stop launching. This one is opportunistic hygiene for children
+        already running: aborting the parent on it would abandon reporting
+        for a pool that is only draining, and during a drain there is
+        nothing left to refuse to launch. SystemExit is caught explicitly
+        because renew_token signals fatal with sys.exit(2)."""
         name, x = inflight.pop(fut)
         try:
             rc = fut.result()
@@ -114,6 +205,12 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
             log(f"[pool] {name} raised: {exc}")
         oc = classify(name, x, rc, mode, row_landed(name, mode), broken(name))
         log(f"[pool] {name}: {oc.reason}")
+        try:
+            renew()
+        except (Exception, SystemExit) as exc:  # noqa: BLE001
+            log(f"[pool] renew at resolution failed ({exc}); not fatal here "
+                f"-- the pre-launch renew is the gate that stops the "
+                f"campaign. Children already running are unaffected.")
         return oc
 
     with ThreadPoolExecutor(max_workers=q) as poolx:
@@ -126,12 +223,13 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
                 x, name = next_pick(mode, picker,
                                     [v for _, v in inflight.values()])
                 inflight[poolx.submit(run_child, name, x)] = (name, x)
+                started[name] = time.time()
                 launched += 1
                 log(f"[pool] launched {name} ({launched}/{max_evals}), "
                     f"in_flight={len(inflight)}")
             if not inflight:
                 break
-            oc = _resolve_one(next(as_completed(list(inflight))))
+            oc = _resolve_one(_wait_one(inflight, started, log, heartbeat))
             outcomes.append(oc)
             if oc.row_landed:
                 rows += 1
@@ -145,10 +243,12 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
                     f"no row (>= {max(q, 2)})")
         # Drain: never exit with work in flight. This is the structural fix
         # for closed-loop-final-round-orphan-children. Uses the SAME
-        # _resolve_one helper as the main loop, so an abort's abandoned
-        # children still get a per-child log line.
-        for fut in as_completed(list(inflight)):
-            oc = _resolve_one(fut)
+        # _resolve_one and _wait_one helpers as the main loop, so an abort's
+        # abandoned children still get a per-child log line AND the drain --
+        # which is where a q=20 pool spends its last hours, and where a STOP
+        # spends ALL of its time -- is not silent either.
+        while inflight:
+            oc = _resolve_one(_wait_one(inflight, started, log, heartbeat))
             outcomes.append(oc)
             if oc.row_landed:
                 rows += 1

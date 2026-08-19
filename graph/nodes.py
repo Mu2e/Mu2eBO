@@ -1,7 +1,10 @@
 """Graph nodes for the BO iteration.
 
 Each node is a pure function: state in → partial state out. LangGraph merges
-the returned dict into the running state and checkpoints it.
+the returned dict into the running state. Nothing is checkpointed -- the
+child graph compiles without a checkpointer (retired 2026-08-19); durability
+comes from the on-disk artifacts each node writes (per-stage cluster.txt,
+harvest/summary.json, the leaderboard row).
 """
 from __future__ import annotations
 
@@ -142,8 +145,13 @@ def node_render_preflight(state: BOIterationState) -> dict:
 def make_stage_node(stage: str):
     """Build a graph node that runs one stage (submit→poll→list-outputs).
 
-    Per-stage idempotency lives in pipeline.py guards, so re-entry after a
-    checkpoint kill is safe.
+    Per-stage idempotency lives in pipeline.py guards (a stage whose
+    `<stage>_cluster.txt` already exists re-attaches instead of
+    resubmitting), so a RELAUNCHED child under the same config name does not
+    double-submit. That is now the only form of resume there is -- there is
+    no checkpointer and no mid-chain restart; graph/pool.py's
+    `_name_busy_reason` reads the same cluster files to stop a second child
+    launching under a name whose stages are already in flight.
     """
     def _node(state: BOIterationState) -> dict:
         name = state["config_name"]

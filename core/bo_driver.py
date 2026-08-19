@@ -52,9 +52,15 @@ from paths import leaderboard_archive, leaderboard_live
 # "AUTORESEARCH_MODE", "foilspf")]`) resolves eagerly at import time, so an
 # unset AUTORESEARCH_MODE picks the live "foilspf" default (was the dangling
 # "foils" default before 2026-08-19). Real launches (graph/run.py,
-# graph/closed_loop.py) always stamp AUTORESEARCH_MODE before importing
-# runtime, so setdefault is a no-op for them; a bare `import bo_driver`
-# (tests, ad-hoc scripts) gets a live JSON mode either way.
+# graph/closed_loop.py) call modes.stamp_mode_from_argv() from --mode before
+# importing runtime/build, so this setdefault is a no-op for them and both
+# modules agree on the mode; a bare `import bo_driver` (tests, ad-hoc scripts)
+# gets a live JSON mode either way. NOTE: between 265c642 (which deleted
+# graph/presniff.py) and the restoration of that stamp, this claim was FALSE
+# -- nothing stamped AUTORESEARCH_MODE, so `--mode foilspfbw` gave
+# runtime._SPEC.name == "foilspf" and pipeline.MODE == "foilsflash" (final
+# review, finding I1). graph/closed_loop.py::main() now also aborts loudly on any
+# disagreement via modes.assert_mode_stamped().
 os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
 from runtime import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
 sys.path.insert(0, str(ROOT / "graph"))
@@ -266,7 +272,10 @@ class JsonMode(BOMode):
 
         * Unresolved (no candidate key present and non-null) returns None for
           that column, mirroring the Python modes. cmd_evaluate then either
-          substitutes 0.0 (AUTORESEARCH_NO_RUN1B=1 — the qlnei picker drops
+          substitutes 0.0 (AUTORESEARCH_NO_RUN1B=1, now a MANUAL env seam:
+          nothing auto-stamps it since graph/presniff.py was deleted
+          2026-08-19 — it historically went with the qlnei picker, which
+          dropped
           the second-objective stage BY DESIGN and the objective is sob-only)
           or exits rc=1 "metric is None". Raising here instead — which is
           what this method used to do — made every child of a qlnei-launched
@@ -336,7 +345,8 @@ def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
 
     venv_py: python interpreter to use; default resolves the
     AUTORESEARCH_BOTORCH_VENV env seam against the project root (same rule
-    as graph/config.py BOTORCH_VENV_PY).
+    as core/runtime.py BOTORCH_VENV_PY -- graph/config.py moved there
+    2026-08-19).
     leaderboard: test/golden-only override forwarded as --leaderboard.
     """
     import subprocess
@@ -456,9 +466,13 @@ def cmd_evaluate(args):
     except (KeyError, TypeError) as e:
         print(f"summary.json missing metric for {mode.name}: {e}; got {summary}")
         return 1
-    # qlnei picker stamps AUTORESEARCH_NO_RUN1B=1, which drops the
-    # run1b_mubeam stage (saves ~40% wall-clock) and therefore intentionally
-    # produces calo=None. Substitute 0.0 so the row still lands; obj()
+    # AUTORESEARCH_NO_RUN1B=1 drops the run1b_mubeam stage (saves ~40%
+    # wall-clock) and therefore intentionally produces calo=None. It is a
+    # MANUAL seam now: the auto-stamp from `--picker qlnei` died with
+    # graph/presniff.py (2026-08-19) and was not restored, and no live mode's
+    # grid_stages contains run1b_mubeam. Kept because the recovery recipe in
+    # closed-loop-sqlite-checkpoint-transient-corruption.md sets it by hand.
+    # Substitute 0.0 so the row still lands; obj()
     # becomes sob - alpha*0 = sob, matching qlnei's sob-only objective.
     # Without this, run_evaluate returns obj=None, graph records
     # `obj_unparseable`, and SqliteSaver crashes serializing the None-bearing

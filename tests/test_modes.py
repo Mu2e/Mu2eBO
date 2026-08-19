@@ -376,3 +376,109 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestModeStamping(unittest.TestCase):
+    """Finding I1 (final review): nothing stamped AUTORESEARCH_MODE from
+    --mode after graph/presniff.py was deleted in 265c642, so with
+    `--mode foilspfbw` on the command line runtime._SPEC.name resolved to
+    "foilspf" and pipeline.MODE to "foilsflash" -- neither the requested
+    mode, and which you got depended on import order inside graph/build.py.
+
+    Untestable in-process: both modules resolve their mode at IMPORT time,
+    and the suite has already imported them under tests/__init__.py's stamp.
+    The end-to-end case therefore spawns a fresh interpreter.
+    """
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_stamps_space_separated_form(self):
+        env = {}
+        with mock.patch.dict(modes.os.environ, env, clear=False):
+            got = modes.stamp_mode_from_argv(["--mode", "foilspfbw", "--q", "2"])
+            self.assertEqual(got, "foilspfbw")
+            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspfbw")
+
+    def test_stamps_equals_form(self):
+        with mock.patch.dict(modes.os.environ, {}, clear=False):
+            self.assertEqual(modes.stamp_mode_from_argv(["--mode=foilspf2k"]),
+                             "foilspf2k")
+
+    def test_unknown_mode_is_not_stamped(self):
+        """Stamping a typo would turn argparse's "invalid choice" message
+        into a bare KeyError traceback from `from runtime import ...`."""
+        with mock.patch.dict(modes.os.environ,
+                             {"AUTORESEARCH_MODE": "foilspf"}, clear=False):
+            self.assertIsNone(modes.stamp_mode_from_argv(["--mode", "nope"]))
+            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspf")
+
+    def test_no_mode_flag_is_a_noop(self):
+        with mock.patch.dict(modes.os.environ,
+                             {"AUTORESEARCH_MODE": "foilspf"}, clear=False):
+            self.assertIsNone(modes.stamp_mode_from_argv(["--q", "2"]))
+            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspf")
+
+    def test_assert_mode_stamped_passes_when_all_agree(self):
+        import pipeline
+        import runtime
+        modes.assert_mode_stamped(runtime._SPEC.name)
+        self.assertEqual(runtime._SPEC.name, pipeline.MODE)
+
+    def test_assert_mode_stamped_dies_on_disagreement(self):
+        import runtime
+        other = next(m for m in modes.SPECS if m != runtime._SPEC.name)
+        with self.assertRaises(SystemExit) as cm:
+            modes.assert_mode_stamped(other)
+        msg = str(cm.exception)
+        for frag in ("--mode", "AUTORESEARCH_MODE", "runtime._SPEC.name",
+                     "pipeline.MODE", other):
+            self.assertIn(frag, msg)
+
+    def test_stamp_makes_runtime_and_pipeline_agree_in_a_fresh_process(self):
+        """The regression itself, end to end: stamp then import, and both
+        mode-keyed modules resolve to the CLI's mode."""
+        script = (
+            "import sys, os\n"
+            "sys.argv = ['run.py', '--mode', 'foilspfbw']\n"
+            f"sys.path[:0] = [{str(self.ROOT / 'graph')!r}, "
+            f"{str(self.ROOT / 'core')!r}]\n"
+            "import modes\n"
+            "modes.stamp_mode_from_argv()\n"
+            "import build, runtime, pipeline\n"
+            "print(os.environ['AUTORESEARCH_MODE'], runtime._SPEC.name, "
+            "pipeline.MODE)\n"
+        )
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        env.pop("AUTORESEARCH_MODE", None)
+        r = subprocess.run([sys.executable, "-c", script], env=env,
+                           capture_output=True, text=True,
+                           cwd=str(self.ROOT))
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        self.assertEqual(r.stdout.split()[-3:],
+                         ["foilspfbw", "foilspfbw", "foilspfbw"])
+
+    def test_entrypoints_stamp_before_importing_runtime_or_build(self):
+        """Source-order check: the stamp is worthless if it runs after the
+        import it exists to precede."""
+        import re
+        for rel in ("graph/run.py", "graph/closed_loop.py"):
+            text = (self.ROOT / rel).read_text()
+            stamp = re.search(r"^_modes\.stamp_mode_from_argv\(\)",
+                              text, re.M)
+            self.assertIsNotNone(stamp, f"{rel}: no stamp call")
+            for imp in ("runtime", "build"):
+                # ^-anchored: the explanatory comments above the stamp
+                # mention these imports in prose.
+                m = re.search(rf"^from {imp} import", text, re.M)
+                if m is None:
+                    continue
+                self.assertLess(stamp.start(), m.start(),
+                                f"{rel}: stamp_mode_from_argv() must precede "
+                                f"`from {imp} import`")
+
+    def test_entrypoints_assert_mode_after_argparse(self):
+        for rel in ("graph/run.py", "graph/closed_loop.py"):
+            text = (self.ROOT / rel).read_text()
+            self.assertIn("assert_mode_stamped(args.mode)", text,
+                          f"{rel}: no loud startup mode assertion")

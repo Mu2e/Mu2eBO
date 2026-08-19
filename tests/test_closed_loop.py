@@ -10,6 +10,9 @@ work-pool (see tests/test_pool.py). What remains here are the pieces
 graph/pool.py still depends on: the picker subprocess wrapper, the renew-
 token gate, and the child-broken signal.
 """
+import argparse
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -21,14 +24,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "graph"))
 sys.path.insert(0, str(PROJECT_ROOT / "core"))  # BO/pipeline modules (2026-07-17 reorg)
 
-# graph/closed_loop.py's own presniff_mode() only stamps AUTORESEARCH_MODE
-# when "--mode" is present in sys.argv (real launches always pass it); under
-# `-m unittest` there is no such flag, so graph/config.py's module-level
-# `_modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")]` would KeyError
-# at the `from config import (...)` below now that "foils" no longer exists
-# in modes.SPECS (archived 2026-08-08). setdefault so an explicitly-set env
-# (e.g. a real launch's own --mode) always wins.
-os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
+# closed_loop.py calls modes.stamp_mode_from_argv() at import, which only
+# stamps when "--mode <spec>" is on the command line (real launches always
+# pass it); under `-m unittest` there is no such flag, so core/runtime.py's
+# module-level `_modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilspf")]`
+# decides. tests/__init__.py stamps the suite's mode once for the whole
+# process -- this setdefault is only reached by `discover -s tests` without
+# `-t .`, which never imports the package __init__. It must therefore agree
+# with tests/__init__.py; it used to say "foilsflash" and, because this file
+# sorts first under discovery, silently pinned the ENTIRE suite to foilsflash.
+os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
 import closed_loop as cl  # noqa: E402
 
 
@@ -134,66 +139,66 @@ class TestRenewToken(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
-class TestPredictPicks(unittest.TestCase):
-    # cl_min retired per ADR-0001: every picker routes through
-    # _botorch_picks_subprocess; there is no in-process GP path to mock.
-    # node_predict_picks itself is no longer called by main() (pool.py
-    # calls _botorch_picks_subprocess directly per-pick) but is kept for
-    # --dry-run parity; these tests pin its non-rolling behavior.
+class TestDryRun(unittest.TestCase):
+    """`node_predict_picks` and `_leaderboard_len` were deleted (final
+    review, finding M2): nothing called them, `_dry_run` always went
+    straight to `_botorch_picks_subprocess`, and their return dict was the
+    retired RoundState shape. These retarget the four assertions that had
+    real value -- that every picker, including the default, routes through
+    the one picker subprocess -- at the live caller.
+    """
 
-    def test_under_q_logs_error(self):
-        state = {"q": 5, "round_idx": 0, "errors": [], "mode": "foils"}
-        picks = [(1, 2, 3, 4), (5, 6, 7, 8)]
-        with mock.patch.object(cl, "_botorch_picks_subprocess",
-                               return_value=picks), \
-             mock.patch.object(cl, "_leaderboard_len", return_value=42):
-            out = cl.node_predict_picks(state)
-        self.assertTrue(any("only got 2/5 picks" in e for e in out["errors"]))
-        self.assertEqual(len(out["children"]), 2)
-        self.assertEqual(out["history_len_before"], 42)
+    @staticmethod
+    def _args(**kw):
+        base = dict(mode="foilspf", q=2, picker="hybrid", name_prefix="foo")
+        base.update(kw)
+        return argparse.Namespace(**base)
 
-    def test_full_q_no_error_default_picker(self):
-        # No explicit picker: DEFAULT_PICKER (hybrid) must route through the
-        # subprocess like everything else.
-        state = {"q": 2, "round_idx": 0, "errors": [], "mode": "foils"}
-        picks = [(1, 2, 3, 4), (5, 6, 7, 8)]
+    def _run(self, args, picks):
+        buf = io.StringIO()
         with mock.patch.object(cl, "_botorch_picks_subprocess",
                                return_value=picks) as m, \
-             mock.patch.object(cl, "_leaderboard_len", return_value=10):
-            out = cl.node_predict_picks(state)
+             contextlib.redirect_stdout(buf):
+            rc = cl._dry_run(args)
+        return rc, m, buf.getvalue()
+
+    def _dims(self, mode):
+        return len(cl._modes.SPECS[mode].knob_names)
+
+    def test_default_picker_routes_through_the_subprocess(self):
+        n = self._dims("foilspf")
+        picks = [(float(i),) * n for i in range(2)]
+        rc, m, out = self._run(self._args(), picks)
+        self.assertEqual(rc, 0)
         self.assertEqual(m.call_args.kwargs.get("picker"), cl.DEFAULT_PICKER)
-        self.assertEqual(out["errors"], [])
-        self.assertEqual(sorted(out["children"]), ["_pick_00", "_pick_01"])
-        self.assertEqual(out["history_len_before"], 10)
+        self.assertEqual(m.call_args.kwargs.get("round_idx"), 0)
+        self.assertEqual(m.call_args.args[0], "foilspf")
 
-    def test_qnparego_routes_to_botorch_subprocess(self):
-        state = {"q": 3, "round_idx": 2, "errors": [], "mode": "foilsflash",
-                 "picker": "qnparego"}
-        picks = [(float(i),) * 6 for i in range(3)]
-        with mock.patch.object(cl, "_botorch_picks_subprocess",
-                               return_value=picks) as m, \
-             mock.patch.object(cl, "_leaderboard_len", return_value=42):
-            out = cl.node_predict_picks(state)
-        m.assert_called_once()
+    def test_explicit_picker_is_forwarded(self):
+        n = self._dims("foilsflash")
+        picks = [(float(i),) * n for i in range(3)]
+        rc, m, out = self._run(
+            self._args(mode="foilsflash", q=3, picker="qnparego"), picks)
         self.assertEqual(m.call_args.kwargs.get("picker"), "qnparego")
-        self.assertEqual(m.call_args.args[0], "foilsflash")  # mode
-        self.assertEqual(m.call_args.args[2], 2)             # round_idx
-        self.assertEqual(out["errors"], [])
-        self.assertEqual(len(out["children"]), 3)
-        self.assertEqual(out["history_len_before"], 42)
+        self.assertEqual(m.call_args.args[1], 3)  # q
 
-    def test_hybrid_routes_to_botorch_subprocess(self):
-        state = {"q": 5, "round_idx": 0, "errors": [], "mode": "foilsflash",
-                 "picker": "hybrid"}
-        picks = [(float(i),) * 6 for i in range(5)]
-        with mock.patch.object(cl, "_botorch_picks_subprocess",
-                               return_value=picks) as m, \
-             mock.patch.object(cl, "_leaderboard_len", return_value=10):
-            out = cl.node_predict_picks(state)
-        m.assert_called_once()
-        self.assertEqual(m.call_args.kwargs.get("picker"), "hybrid")
-        self.assertEqual(out["errors"], [])
-        self.assertEqual(len(out["children"]), 5)
+    def test_prints_production_shaped_names(self):
+        """Finding M3: the preview printed `{prefix}R00_{j:02d}` while
+        graph/pool.py emits `{prefix}R{i:02d}_00`, so an operator was shown
+        names the campaign would never use."""
+        n = self._dims("foilspf")
+        picks = [(float(i),) * n for i in range(3)]
+        rc, m, out = self._run(self._args(q=3), picks)
+        for j in range(3):
+            self.assertIn(f"fooR{j:02d}_00", out)
+        self.assertNotIn("fooR00_01", out)
+
+    def test_labels_come_from_the_registry(self):
+        n = self._dims("foilspf")
+        picks = [(1.0,) * n]
+        rc, m, out = self._run(self._args(q=1), picks)
+        for label in cl._modes.SPECS["foilspf"].knob_names:
+            self.assertIn(f"{label}=", out)
 
 
 class TestChildIsBroken(unittest.TestCase):

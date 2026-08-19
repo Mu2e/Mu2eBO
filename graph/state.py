@@ -27,7 +27,13 @@ class StageStatus(TypedDict, total=False):
 
 
 class BOIterationState(TypedDict, total=False):
-    """Per-iteration state. Persisted by SqliteSaver between node transitions."""
+    """Per-iteration state, merged by LangGraph between node transitions.
+
+    NOT persisted: graph/run.py compiles the child graph without a
+    checkpointer (retired 2026-08-19 -- 51 campaigns audited, 0 ever resumed
+    from one, 5 incidents caused by one). This dict lives in the child
+    process's memory for the life of one eval and nothing else.
+    """
 
     config_name: str
     # Mode name. NOT a Literal: JSON-defined modes (mode_specs/*.json) are

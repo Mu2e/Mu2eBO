@@ -28,6 +28,8 @@ Literal, and driver build_space bounds == spec bounds per mode (replacing the
 """
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
@@ -145,3 +147,82 @@ else:
 
 MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 SPECS.update(load_mode_dir(MODES_DIR, SPECS))
+
+
+# ============================================================================
+# CLI --mode -> AUTORESEARCH_MODE stamp
+# ============================================================================
+
+def stamp_mode_from_argv(argv=None) -> Optional[str]:
+    """Stamp `AUTORESEARCH_MODE` from a `--mode` on the command line.
+
+    Both core/runtime.py (`_SPEC`) and core/pipeline.py (`MODE`) resolve THE
+    process's mode at IMPORT time out of this env var, and neither can be
+    re-pointed afterwards. So a CLI entrypoint that takes `--mode` must stamp
+    it BEFORE the first `import runtime` / `import build`, or the whole
+    process runs against whatever mode happened to be the fallback -- with
+    no error anywhere.
+
+    graph/presniff.py used to do this and was deleted 2026-08-19 on the
+    argument that every live spec's `run.*` fields are currently identical,
+    so no mode-keyed lookup can disagree. That is true TODAY and is a
+    statement about the data, not about the code: the surface it governs is
+    events_per_job, njobs, memory_mb, quorum, grid_tarball, dsconf_musing,
+    MUSING and -- via graph/build.py's STAGE_NODES -- the child's stage chain
+    itself. The first per-mode edit to `run.stage_tuning.*` (exactly what
+    mode_specs/ exists to enable) silently ships another mode's value to the
+    grid, which is a metric DENOMINATOR error with no error surface. See
+    wiki/incidents/events-per-job-mid-flight-edit.md for that failure shape.
+    Callers pair this with `assert_mode_stamped()` after argparse.
+
+    Lives here rather than in a resurrected presniff module because this is
+    the registry: it is the only thing that can tell a real mode name from a
+    typo without importing anything that reads the env var.
+
+    An UNKNOWN `--mode` is deliberately NOT stamped: stamping it would make
+    the caller's `from runtime import ...` die with a bare
+    `KeyError('foilspfbwq')` before argparse ever runs, replacing argparse's
+    "invalid choice: ... (choose from ...)" with a traceback. Leaving it
+    unstamped lets argparse produce the good message a few lines later.
+
+    Returns the stamped mode, or None if there was no usable `--mode`.
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    mode = None
+    for i, tok in enumerate(argv):
+        if tok == "--mode" and i + 1 < len(argv):
+            mode = argv[i + 1]
+        elif tok.startswith("--mode="):
+            mode = tok.split("=", 1)[1]
+    if mode is None or mode not in SPECS:
+        return None
+    os.environ["AUTORESEARCH_MODE"] = mode
+    return mode
+
+
+def assert_mode_stamped(cli_mode: str) -> None:
+    """Die loudly if the CLI's mode, the env stamp, runtime's spec and
+    pipeline's MODE are not all the same string.
+
+    Belt-and-braces for `stamp_mode_from_argv`. The failure it guards is
+    silent by construction -- an import-order accident inside graph/build.py
+    decides which mode a stage-tuning lookup answers with -- so the check is
+    a loud startup abort rather than a warning. Cheap: both modules are
+    already imported by the time any caller reaches this.
+    """
+    import runtime as _runtime
+    import pipeline as _pipeline
+    env = os.environ.get("AUTORESEARCH_MODE")
+    got = {"--mode": cli_mode, "AUTORESEARCH_MODE": env,
+           "runtime._SPEC.name": _runtime._SPEC.name,
+           "pipeline.MODE": _pipeline.MODE}
+    if len(set(got.values())) == 1:
+        return
+    detail = ", ".join(f"{k}={v!r}" for k, v in got.items())
+    raise SystemExit(
+        f"[mode] FATAL mode disagreement: {detail}. AUTORESEARCH_MODE must be "
+        f"stamped from --mode BEFORE the first `import runtime` / `import "
+        f"build` -- both resolve the process's mode at import time and cannot "
+        f"be re-pointed. Nothing downstream would have errored: the grid "
+        f"would just have run another mode's events_per_job/njobs/tarball/"
+        f"stage chain. See core/modes.py::stamp_mode_from_argv.")

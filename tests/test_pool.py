@@ -225,12 +225,15 @@ class TestStopFlag(unittest.TestCase):
 
 
 class TestRenewHook(unittest.TestCase):
-    """The `renew` injection point fires before every launch (not once per
-    round -- there are no rounds). See graph/closed_loop.py's `renew_token`,
-    which run_rolling's production caller wires in as `renew=renew_token`;
-    a fatal renewal failure (kinit/getToken) must not be swallowed."""
+    """The `renew` injection point fires before every launch AND at every
+    resolution (not once per round -- there are no rounds; and not
+    launch-only, or the drain runs unrenewed -- finding M7). See
+    graph/closed_loop.py's `renew_token`, which run_rolling's production
+    caller wires in as `renew=renew_token` and which is time-gated
+    internally, so the extra call sites cost nothing; a fatal renewal
+    failure (kinit/getToken) must not be swallowed."""
 
-    def test_renew_called_once_per_launch(self):
+    def test_renew_called_at_every_launch_and_every_resolution(self):
         calls = {"n": 0}
 
         def renew():
@@ -242,8 +245,9 @@ class TestRenewHook(unittest.TestCase):
                                run_child=lambda n, x: 0, next_pick=next_pick,
                                stop_flag=lambda: False, renew=renew,
                                broken=_NOT_BROKEN, stagger=0)
-        self.assertEqual(calls["n"], res["launched"])
-        self.assertEqual(calls["n"], 7)
+        self.assertEqual(res["launched"], 7)
+        self.assertEqual(len(res["outcomes"]), 7)
+        self.assertEqual(calls["n"], 14)  # 7 launches + 7 resolutions
 
     def test_renew_failure_propagates_not_swallowed(self):
         def renew():
@@ -559,6 +563,139 @@ class TestDefaultRunChild(unittest.TestCase):
                 run_child = pool._default_run_child("foilspf", 1.0e5)
                 run_child("fooR00_00", [1.0])
             self.assertTrue((tmp / "closed_loop_logs" / "fooR00_00.log").exists())
+
+
+class TestHeartbeat(unittest.TestCase):
+    """Finding I3: `next(as_completed(...))` had no timeout, so a hung child
+    (harvest-pyroot-nfs-rpc-hang: D-state 5.5 h with no timeout at any
+    layer) froze the parent log forever. The heartbeat is REPORT-ONLY -- it
+    must not resolve or abandon anything, or it re-creates
+    closed-loop-barrier-timeout-zero-rows-falsepos."""
+
+    def test_heartbeat_fires_while_blocked_and_names_the_children(self):
+        lines = []
+        gate = threading.Event()
+
+        def run_child(name, x):
+            gate.wait(timeout=5)
+            return 0
+
+        next_pick, _ = _picker()
+        t = threading.Timer(0.35, gate.set)
+        t.start()
+        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=2,
+                               alpha=1.0, name_prefix="t",
+                               run_child=run_child, next_pick=next_pick,
+                               stop_flag=lambda: False, renew=lambda: None,
+                               row_landed=lambda n, m: True,
+                               broken=_NOT_BROKEN, stagger=0,
+                               log=lines.append, heartbeat=0.05)
+        t.cancel()
+        beats = [ln for ln in lines if "heartbeat" in ln]
+        self.assertTrue(beats, f"no heartbeat emitted; got {lines}")
+        self.assertIn("in flight", beats[0])
+        self.assertTrue(any("c0" in b for b in beats))
+        # Report-only: every child still resolved normally.
+        self.assertEqual(res["launched"], 2)
+        self.assertEqual(len(res["outcomes"]), 2)
+        self.assertEqual(res["rows"], 2)
+        self.assertFalse(res["aborted"])
+
+    def test_heartbeat_does_not_resolve_or_abandon(self):
+        """A child that outlives many heartbeats is still waited for."""
+        lines = []
+        gate = threading.Event()
+        done = []
+
+        def run_child(name, x):
+            gate.wait(timeout=5)
+            done.append(name)
+            return 0
+
+        next_pick, _ = _picker()
+        t = threading.Timer(0.4, gate.set)
+        t.start()
+        res = pool.run_rolling(mode="m", picker="p", q=1, max_evals=1,
+                               alpha=1.0, name_prefix="t",
+                               run_child=run_child, next_pick=next_pick,
+                               stop_flag=lambda: False, renew=lambda: None,
+                               row_landed=lambda n, m: True,
+                               broken=_NOT_BROKEN, stagger=0,
+                               log=lines.append, heartbeat=0.02)
+        t.cancel()
+        self.assertGreater(len([ln for ln in lines if "heartbeat" in ln]), 3)
+        self.assertEqual(done, ["c0"])
+        self.assertEqual(res["rows"], 1)
+
+    def test_stall_warning_carries_the_recovery_text(self):
+        lines = []
+        inflight = {object(): ("cX", [1.0])}
+        pool._log_inflight(inflight, {"cX": 0.0}, lines.append,
+                           now=25 * 3600.0)
+        joined = " ".join(lines)
+        self.assertIn("WARNING cX", joined)
+        self.assertIn("_cluster.txt", joined)
+        self.assertIn("--name-prefix", joined)
+        self.assertIn("pgrep", joined)
+
+    def test_no_warning_below_threshold(self):
+        lines = []
+        inflight = {object(): ("cX", [1.0])}
+        pool._log_inflight(inflight, {"cX": 0.0}, lines.append, now=3600.0)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("heartbeat", lines[0])
+        self.assertNotIn("WARNING", lines[0])
+
+
+class TestRenewDuringDrain(unittest.TestCase):
+    """Finding M7: renew() ran only in the top-up loop, so a q=20 pool could
+    drain for hours after its last launch with no `kinit -R`. Children share
+    the parent ccache; an expiry during a late stage submit is
+    kerberos-mid-run-expiry (the eval VANISHES, no row, no loud failure)."""
+
+    def test_renew_called_on_every_resolution_including_the_drain(self):
+        calls = {"n": 0}
+        next_pick, _ = _picker()
+
+        def renew():
+            calls["n"] += 1
+
+        pool.run_rolling(mode="m", picker="p", q=3, max_evals=3, alpha=1.0,
+                         name_prefix="t", run_child=lambda n, x: 0,
+                         next_pick=next_pick, stop_flag=lambda: False,
+                         renew=renew, row_landed=lambda n, m: True,
+                         broken=_NOT_BROKEN, stagger=0)
+        # 3 launches + 3 resolutions; the point is that it exceeds the
+        # launch count, i.e. the drain renews too.
+        self.assertGreater(calls["n"], 3)
+
+    def test_resolution_time_renew_failure_is_reported_not_fatal(self):
+        """Asymmetric on purpose: the PRE-LAUNCH renew is the fatal gate
+        ("can we still submit?"); the resolution-time one is hygiene for
+        children already running, and aborting the parent on it would
+        abandon reporting for a pool that is only draining."""
+        lines = []
+        state = {"launches": 0}
+        next_pick, _ = _picker()
+
+        def renew():
+            # Fail only after every launch is done, i.e. during the drain.
+            if state["launches"] < 2:
+                state["launches"] += 1
+                return
+            raise SystemExit(2)
+
+        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=2,
+                               alpha=1.0, name_prefix="t",
+                               run_child=lambda n, x: 0, next_pick=next_pick,
+                               stop_flag=lambda: False, renew=renew,
+                               row_landed=lambda n, m: True,
+                               broken=_NOT_BROKEN, stagger=0,
+                               log=lines.append)
+        self.assertEqual(res["rows"], 2)
+        self.assertEqual(len(res["outcomes"]), 2)
+        self.assertTrue(any("renew at resolution failed" in ln
+                            for ln in lines), lines)
 
 
 if __name__ == "__main__":

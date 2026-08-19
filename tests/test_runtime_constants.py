@@ -3,6 +3,11 @@
 presniff.py existed only because config.py read AUTORESEARCH_* env vars at
 IMPORT time while argparse ran in main() -- too late. Constants that are
 plain values, resolved once, need no pre-argparse sniffing, so both files go.
+`_SPEC` is NOT such a constant: it is a mode-keyed lookup, so the --mode
+stamp came back as `core/modes.py::stamp_mode_from_argv()` (final review,
+finding I1). The MODULE stays dead -- the tests below pin its absence, not
+the absence of pre-argparse stamping. See tests/test_modes.py::
+TestModeStamping for the restored mechanism.
 
 NAMES deliberately omits CLOSED_LOOP_BARRIER_POLL_SEC and
 CLOSED_LOOP_BARRIER_MAX_MIN, which the originating plan listed as required

@@ -99,9 +99,15 @@ TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 # "AUTORESEARCH_MODE", "foilspf")]`) resolves eagerly at import time, so an
 # unset AUTORESEARCH_MODE picks the live "foilspf" default (was the dangling
 # "foils" default before 2026-08-19). Real launches (graph/run.py,
-# graph/closed_loop.py) always stamp AUTORESEARCH_MODE before importing
-# runtime, so setdefault is a no-op for them; a bare `import pipeline`
-# (tests, ad-hoc scripts) gets a live JSON mode either way.
+# graph/closed_loop.py) call modes.stamp_mode_from_argv() from --mode before
+# importing runtime/build, so this setdefault is a no-op for them and both
+# modules agree on the mode; a bare `import pipeline` (tests, ad-hoc scripts)
+# gets a live JSON mode either way. NOTE: between 265c642 (which deleted
+# graph/presniff.py) and the restoration of that stamp, this claim was FALSE
+# -- nothing stamped AUTORESEARCH_MODE, so `--mode foilspfbw` gave
+# runtime._SPEC.name == "foilspf" and pipeline.MODE == "foilsflash" (final
+# review, finding I1). graph/run.py::main() now also aborts loudly on any
+# disagreement via modes.assert_mode_stamped().
 os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
 # The process's mode for the lifetime of this interpreter -- resolved ONCE,
 # used everywhere pipeline.py needs "the mode spec" (MUSE_BASE_TARBALL below,

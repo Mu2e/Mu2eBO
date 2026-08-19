@@ -1,9 +1,10 @@
-"""Compile the BO iteration graph and expose it as `graph` for langgraph dev.
+"""Compile the BO iteration graph: one eval, one chain.
 
-Note: when run under `langgraph dev`, the LangGraph platform supplies the
-checkpointer (an in-memory SQLite/Postgres store), so the graph is compiled
-WITHOUT one. For standalone use (`python -m graph.run` or scripted invokes),
-the caller is responsible for wiring a checkpointer at compile time.
+There is no checkpointer anywhere. `graph/run.py` compiles this graph bare
+(the SqliteSaver was retired 2026-08-19; the `langgraph dev` Studio overlay
+that used to supply its own was retired 2026-07-17). Durability is the
+on-disk artifacts the nodes write, and the only resume is per-stage
+cluster.txt idempotency in core/pipeline.py.
 """
 from __future__ import annotations
 
@@ -31,8 +32,11 @@ from nodes import (  # noqa: E402
 from state import BOIterationState  # noqa: E402
 
 
-# Stable node names for each stage; mirrors GRID_STAGES so the checkpointer
-# can resume across edits.
+# Stable node names for each stage; mirrors GRID_STAGES. Note GRID_STAGES is
+# resolved from AUTORESEARCH_MODE at core/runtime.py import time, so the
+# child's stage chain IS mode-dependent -- which is why graph/run.py must
+# stamp the mode from --mode before importing this module
+# (core/modes.py::stamp_mode_from_argv).
 STAGE_NODES = {stage: f"stage_{stage}" for stage in GRID_STAGES}
 
 

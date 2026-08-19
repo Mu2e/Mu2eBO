@@ -5,18 +5,31 @@ core/paths.py, which is the single filesystem-root resolver; this file holds
 only plain values (and the per-mode facts derived from modes.SPECS, which
 were always plain values too -- MUSING is a string, GRID_STAGES a list).
 
-graph/presniff.py died with the move. It scanned sys.argv for `--mode`/
-`--picker` before graph/config.py's top-level import ran, so the module-
-level `_SPEC` lookup below picked the CLI-requested mode instead of the
-default -- needed
-only because live modes used to differ in grid_stages/musing (Python-mode
-era: michael/helical/ipa/foils/foilsg/prodtarget each had their own stage
-chain or software stack). Every live JSON mode today (the foilspf family +
-foilsflash) shares the identical `run.stages`/`musing`/`presubmit_after`
-(all descend from the same foilspf design), so presniffing a value that
-never varies between them buys nothing. See
-tests/test_runtime_constants.py and wiki/incidents/foilsflash-tarball-mode-
-key-omission.md for the historical reason mode dispatch existed at all.
+graph/presniff.py died with the move -- the MODULE did, not the mechanism.
+It scanned sys.argv for `--mode`/`--picker` before graph/config.py's
+top-level import ran, so the module-level `_SPEC` lookup below picked the
+CLI-requested mode instead of the default. Deleting it was justified on the
+grounds that every live JSON mode (the foilspf family + foilsflash) shares
+identical `run.stages`/`musing`/`presubmit_after` (all descend from the same
+foilspf design), so a mode-keyed lookup cannot disagree.
+
+That argument is about the DATA, not the code, and the surface `_SPEC`
+governs is events_per_job, njobs, memory_mb, quorum, grid_tarball,
+dsconf_musing, MUSING and (via graph/build.py's STAGE_NODES) the child's
+stage chain. The first per-mode edit to `run.stage_tuning.*` would have
+shipped another mode's value to the grid silently -- a metric DENOMINATOR
+error with no error surface. Measured while it was absent: `--mode
+foilspfbw` gave `_SPEC.name == "foilspf"` and `pipeline.MODE ==
+"foilsflash"`.
+
+So the --mode stamp is BACK, without the module: `core/modes.py::
+stamp_mode_from_argv()`, called by graph/run.py and graph/closed_loop.py
+before they import this file, and re-checked after argparse by
+`modes.assert_mode_stamped()`. The `--picker`-driven AUTORESEARCH_NO_RUN1B
+half was NOT restored (no live mode's stage chain has run1b_mubeam to drop).
+See tests/test_modes.py::TestModeStamping, tests/test_runtime_constants.py,
+and wiki/incidents/foilsflash-tarball-mode-key-omission.md for the
+historical reason mode dispatch existed at all.
 """
 from __future__ import annotations
 
@@ -73,8 +86,15 @@ CLOSED_LOOP_MAX_ROUNDS = 10
 # see wiki/incidents/concurrent-token-contention.md). 90s matches the value
 # proven safe in helicalP01-P05.
 CLOSED_LOOP_STAGGER_SEC = 90
-# Operator stop file. `touch $GRAPH_DATA/STOP_CLOSED_LOOP` and the pool's
-# next stop_flag() check exits cleanly without affecting in-flight children.
+# Operator stop file. `touch $GRAPH_DATA/STOP_CLOSED_LOOP` and the pool
+# stops LAUNCHING at its next top-up check. In-flight children are neither
+# signalled nor abandoned: run_rolling then DRAINS, i.e. the parent blocks
+# until every one of them exits, which can take hours. That is the
+# structural fix for closed-loop-final-round-orphan-children, not an
+# oversight -- but it means STOP is not a fast exit, and the older comment
+# here ("exits cleanly without affecting in-flight children") read as if it
+# were. To stop sooner, deal with the children yourself (jobsub_rm, then
+# kill the graph.run processes).
 STOP_FLAG = GRAPH_DATA / "STOP_CLOSED_LOOP"
 
 # Per-stage njobs targets used to live here (STAGE_TARGETS, retired 2026-08-19

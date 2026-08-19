@@ -14,13 +14,13 @@ CLI args to it and keeps the pieces `run_rolling` depends on:
                              to the /cvmfs sourcing flake class.
   _stop_requested          — the STOP_CLOSED_LOOP kill switch; passed to
                              run_rolling as `stop_flag=_stop_requested`.
-  predict_picks           — refit GP, return q picks (non-rolling shape;
-                             kept for `--dry-run` and for anyone driving it
-                             directly. `pool.py`'s own `_default_pick_source`
-                             calls `_botorch_picks_subprocess` directly
-                             rather than through this node).
-  _botorch_picks_subprocess — the actual picker subprocess wrapper; this is
-                             what `pool.py` calls in production.
+  _botorch_picks_subprocess — the picker subprocess wrapper; this is what
+                             `pool.py` calls in production, once per pick,
+                             and what `--dry-run` previews. (`node_predict_
+                             picks` and `_leaderboard_len` were deleted in
+                             the final review, finding M2: both returned the
+                             retired RoundState shape and had no caller —
+                             `_dry_run` always called the wrapper directly.)
   _leaderboard_names / _child_is_broken — the two signals `pool.py` reads
                              at resolution time (rows landed / broken.txt).
 
@@ -48,6 +48,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "core"))  # BO/pipeline modules
 
 import modes as _modes  # noqa: E402
+
+# MUST precede `from runtime import ...` below (and every lazy `import
+# bo_driver` / `import pipeline` further down): both core/runtime.py (_SPEC)
+# and core/pipeline.py (MODE) resolve the process's mode from
+# AUTORESEARCH_MODE at IMPORT time and cannot be re-pointed later. The parent
+# also passes --mode explicitly to each child, but it must not hand children
+# an env that contradicts it. Replaces the deleted graph/presniff.py; see
+# core/modes.py::stamp_mode_from_argv. main() re-checks with
+# assert_mode_stamped().
+_modes.stamp_mode_from_argv()
 
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -104,10 +114,6 @@ def _history(mode: str):
 
 def _leaderboard_names(mode: str) -> set:
     return {p.cfg for p in _history(mode)}
-
-
-def _leaderboard_len(mode: str) -> int:
-    return len(_history(mode))
 
 
 # ============================================================================
@@ -219,7 +225,11 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
     keeps the historical list-of-tuples return contract.
 
     picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj),
-    "qlnei" (single-obj sob), "pareto_sob" (GP-mean sob corner),
+    "qlnei" (single-obj sob -- acquisition ONLY: the
+    `AUTORESEARCH_NO_RUN1B=1` auto-stamp that used to make it also drop the
+    `run1b_mubeam` stage died with graph/presniff.py 2026-08-19 and was NOT
+    restored; no live mode's stage chain contains that stage anyway),
+    "pareto_sob" (GP-mean sob corner),
     "budget_sob" (GP-mean sob corner constrained to the deployed damage
     budget), "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
     (~60% qnehvi + ~40% qnparego; recommended for new multi-objective lines).
@@ -234,64 +244,31 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
     return [tuple(p) for p in raw]
 
 
-def node_predict_picks(state: dict) -> dict:
-    """Refit GP, return q picks. Picker is one of PICKER_CHOICES.
-
-    Not called by `main()` / `run_rolling` (which calls
-    `_botorch_picks_subprocess` directly per-pick); kept for `--dry-run`
-    parity and standalone use.
-
-    All pickers subprocess into BOTORCH_VENV_PY (.venv by default) to run
-    botorch_predict.py (cl_min retired per ADR-0001):
-      qnehvi: multi-objective Pareto-HV picker; native acquisition is qNEHVI,
-        not the scalarized obj the leaderboard reports.
-      qlnei: single-obj qLogNoisyEI on sob only (drops the run1b_mubeam stage).
-      pareto_sob: the GP-mean highest-sob frontier points.
-      budget_sob: same corner, CONSTRAINED to predicted flash <= the deployed
-        damage budget -- the deployment-facing exploit (pareto_sob's picks are
-        typically unbuildable: +50-70% damage).
-      qnparego: qLogNEI over random Chebyshev scalarizations — spreads picks
-        across the whole Pareto front (patrols the tails qNEHVI underprices).
-      hybrid: ~60% qnehvi + ~40% qnparego in one batch — recommended default
-        for new multi-objective lines (HV efficiency + native tail coverage;
-        see wiki/concepts/saturation-is-acquisition-relative.md).
-    """
-    q = state["q"]
-    mode = state["mode"]
-    picker = state.get("picker", DEFAULT_PICKER)
-    errors = list(state.get("errors", []))
-
-    picks = _botorch_picks_subprocess(mode, q, state["round_idx"], picker=picker)
-    print(f"[closed_loop] predict_picks[r{state['round_idx']}]: "
-          f"picker={picker} "
-          f"q={q} got={len(picks)}", flush=True)
-    if len(picks) < q:
-        errors.append(
-            f"predict_picks[r{state['round_idx']}]: only got {len(picks)}/{q} "
-            f"picks (Pareto frontier too short or too clustered)"
-        )
-    transient = {f"_pick_{j:02d}": {"x_point": list(p)} for j, p in enumerate(picks)}
-    return {
-        "children": transient,
-        "errors": errors,
-        "history_len_before": _leaderboard_len(state["mode"]),
-    }
-
-
 # ============================================================================
 # CLI
 # ============================================================================
 
 def _dry_run(args: argparse.Namespace) -> int:
+    """Preview the picks and names a real launch would start with.
+
+    Names use the PRODUCTION shape `{prefix}R{i:02d}_00` (graph/pool.py's
+    `_default_pick_source`), not the retired round/child `R00_{j:02d}` — an
+    operator previewing names must not be shown names the campaign will
+    never use (final review, finding M3). The indices are still only
+    indicative: a live run advances past any name already resolved or with
+    work in flight (see `pool._name_busy_reason`), and refits the GP between
+    picks instead of drawing them as one batch.
+    """
     picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, picker=args.picker)
-    print(f"[dry-run] round 0: {len(picks)} picks (mode={args.mode}, picker={args.picker})")
+    print(f"[dry-run] first {len(picks)} picks (mode={args.mode}, "
+          f"picker={args.picker})")
     # Labels come from the registry (ModeSpec.knob_names, ADR-0002), not a
     # hand-maintained table: the local copy this replaced covered 5 of the 11
     # modes, so every JSON mode (foilspf, the A/B arms) printed bare x0..xN,
     # and its labels had drifted from the leaderboard column names.
     labels = _modes.SPECS[args.mode].knob_names
     for j, p in enumerate(picks):
-        name = f"{args.name_prefix}R00_{j:02d}"
+        name = f"{args.name_prefix}R{j:02d}_00"
         kv = " ".join(f"{labels[i]}={p[i]:.4g}" for i in range(len(p)))
         print(f"  {name}: {kv}")
     return 0
@@ -305,10 +282,14 @@ def main() -> int:
     ap.add_argument("--q", type=int, default=CLOSED_LOOP_Q,
                     help="pool WIDTH: children kept in flight at once")
     ap.add_argument("--max-rounds", type=int, default=CLOSED_LOOP_MAX_ROUNDS,
-                    help="used only to derive a default --max-evals "
+                    help="NOT a round count -- there are no rounds. Used "
+                         "only to derive a default --max-evals "
                          "(q * max-rounds) when --max-evals is omitted")
     ap.add_argument("--name-prefix", default="bo",
-                    help="child names will be {prefix}R{wave:02d}_00")
+                    help="child names will be {prefix}R{i:02d}_00, i "
+                         "counting launches (names already resolved or with "
+                         "work in flight are skipped -- see "
+                         "graph/pool.py::_name_busy_reason)")
     ap.add_argument("--picker", choices=PICKER_CHOICES, default=DEFAULT_PICKER,
                     help="batch picker (all subprocess into the picker venv; "
                          "cl_min retired per ADR-0001). hybrid (~60%% qnehvi + "
@@ -319,8 +300,15 @@ def main() -> int:
     ap.add_argument("--max-evals", type=int, default=None,
                     help="total evals to launch (default q * max-rounds)")
     ap.add_argument("--dry-run", action="store_true",
-                    help="print round-0 picks + names without launching")
+                    help="print the first q picks + their names without "
+                         "launching")
     args = ap.parse_args()
+    # Loud, cheap: a mode disagreement between the CLI, the env stamp,
+    # runtime._SPEC and pipeline.MODE is otherwise SILENT -- the grid just
+    # quietly runs another mode's events_per_job / njobs / grid tarball /
+    # stage chain, which is a metric denominator error with no error surface
+    # (wiki/incidents/events-per-job-mid-flight-edit.md).
+    _modes.assert_mode_stamped(args.mode)
 
     if args.dry_run:
         return _dry_run(args)
