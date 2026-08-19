@@ -26,8 +26,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "core"))  # BO/pipeline modules (2026-07-1
 
 # closed_loop.py calls modes.stamp_mode_from_argv() at import, which only
 # stamps when "--mode <spec>" is on the command line (real launches always
-# pass it); under `-m unittest` there is no such flag, so core/runtime.py's
-# module-level `_modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilspf")]`
+# pass it) or an already-set AUTORESEARCH_MODE; under `-m unittest` there is
+# no such flag, so core/runtime.py's module-level
+# `_modes.SPECS[os.environ.get("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)]`
 # decides. tests/__init__.py stamps the suite's mode once for the whole
 # process -- this setdefault is only reached by `discover -s tests` without
 # `-t .`, which never imports the package __init__. It must therefore agree

@@ -662,6 +662,28 @@ class TestModeStamping(unittest.TestCase):
             "hardcoded AUTORESEARCH_MODE fallback literal(s); use "
             "modes.DEFAULT_MODE")
 
+    def test_test_tree_mode_literals_agree_with_the_registry(self):
+        """The per-module `setdefault("AUTORESEARCH_MODE", ...)` lines in
+        tests/ must stay literal -- they exist for `discover -s tests`
+        WITHOUT `-t .`, which never imports tests/__init__.py and so cannot
+        rely on its stamp. But a literal that can drift from
+        modes.DEFAULT_MODE is the same shadow shape as the five core ones,
+        so make the drift a failure instead of a silent divergence."""
+        import re
+        bad = []
+        for f in sorted((self.ROOT / "tests").glob("*.py")):
+            for ln, line in enumerate(f.read_text().splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue
+                m = re.search(r'setdefault\(\s*"AUTORESEARCH_MODE"\s*,\s*'
+                              r'"([^"]+)"', line)
+                if m and m.group(1) != modes.DEFAULT_MODE:
+                    bad.append(f"{f.name}:{ln} pins {m.group(1)!r}")
+        self.assertEqual(
+            bad, [],
+            f"test-tree AUTORESEARCH_MODE literal(s) disagree with "
+            f"modes.DEFAULT_MODE ({modes.DEFAULT_MODE!r})")
+
     def test_default_mode_is_a_live_spec(self):
         self.assertIn(modes.DEFAULT_MODE, modes.SPECS)
 
