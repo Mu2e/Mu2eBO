@@ -465,7 +465,6 @@ def node_launch_children(state: RoundState) -> dict:
             "--config-name", name,
             "--mode", mode,
             "--alpha", str(alpha),
-            "--no-mock",
             "--x-point", ",".join(f"{v:.6f}" for v in x),
         ]
         try:

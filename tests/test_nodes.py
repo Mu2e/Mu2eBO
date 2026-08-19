@@ -22,14 +22,6 @@ from langgraph.graph import END  # noqa: E402
 class TestRouteAfterPreflightLogs(unittest.TestCase):
     """Issue #6 Mode A: silent END after preflight must emit a classifier line."""
 
-    def test_pass_returns_branch_no_log(self):
-        # Happy path: no diagnostic line, just returns "mock" or "real".
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            br = nd.route_after_preflight({"preflight": "pass", "mock": True})
-        self.assertEqual(br, "mock")
-        self.assertNotIn("terminating", buf.getvalue())
-
     def test_fail_init_logs_termination(self):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):

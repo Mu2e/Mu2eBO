@@ -50,8 +50,6 @@ class BOIterationState(TypedDict, total=False):
     attempts: Dict[str, int]
     errors: List[str]
 
-    mock: bool
-
     # End-of-workflow log scan. `scan_report` is {stage: {pattern_code:
     # total_count}}; `scan_report_path` points at the per-iteration TSV under
     # <grid_root>/<config_name>/scan_logs/. `scan_logs_broken` is set True

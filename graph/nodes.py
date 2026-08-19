@@ -197,9 +197,6 @@ def node_harvest(state: BOIterationState) -> dict:
     return {"metrics": metrics, "errors": errors}
 
 
-def node_mock_grid(state: BOIterationState) -> dict:
-    """Mock substitute for the real grid chain: synthesizes metrics from x."""
-    return {"metrics": pio.mock_metrics(state["x_point"], state["mode"])}
 
 
 def node_scan_logs(state: BOIterationState) -> dict:
@@ -270,7 +267,7 @@ def node_evaluate(state: BOIterationState) -> dict:
 # --- conditional edges ---
 
 
-def route_after_preflight(state: BOIterationState) -> Literal["real", "mock", "propose", "__end__"]:
+def route_after_preflight(state: BOIterationState) -> Literal["real", "propose", "__end__"]:
     """Branch after preflight.
 
     Both `fail_managed` (managed-overlap, BO-fixable) and `ambiguous`
@@ -282,7 +279,7 @@ def route_after_preflight(state: BOIterationState) -> Literal["real", "mock", "p
     status = state.get("preflight", "pending")
     attempts = state.get("attempts", {}).get("propose", 0)
     if status == "pass":
-        return "mock" if state.get("mock", True) else "real"
+        return "real"
     if status in ("fail_managed", "ambiguous") and attempts < MAX_PROPOSE_RETRIES:
         return "propose"
     name = state.get("config_name", "?")

@@ -6,9 +6,7 @@ child by graph/closed_loop.py.
 
 Usage:
   source .venv/bin/activate
-  python -m graph.run --thread-id smoke001 --config-name graphsmoke001 --mock
-(--mock/--no-mock is required — state your intent; a bare launch used to
-silently default to synthetic metrics.)
+  python -m graph.run --thread-id smoke001 --config-name graphsmoke001
 """
 from __future__ import annotations
 
@@ -52,11 +50,6 @@ def main() -> int:
                     help="if omitted, auto-incremented from leaderboard")
     ap.add_argument("--thread-id", default=None,
                     help="if omitted, a fresh uuid is used")
-    # No default: a bare launch used to silently synthesize fake metrics
-    # (--mock was the "Phase 1 default"); the flag is now required so every
-    # launch states its intent. closed_loop children always pass --no-mock.
-    ap.add_argument("--mock", action=argparse.BooleanOptionalAction, required=True,
-                    help="--mock = synthetic metrics (no grid); --no-mock = real grid.")
     ap.add_argument("--x-point", default=None,
                     help="comma-separated forced x (e.g. '0.587,304.77,198.91,94.17'). "
                          "Skips BO propose and uses this point directly.")
@@ -76,7 +69,6 @@ def main() -> int:
     init = {
         "mode": args.mode,
         "alpha": args.alpha,
-        "mock": args.mock,
     }
     if args.config_name:
         init["config_name"] = args.config_name

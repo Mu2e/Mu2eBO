@@ -150,47 +150,6 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
     return status, tail
 
 
-# --- mock grid (Phase 1) ---
-
-
-def mock_metrics(x_point: list[float], mode: str = DEFAULT_MODE) -> dict:
-    """Synthesize a (s_over_sqrt_b, calo_per_pot) pair from x via a smooth surface.
-
-    Dimension-generic: normalizes each knob against the mode's registry
-    bounds (modes.SPECS[mode].bounds_lo/hi), so every numeric mode works
-    (6D foilsf … 12D foilsg). sob peaks at mid-range of each knob; calo grows
-    with the last two normalized knobs ("more material").
-    """
-    import math
-    spec = _modes.SPECS[mode]
-    lo, hi = spec.bounds_lo, spec.bounds_hi
-    if len(lo) != len(x_point):
-        raise ValueError(f"mock_metrics: x_point has {len(x_point)} dims, "
-                         f"mode {mode!r} registry bounds have {len(lo)}")
-    u = [(v - lo[i]) / (hi[i] - lo[i]) for i, v in enumerate(x_point)]
-    # sob: gaussian bump centered at 0.5 in each dim.
-    r2 = sum((ui - 0.5) ** 2 for ui in u)
-    sob = 0.9 * math.exp(-2.5 * r2) + 0.05
-    # calo: grows with the last two normalized knobs ("more material" dir).
-    calo = 1e-7 + 6e-7 * u[-2] * u[-1]
-    return {
-        "config": "mock",
-        "s_over_sqrt_b": round(sob, 6),
-        "calo_per_pot": calo,
-        "ce_seen": 0,
-        "muminus_stops": 0,
-        "mubeam_sim_total": 0,
-        "stopping_factor": 0.0,
-        "ce_abs_eff": 0.0,
-        "calo_total": 0.0,
-        "calo_files_seen": 0,
-        "nts_path": "mock",
-        "edep_log": "mock",
-        "macro_log": "mock",
-        "mock": True,
-    }
-
-
 # --- per-stage grid driver (Phase 2b) ---
 
 

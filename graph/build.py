@@ -21,7 +21,6 @@ from nodes import (  # noqa: E402
     make_stage_node,
     node_evaluate,
     node_harvest,
-    node_mock_grid,
     node_propose,
     node_render_preflight,
     node_scan_logs,
@@ -44,7 +43,6 @@ def build_graph() -> StateGraph:
         g.add_node(node_name, make_stage_node(stage))
     g.add_node("harvest", node_harvest)
     g.add_node("scan_logs", node_scan_logs)
-    g.add_node("mock_grid", node_mock_grid)
     g.add_node("evaluate", node_evaluate)
 
     g.add_edge(START, "propose")
@@ -54,7 +52,6 @@ def build_graph() -> StateGraph:
         route_after_preflight,
         {
             "real": STAGE_NODES[GRID_STAGES[0]],
-            "mock": "mock_grid",
             "propose": "propose",
             END: END,
         },
@@ -70,7 +67,6 @@ def build_graph() -> StateGraph:
 
     g.add_edge("harvest", "scan_logs")
     g.add_edge("scan_logs", "evaluate")
-    g.add_edge("mock_grid", "evaluate")
     # evaluate is terminal for a single iteration; the OUTER round loop
     # (graph/closed_loop.py) drives multi-round BO. The inner graph never
     # loops back — the old auto_continue/decide_next path had no writer and
