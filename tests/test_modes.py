@@ -424,6 +424,14 @@ class TestModeStamping(unittest.TestCase):
         modes.assert_mode_stamped(runtime._SPEC.name)
         self.assertEqual(runtime._SPEC.name, pipeline.MODE)
 
+    def test_assert_mode_stamped_names_an_unknown_mode_as_such(self):
+        """graph/run.py's --mode has no argparse choices, so a typo lands in
+        the assertion; it must not be reported as an import-order problem."""
+        with self.assertRaises(SystemExit) as cm:
+            modes.assert_mode_stamped("nosuchmode")
+        self.assertIn("unknown --mode 'nosuchmode'", str(cm.exception))
+        self.assertIn("foilspf", str(cm.exception))
+
     def test_assert_mode_stamped_dies_on_disagreement(self):
         import runtime
         other = next(m for m in modes.SPECS if m != runtime._SPEC.name)

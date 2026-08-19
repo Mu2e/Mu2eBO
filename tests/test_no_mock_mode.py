@@ -14,9 +14,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT / "graph"))
 
-# graph/config.py resolves its mode spec at IMPORT time and its "foils"
-# default is dangling (that spec was retired), so a bare `import build` raises
-# KeyError('foils'). Set the mode explicitly rather than depend on the default.
+# core/runtime.py (graph/config.py before 2026-08-19) resolves its mode spec
+# at IMPORT time, so a bare `import build` needs a live mode in the env.
+# tests/__init__.py stamps the suite's mode once for the whole process; this
+# setdefault is only reached by `discover -s tests` without `-t .`, which
+# never imports the package __init__, and must agree with it.
 os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
 
 

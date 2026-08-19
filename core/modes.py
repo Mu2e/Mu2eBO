@@ -212,6 +212,15 @@ def assert_mode_stamped(cli_mode: str) -> None:
     """
     import runtime as _runtime
     import pipeline as _pipeline
+    if cli_mode not in SPECS:
+        # Distinct message: `graph/run.py`'s --mode has no argparse choices
+        # (the pool passes an already-validated mode), so a typo lands here
+        # rather than at argparse. Without this branch it would be reported
+        # as an import-order problem, which it is not.
+        raise SystemExit(
+            f"[mode] FATAL unknown --mode {cli_mode!r}. Known modes: "
+            f"{', '.join(sorted(SPECS))}. (Mode specs live in mode_specs/; "
+            f"retired ones are under mode_specs/archive/.)")
     env = os.environ.get("AUTORESEARCH_MODE")
     got = {"--mode": cli_mode, "AUTORESEARCH_MODE": env,
            "runtime._SPEC.name": _runtime._SPEC.name,
