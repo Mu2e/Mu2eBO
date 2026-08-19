@@ -73,7 +73,7 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
     `stagger` seconds separate consecutive launches (not before the first
     one): concurrent mu2ejobsub submissions within ~10s are known to race
     (wiki/incidents/concurrent-token-contention.md, which measured 60-90s as
-    safe). Defaults to `config.CLOSED_LOOP_STAGGER_SEC` when omitted; tests
+    safe). Defaults to `runtime.CLOSED_LOOP_STAGGER_SEC` when omitted; tests
     pass `stagger=0` so the suite doesn't sleep.
     """
     run_child = run_child or _default_run_child(mode, alpha)
@@ -83,7 +83,7 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
     row_landed = row_landed or _default_row_landed
     broken = broken or _default_broken
     if stagger is None:
-        from config import CLOSED_LOOP_STAGGER_SEC  # Task 4 folds config.py into core/paths.py
+        from runtime import CLOSED_LOOP_STAGGER_SEC
         stagger = CLOSED_LOOP_STAGGER_SEC
 
     inflight = {}
@@ -153,7 +153,7 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
 
 def _default_run_child(mode, alpha):
     """Popen `graph.run` and WAIT. The wait IS the barrier."""
-    from config import GRAPH_DATA, PROJECT_ROOT  # Task 4 moves this to core.runtime
+    from paths import GRAPH_DATA, REPO_ROOT as PROJECT_ROOT
 
     def run_child(name, x):
         logs = GRAPH_DATA / "closed_loop_logs"

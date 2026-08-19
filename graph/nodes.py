@@ -18,10 +18,10 @@ from langgraph.graph import END  # noqa: E402
 
 import bo_driver as bo  # noqa: E402
 import pipeline_io as pio  # noqa: E402
-from config import (  # noqa: E402
+from paths import GRID_DATA_ROOT  # noqa: E402
+from runtime import (  # noqa: E402
     DEFAULT_ALPHA,
     DEFAULT_MODE,
-    GRID_DATA_ROOT,
     MAX_PROPOSE_RETRIES,
     PRESUBMIT_AFTER,
 )
@@ -124,7 +124,7 @@ def node_render_preflight(state: BOIterationState) -> dict:
       2026-05-29 after foilsX04 incident where 20/20 children died here;
       each propose retry bumps seed_idx so the botorch ask draws a
       different `x` and a true geom bug doesn't infinite-loop. Bounded by
-      MAX_PROPOSE_RETRIES (graph/config.py).
+      MAX_PROPOSE_RETRIES (core/runtime.py).
     - fail_init → terminal (real G4 init failure; geom is broken)
     """
     mode = state["mode"]

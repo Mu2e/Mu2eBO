@@ -13,10 +13,11 @@ from pathlib import Path
 # Make sibling modules importable both as `graph.X` (under `python -m`) and as
 # plain `X` (when langgraph_api loads this file as a standalone module).
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 
-from config import GRID_STAGES  # noqa: E402
+from runtime import GRID_STAGES  # noqa: E402
 from nodes import (  # noqa: E402
     make_stage_node,
     node_evaluate,

@@ -202,7 +202,7 @@ def _validate_stage_tuning(run: dict, declared_stages,
 def _validate_jobs_per_stage(run: dict, declared_stages, where: str) -> Dict[str, int]:
     """Validate run.jobs_per_stage keys against the mode's declared
     run.stages. A typo'd stage name (e.g. 'mubeem') otherwise loads fine and
-    silently adds a dead key to graph.config.STAGE_TARGETS via a plain
+    silently adds a dead key to runtime.STAGE_TARGETS via a plain
     dict.update -- the REAL stage is left at its default job count with no
     error anywhere (X3 in the json-configurable-modes final review)."""
     raw = run.get("jobs_per_stage")
@@ -214,7 +214,7 @@ def _validate_jobs_per_stage(run: dict, declared_stages, where: str) -> Dict[str
             f"{{stage: njobs}}, got {raw!r}")
     _reject_unknown(raw, declared_stages, f"{where}[run.jobs_per_stage]")
     # Values were passed through raw: true / 15.5 / "20" all loaded. The value
-    # flows to graph/config.py STAGE_TARGETS.update -> pipeline.STAGES[...]
+    # flows to core/runtime.py STAGE_TARGETS.update -> pipeline.STAGES[...]
     # ["njobs"] -> str(cfg["njobs"]) in the jobsub command, so a bad value on
     # a LATER stage surfaces only after the earlier stages' hours have run.
     # isinstance(True, int) is True, so bool needs its own rejection.

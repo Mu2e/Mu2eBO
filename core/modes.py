@@ -10,10 +10,16 @@ A/B picker venv) and pipeline.py can import it.
 Behavior stays on the driver's BOMode subclasses (bo_driver.py),
 which bind to their spec by name. Env seams deliberately stay env and are
 applied ON TOP of the spec by consumers:
-  AUTORESEARCH_NO_RUN1B        post-lookup stage filter (graph/config.py)
+  AUTORESEARCH_NO_RUN1B        read by bo_driver.py cmd_evaluate's calo=None
+                                substitution guard; the presniff_picker()
+                                auto-stamp that used to set it from `--picker
+                                qlnei` was retired 2026-08-19 with
+                                graph/presniff.py -- dead weight even before
+                                that, since no live mode's grid_stages
+                                contains run1b_mubeam for the guard to gate on
   AUTORESEARCH_ELEBEAM_NJOBS   override on foilsflash's stage_target_overrides
 
-Consumers: graph/config.py (musing, stage chain, harvest verb, stage targets,
+Consumers: core/runtime.py (musing, stage chain, harvest verb, stage targets,
 presubmit map), pipeline.py (grid tarball), botorch_predict.py (bounds),
 bo_driver.py preflight (policy flags). Completeness is pinned by
 tests/test_modes.py: SPECS keys == driver MODES keys == graph/state.py mode
@@ -38,7 +44,7 @@ class ModeSpec:
     grid_tarball: str                 # Code.tar.bz2 shipped to grid workers
     grid_stages: Tuple[str, ...]      # ordered stage chain
     harvest_verb: str                 # pipeline.py verb: "harvest"
-    stage_target_overrides: Dict[str, int]   # njobs overrides on graph.config.STAGE_TARGETS
+    stage_target_overrides: Dict[str, int]   # njobs overrides on runtime.STAGE_TARGETS
     presubmit_after: Dict[str, Tuple[str, ...]]  # after-stage -> stages to presubmit
     # Per-stage core/pipeline.py STAGES overrides (events_per_job/memory_mb/
     # quorum), applied by pipeline.py's _apply_stage_tuning on top of the

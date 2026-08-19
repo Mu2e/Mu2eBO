@@ -32,7 +32,7 @@ class TestPathsResolution(unittest.TestCase):
     def test_repo_root_is_the_directory_holding_core_and_graph(self):
         p = reload_with()
         self.assertTrue((p.REPO_ROOT / "core" / "paths.py").is_file())
-        self.assertTrue((p.REPO_ROOT / "graph" / "config.py").is_file())
+        self.assertTrue((p.REPO_ROOT / "graph" / "pool.py").is_file())
 
     def test_repo_root_matches_this_test_files_own_derivation(self):
         p = reload_with()
@@ -182,31 +182,30 @@ class TestEveryModuleAgreesOnTheRoot(unittest.TestCase):
                     f"{mode.name}: {d} is not under DATA_ROOT")
 
     def test_graph_modules_use_the_resolver(self):
-        sys.path.insert(0, str(ROOT / "graph"))
-        import config
-        self.assertEqual(config.PROJECT_ROOT, paths.REPO_ROOT)
+        sys.path.insert(0, str(ROOT / "core"))
+        os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
+        import runtime
+        self.assertEqual(runtime.BO_DRIVER, paths.REPO_ROOT / "core" / "bo_driver.py")
 
 
 class TestDataRootsHaveOneDefinition(unittest.TestCase):
     """bo_driver.py used to carry three private copies of the grid-data root
-    that could drift from graph/config.py's. After the rewiring there is one
-    definition and every consumer agrees with it."""
+    that could drift from graph/config.py's (retired 2026-08-19 into
+    core/runtime.py). After the rewiring there is one definition and every
+    consumer agrees with it."""
 
     def tearDown(self):
         importlib.reload(paths)
 
     def test_config_data_roots_come_from_the_resolver(self):
-        # graph/config.py:50 still defaults AUTORESEARCH_MODE to the archived
-        # "foils" mode, so a bare `import config` raises KeyError unless
-        # something already stamped the env var. bo_driver does it at import
-        # time via os.environ.setdefault, which is why the FULL suite masks
-        # this — an alphabetically earlier test file imports bo_driver first.
-        # Prime it here so this file is runnable on its own.
-        os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
-        sys.path.insert(0, str(ROOT / "graph"))
-        import config
-        self.assertEqual(config.GRID_DATA_ROOT, paths.GRID_DATA_ROOT)
-        self.assertEqual(config.GRAPH_DATA, paths.GRAPH_DATA)
+        # core/runtime.py's _SPEC lookup defaults AUTORESEARCH_MODE to the
+        # live "foilspf" mode, so a bare `import runtime` no longer needs the
+        # env var pre-stamped -- but prime it anyway so this file is runnable
+        # standalone regardless of import order.
+        os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
+        sys.path.insert(0, str(ROOT / "core"))
+        import runtime
+        self.assertEqual(runtime.STOP_FLAG, paths.GRAPH_DATA / "STOP_CLOSED_LOOP")
 
     def test_bo_driver_no_longer_carries_its_own_grid_root(self):
         src = (ROOT / "core" / "bo_driver.py").read_text()

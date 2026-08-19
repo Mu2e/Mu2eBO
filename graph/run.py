@@ -17,14 +17,7 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-
-
-# Stamp AUTORESEARCH_MODE BEFORE `from config import ...` — config.GRID_STAGES
-# is selected from GRID_STAGES_BY_MODE at module-load time, and build.STAGE_NODES
-# freezes it. argparse runs in main(), too late. Shared sniffer: graph/presniff.py.
-from presniff import presniff_mode  # noqa: E402
-
-presniff_mode()
+sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 
 # Load .env (LANGSMITH_*, etc.) before any langchain/langgraph import so the
 # tracing client picks them up.
@@ -32,10 +25,10 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from build import build_graph  # noqa: E402
-from config import (  # noqa: E402
+from paths import GRAPH_DATA  # noqa: E402
+from runtime import (  # noqa: E402
     DEFAULT_ALPHA,
     DEFAULT_MODE,
-    GRAPH_DATA,
 )
 
 

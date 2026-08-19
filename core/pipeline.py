@@ -94,19 +94,16 @@ def _submit_lock(stage: str):
 # --- Paths fixed at the code-repo level (config-independent) ---
 TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 
-# graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
-# "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —
-# that file is out of scope here (graph/ stays untouched by the 2026-08-08
-# Python-mode archive cut). "foils" no longer exists in modes.SPECS, so an
-# unset AUTORESEARCH_MODE would KeyError inside `from config import` below.
-# Real launches (graph/run.py, graph/closed_loop.py) always stamp
-# AUTORESEARCH_MODE before importing config, so setdefault is a no-op for
-# them; a bare `import pipeline` (tests, ad-hoc scripts) gets a live JSON
-# mode instead of the dead "foils" default.
+# core/runtime.py's own module-level lookup (`_modes.SPECS[os.environ.get(
+# "AUTORESEARCH_MODE", "foilspf")]`) resolves eagerly at import time, so an
+# unset AUTORESEARCH_MODE picks the live "foilspf" default (was the dangling
+# "foils" default before 2026-08-19). Real launches (graph/run.py,
+# graph/closed_loop.py) always stamp AUTORESEARCH_MODE before importing
+# runtime, so setdefault is a no-op for them; a bare `import pipeline`
+# (tests, ad-hoc scripts) gets a live JSON mode either way.
 os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
-from config import (  # noqa: E402
-    GRID_DATA_ROOT as DATA_ROOT,
+from paths import GRID_DATA_ROOT as DATA_ROOT  # noqa: E402
+from runtime import (  # noqa: E402
     GRID_STAGES,
     MUSING,
     SETUPMU2E,
@@ -117,6 +114,7 @@ from config import (  # noqa: E402
 # muminusSelector makes TargetStops mu--pure, so mustops_* resample the
 # mubeam files directly and harvest counts mu- stops from them.
 CONCATLESS = "concat" not in GRID_STAGES
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from sourced_bash import run_sourced_bash  # noqa: E402
 # Eval-summary module: schema + pure harvest logic (parsers, stage-chain
 # stamp, input resolution, fail-soft secondary extraction). See wiki
@@ -188,7 +186,7 @@ def _stage_dsconf(stage: str) -> str:
 
 
 # Orchestration residue (Task 14): only the fields mode_specs `stage_tuning`
-# and graph/config.py STAGE_TARGETS actually tune, plus desc_fmt/glob/
+# and core/runtime.py STAGE_TARGETS actually tune, plus desc_fmt/glob/
 # merge_factor, which never vary at runtime but aren't part of a
 # json2jobdef entry either. Everything that WAS here and IS static
 # json2jobdef-entry data (run_number, memory_mb, default_loc, the dead
@@ -230,8 +228,8 @@ STAGES = {
         # 100 jobs per A/B noise test on helical001 (2026-05-16): half-vs-half
         # ce_seen agreed to 0.4% at 97 jobs each — well below GP noise floor.
         "njobs": STAGE_TARGETS["mustops_ce"],
-        # njobs=200 driven by STAGE_TARGETS["mustops_ce"] in graph/config.py.
-        # 2500 events/job paired with njobs=200 (set in graph/config.py
+        # njobs=200 driven by STAGE_TARGETS["mustops_ce"] in core/runtime.py.
+        # 2500 events/job paired with njobs=200 (set in core/runtime.py
         # STAGE_TARGETS) preserves total CE statistics at 500k events but
         # halves per-job wall-time and doubles per-cluster parallelism.
         # 2026-05-21 PM: SR00_00 long-tail (dx=0.011 → N_crit≈4144 → 3-4h
@@ -461,7 +459,7 @@ def _render_fcl_overrides(stage: str, entry_tmpl: dict | None = None) -> dict:
 # events_per_job for ~30-min payloads (measured per-event: mubeam 9.1 ms,
 # mustops_ce 24.1 ms, elebeam_flash 16.6 ms) instead of the ~45-s default, so
 # the payload dominates the ~44-s muse/setup overhead (~80% grid efficiency vs
-# ~15-30%). Paired with njobs=100 (graph/config.py STAGE_TARGETS override) →
+# ~15-30%). Paired with njobs=100 (core/runtime.py STAGE_TARGETS override) →
 # ~15-20× total stats: σ(sob)~0.09% (overkill, harmless) + σ(flash) ~3.8×
 # tighter (~59k flash events; flash is the binding noise channel). mubeam and
 # mustops_ce events_per_job are SHARED defaults, which is exactly why these are

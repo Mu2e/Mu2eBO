@@ -372,6 +372,8 @@ autoresearch/
 │   │                        #   pure-data table, no silent defaults (ADR-0002)
 │   ├── paths.py             #   the ONLY module that knows a filesystem
 │   │                        #   layout: repo/data/artifact roots + backing
+│   ├── runtime.py           #   non-path runtime tunables: per-mode stage
+│   │                        #   chains, closed-loop constants, env seams
 │   ├── mode_json.py         #   JSON spec loader/validator (mode_specs/ → SPECS)
 │   ├── bo_driver.py         #   propose | evaluate | preflight CLI; BOMode classes
 │   ├── botorch_predict.py   #   GP fit + acquisition (all pickers), ask/tell seam
@@ -397,9 +399,8 @@ autoresearch/
 │   ├── nodes.py             #   graph nodes (propose, preflight, stages, harvest, evaluate)
 │   ├── build.py / state.py  #   graph wiring + typed state
 │   ├── child_tracker.py     #   sole resolver of child state at the barrier
-│   ├── config.py            #   paths, per-mode stage chains, env seams
 │   ├── pipeline_io.py       #   proposal/leaderboard file I/O, name allocation
-│   └── presniff.py / sourced_bash.py   # log classification; env-sourcing subprocess helper
+│   └── sourced_bash.py      #   env-sourcing subprocess helper
 ├── mode_specs/              # JSON mode definitions (see its README)
 ├── leaderboards/            # READ-ONLY archive of past campaigns; live rows go
 │                            #   to $AUTORESEARCH_DATA_ROOT (see Where your results go)

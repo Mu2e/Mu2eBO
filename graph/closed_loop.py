@@ -47,28 +47,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "core"))  # BO/pipeline modules
 
-# Stamp AUTORESEARCH_MODE / AUTORESEARCH_NO_RUN1B BEFORE `from config import ...`
-# — config.GRID_STAGES is selected from GRID_STAGES_BY_MODE at module-load time,
-# and build.STAGE_NODES freezes it. argparse runs much later (in main()).
-# Shared sniffers: graph/presniff.py. Issue Mu2eBO #15.
-from presniff import presniff_mode, presniff_picker  # noqa: E402
-import modes as _modes  # noqa: E402  (env-independent; safe pre-stamp)
-
-presniff_mode()
-presniff_picker()
+import modes as _modes  # noqa: E402
 
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from config import (  # noqa: E402
+from paths import GRAPH_DATA, GRID_DATA_ROOT, REPO_ROOT as PROJECT_ROOT  # noqa: E402
+from runtime import (  # noqa: E402
     BOTORCH_VENV_PY,
     CLOSED_LOOP_MAX_ROUNDS,
     CLOSED_LOOP_Q,
     DEFAULT_ALPHA,
     DEFAULT_MODE,
-    GRAPH_DATA,
-    GRID_DATA_ROOT,
-    PROJECT_ROOT,
     STOP_FLAG,
 )
 
@@ -225,7 +215,7 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
     Picker subprocess: bo.botorch_ask shells into BOTORCH_VENV_PY (the
     project .venv by default; AUTORESEARCH_BOTORCH_VENV overrides). It owns
     the subprocess + JSON round-trip; this wrapper pins the venv from
-    config.BOTORCH_VENV_PY (the AUTORESEARCH_BOTORCH_VENV A/B seam) and
+    runtime.BOTORCH_VENV_PY (the AUTORESEARCH_BOTORCH_VENV A/B seam) and
     keeps the historical list-of-tuples return contract.
 
     picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj),

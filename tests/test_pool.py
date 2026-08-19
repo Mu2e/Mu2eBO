@@ -18,9 +18,8 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT / "graph"))
 
 # pool.py's default row_landed/broken/pick-source callables lazily `import
-# closed_loop`, which (via graph/config.py) resolves AUTORESEARCH_MODE
-# against modes.SPECS at import time; "foils" (the module-level fallback) is
-# dangling (retired 2026-08-08). Every test below passes its own
+# closed_loop`, which (via core/runtime.py) resolves AUTORESEARCH_MODE
+# against modes.SPECS at import time. Every test below passes its own
 # run_child/next_pick fakes but not always row_landed/broken, so the lazy
 # import can fire. Same pattern as tests/test_no_mock_mode.py.
 os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
@@ -299,8 +298,8 @@ class TestStagger(unittest.TestCase):
                              run_child=lambda n, x: 0, next_pick=next_pick,
                              stop_flag=lambda: False, renew=lambda: None,
                              broken=_NOT_BROKEN)  # stagger omitted
-        import config
-        m.assert_called_once_with(config.CLOSED_LOOP_STAGGER_SEC)
+        import runtime
+        m.assert_called_once_with(runtime.CLOSED_LOOP_STAGGER_SEC)
 
 
 class TestNameSkip(unittest.TestCase):
@@ -399,7 +398,7 @@ class TestDefaultRunChild(unittest.TestCase):
     a 40-eval campaign would exhaust the parent's ulimit)."""
 
     def test_argv_shape_and_popen_kwargs(self):
-        import config
+        import paths
         captured = {}
 
         class _FakeProc:
@@ -413,8 +412,8 @@ class TestDefaultRunChild(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            with mock.patch.object(config, "GRAPH_DATA", tmp), \
-                 mock.patch.object(config, "PROJECT_ROOT", tmp), \
+            with mock.patch.object(paths, "GRAPH_DATA", tmp), \
+                 mock.patch.object(paths, "REPO_ROOT", tmp), \
                  mock.patch.object(pool.subprocess, "Popen", _FakeProc):
                 run_child = pool._default_run_child("foilspf", 1.0e5)
                 rc = run_child("fooR00_00", [1.0, 2.5, -3.0])
@@ -440,7 +439,7 @@ class TestDefaultRunChild(unittest.TestCase):
                         "parent must not leak its copy of the child's log handle")
 
     def test_log_file_written_under_graph_data(self):
-        import config
+        import paths
 
         class _FakeProc:
             def __init__(self, cmd, **kwargs):
@@ -451,8 +450,8 @@ class TestDefaultRunChild(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            with mock.patch.object(config, "GRAPH_DATA", tmp), \
-                 mock.patch.object(config, "PROJECT_ROOT", tmp), \
+            with mock.patch.object(paths, "GRAPH_DATA", tmp), \
+                 mock.patch.object(paths, "REPO_ROOT", tmp), \
                  mock.patch.object(pool.subprocess, "Popen", _FakeProc):
                 run_child = pool._default_run_child("foilspf", 1.0e5)
                 run_child("fooR00_00", [1.0])

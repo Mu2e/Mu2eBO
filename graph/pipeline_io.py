@@ -25,14 +25,12 @@ import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
 import prodtools_exec as _prodtools_exec  # noqa: E402
-
-sys.path.insert(0, str(Path(__file__).parent))
-from config import (  # noqa: E402
+from paths import GRID_DATA_ROOT  # noqa: E402
+from runtime import (  # noqa: E402
     BO_DRIVER,
     BOTORCH_VENV_PY,
     DEFAULT_ALPHA,
     DEFAULT_MODE,
-    GRID_DATA_ROOT,
     GRID_STAGES,
     PIPELINE_DRIVER,
     PREFLIGHT_TIMEOUT_S,
@@ -189,7 +187,7 @@ def run_stage(config_name: str, stage: str) -> dict:
 
 
 def presubmit_stage(config_name: str, stage: str) -> None:
-    """Early submit of a data-independent stage (see config.PRESUBMIT_AFTER).
+    """Early submit of a data-independent stage (see runtime.PRESUBMIT_AFTER).
 
     Submit-only: the stage's own node later finds the cluster file (submit
     no-ops), polls the already-running jobs, and lists outputs — so the

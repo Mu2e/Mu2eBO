@@ -48,18 +48,16 @@ from paths import REPO_ROOT as ROOT  # single root resolver, see core/paths.py
 from paths import BO_WORK, GRID_DATA_ROOT
 from paths import leaderboard_archive, leaderboard_live
 
-# graph/config.py's own module-level lookup (`_modes.SPECS[os.environ.get(
-# "AUTORESEARCH_MODE", "foils")]`) still hardcodes "foils" as its fallback —
-# that file is out of scope here (graph/ stays untouched by the 2026-08-08
-# Python-mode archive cut). "foils" no longer exists in modes.SPECS, so an
-# unset AUTORESEARCH_MODE would KeyError inside `from config import` below.
-# Real launches (graph/run.py, graph/closed_loop.py) always stamp
-# AUTORESEARCH_MODE before importing config, so setdefault is a no-op for
-# them; a bare `import bo_driver` (tests, ad-hoc scripts) gets a live JSON
-# mode instead of the dead "foils" default.
+# core/runtime.py's own module-level lookup (`_modes.SPECS[os.environ.get(
+# "AUTORESEARCH_MODE", "foilspf")]`) resolves eagerly at import time, so an
+# unset AUTORESEARCH_MODE picks the live "foilspf" default (was the dangling
+# "foils" default before 2026-08-19). Real launches (graph/run.py,
+# graph/closed_loop.py) always stamp AUTORESEARCH_MODE before importing
+# runtime, so setdefault is a no-op for them; a bare `import bo_driver`
+# (tests, ad-hoc scripts) gets a live JSON mode either way.
 os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
+from runtime import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
 sys.path.insert(0, str(ROOT / "graph"))
-from config import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
 from sourced_bash import run_sourced_bash  # noqa: E402
 
 DEFAULT_ALPHA = 1.0e5  # mmackenz calo range 4e-8..2.5e-5; alpha=1e5 makes
