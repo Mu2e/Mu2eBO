@@ -31,6 +31,7 @@ This is safe for the runner and for tests that capture output:
 """
 import os
 import sys
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # The suite's mode, stamped ONCE, here.
@@ -50,11 +51,14 @@ import sys
 # belt-and-braces for `discover -s tests` without `-t .`, which never imports
 # this file.
 #
-# foilspf is the live default (core/runtime.py DEFAULT_MODE) and the mode
-# this branch's spec is named for. Tests that need a DIFFERENT mode must say
-# so per-test (see tests/test_modes.py::TestModeStamping, which spawns a
-# fresh interpreter rather than trying to re-point this one).
-os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
+# The value comes from core/modes.py::DEFAULT_MODE -- the same single source
+# core/runtime.py, core/pipeline.py and core/bo_driver.py now read -- rather
+# than a fifth literal that could drift from it. Tests that need a DIFFERENT
+# mode must say so per-test (see tests/test_modes.py::TestModeStamping, which
+# spawns a fresh interpreter rather than trying to re-point this one).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+import modes as _modes  # noqa: E402
+os.environ.setdefault("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)
 
 
 class _Discard:

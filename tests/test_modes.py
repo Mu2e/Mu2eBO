@@ -404,19 +404,44 @@ class TestModeStamping(unittest.TestCase):
             self.assertEqual(modes.stamp_mode_from_argv(["--mode=foilspf2k"]),
                              "foilspf2k")
 
-    def test_unknown_mode_is_not_stamped(self):
+    def test_unknown_mode_falls_through_and_is_never_stamped_as_such(self):
         """Stamping a typo would turn argparse's "invalid choice" message
-        into a bare KeyError traceback from `from runtime import ...`."""
+        into a bare KeyError traceback from `from runtime import ...`. It
+        falls through to the env / DEFAULT_MODE instead, and
+        assert_mode_stamped reports the bad name properly."""
         with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": "foilspf"}, clear=False):
-            self.assertIsNone(modes.stamp_mode_from_argv(["--mode", "nope"]))
-            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspf")
+                             {"AUTORESEARCH_MODE": "foilspfbw"}, clear=False):
+            self.assertEqual(modes.stamp_mode_from_argv(["--mode", "nope"]),
+                             "foilspfbw")
+            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspfbw")
 
-    def test_no_mode_flag_is_a_noop(self):
+    def test_no_mode_flag_keeps_an_already_set_env(self):
+        """Precedence rung 2: AUTORESEARCH_MODE is the documented way to
+        pick a mode without the flag, so the stamp must not clobber it."""
         with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": "foilspf"}, clear=False):
-            self.assertIsNone(modes.stamp_mode_from_argv(["--q", "2"]))
-            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspf")
+                             {"AUTORESEARCH_MODE": "foilspfbw"}, clear=False):
+            self.assertEqual(modes.stamp_mode_from_argv(["--q", "2"]),
+                             "foilspfbw")
+            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspfbw")
+
+    def test_no_mode_flag_and_no_env_stamps_the_registry_default(self):
+        """Precedence rung 3, and the fix for the round-2 defect: it must
+        STAMP, not merely return. Returning without stamping left every
+        module-level reader to apply its own fallback, and they disagreed."""
+        env = dict(modes.os.environ)
+        env.pop("AUTORESEARCH_MODE", None)
+        with mock.patch.dict(modes.os.environ, env, clear=True):
+            self.assertEqual(modes.stamp_mode_from_argv([]),
+                             modes.DEFAULT_MODE)
+            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"],
+                             modes.DEFAULT_MODE)
+
+    def test_explicit_mode_beats_an_already_set_env(self):
+        """Precedence rung 1."""
+        with mock.patch.dict(modes.os.environ,
+                             {"AUTORESEARCH_MODE": "foilsflash"}, clear=False):
+            self.assertEqual(modes.stamp_mode_from_argv(["--mode", "foilspf2k"]),
+                             "foilspf2k")
 
     def test_assert_mode_stamped_passes_when_all_agree(self):
         import pipeline
@@ -466,24 +491,179 @@ class TestModeStamping(unittest.TestCase):
         self.assertEqual(r.stdout.split()[-3:],
                          ["foilspfbw", "foilspfbw", "foilspfbw"])
 
-    def test_entrypoints_stamp_before_importing_runtime_or_build(self):
-        """Source-order check: the stamp is worthless if it runs after the
-        import it exists to precede."""
-        import re
-        for rel in ("graph/run.py", "graph/closed_loop.py"):
-            text = (self.ROOT / rel).read_text()
-            stamp = re.search(r"^_modes\.stamp_mode_from_argv\(\)",
-                              text, re.M)
-            self.assertIsNotNone(stamp, f"{rel}: no stamp call")
-            for imp in ("runtime", "build"):
-                # ^-anchored: the explanatory comments above the stamp
-                # mention these imports in prose.
-                m = re.search(rf"^from {imp} import", text, re.M)
-                if m is None:
+    # --- entrypoint / module-scope-env-reader reachability -----------------
+    #
+    # The invariant is "no entrypoint reaches a module-scope reader of
+    # AUTORESEARCH_MODE before stamping it", NOT "graph/run.py and
+    # graph/closed_loop.py each contain a `from runtime import` line after a
+    # stamp line". The literal-two-files version missed a plain `import
+    # runtime`, any indirect import (a new module-scope `from X import ...`
+    # where X itself imports runtime), and any third entrypoint added later.
+
+    @staticmethod
+    def _module_sources(root):
+        out = {}
+        for d in ("core", "graph"):
+            for f in sorted((root / d).glob("*.py")):
+                if f.name == "__init__.py":
                     continue
-                self.assertLess(stamp.start(), m.start(),
-                                f"{rel}: stamp_mode_from_argv() must precede "
-                                f"`from {imp} import`")
+                out[f.stem] = f.read_text()
+        return out
+
+    @staticmethod
+    def _module_scope_lines(text):
+        """Column-0 statements only -- anything indented is inside a def/
+        class/if and does not run at import."""
+        for line in text.splitlines():
+            if not line or line[0].isspace() or line.lstrip().startswith("#"):
+                continue
+            yield line
+
+    @classmethod
+    def _env_readers(cls, sources):
+        """Modules whose IMPORT resolves AUTORESEARCH_MODE, transitively."""
+        import re
+        direct = {
+            name for name, text in sources.items()
+            if any("AUTORESEARCH_MODE" in ln
+                   for ln in cls._module_scope_lines(text))
+        }
+        imports = {
+            name: {m.group(1) for ln in cls._module_scope_lines(text)
+                   for m in [re.match(r"(?:from|import)\s+(\w+)", ln)] if m}
+            for name, text in sources.items()
+        }
+        tainted, changed = set(direct), True
+        while changed:
+            changed = False
+            for name, deps in imports.items():
+                if name not in tainted and deps & tainted:
+                    tainted.add(name)
+                    changed = True
+        return tainted
+
+    @classmethod
+    def _entrypoints(cls, root):
+        return sorted(
+            f for f in (root / "graph").glob("*.py")
+            if '__name__ == "__main__"' in f.read_text()
+            and 'add_argument("--mode"' in f.read_text()
+        )
+
+    def test_env_reader_detection_finds_the_known_readers(self):
+        """Guards the guard: if this stops finding runtime/pipeline the
+        reachability test below silently passes on nothing."""
+        readers = self._env_readers(self._module_sources(self.ROOT))
+        self.assertLessEqual({"runtime", "pipeline", "bo_driver"}, readers)
+        # ...and picks up the indirect ones (build imports runtime).
+        self.assertIn("build", readers)
+        # ...but not modes itself, whose only uses are inside functions.
+        self.assertNotIn("modes", readers)
+
+    def test_every_entrypoint_stamps_before_any_module_scope_env_reader(self):
+        import re
+        eps = self._entrypoints(self.ROOT)
+        self.assertTrue(eps, "no --mode entrypoint found under graph/")
+        readers = self._env_readers(self._module_sources(self.ROOT))
+        for path in eps:
+            rel = path.relative_to(self.ROOT)
+            text = path.read_text()
+            with self.subTest(entrypoint=str(rel)):
+                stamp = re.search(r"stamp_mode_from_argv\(", text)
+                self.assertIsNotNone(
+                    stamp, f"{rel} takes --mode but never stamps it")
+                for ln in self._module_scope_lines(text):
+                    m = re.match(r"(?:from|import)\s+(\w+)", ln)
+                    if not m or m.group(1) not in readers:
+                        continue
+                    at = text.index(ln)
+                    self.assertLess(
+                        stamp.start(), at,
+                        f"{rel}: `{ln.strip()}` imports a module that "
+                        f"resolves AUTORESEARCH_MODE at import time, but "
+                        f"runs BEFORE stamp_mode_from_argv()")
+
+    # --- omitting --mode is a SUPPORTED invocation -------------------------
+
+    def _entrypoint_probe(self, module):
+        """Import an entrypoint module (which runs its stamp) with a bare
+        argv, then report what the two mode-keyed modules resolved to."""
+        script = (
+            "import sys, os\n"
+            f"sys.argv = ['{module}.py']\n"
+            f"sys.path[:0] = [{str(self.ROOT / 'graph')!r}, "
+            f"{str(self.ROOT / 'core')!r}]\n"
+            f"import {module}\n"
+            "import modes, runtime, pipeline\n"
+            "modes.assert_mode_stamped(modes.DEFAULT_MODE)\n"
+            "print(os.environ.get('AUTORESEARCH_MODE'), runtime._SPEC.name, "
+            "pipeline.MODE, modes.DEFAULT_MODE)\n"
+        )
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        env.pop("AUTORESEARCH_MODE", None)
+        r = subprocess.run([sys.executable, "-c", script], env=env,
+                           capture_output=True, text=True, cwd=str(self.ROOT))
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        return r.stdout.split()[-4:]
+
+    def test_omitting_mode_starts_cleanly_on_closed_loop(self):
+        """Omitting --mode is SUPPORTED (both CLIs declare a default), so it
+        must not be a startup FATAL. It was: stamp_mode_from_argv correctly
+        stamped nothing, core/runtime.py fell back to "foilspf" and
+        core/pipeline.py's own setdefault fell back to "foilsflash" -- two
+        different legacy fallbacks -- and assert_mode_stamped read the env
+        AFTER the `import pipeline` it itself triggered, so it reported a
+        three-way disagreement it had caused, blaming import order for a
+        missing flag."""
+        env, rt, pl, dflt = self._entrypoint_probe("closed_loop")
+        self.assertEqual([env, rt, pl], [dflt, dflt, dflt])
+
+    def test_omitting_mode_starts_cleanly_on_run(self):
+        env, rt, pl, dflt = self._entrypoint_probe("run")
+        self.assertEqual([env, rt, pl], [dflt, dflt, dflt])
+
+    def test_entrypoints_default_mode_to_the_stamped_value(self):
+        """args.mode must BE the resolved mode, not a second constant that
+        happens to match it -- otherwise an omitted --mode, a set
+        AUTORESEARCH_MODE and the registry default are three chances to
+        disagree."""
+        import re
+        for path in self._entrypoints(self.ROOT):
+            rel = path.relative_to(self.ROOT)
+            text = path.read_text()
+            with self.subTest(entrypoint=str(rel)):
+                self.assertIsNotNone(
+                    re.search(r"^_MODE = _modes\.stamp_mode_from_argv\(\)",
+                              text, re.M),
+                    f"{rel}: the stamp's return value is not captured")
+                self.assertIsNotNone(
+                    re.search(r'add_argument\("--mode",\s*default=_MODE',
+                              text),
+                    f"{rel}: --mode's argparse default must be the stamped "
+                    f"mode")
+
+    def test_one_default_mode_literal_in_the_tree(self):
+        """The shadow shape this branch existed to delete: core/runtime.py,
+        core/pipeline.py and core/bo_driver.py each carried their own
+        module-level fallback literal, and two of them disagreed."""
+        import re
+        offenders = []
+        for rel in ("core/runtime.py", "core/pipeline.py", "core/bo_driver.py"):
+            for ln, line in enumerate(
+                    (self.ROOT / rel).read_text().splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue
+                if re.search(r'(setdefault|environ\.get)\(\s*'
+                             r'"AUTORESEARCH_MODE"\s*,\s*"', line):
+                    offenders.append(f"{rel}:{ln}")
+        self.assertEqual(
+            offenders, [],
+            "hardcoded AUTORESEARCH_MODE fallback literal(s); use "
+            "modes.DEFAULT_MODE")
+
+    def test_default_mode_is_a_live_spec(self):
+        self.assertIn(modes.DEFAULT_MODE, modes.SPECS)
 
     def test_entrypoints_assert_mode_after_argparse(self):
         for rel in ("graph/run.py", "graph/closed_loop.py"):

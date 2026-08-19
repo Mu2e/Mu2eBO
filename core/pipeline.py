@@ -95,26 +95,37 @@ def _submit_lock(stage: str):
 # --- Paths fixed at the code-repo level (config-independent) ---
 TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 
-# core/runtime.py's own module-level lookup (`_modes.SPECS[os.environ.get(
-# "AUTORESEARCH_MODE", "foilspf")]`) resolves eagerly at import time, so an
-# unset AUTORESEARCH_MODE picks the live "foilspf" default (was the dangling
-# "foils" default before 2026-08-19). Real launches (graph/run.py,
-# graph/closed_loop.py) call modes.stamp_mode_from_argv() from --mode before
-# importing runtime/build, so this setdefault is a no-op for them and both
-# modules agree on the mode; a bare `import pipeline` (tests, ad-hoc scripts)
-# gets a live JSON mode either way. NOTE: between 265c642 (which deleted
-# graph/presniff.py) and the restoration of that stamp, this claim was FALSE
-# -- nothing stamped AUTORESEARCH_MODE, so `--mode foilspfbw` gave
-# runtime._SPEC.name == "foilspf" and pipeline.MODE == "foilsflash" (final
-# review, finding I1). graph/run.py::main() now also aborts loudly on any
-# disagreement via modes.assert_mode_stamped().
-os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
+# Imported HERE, above the setdefault, because it owns DEFAULT_MODE. Safe:
+# core/modes.py is stdlib-only and does NOT read AUTORESEARCH_MODE at import.
+import modes as _modes  # noqa: E402
+
+# core/runtime.py's own module-level lookup resolves eagerly at import time,
+# so this module and that one must agree on the fallback. They now share ONE
+# value, core/modes.py::DEFAULT_MODE. They did not before: this line said
+# "foilsflash" while runtime said "foilspf", so `python -m graph.closed_loop`
+# with no --mode produced a three-way disagreement out of nothing but
+# fallbacks -- and assert_mode_stamped, whose own `import pipeline` triggered
+# this very setdefault, then read the env afterwards and blamed import order.
+#
+# Real launches (graph/run.py, graph/closed_loop.py) call
+# modes.stamp_mode_from_argv() before importing runtime/build. That function
+# ALWAYS stamps -- from --mode, else from an already-set AUTORESEARCH_MODE,
+# else DEFAULT_MODE -- so this setdefault genuinely is a no-op for them now,
+# for every invocation and not just the ones that pass --mode. A bare
+# `import pipeline` (tests, ad-hoc scripts) gets DEFAULT_MODE.
+#
+# Historical note: between 265c642 (which deleted graph/presniff.py) and the
+# restoration of that stamp, nothing stamped AUTORESEARCH_MODE at all, so
+# `--mode foilspfbw` gave runtime._SPEC.name == "foilspf" and
+# pipeline.MODE == "foilsflash" (final review, finding I1). Both entrypoints
+# now also abort loudly on any disagreement via modes.assert_mode_stamped().
+os.environ.setdefault("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)
 # The process's mode for the lifetime of this interpreter -- resolved ONCE,
 # used everywhere pipeline.py needs "the mode spec" (MUSE_BASE_TARBALL below,
 # every stage_cfg() call site). pipeline.py, like core/runtime.py, only ever
 # operates on one mode per process; a genuinely different mode is a fresh
 # subprocess with a different AUTORESEARCH_MODE, not a runtime switch.
-MODE = os.environ.get("AUTORESEARCH_MODE", "foilsflash")
+MODE = os.environ.get("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)
 from paths import GRID_DATA_ROOT as DATA_ROOT  # noqa: E402
 from runtime import (  # noqa: E402
     GRID_STAGES,
@@ -133,7 +144,6 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 # concepts/architecture-friction-survey-2026-07 (2026-07-11 addendum).
 import harvest as hv  # noqa: E402
 # ModeSpec registry (ADR-0002): per-mode grid-tarball facts.
-import modes as _modes  # noqa: E402
 # Prodtools execution seam: entry rendering + the shared wait.json contract.
 import prodtools_exec as px  # noqa: E402
 

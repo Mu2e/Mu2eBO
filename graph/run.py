@@ -34,19 +34,25 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 # "all live specs are identical today" argument that deleted it does not
 # hold as a code invariant. main() re-checks with assert_mode_stamped().
 import modes as _modes  # noqa: E402
-_modes.stamp_mode_from_argv()
+# The RETURN VALUE becomes --mode's argparse default below, so `args.mode`
+# IS the resolved mode rather than a second constant that happens to match
+# it. Omitting --mode is a supported invocation; before this, the stamp
+# returned without stamping and every module-level reader applied its own
+# (disagreeing) fallback, turning a missing flag into a startup FATAL.
+_MODE = _modes.stamp_mode_from_argv()
 
 from build import build_graph  # noqa: E402
 from paths import GRAPH_DATA  # noqa: E402
 from runtime import (  # noqa: E402
     DEFAULT_ALPHA,
-    DEFAULT_MODE,
 )
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", default=DEFAULT_MODE)
+    ap.add_argument("--mode", default=_MODE,
+                    help="optimization line; defaults to AUTORESEARCH_MODE "
+                         "if set, else modes.DEFAULT_MODE")
     ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
     ap.add_argument("--config-name", default=None,
                     help="if omitted, auto-incremented from leaderboard")

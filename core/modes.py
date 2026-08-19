@@ -148,6 +148,20 @@ else:
 MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 SPECS.update(load_mode_dir(MODES_DIR, SPECS))
 
+# THE fallback mode, for every module that resolves AUTORESEARCH_MODE at
+# import time. Single-sourced here on purpose: core/runtime.py,
+# core/pipeline.py and core/bo_driver.py each used to carry their own
+# literal, and two of them disagreed ("foilspf" vs "foilsflash"), so
+# `python -m graph.closed_loop --dry-run` with no --mode produced a
+# three-way mode disagreement out of nothing but fallbacks. That is the
+# shadow shape this whole branch existed to delete -- see
+# tests/test_modes.py::test_one_default_mode_literal_in_the_tree, which
+# fails if a fourth reader adds a fifth literal.
+DEFAULT_MODE = "foilspf"
+assert DEFAULT_MODE in SPECS, (
+    f"DEFAULT_MODE {DEFAULT_MODE!r} is not a live mode; mode_specs/ has "
+    f"{sorted(SPECS)}")
+
 
 # ============================================================================
 # CLI --mode -> AUTORESEARCH_MODE stamp
@@ -173,19 +187,36 @@ def stamp_mode_from_argv(argv=None) -> Optional[str]:
     mode_specs/ exists to enable) silently ships another mode's value to the
     grid, which is a metric DENOMINATOR error with no error surface. See
     wiki/incidents/events-per-job-mid-flight-edit.md for that failure shape.
-    Callers pair this with `assert_mode_stamped()` after argparse.
+    Callers pair this with `assert_mode_stamped()` after argparse, and use
+    the RETURN VALUE as their `--mode` argparse default so that `args.mode`
+    IS the resolved mode rather than a second constant that happens to
+    match it.
 
     Lives here rather than in a resurrected presniff module because this is
     the registry: it is the only thing that can tell a real mode name from a
     typo without importing anything that reads the env var.
 
-    An UNKNOWN `--mode` is deliberately NOT stamped: stamping it would make
-    the caller's `from runtime import ...` die with a bare
-    `KeyError('foilspfbwq')` before argparse ever runs, replacing argparse's
-    "invalid choice: ... (choose from ...)" with a traceback. Leaving it
-    unstamped lets argparse produce the good message a few lines later.
+    Precedence, highest first:
 
-    Returns the stamped mode, or None if there was no usable `--mode`.
+      1. an explicit `--mode <spec>` on the command line
+      2. an already-set AUTORESEARCH_MODE naming a live spec (the documented
+         way to pick a mode without the flag)
+      3. `DEFAULT_MODE`
+
+    It ALWAYS stamps, even in case 3. Returning without stamping is what
+    made omitting `--mode` a hard startup FATAL: every module-level reader
+    then applied its OWN fallback, and they did not agree. Stamping the
+    default makes all of them agree BY CONSTRUCTION rather than by two
+    constants happening to hold the same string.
+
+    An UNKNOWN `--mode` is deliberately not stamped AS SUCH: stamping it
+    would make the caller's `from runtime import ...` die with a bare
+    `KeyError('foilspfbwq')` before argparse ever runs, replacing argparse's
+    "invalid choice: ... (choose from ...)" with a traceback. It falls
+    through to case 2/3 instead, and `assert_mode_stamped` reports the
+    unknown name properly a few lines later.
+
+    Returns the resolved mode (never None).
     """
     argv = list(sys.argv[1:] if argv is None else argv)
     mode = None
@@ -194,8 +225,10 @@ def stamp_mode_from_argv(argv=None) -> Optional[str]:
             mode = argv[i + 1]
         elif tok.startswith("--mode="):
             mode = tok.split("=", 1)[1]
-    if mode is None or mode not in SPECS:
-        return None
+    if mode not in SPECS:
+        mode = os.environ.get("AUTORESEARCH_MODE")
+    if mode not in SPECS:
+        mode = DEFAULT_MODE
     os.environ["AUTORESEARCH_MODE"] = mode
     return mode
 

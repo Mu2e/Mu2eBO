@@ -39,11 +39,11 @@ from pathlib import Path
 import modes as _modes
 from paths import GRAPH_DATA, REPO_ROOT
 
-# Default is foilspf, NOT the historical "foils": that spec was retired and
-# the lookup had been dangling since -- a bare `import config` raised
-# KeyError('foils'). foilspf is the mode this whole spec (minimal-foilspf-
-# workflow) is named for.
-_SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foilspf")]
+# The fallback lives in core/modes.py (the registry), NOT as a literal here:
+# this module, core/pipeline.py and core/bo_driver.py each used to carry
+# their own, and two of them disagreed -- which made omitting `--mode` a
+# three-way "mode disagreement" FATAL built entirely out of fallbacks.
+_SPEC = _modes.SPECS[os.environ.get("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)]
 
 MUSING = _SPEC.musing
 GRID_STAGES = list(_SPEC.grid_stages)
@@ -63,9 +63,10 @@ BOTORCH_VENV_PY = (REPO_ROOT
                    / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv")
                    / "bin" / "python")
 
-# Fallback mode when --mode/AUTORESEARCH_MODE is unset (real launches always
-# set it explicitly).
-DEFAULT_MODE = "foilspf"
+# Fallback mode when --mode/AUTORESEARCH_MODE is unset. Re-exported from the
+# registry so `from runtime import DEFAULT_MODE` keeps working; core/modes.py
+# owns the value.
+DEFAULT_MODE = _modes.DEFAULT_MODE
 DEFAULT_ALPHA = 1.0e5
 
 # Retry policy for preflight-failed proposals (managed-volume overlap).

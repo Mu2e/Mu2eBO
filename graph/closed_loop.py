@@ -57,7 +57,12 @@ import modes as _modes  # noqa: E402
 # an env that contradicts it. Replaces the deleted graph/presniff.py; see
 # core/modes.py::stamp_mode_from_argv. main() re-checks with
 # assert_mode_stamped().
-_modes.stamp_mode_from_argv()
+# The RETURN VALUE becomes --mode's argparse default below, so `args.mode`
+# IS the resolved mode rather than a second constant that happens to match
+# it. Omitting --mode is a supported invocation; before this, the stamp
+# returned without stamping and every module-level reader applied its own
+# (disagreeing) fallback, turning a missing flag into a startup FATAL.
+_MODE = _modes.stamp_mode_from_argv()
 
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -68,7 +73,6 @@ from runtime import (  # noqa: E402
     CLOSED_LOOP_MAX_ROUNDS,
     CLOSED_LOOP_Q,
     DEFAULT_ALPHA,
-    DEFAULT_MODE,
     STOP_FLAG,
 )
 
@@ -276,8 +280,10 @@ def _dry_run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", default=DEFAULT_MODE,
-                    choices=sorted(_modes.SPECS))
+    ap.add_argument("--mode", default=_MODE,
+                    choices=sorted(_modes.SPECS),
+                    help="optimization line; defaults to AUTORESEARCH_MODE "
+                         "if set, else modes.DEFAULT_MODE")
     ap.add_argument("--alpha", type=float, default=DEFAULT_ALPHA)
     ap.add_argument("--q", type=int, default=CLOSED_LOOP_Q,
                     help="pool WIDTH: children kept in flight at once")
