@@ -57,7 +57,7 @@ STALL_WARN_S = 24 * 3600
 SKIP_LOG_LIMIT = 5
 
 
-def _log_inflight(inflight, started, log, now=None, warn_after=STALL_WARN_S):
+def _log_inflight(inflight, log, now=None, warn_after=STALL_WARN_S):
     """One heartbeat line: what is in flight and for how long.
 
     REPORT-ONLY, deliberately. It must never resolve, abandon or abort a
@@ -75,8 +75,7 @@ def _log_inflight(inflight, started, log, now=None, warn_after=STALL_WARN_S):
     from healthy grid time.
     """
     now = time.time() if now is None else now
-    ages = sorted(((now - started.get(name, now)), name)
-                  for name, _x in inflight.values())
+    ages = sorted((now - t0, name) for name, _x, t0 in inflight.values())
     summary = ", ".join(f"{name} {age / 3600:.1f}h" for age, name in ages)
     log(f"[pool] heartbeat: {len(inflight)} in flight ({summary})")
     for age, name in ages:
@@ -95,7 +94,7 @@ def _log_inflight(inflight, started, log, now=None, warn_after=STALL_WARN_S):
             f"different --name-prefix.")
 
 
-def _wait_one(inflight, started, log, heartbeat=HEARTBEAT_S):
+def _wait_one(inflight, log, heartbeat=HEARTBEAT_S):
     """Block until one future resolves, emitting a heartbeat meanwhile.
 
     Same contract as the bare `next(as_completed(...))` it replaces -- it
@@ -106,10 +105,10 @@ def _wait_one(inflight, started, log, heartbeat=HEARTBEAT_S):
         try:
             return next(as_completed(list(inflight), timeout=heartbeat))
         except _FutureTimeout:
-            _log_inflight(inflight, started, log)
+            _log_inflight(inflight, log)
 
 
-def classify(name, x, rc, mode, row_landed, broken) -> Outcome:
+def classify(name, x, rc, row_landed, broken) -> Outcome:
     """Exit code plus artifacts decide the outcome. No polling."""
     if rc == 0 and row_landed:
         return Outcome(name, x, rc, True, False, "ok")
@@ -171,8 +170,7 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
         from runtime import CLOSED_LOOP_STAGGER_SEC
         stagger = CLOSED_LOOP_STAGGER_SEC
 
-    inflight = {}
-    started = {}   # name -> launch timestamp, for the heartbeat's ages
+    inflight = {}   # future -> (name, x, launch timestamp)
     launched = 0
     rows = 0
     streak = 0
@@ -203,13 +201,13 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
         for a pool that is only draining, and during a drain there is
         nothing left to refuse to launch. SystemExit is caught explicitly
         because renew_token signals fatal with sys.exit(2)."""
-        name, x = inflight.pop(fut)
+        name, x, _t0 = inflight.pop(fut)
         try:
             rc = fut.result()
         except Exception as exc:  # noqa: BLE001
             rc = 1
             log(f"[pool] {name} raised: {exc}")
-        oc = classify(name, x, rc, mode, row_landed(name, mode), broken(name))
+        oc = classify(name, x, rc, row_landed(name, mode), broken(name))
         log(f"[pool] {name}: {oc.reason}")
         try:
             renew()
@@ -227,15 +225,15 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
                     time.sleep(stagger)
                 renew()
                 x, name = next_pick(mode, picker,
-                                    [v for _, v in inflight.values()])
-                inflight[poolx.submit(run_child, name, x)] = (name, x)
-                started[name] = time.time()
+                                    [v for _, v, _t in inflight.values()])
+                inflight[poolx.submit(run_child, name, x)] = (name, x,
+                                                              time.time())
                 launched += 1
                 log(f"[pool] launched {name} ({launched}/{max_evals}), "
                     f"in_flight={len(inflight)}")
             if not inflight:
                 break
-            oc = _resolve_one(_wait_one(inflight, started, log, heartbeat))
+            oc = _resolve_one(_wait_one(inflight, log, heartbeat))
             outcomes.append(oc)
             if oc.row_landed:
                 rows += 1
@@ -254,7 +252,7 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
         # which is where a q=20 pool spends its last hours, and where a STOP
         # spends ALL of its time -- is not silent either.
         while inflight:
-            oc = _resolve_one(_wait_one(inflight, started, log, heartbeat))
+            oc = _resolve_one(_wait_one(inflight, log, heartbeat))
             outcomes.append(oc)
             if oc.row_landed:
                 rows += 1
@@ -367,6 +365,22 @@ def _name_busy_reason(cl, name, lb_names, pending_names):
     return None
 
 
+def child_name(name_prefix: str, i: int) -> str:
+    """THE child-name shape: `{prefix}R{i:02d}_00`, i the monotonic launch
+    index.
+
+    One function rather than an f-string repeated per call site, because
+    that drift has already happened once: graph/closed_loop.py's --dry-run
+    preview printed the retired round/child shape `R00_{j:02d}` and so
+    previewed names the campaign would never use (finding M3). The fix at
+    the time copied the literal instead of sharing it, which left the next
+    format change free to re-open the same bug. Every producer of a child
+    name -- the pool's allocator, its skip summary, and the dry-run preview
+    -- now goes through here.
+    """
+    return f"{name_prefix}R{i:02d}_00"
+
+
 def _default_pick_source(name_prefix):
     """Closure so the picker sees the running launch index for its name and
     round-seed. Imports closed_loop lazily -- closed_loop imports pool.
@@ -380,15 +394,28 @@ def _default_pick_source(name_prefix):
     CRITICAL 1 and the final-review finding C1.
     """
     counter = {"i": 0}
+    busy_cache = {}
 
     def next_pick(mode, picker, x_pending):
         import closed_loop as cl
         i = counter["i"]
-        lb_names = cl._leaderboard_names(mode)
-        pending_names = _pending_names(mode)
+        # Read the two TSVs ONCE per process, not once per launch. Both are
+        # flock'd full-file reads of files a live campaign is appending to,
+        # and what they are being consulted for is strictly PRIOR-run state:
+        # the launch index is monotonic within this process, so a name this
+        # process cleared as free can never be re-collided with later, and
+        # names THIS process goes on to write are all at higher indices it
+        # has not reached yet. Under the single-writer-per---name-prefix
+        # invariant this guard already assumes, the relevant disk state is
+        # fixed at process start. Re-reading per launch turned ~1 read into
+        # ~max_evals of them against a concurrently-written file.
+        if mode not in busy_cache:
+            busy_cache[mode] = (cl._leaderboard_names(mode),
+                                _pending_names(mode))
+        lb_names, pending_names = busy_cache[mode]
         skipped = 0
         while True:
-            name = f"{name_prefix}R{i:02d}_00"
+            name = child_name(name_prefix, i)
             why = _name_busy_reason(cl, name, lb_names, pending_names)
             if why is None:
                 break
@@ -405,7 +432,7 @@ def _default_pick_source(name_prefix):
         if skipped > SKIP_LOG_LIMIT:
             print(f"[pool] ... and {skipped - SKIP_LOG_LIMIT} further "
                   f"consecutive busy names skipped (last was "
-                  f"{name_prefix}R{i - 1:02d}_00); resuming at {name}. "
+                  f"{child_name(name_prefix, i - 1)}); resuming at {name}. "
                   f"Reasons are the same four signals as above -- see "
                   f"graph/pool.py::_name_busy_reason.", flush=True)
         counter["i"] = i + 1

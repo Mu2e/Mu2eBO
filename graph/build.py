@@ -79,5 +79,3 @@ def build_graph() -> StateGraph:
     g.add_edge("evaluate", END)
     return g
 
-
-graph = build_graph().compile()

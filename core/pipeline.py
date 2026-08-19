@@ -99,26 +99,13 @@ TEMPLATES_ROOT = Path(__file__).resolve().parent / "pipeline_templates"
 # core/modes.py is stdlib-only and does NOT read AUTORESEARCH_MODE at import.
 import modes as _modes  # noqa: E402
 
-# core/runtime.py's own module-level lookup resolves eagerly at import time,
-# so this module and that one must agree on the fallback. They now share ONE
-# value, core/modes.py::DEFAULT_MODE. They did not before: this line said
-# "foilsflash" while runtime said "foilspf", so `python -m graph.closed_loop`
-# with no --mode produced a three-way disagreement out of nothing but
-# fallbacks -- and assert_mode_stamped, whose own `import pipeline` triggered
-# this very setdefault, then read the env afterwards and blamed import order.
-#
-# Real launches (graph/run.py, graph/closed_loop.py) call
-# modes.stamp_mode_from_argv() before importing runtime/build. That function
-# ALWAYS stamps -- from --mode, else from an already-set AUTORESEARCH_MODE,
-# else DEFAULT_MODE -- so this setdefault genuinely is a no-op for them now,
-# for every invocation and not just the ones that pass --mode. A bare
-# `import pipeline` (tests, ad-hoc scripts) gets DEFAULT_MODE.
-#
-# Historical note: between 265c642 (which deleted graph/presniff.py) and the
-# restoration of that stamp, nothing stamped AUTORESEARCH_MODE at all, so
-# `--mode foilspfbw` gave runtime._SPEC.name == "foilspf" and
-# pipeline.MODE == "foilsflash" (final review, finding I1). Both entrypoints
-# now also abort loudly on any disagreement via modes.assert_mode_stamped().
+# Make the process's mode EXPLICIT in the env, so subprocesses inherit the
+# same answer rather than each re-deriving it. A no-op for real launches
+# (graph/run.py, graph/closed_loop.py stamp from --mode first); a bare
+# `import pipeline` from a test or ad-hoc script gets DEFAULT_MODE.
+# The mechanism, its precedence rules and the incident behind it are
+# documented ONCE, at core/modes.py::stamp_mode_from_argv -- do not restate
+# them here.
 os.environ.setdefault("AUTORESEARCH_MODE", _modes.resolve_env_mode())
 # The process's mode for the lifetime of this interpreter -- resolved ONCE,
 # used everywhere pipeline.py needs "the mode spec" (MUSE_BASE_TARBALL below,
@@ -234,9 +221,22 @@ def _stage_dsconf(stage: str) -> str:
 # never actually used, not preserving one it did.
 
 
-def stage_cfg(stage: str, mode: str | None = None) -> dict:
+_STAGE_CFG_DEFAULT_MODE = object()
+
+
+def stage_cfg(stage: str, mode=_STAGE_CFG_DEFAULT_MODE) -> dict:
     """Merged stage config. ONE precedence rule, ONE direction -- with ONE
     pre-existing, narrower exception.
+
+    `mode` defaults to the process's MODE (read at CALL time, so a test that
+    patches pipeline.MODE is honoured). Passing `mode=None` explicitly still
+    means "raw stage_entries/<stage>.json, no mode merge" -- that is a real
+    contract (tests/test_stages_retired.py pins it). What changed is only the
+    DEFAULT: it used to be None, so a bare `stage_cfg(stage)` silently
+    returned unmerged `njobs`/`events` -- the metric-denominator error of
+    wiki/incidents/events-per-job-mid-flight-edit.md reintroduced as a
+    default argument, inside the very function written to close that class.
+    Every call site already passed MODE explicitly, so nothing moves.
 
     mode spec (run.jobs_per_stage, run.stage_tuning) OVERRIDES
     stage_entries/<stage>.json (the default). Nothing overrides the mode
@@ -260,17 +260,23 @@ def stage_cfg(stage: str, mode: str | None = None) -> dict:
     time; `desc_fmt` needs its literal `{cfg}` placeholder to survive here
     for `_stage_desc`'s later `.format(cfg=CONFIG)`).
     """
+    if mode is _STAGE_CFG_DEFAULT_MODE:
+        mode = MODE
     cfg = json.loads((px.STAGE_ENTRIES_DIR / f"{stage}.json").read_text())
     if mode:
         spec = _modes.SPECS[mode]
         if stage in spec.stage_target_overrides:
             cfg["njobs"] = spec.stage_target_overrides[stage]
-        tuning = spec.stage_tuning.get(stage, {})
+        # No second allow-list here: core/mode_json.py::_validate_stage_tuning
+        # already rejects any key outside its _STAGE_TUNING_KEYS at LOAD time,
+        # so re-enumerating them would only let a newly-added tunable load
+        # clean and be silently inert -- the same shadow shape this function
+        # exists to delete. The one thing that is genuinely per-key is the
+        # rename: stage_entries/ spells the count `events`.
+        tuning = dict(spec.stage_tuning.get(stage, {}))
         if "events_per_job" in tuning:
-            cfg["events"] = tuning["events_per_job"]
-        for k in ("memory_mb", "quorum"):
-            if k in tuning:
-                cfg[k] = tuning[k]
+            tuning["events"] = tuning.pop("events_per_job")
+        cfg.update(tuning)
     # THE one exception to "nothing overrides the mode spec" -- see the
     # docstring above. Pre-existing env seam (core/modes.py docstring),
     # unrelated to the STAGES/JSON shadow this function removes -- preserved

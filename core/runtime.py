@@ -5,31 +5,15 @@ core/paths.py, which is the single filesystem-root resolver; this file holds
 only plain values (and the per-mode facts derived from modes.SPECS, which
 were always plain values too -- MUSING is a string, GRID_STAGES a list).
 
-graph/presniff.py died with the move -- the MODULE did, not the mechanism.
-It scanned sys.argv for `--mode`/`--picker` before graph/config.py's
-top-level import ran, so the module-level `_SPEC` lookup below picked the
-CLI-requested mode instead of the default. Deleting it was justified on the
-grounds that every live JSON mode (the foilspf family + foilsflash) shares
-identical `run.stages`/`musing`/`presubmit_after` (all descend from the same
-foilspf design), so a mode-keyed lookup cannot disagree.
-
-That argument is about the DATA, not the code, and the surface `_SPEC`
-governs is events_per_job, njobs, memory_mb, quorum, grid_tarball,
-dsconf_musing, MUSING and (via graph/build.py's STAGE_NODES) the child's
-stage chain. The first per-mode edit to `run.stage_tuning.*` would have
-shipped another mode's value to the grid silently -- a metric DENOMINATOR
-error with no error surface. Measured while it was absent: `--mode
-foilspfbw` gave `_SPEC.name == "foilspf"` and `pipeline.MODE ==
-"foilsflash"`.
-
-So the --mode stamp is BACK, without the module: `core/modes.py::
-stamp_mode_from_argv()`, called by graph/run.py and graph/closed_loop.py
-before they import this file, and re-checked after argparse by
-`modes.assert_mode_stamped()`. The `--picker`-driven AUTORESEARCH_NO_RUN1B
-half was NOT restored (no live mode's stage chain has run1b_mubeam to drop).
-See tests/test_modes.py::TestModeStamping, tests/test_runtime_constants.py,
-and wiki/incidents/foilsflash-tarball-mode-key-omission.md for the
-historical reason mode dispatch existed at all.
+`_SPEC` below resolves THE process's mode eagerly, at import time. So an
+entrypoint taking `--mode` must stamp AUTORESEARCH_MODE before its first
+`import runtime`: that is `core/modes.py::stamp_mode_from_argv()`, which
+also owns the full account of why (graph/presniff.py used to do it, was
+deleted 2026-08-19, and the deletion silently mis-pointed `_SPEC` and
+`pipeline.MODE` at two different modes). One difference worth recording
+here rather than there: presniff also set AUTORESEARCH_NO_RUN1B from
+`--picker`, and that half was deliberately NOT restored -- no live mode's
+stage chain contains run1b_mubeam to drop.
 """
 from __future__ import annotations
 

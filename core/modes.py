@@ -50,9 +50,9 @@ class ModeSpec:
     presubmit_after: Dict[str, Tuple[str, ...]]  # after-stage -> stages to presubmit
     # Per-stage stage_entries/<stage>.json overrides (events_per_job/memory_mb/
     # quorum), applied by pipeline.py's stage_cfg() on top of the
-    # stage_entries defaults. The five Python modes pass {} explicitly (this
-    # module's rule: a missing fact is an import error, never a default);
-    # JSON modes populate this from `run.stage_tuning` (core/mode_json.py),
+    # stage_entries defaults. Populated from `run.stage_tuning`
+    # (core/mode_json.py); a mode that declares none gets {} explicitly, per
+    # this module's rule that a missing fact is an import error never a default,
     # which has been the sole stage-tuning mechanism since the hardcoded
     # foilsflash block was retired from pipeline.py (2026-07-26).
     stage_tuning: Dict[str, Dict[str, object]]
@@ -97,10 +97,10 @@ class ModeSpec:
     # undefined" — passed EXPLICITLY by the ProdTarget family, not a default.
     obs_noise: Optional[Tuple[float, ...]]
 
-    # Declarative geometry, metric mapping, and leaderboard path. Present ONLY
-    # on JSON-defined modes (core/mode_json.py); the six Python modes render via
-    # their BOMode subclass, set `leaderboard` as a class attribute, and pass
-    # None here EXPLICITLY, never by default.
+    # Declarative geometry, metric mapping, and leaderboard path, from
+    # core/mode_json.py. Optional because ModeSpec predates the JSON
+    # conversion and still permits a spec built without them; every live
+    # mode in mode_specs/ populates all three.
     geom: Optional[GeomTemplate]
     metrics: Optional[Dict[str, Tuple[str, ...]]]
     leaderboard_rel: Optional[str]
@@ -123,8 +123,11 @@ class ModeSpec:
 
 SPECS: Dict[str, ModeSpec] = {}
 
-# JSON-defined modes (one file per line) are merged in AFTER the Python table,
-# and may never shadow it -- see core/mode_json.py.
+# Every live mode is JSON (one file per mode in mode_specs/). The dict is
+# seeded empty and filled by load_mode_dir; the hardcoded Python mode table
+# this used to be merged on top of is gone -- core/bo_driver.py's JsonMode is
+# now the single concrete BOMode adapter. load_mode_dir still takes the
+# existing dict so a future non-JSON spec could not silently shadow a file.
 #
 # Import mirrors our own package-qualification (__package__): this module is
 # loaded two ways in production -- `core.modes` from the repo root, and bare

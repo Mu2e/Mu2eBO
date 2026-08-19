@@ -31,8 +31,14 @@ def _stage_cfg_override(stage, **overrides):
     return fresh on every call, so tests patch the function instead."""
     real = pipeline.stage_cfg
 
-    def fake(s, mode=None):
-        cfg = real(s, mode)
+    def fake(s, *a, **kw):
+        # Signature-agnostic passthrough on purpose: restating stage_cfg's
+        # own parameter defaults here would let this fake drift from it
+        # silently (it did -- the fake pinned the old `mode=None` default,
+        # which is now "raw JSON, no mode merge" rather than "the process
+        # mode", so a bare stage_cfg(s) under the patch answered with
+        # unmerged njobs/events).
+        cfg = real(s, *a, **kw)
         if s == stage:
             cfg.update(overrides)
         return cfg

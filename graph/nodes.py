@@ -24,7 +24,6 @@ import pipeline_io as pio  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from runtime import (  # noqa: E402
     DEFAULT_ALPHA,
-    DEFAULT_MODE,
     MAX_PROPOSE_RETRIES,
     PRESUBMIT_AFTER,
 )
@@ -67,7 +66,11 @@ def node_propose(state: BOIterationState) -> dict:
     passed as the picker seed_idx so each preflight-driven retry draws a
     fresh point (the seed varies) instead of re-asking for the same one.
     """
-    mode = state.get("mode", DEFAULT_MODE)
+    # state["mode"], not .get(..., DEFAULT_MODE): graph/run.py -- the only
+    # producer of this state -- always sets it, and BOIterationState declares
+    # it required. A default here was a second, silent mode-resolution path
+    # inside the child that could disagree with the process stamp.
+    mode = state["mode"]
     alpha = state.get("alpha", DEFAULT_ALPHA)
     caller_pinned = bool(state.get("config_name"))
     name = state.get("config_name") or pio.next_config_name(mode)
@@ -191,7 +194,7 @@ def node_harvest(state: BOIterationState) -> dict:
     (4-stage S/√B + calo).
     """
     name = state["config_name"]
-    mode = state.get("mode")
+    mode = state["mode"]
     errors = list(state.get("errors", []))
     try:
         metrics = pio.run_harvest(name, mode=mode)

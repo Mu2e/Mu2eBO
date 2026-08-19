@@ -48,20 +48,8 @@ from paths import REPO_ROOT as ROOT  # single root resolver, see core/paths.py
 from paths import BO_WORK, GRID_DATA_ROOT
 from paths import leaderboard_archive, leaderboard_live
 
-# core/runtime.py resolves its mode spec eagerly at import time, so every
-# module-level reader must agree on the fallback. They now share ONE value,
-# core/modes.py::DEFAULT_MODE -- this line used to say "foilsflash" while
-# runtime said "foilspf". Real launches (graph/run.py, graph/closed_loop.py)
-# call modes.stamp_mode_from_argv() before importing runtime/build, and that
-# function ALWAYS stamps (from --mode, else an already-set
-# AUTORESEARCH_MODE, else DEFAULT_MODE), so this setdefault is a genuine
-# no-op for them on EVERY invocation, not only the ones that pass --mode; a
-# bare `import bo_driver` (tests, ad-hoc scripts) gets DEFAULT_MODE.
-# NOTE: between 265c642 (which deleted graph/presniff.py) and the
-# restoration of that stamp, nothing stamped AUTORESEARCH_MODE at all, so
-# `--mode foilspfbw` gave runtime._SPEC.name == "foilspf" and
-# pipeline.MODE == "foilsflash" (final review, finding I1). Both entrypoints
-# now also abort loudly on any disagreement via modes.assert_mode_stamped().
+# Same explicit-env stamp as core/pipeline.py; see
+# core/modes.py::stamp_mode_from_argv for the mechanism and the incident.
 os.environ.setdefault("AUTORESEARCH_MODE", _modes.resolve_env_mode())
 from runtime import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
 sys.path.insert(0, str(ROOT / "graph"))

@@ -54,14 +54,10 @@ import modes as _modes  # noqa: E402
 # and core/pipeline.py (MODE) resolve the process's mode from
 # AUTORESEARCH_MODE at IMPORT time and cannot be re-pointed later. The parent
 # also passes --mode explicitly to each child, but it must not hand children
-# an env that contradicts it. Replaces the deleted graph/presniff.py; see
+# an env that contradicts it. Rationale and precedence rules:
 # core/modes.py::stamp_mode_from_argv. main() re-checks with
-# assert_mode_stamped().
-# The RETURN VALUE becomes --mode's argparse default below, so `args.mode`
-# IS the resolved mode rather than a second constant that happens to match
-# it. Omitting --mode is a supported invocation; before this, the stamp
-# returned without stamping and every module-level reader applied its own
-# (disagreeing) fallback, turning a missing flag into a startup FATAL.
+# assert_mode_stamped(). The RETURN VALUE becomes --mode's argparse default
+# below, so `args.mode` IS the resolved mode rather than a second constant.
 _MODE = _modes.stamp_mode_from_argv()
 
 from dotenv import load_dotenv  # noqa: E402
@@ -83,7 +79,7 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 # tests/test_closed_loop.py::test_wired_into_run_rolling_call -- pool.py
 # only imports closed_loop lazily inside its own function bodies, so this
 # has no circular-import hazard at module load time.
-from pool import run_rolling  # noqa: E402
+from pool import child_name, run_rolling  # noqa: E402
 
 # cl_min retired per ADR-0001 (2026-07-06, deleted 2026-07-11): the closed
 # loop must never import code outside this repo; all pickers route through
@@ -272,7 +268,7 @@ def _dry_run(args: argparse.Namespace) -> int:
     # and its labels had drifted from the leaderboard column names.
     labels = _modes.SPECS[args.mode].knob_names
     for j, p in enumerate(picks):
-        name = f"{args.name_prefix}R{j:02d}_00"
+        name = child_name(args.name_prefix, j)
         kv = " ".join(f"{labels[i]}={p[i]:.4g}" for i in range(len(p)))
         print(f"  {name}: {kv}")
     return 0
@@ -328,7 +324,7 @@ def main() -> int:
     # Resolve the target leaderboard so the banner is self-incriminating: a
     # mode/prefix mismatch (e.g. --mode foils with a "foilsf" prefix landing
     # rows in v2 instead of v3) is then visible in the first log line rather
-    # than only after the first eval completes. See wiki [[leaderboards]].
+    # than only after the first eval completes. See wiki/datasets/leaderboards.md.
     try:
         import bo_driver as _bo  # noqa: WPS433
         _lb = str(_bo.MODES[args.mode].leaderboard)
@@ -338,14 +334,12 @@ def main() -> int:
     print(f"[closed_loop] q={args.q} max_evals={max_evals} "
           f"prefix={args.name_prefix} mode={args.mode} leaderboard={_lb} "
           f"picker={args.picker}", flush=True)
-    if args.name_prefix.startswith("foilsf") and args.mode == "foils":
-        print(f"[closed_loop] WARNING: prefix={args.name_prefix!r} looks like a "
-              f"foilsf (v3 fractional) campaign but mode=foils writes v2 "
-              f"(absolute rIn). Did you mean --mode foilsf?", flush=True)
-
+    # (The old foilsf/foils "v3 fractional vs v2 absolute" prefix warning was
+    # dropped here: --mode now carries choices=sorted(SPECS), and neither
+    # `foils` nor `foilsf` has been a live spec since the JSON-mode
+    # conversion, so the branch could not fire.)
     result = run_rolling(
-        mode=args.mode, picker=args.picker, q=args.q,
-        max_evals=args.max_evals or (args.q * args.max_rounds),
+        mode=args.mode, picker=args.picker, q=args.q, max_evals=max_evals,
         alpha=args.alpha, name_prefix=args.name_prefix,
         renew=renew_token, stop_flag=_stop_requested)
     # Tally by outcome reason so a multi-day log ends with the failure

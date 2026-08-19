@@ -26,19 +26,12 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # MUST precede `from build import ...` / `from runtime import ...`: both
 # core/runtime.py (_SPEC) and core/pipeline.py (MODE) resolve the process's
-# mode from AUTORESEARCH_MODE at IMPORT time and cannot be re-pointed later,
-# so without this the child runs whichever mode the fallbacks land on --
-# which, before this stamp was restored, was `foilspf` for runtime and
-# `foilsflash` for pipeline no matter what --mode said. Replaces the deleted
-# graph/presniff.py; see core/modes.py::stamp_mode_from_argv for why the
-# "all live specs are identical today" argument that deleted it does not
-# hold as a code invariant. main() re-checks with assert_mode_stamped().
+# mode from AUTORESEARCH_MODE at IMPORT time and cannot be re-pointed later.
+# Rationale and precedence rules: core/modes.py::stamp_mode_from_argv.
+# main() re-checks with assert_mode_stamped().
 import modes as _modes  # noqa: E402
 # The RETURN VALUE becomes --mode's argparse default below, so `args.mode`
-# IS the resolved mode rather than a second constant that happens to match
-# it. Omitting --mode is a supported invocation; before this, the stamp
-# returned without stamping and every module-level reader applied its own
-# (disagreeing) fallback, turning a missing flag into a startup FATAL.
+# IS the resolved mode rather than a second constant that happens to match it.
 _MODE = _modes.stamp_mode_from_argv()
 
 from build import build_graph  # noqa: E402

@@ -46,9 +46,11 @@ _REQUIRED_PREFLIGHT = ("dumps_gdml", "verifies_foil_gdml",
 _REQUIRED_LEADERBOARD = ("file", "columns", "obs_noise", "metrics")
 _ALLOWED_KNOB = ("name", "min", "max", "fmt")
 
-# run.stage_tuning[<stage>] accepted keys, mirroring core/pipeline.py STAGES
-# fields that a JSON mode is allowed to override. Anything else (a typo, or a
-# STAGES field this schema doesn't cover) is a load error -- see I4/I5.
+# run.stage_tuning[<stage>] accepted keys: the stage_entries/<stage>.json
+# fields a mode is allowed to override. Anything else (a typo, or a field this
+# schema doesn't cover) is a load error -- see I4/I5. THE allow-list:
+# core/pipeline.py::stage_cfg deliberately does not re-enumerate these, so a
+# key added here reaches the merge with no second edit.
 _STAGE_TUNING_KEYS = ("events_per_job", "memory_mb", "quorum")
 
 # Leaderboard columns a knob may NOT be named after. A collision makes
@@ -148,15 +150,14 @@ def _reject_unknown(d: dict, allowed, where: str) -> None:
 
 def _validate_stage_tuning(run: dict, declared_stages,
                            where: str) -> Dict[str, Dict[str, object]]:
-    """Validate + normalize run.stage_tuning (core/pipeline.py STAGES
-    overrides applied on top of pipeline defaults -- see core/pipeline.py's
-    _apply_stage_tuning). Defaults to {} when absent, never silently drops an
-    unknown tuning key.
+    """Validate + normalize run.stage_tuning (overrides applied on top of the
+    stage_entries/<stage>.json defaults -- see core/pipeline.py::stage_cfg).
+    Defaults to {} when absent, never silently drops an unknown tuning key.
 
     Stage NAMES are checked against this mode's run.stages, exactly as
     _validate_jobs_per_stage and _validate_presubmit_after already do. Without
-    that, two things escaped load time: a name that exists in pipeline.STAGES
-    but not in this mode's chain loaded fine and was SILENTLY INERT forever
+    that, two things escaped load time: a name that has a stage_entries file
+    but is not in this mode's chain loaded fine and was SILENTLY INERT forever
     (the intended tuning never applied, no error), and a pure typo
     ('mubeem') loaded fine and raised only at core/pipeline.py module
     import -- inside every child at first submit, after propose and preflight

@@ -177,6 +177,7 @@ class TestEvaluateZeroRowClassifier(unittest.TestCase):
                                     side_effect=RuntimeError("disk full")):
                 out = nd.node_harvest({
                     "config_name": "fooR00_03",
+                    "mode": "foilspf",
                     "errors": [],
                 })
             self.assertIsNone(out["metrics"])

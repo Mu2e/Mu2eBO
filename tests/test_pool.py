@@ -666,9 +666,8 @@ class TestHeartbeat(unittest.TestCase):
 
     def test_stall_warning_carries_the_recovery_text(self):
         lines = []
-        inflight = {object(): ("cX", [1.0])}
-        pool._log_inflight(inflight, {"cX": 0.0}, lines.append,
-                           now=25 * 3600.0)
+        inflight = {object(): ("cX", [1.0], 0.0)}
+        pool._log_inflight(inflight, lines.append, now=25 * 3600.0)
         joined = " ".join(lines)
         self.assertIn("WARNING cX", joined)
         self.assertIn("_cluster.txt", joined)
@@ -677,8 +676,8 @@ class TestHeartbeat(unittest.TestCase):
 
     def test_no_warning_below_threshold(self):
         lines = []
-        inflight = {object(): ("cX", [1.0])}
-        pool._log_inflight(inflight, {"cX": 0.0}, lines.append, now=3600.0)
+        inflight = {object(): ("cX", [1.0], 0.0)}
+        pool._log_inflight(inflight, lines.append, now=3600.0)
         self.assertEqual(len(lines), 1)
         self.assertIn("heartbeat", lines[0])
         self.assertNotIn("WARNING", lines[0])
