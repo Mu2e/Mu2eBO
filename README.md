@@ -264,6 +264,21 @@ python -m graph.run \
 - Never reuse a `--config-name` that already exists: the collision guard
   silently allocates a fresh auto-incremented name.
 
+`tools/run_grid.sh [config-name] [mode]` is that command with the pre-flight
+checks a grid chain actually needs, the same way `tools/run_local.sh` wraps the
+local one: it sandboxes `AUTORESEARCH_DATA_ROOT`, borrows an operator's
+artifacts, verifies them and `AUTORESEARCH_PRODTOOLS`, refuses a config name
+already in a board or carrying stale cluster files, checks the CephFS quota,
+and refuses a Kerberos ticket with under 4 h left — a chain submits stages for
+hours, so a ticket that merely exists now is not enough. It prints each stage's
+grid width read from the mode spec, then runs the chain. Since that takes 3–6 h,
+run it detached:
+
+```bash
+nohup tools/run_grid.sh gridcheck01 \
+  > /exp/mu2e/data/users/$USER/gridtest/gridcheck01.log 2>&1 &
+```
+
 What one evaluation does (LangGraph node order):
 
 ```
