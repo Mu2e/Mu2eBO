@@ -173,11 +173,7 @@ def make_stage_node(stage: str):
 
 
 def node_harvest(state: BOIterationState) -> dict:
-    """Run pipeline.py harvest; populate metrics from summary.json.
-
-    Verb is mode-dispatched (ModeSpec.harvest_verb): prodtarget runs
-    `harvest-pot-only` (mu_per_POT); others run `harvest` (S/√B + calo).
-    """
+    """Run pipeline.py harvest; populate metrics from summary.json."""
     name = state["config_name"]
     mode = state["mode"]
     errors = list(state.get("errors", []))

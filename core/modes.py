@@ -33,7 +33,6 @@ class ModeSpec:
     musing: str                       # abs path of the setup.sh preflight/harvest source
     grid_tarball: str                 # Code.tar.bz2 shipped to grid workers
     grid_stages: Tuple[str, ...]      # ordered stage chain
-    harvest_verb: str                 # pipeline.py verb: "harvest"
     stage_target_overrides: Dict[str, int]   # njobs overrides read by pipeline.stage_cfg()
     presubmit_after: Dict[str, Tuple[str, ...]]  # after-stage -> stages to presubmit
     # THE stage-tuning mechanism: per-stage events_per_job/memory_mb/quorum
@@ -49,7 +48,6 @@ class ModeSpec:
     # bo_driver.py; the managed-overlap banner derives from the last one).
     dumps_gdml: bool                  # preflight FCL writes a GDML dump
     verifies_foil_gdml: bool          # per-foil GDML-vs-geom assertion (hard gate)
-    preserves_gdml: bool              # GDML kept as artifact (emission-only check)
     checks_managed_overlap: bool      # surface-check managed-volume scan
     # True => preflight FAILS on ANY surface-check overlap, not just volumes
     # the BO knobs build: foilsflashRUN1BAP01 PASSED with 3 never-before-seen

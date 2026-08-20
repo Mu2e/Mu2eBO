@@ -81,25 +81,7 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
     X_rows = []
     Y_rows = []
     for p in seeds:
-        if mode in ("prodtarget", "prodtarget6d"):
-            # Pareto objectives: maximize mu_per_POT, minimize the right
-            # thermal proxy. Prefer peak specific dose [Gy/POT] (peak
-            # plate, scales as 1/rOut^2 — the dominant thermal coupling);
-            # fall back to stack-total edep_per_POT_MeV for legacy rows
-            # written before peak_dose wiring landed. Negate so botorch
-            # maximizes both axes.
-            ex = p.extras or {}
-            peak = ex.get("peak_dose_Gy_per_POT")
-            edep = ex.get("edep_per_POT_MeV")
-            if peak is not None and peak > 0:
-                y2 = -float(peak)
-            elif edep is not None and edep > 0:
-                y2 = -float(edep)
-            else:
-                continue  # row predates Path D wiring or harvest broken
-            X_rows.append([float(v) for v in p.x])
-            Y_rows.append([p.sob, y2])
-        elif sob_only:
+        if sob_only:
             # 1D objective: only need sob. Drop rows with missing sob.
             if p.sob is None or not math.isfinite(p.sob):
                 continue

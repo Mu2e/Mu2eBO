@@ -1,7 +1,7 @@
 """Zero-overlap preflight policy (2026-07-28).
 
 Why this exists: the managed/baseline split classifies overlaps by volume
-NAME (`SURFACE_OVERLAP_MANAGED` matches StoppingTargetFoil_*/ProductionTarget*)
+NAME (`SURFACE_OVERLAP_MANAGED` matches StoppingTargetFoil_*)
 and treats everything else as inert stock-geometry noise. That assumption --
 "not named like a BO volume" implies "independent of BO knobs" -- is false.
 `IPAsupport_*` wires are positioned from `targetEnd`, which is a function of
@@ -64,7 +64,6 @@ class TestOverlapClassification(unittest.TestCase):
     def test_a_managed_volume_still_matches(self):
         """Guards the guard: the regex must still catch real foil overlaps."""
         self.assertTrue(SURFACE_OVERLAP_MANAGED.match("StoppingTargetFoil_07"))
-        self.assertTrue(SURFACE_OVERLAP_MANAGED.match("ProductionTargetPlate03"))
 
 
 class TestPolicyFlagWiring(unittest.TestCase):

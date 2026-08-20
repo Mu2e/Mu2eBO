@@ -185,16 +185,11 @@ def presubmit_stage(config_name: str, stage: str) -> None:
 
 
 def run_harvest(config_name: str, mode: str | None = None) -> dict:
-    """Run pipeline.py harvest verb for the mode; return parsed summary.json.
-
-    prodtarget's single `pot_only` stage has a different summary schema
-    (`mu_per_POT`) than the 4-stage S/√B+calo default. Verb comes from the
-    ModeSpec registry.
-    """
+    """Run pipeline.py harvest; return parsed summary.json."""
     if mode is None:
         mode = _modes.resolve_env_mode()
-    verb = _modes.SPECS[mode].harvest_verb  # loud KeyError on unknown mode (ADR-0002)
-    _run_pipeline_verb(config_name, verb, None)
+    _modes.SPECS[mode]  # loud KeyError on unknown mode (ADR-0002)
+    _run_pipeline_verb(config_name, "harvest", None)
     summary_path = GRID_DATA_ROOT / config_name / "harvest" / "summary.json"
     if not summary_path.exists():
         raise RuntimeError(f"harvest finished but {summary_path} is missing")

@@ -9,7 +9,6 @@
 
   "run": {
     "stages":          ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
-    "harvest":         "harvest",
     "jobs_per_stage":  {},
     "presubmit_after": {},
     "stage_tuning":    {}
@@ -36,7 +35,6 @@
   "preflight": {
     "dumps_gdml":             true,
     "verifies_foil_gdml":     true,
-    "preserves_gdml":         false,
     "checks_managed_overlap": true,
     "require_zero_overlaps": false
   },

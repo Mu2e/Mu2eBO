@@ -30,13 +30,12 @@ _REQUIRED_TOP = ("name", "software", "run", "knobs", "leaderboard",
 # _need entry) -- listed here only so _reject_unknown doesn't flag them.
 _ALLOWED_TOP = _REQUIRED_TOP + ("note", "int_dims")
 _REQUIRED_SOFTWARE = ("musing", "grid_tarball")
-_REQUIRED_RUN = ("stages", "harvest")
+_REQUIRED_RUN = ("stages",)
 # jobs_per_stage/presubmit_after/stage_tuning are optional (default to
 # empty when absent -- see load_mode_file below).
 _ALLOWED_RUN = _REQUIRED_RUN + ("jobs_per_stage", "presubmit_after", "stage_tuning")
 _REQUIRED_PREFLIGHT = ("dumps_gdml", "verifies_foil_gdml",
-                       "preserves_gdml", "checks_managed_overlap",
-                       "require_zero_overlaps")
+                       "checks_managed_overlap", "require_zero_overlaps")
 _REQUIRED_LEADERBOARD = ("file", "columns", "obs_noise", "metrics")
 _ALLOWED_KNOB = ("name", "min", "max", "fmt")
 
@@ -411,7 +410,6 @@ def load_mode_file(path: Path) -> "object":
         grid_tarball=_expand_artifact(software["grid_tarball"],
                                       "grid_tarball", where),
         grid_stages=tuple(stages),
-        harvest_verb=run["harvest"],
         stage_target_overrides=jobs_per_stage,
         presubmit_after=presubmit_after,
         bounds_lo=tuple(float(k["min"]) for k in knobs),
@@ -419,7 +417,6 @@ def load_mode_file(path: Path) -> "object":
         int_dims=tuple(int_dims_raw),
         dumps_gdml=preflight["dumps_gdml"],
         verifies_foil_gdml=preflight["verifies_foil_gdml"],
-        preserves_gdml=preflight["preserves_gdml"],
         checks_managed_overlap=preflight["checks_managed_overlap"],
         require_zero_overlaps=preflight["require_zero_overlaps"],
         knob_names=names,

@@ -60,9 +60,6 @@ class TestRegistryCompleteness(unittest.TestCase):
             self.assertTrue(spec.musing.startswith("/"), name)
             self.assertTrue(spec.grid_tarball.endswith(".tar.bz2"), name)
             self.assertGreater(len(spec.grid_stages), 0, name)
-            # "harvest-pot-only" retired 2026-08-08 with the ProdTarget
-            # family (its only user); "harvest" is the sole verb now.
-            self.assertEqual(spec.harvest_verb, "harvest", name)
 
     def test_obs_noise_declared_per_family(self):
         # The foils/flash family has replicate-measured sigma and MUST pin

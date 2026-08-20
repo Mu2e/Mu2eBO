@@ -600,10 +600,8 @@ def verify_stopping_target_gdml(gdml_path, geom_text, tol_mm=1e-3):
 
 # G4 CheckOverlaps emits lines like
 #   "Overlap is detected for volume <X> ... with [its mother volume] <Y> ..."
-# Only overlaps involving volumes our BO knobs touch matter:
-#   - StoppingTargetFoil_*  (foils family)
-#   - ProductionTarget*     (prodtarget family: plates, lugs, spacers, supports)
-# Stock Mu2e geometry has ~117 baseline overlap lines (FoilSupportStructure_*
+# Only overlaps involving volumes our BO knobs touch matter
+# (StoppingTargetFoil_* -- the foils family). Stock Mu2e geometry has ~117 baseline overlap lines (FoilSupportStructure_*
 # with StoppingTargetMother; NorthRailDS3 / SouthRailDS3 with DS3Vacuum;
 # VirtualDetector_EMC_0_Front with StoppingTargetMother). Whitelisting by
 # volume name keeps those out of our failure signal.
@@ -621,9 +619,7 @@ def _overlap_banner(mode_name):
     if spec.require_zero_overlaps:
         return " and zero surface-check overlaps"
     return " and no managed-volume overlap"
-SURFACE_OVERLAP_MANAGED = re.compile(
-    r"^(StoppingTargetFoil_"
-    r"|ProductionTargetPlate|ProductionTargetLug|ProductionTargetSpacer|ProductionTargetSupport)")
+SURFACE_OVERLAP_MANAGED = re.compile(r"^StoppingTargetFoil_")
 
 
 # Preflight verdict vocabulary — the ONE home of the rc mapping.
@@ -690,8 +686,7 @@ def _cmd_preflight_impl(args):
     # INSIDE the bash command; export-at-launch did NOT propagate to the
     # child. See wiki/incidents/foilsx04-all-preflight-ambiguous.md.
     spack_cache = f"/tmp/spack_cache_{os.environ.get('USER','x')}"
-    # Per-mode Musing dispatch: prodtarget sources the patched MDC2025aq/p101
-    # workdir; CE/calo modes source Run1Bak. Resolved per-call (not import-time)
+    # Per-mode Musing dispatch, resolved per-call (not import-time)
     # because the BO driver is invoked with --mode as a CLI arg.
     musing = _modes.SPECS[mode.name].musing
     bash_cmd = (
@@ -794,23 +789,6 @@ def _cmd_preflight_impl(args):
         keep_dir.mkdir(parents=True, exist_ok=True)
         keep_path = keep_dir / f"asbuilt_{name}.gdml"
         shutil.copyfile(gdml_path, keep_path)
-
-    # prodtarget family: emission-only (no per-plate verifier yet). The GDML
-    # is a parseable artifact for offline inspection, surfacing silent
-    # geometry divergence the rc/past_init/canary path can't see.
-    if _modes.SPECS[mode.name].preserves_gdml:
-        gdml_path = workdir / PREFLIGHT_GDML_NAME
-        if not gdml_path.exists():
-            print(f"[preflight/{mode.name}] FAIL  GDML dump "
-                  f"{PREFLIGHT_GDML_NAME} not produced — cannot preserve "
-                  f"as-built geometry (writeGDML missing from env?)")
-            return 1
-        keep_dir = GRID_DATA_ROOT / name / "geom"
-        keep_dir.mkdir(parents=True, exist_ok=True)
-        keep_path = keep_dir / f"asbuilt_{name}.gdml"
-        shutil.copyfile(gdml_path, keep_path)
-        print(f"[preflight/{mode.name}] as-built GDML preserved at "
-              f"{keep_path} ({gdml_path.stat().st_size} bytes)")
 
     # Surface-check emits G4Exception(GeomVol1002) WWWW warnings on every
     # baseline overlap (~117 in stock geometry). These are advisory, not init

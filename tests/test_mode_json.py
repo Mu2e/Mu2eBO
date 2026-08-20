@@ -43,12 +43,11 @@ class TestLoadFixture(unittest.TestCase):
     def test_fixture_matches_the_python_spec(self):
         """The fixture is the acceptance target: its facts must equal the live spec."""
         spec, live = load_mode_file(FIXTURE), modes.SPECS["foilsflash"]
-        for field in ("musing", "grid_tarball", "grid_stages", "harvest_verb",
+        for field in ("musing", "grid_tarball", "grid_stages",
                       "stage_target_overrides", "presubmit_after", "bounds_lo",
                       "bounds_hi", "knob_names", "knob_fmts", "metric_cols",
                       "obs_noise", "dumps_gdml",
-                      "verifies_foil_gdml", "preserves_gdml",
-                      "checks_managed_overlap"):
+                      "verifies_foil_gdml", "checks_managed_overlap"):
             self.assertEqual(getattr(spec, field), getattr(live, field), field)
 
 

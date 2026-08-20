@@ -7,7 +7,6 @@
   },
   "run": {
     "stages": ["mubeam", "mustops_ce", "elebeam_flash"],
-    "harvest": "harvest",
     "jobs_per_stage": {"mubeam": 15, "mustops_ce": 15, "elebeam_flash": 100},
     "presubmit_after": {"mubeam": ["elebeam_flash"]},
     "stage_tuning": {
@@ -41,7 +40,6 @@
   "preflight": {
     "dumps_gdml": true,
     "verifies_foil_gdml": true,
-    "preserves_gdml": false,
     "checks_managed_overlap": true,
     "require_zero_overlaps": true
   },
