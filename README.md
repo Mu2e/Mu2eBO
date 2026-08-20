@@ -283,8 +283,8 @@ What one evaluation does (LangGraph node order):
 
 ```
 propose → render geometry + preflight (local `mu2e -n 1` G4 init,
-zero-overlap gate) → grid stages (mode-defined, e.g. mubeam →
-run1b_mubeam → concat → mustops_ce [→ elebeam_flash for flash modes]) →
+zero-overlap gate) → grid stages (mode-defined: mubeam → mustops_ce →
+elebeam_flash) →
 harvest (metrics from grid outputs) → scan_logs (G4 error audit; blocks the
 row if broken) → evaluate (append leaderboard row) → END
 ```
@@ -371,8 +371,8 @@ Raise the scale with:
 | `AUTORESEARCH_LOCAL_EVENTS` | 200 | events per job |
 | `AUTORESEARCH_LOCAL_POOL` | 4 | jobs running concurrently |
 
-Supported stages: `mubeam`, `run1b_mubeam`, `concat`, `mustops_ce`,
-`elebeam_flash`. A stage outside that set is refused rather than half-run.
+Supported stages: `mubeam`, `mustops_ce`, `elebeam_flash`. A stage
+outside that set is refused rather than half-run.
 
 ### What a default-scale run gives you — and what it does not
 
@@ -437,10 +437,9 @@ autoresearch/
 │   │                        #   to (reserves/attaches a ledger row, calls prodtools' submit_entry)
 │   ├── harvest.py           #   metric extraction from grid outputs → Eval summary
 │   ├── geom_template.py     #   knob values → rendered Offline geometry file
-│   └── pipeline_templates/  #   mubeam/run1b_mubeam extras.fcl (@sequence::
-│                            #   overrides no JSON value can express) + shared
-│                            #   *Cat.txt input lists — NOT per-stage FCL
-│                            #   templates anymore, see stage_entries/ below
+│   └── pipeline_templates/  #   mubeam extras.fcl (@sequence:: overrides
+│                            #   no JSON value can express) — NOT per-stage
+│                            #   FCL templates anymore, see stage_entries/
 ├── stage_entries/           # checked-in per-stage json2jobdef entries (fcl +
 │                            #   fcl_overrides, inloc/outloc/run/memory/events);
 │                            #   THE job description, see mode_specs' stage_tuning

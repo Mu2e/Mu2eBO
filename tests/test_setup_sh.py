@@ -5,7 +5,6 @@ Mirrors muse's verbs: --status is `muse status`, --backing is
 """
 import os
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path

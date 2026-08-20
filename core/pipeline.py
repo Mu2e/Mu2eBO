@@ -5,24 +5,23 @@ Parametric grid pipeline orchestrator for the BO loop.
 Pass --config CFG. Per-stage job description: stage_entries/<stage>.json
 (json2jobdef's native entry schema); px.load_stage_entry substitutes
 {cfg}/{geom}; _render_fcl_overrides applies the one submit-time substitution
-(mustops_ce's concat-less MaxEventsToSkip); stage_cfg(stage, mode) merges the
+(mustops_ce's MaxEventsToSkip); stage_cfg(stage, mode) merges the
 JSON with the mode spec's run.jobs_per_stage/run.stage_tuning. Per-key
 rationale: comment block above _render_fcl_overrides.
 
-@sequence::-bearing override blocks can't ride a JSON value, so mubeam and
-run1b_mubeam '#include' static pipeline_templates/*.fcl, shipped in the code
-tarball (write_code_tarball extra_files) like the geom overlay.
+@sequence::-bearing override blocks can't ride a JSON value, so mubeam
+'#include's static pipeline_templates/*.fcl, shipped in the code tarball
+(write_code_tarball extra_files) like the geom overlay.
 
 Per-config working tree: <DATA_ROOT>/autoresearch_grid/<cfg>/
 {geom,<stage>,state,harvest}. Stages run in sequence per BO point, each its
 own subcommand so a failed stage can be re-run alone:
-  mubeam (200) + run1b_mubeam (200) -> concat (1) -> mustops_ce (200) -> harvest
+  mubeam (200) -> mustops_ce (200) -> elebeam_flash (100) -> harvest
 
 Polling: prodtools jobwait; autoresearch applies its own quorum/zero-ok
 policy on the wait.json. Outstage (prodtools direct backend):
 /pnfs/mu2e/scratch/users/$USER/workflow/default/outstage/<CLUSTER>/<PROC>/ --
-flat per-proc dirs; the zero-padded `00/<00000>/` sublevel is legacy
-mu2ejobsub (graph/pipeline_io.py _worker_log_paths still checks it).
+flat per-proc dirs.
 """
 from __future__ import annotations
 
@@ -80,10 +79,6 @@ from runtime import (  # noqa: E402
     MUSING,
     SETUPMU2E,
 )
-
-# Concat-less chains: mubeam's muminusSelector makes TargetStops mu--pure,
-# so mustops_* resample the mubeam files directly.
-CONCATLESS = "concat" not in GRID_STAGES
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from sourced_bash import run_sourced_bash  # noqa: E402
 import harvest as hv  # noqa: E402
@@ -174,9 +169,9 @@ def stage_cfg(stage: str, mode=_STAGE_CFG_DEFAULT_MODE) -> dict:
     return cfg
 
 
-# All 5 grid stages, independent of any one mode's GRID_STAGES subset
-# (legacy/cross-mode chains still need them in --help's stage choices).
-ALL_STAGES = ("mubeam", "run1b_mubeam", "concat", "mustops_ce", "elebeam_flash")
+# Every grid stage any mode can name, independent of one mode's
+# GRID_STAGES subset (cross-mode chains need them in --help's choices).
+ALL_STAGES = ("mubeam", "mustops_ce", "elebeam_flash")
 
 
 def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
@@ -197,7 +192,7 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #   physicsListName FTFP_BERT -- -20% CPU on mubeam vs ShieldingM (n=200/200),
 #     sob/calo deltas inside the ShieldingM-self noise floor (helicalQR00_02
 #     A/B). See wiki concepts/g4-speed-knobs.md.
-#   NO MaxEventsToSkip on the Cat-resampler stages (mubeam, run1b_mubeam,
+#   NO MaxEventsToSkip on the Cat-resampler stages (mubeam,
 #     elebeam_flash): json2jobdef auto-computes it from SAM and appends it as
 #     a post_line, which beats every fcl_overrides entry; a frozen value
 #     would be a silent lie.
@@ -207,39 +202,30 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #   "inloc" is "tape" for the Cat-resampler stages since the 2026-07
 #     persistent->tape migrations (wiki
 #     elebeamcat-tape-migration-elebeam-wipeout.md); "disk" for
-#     concat/mustops_ce (real callers override to `dir:<farm>`).
+#     mustops_ce (real callers override to `dir:<farm>`).
 #
 # mubeam.json:
-#   '#include' -- sim_kept_products_extras.fcl (shared with run1b_mubeam) +
+#   '#include' -- sim_kept_products_extras.fcl +
 #     mubeam_targetstop_path.fcl (targetStopPath with muminusSelector
 #     inserted); @sequence::-bearing, can't ride a JSON value.
 #   'services.GeometryService.inputFile' = "{geom}" -- per-BO-point geom
 #     overlay shipped inside code.tar; px.load_stage_entry substitutes.
-#   'physics.filters.muminusSelector.*' -- mu- purity so concat-less
+#   'physics.filters.muminusSelector.*' -- mu- purity so
 #     TargetStopResampler can read TargetStops directly (CeEndpoint throws
-#     BADINPUT on no-stopped-mu- events; TargetMuonFinder takes [13,-13]).
-#     Harmless with concat (passes ~100%). FLATTENED to dotted leaf keys:
+#     BADINPUT on no-stopped-mu- events). FLATTENED to dotted leaf keys:
 #     write_fcl_template's json.dumps QUOTES dict keys, and FHiCL table
 #     syntax requires bare identifiers -- a quoted-key table is a hard
 #     fhicl-get parse error.
-#
-# run1b_mubeam.json: DS field OFF + geom_run1_b_v06 baseline -> real
-#   calo_stop/POT measurement. '#include' is sim_kept_products_extras.fcl
-#   only (published targetStopPath kept; no muminusSelector).
-#
-# concat.json: MuonStopSelector split of mu-/mu+ TargetStops. No G4, no
-#   geometry, so no BO geom overlay ships with this stage.
 #
 # mustops_ce.json: G4 on Ce primaries at resampled mu- stops;
 #   geometry-dependent, geom overlay travels via --code.
 #   'physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip' = 100720 --
 #     REQUIRED: the prolog leaves it @nil, art aborts at ResamplingMixer
 #     construction without it. dir:-inloc resampler = no SAM auto-compute,
-#     so it MUST ride fcl_overrides. _render_fcl_overrides drops it to 8000
-#     for concat-less chains: each job reads ONE mubeam file (~16k events vs
-#     the ~240k merged concat file), so the random skip must stay below the
-#     smallest plausible file. The one substitution kept in Python -- it
-#     depends on submit-time chain state.
+#     so it MUST ride fcl_overrides. _render_fcl_overrides drops it to
+#     8000: each job reads ONE mubeam file (~16k events), so the random skip
+#     must stay below the smallest plausible file. The one substitution kept
+#     in Python -- it depends on submit-time state.
 #
 # elebeam_flash.json: foilsflash 2nd objective, EARLY-FLASH StrawGasStep edep
 #   with DS ON; harvest globs only the EARLY output. ASCII-only (FHiCL
@@ -252,14 +238,13 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 
 def _render_fcl_overrides(stage: str, entry_tmpl: dict | None = None) -> dict:
     """Entry 'fcl_overrides' with the one per-call substitution applied:
-    mustops_ce's concat-less MaxEventsToSkip toggle (stamp-first
-    hv.concatless; see the mustops_ce.json comment block above).
-    `entry_tmpl`: optional pre-loaded px.load_stage_entry() result.
+    mustops_ce's MaxEventsToSkip (see the mustops_ce.json comment block
+    above). `entry_tmpl`: optional pre-loaded px.load_stage_entry() result.
     """
     entry = entry_tmpl if entry_tmpl is not None else px.load_stage_entry(
         stage, cfg=CONFIG, geom=GEOM_FILE.name)
     overrides = dict(entry.get("fcl_overrides", {}))
-    if stage == "mustops_ce" and hv.concatless(STATE, CONCATLESS):
+    if stage == "mustops_ce":
         overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"] = 8000
     return overrides
 
@@ -536,21 +521,10 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
 
 
 def _input_stage_for(stage: str) -> str:
-    """Which stage's outputs feed `stage`: concat <- mubeam; mustops_ce <-
-    mubeam-or-concat, stamp-first (hv.concatless) so a concat-era config
-    resubmitted under a concat-less env keeps its concat outputs. One owner
-    for both the grid and --local staging branches."""
-    if stage == "concat":
-        return "mubeam"
-    return "mubeam" if hv.concatless(STATE, CONCATLESS) else "concat"
-
-
-def _merge_factor_for(stage: str, n_sources: int) -> int:
-    """CLAMPED merge factor (min(configured, n_sources)), else 1: mu2ejobdef
-    yielded ZERO jobs when merge factor exceeded input count; prodtools at
-    that corner is unvalidated. Every input_map builder goes through here."""
-    cfg = stage_cfg(stage, MODE)
-    return min(cfg["merge_factor"], n_sources) if "merge_factor" in cfg else 1
+    """Which stage's outputs feed `stage`. mubeam's muminusSelector makes
+    TargetStops mu--pure, so mustops_ce resamples the mubeam files directly.
+    One owner for both the grid and --local staging branches."""
+    return "mubeam"
 
 
 def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> Path:
@@ -575,7 +549,7 @@ def local_input_farm(stage: str, sources: list[Path]) -> tuple[Path, dict]:
     """Local analogue of stage_hardlink_farm at ROOT/<stage>/local_inputs.
     Hard links, falling back to a copy on EXDEV (a local outstage tree and
     ROOT can land on different filesystems). Returns
-    (farm_dir, {basename: clamped_merge_or_1}).
+    (farm_dir, {basename: 1}) -- one input file per job.
     """
     farm_dir = ROOT / stage / "local_inputs"
     if farm_dir.exists():
@@ -583,7 +557,6 @@ def local_input_farm(stage: str, sources: list[Path]) -> tuple[Path, dict]:
             p.unlink()
     else:
         farm_dir.mkdir(parents=True, exist_ok=True)
-    merge = _merge_factor_for(stage, len(sources))
     input_map = {}
     for src in sources:
         src = Path(src)
@@ -594,7 +567,7 @@ def local_input_farm(stage: str, sources: list[Path]) -> tuple[Path, dict]:
             if e.errno != errno.EXDEV:
                 raise
             shutil.copy2(src, link)
-        input_map[src.name] = merge
+        input_map[src.name] = 1
     print(f"[{stage}] local-farmed {len(input_map)} file(s) into {farm_dir}")
     return farm_dir, input_map
 
@@ -684,7 +657,7 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
                            dry_run=False) -> int | None:
     """Entry -> json2jobdef -> submit_entry. Returns the cluster id.
 
-    staged_inputs: (staged_dir, {basename: merge_or_count}) for consuming
+    staged_inputs: (staged_dir, {basename: count}) for consuming
     stages, None otherwise. Writes cluster.txt, the events stamp, the config
     sha, and the jobsub id jobwait needs.
     """
@@ -692,8 +665,8 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
     desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
     stage_dir = ROOT / stage
     stage_dir.mkdir(parents=True, exist_ok=True)
-    # cfg.get("events") is the ONE source for events; concat has no "events"
-    # key (merge stages take none), hence the .get().
+    # cfg.get("events") is the ONE source for events; a stage may carry no
+    # "events" key, hence the .get().
     entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
     cnf, _tarball, entry_path, _inloc = _render_and_build_cnf(
         stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf, stage_dir=stage_dir,
@@ -717,11 +690,10 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
 
 
 # Stages the local executor can run. The Cat-resampler stages render with
-# staged_inputs=None; concat/mustops_ce stage a prior stage's outputs via
+# staged_inputs=None; mustops_ce stages the prior stage's outputs via
 # local_input_farm. A stage absent here is refused loudly rather than handed
 # an inputless entry prodtools would accept (a job silently reading nothing).
-LOCAL_SUPPORTED_STAGES = ("mubeam", "run1b_mubeam", "elebeam_flash",
-                          "concat", "mustops_ce")
+LOCAL_SUPPORTED_STAGES = ("mubeam", "elebeam_flash", "mustops_ce")
 
 
 def _require_local_stage(stage: str) -> None:
@@ -872,12 +844,10 @@ def cmd_submit(args):
         stage_dir.mkdir(parents=True, exist_ok=True)
         env = sourced_env()
 
-        # ONE shared resolver; concat below recomputes njobs against the
-        # staged source count, but an explicit --local-njobs still wins.
         njobs, events = _local_scale(args, stage)
 
         staged_inputs = None
-        if stage in ("concat", "mustops_ce"):
+        if stage == "mustops_ce":
             # Same previous-stage rule as grid staging (_input_stage_for).
             # The prior stage must have run LOCALLY, or <prev>_outputs.txt
             # holds /pnfs paths.
@@ -902,11 +872,6 @@ def cmd_submit(args):
                     f"log before rebuilding.")
             farm_dir, input_map = local_input_farm(stage, sources)
             staged_inputs = (farm_dir, input_map)
-            if stage == "concat":
-                merge = _merge_factor_for("concat", len(sources))
-                njobs_default = -(-len(sources) // merge)  # ceil division
-                njobs = _resolve_scale(getattr(args, "local_njobs", None),
-                                       njobs_default, stage)
         # Same render/build sequence as grid; only njobs/events differ (LOCAL
         # scale, not stage_cfg). `run` is a fixed cnf run-number.
         entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
@@ -947,14 +912,9 @@ def cmd_submit(args):
                   f"(failed={wait.get('failed')}, "
                   f"unknown={wait.get('unknown', [])})")
         return
-    # Stage-chain stamp at first submit so harvest never re-interprets an old
-    # config under the current env's chain (the ff11R00_07 +1.5% sob bias
-    # class). Owner: harvest.resolve_muminus_inputs / stamped_stage_chain.
-    if not (STATE / hv.STAGE_CHAIN_STAMP).exists():
-        hv.stamp_stage_chain(STATE, list(GRID_STAGES))
     env = sourced_env()
     staged_inputs = None
-    if args.stage in ("concat", "mustops_ce"):
+    if args.stage == "mustops_ce":
         # input_data requires basenames: hard-link the previous stage's
         # outputs into a /pnfs stage dir xrootd can resolve.
         prev_stage = _input_stage_for(args.stage)
@@ -963,8 +923,10 @@ def cmd_submit(args):
             raise SystemExit(f"Run 'list-outputs {prev_stage}' first to populate {prev.name}")
         sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
         staged_dir = stage_hardlink_farm(args.stage, sources)
-        merge = _merge_factor_for(args.stage, len(sources))
-        staged_inputs = (staged_dir, {p.name: merge for p in sources})
+        # One input file per job. A >1 merge factor is unvalidated under
+        # prodtools, and mu2ejobdef yielded ZERO jobs when it exceeded the
+        # input count -- no stage in any mode chain merges today.
+        staged_inputs = (staged_dir, {p.name: 1 for p in sources})
     submit_stage_prodtools(args.stage, env, staged_inputs=staged_inputs,
                            dry_run=args.dry_run)
 
@@ -1021,9 +983,6 @@ def cmd_list_outputs(args):
 RUN1A_MUBEAM_INPUT_CORRECTION = hv.RUN1A_MUBEAM_INPUT_CORRECTION  # single source in harvest.py
 
 from paths import REPO_ROOT as AUTORESEARCH  # see core/paths.py
-
-# TargetMuonFinder/stopmat bin labels (mmackenz extract_analysis_results._CALO_STOP_MATERIALS)
-_CALO_STOP_MATERIALS = ("G4_CESIUM_IODIDE", "CarbonFiber", "AluminumHoneycomb")
 
 # Tracker StrawGasStep ionizing-Edep extractor (foilsflash objective). Uses
 # gallery: uproot can't read StrawGasStep (wiki
@@ -1101,30 +1060,6 @@ def _extract_trk_edep_per_pot(pileup_files, env):
     return total / n_events, total, n_events, result.get("tag"), per_file
 
 
-_CALO_EXTRACT_SCRIPT = r"""
-import json, sys
-import ROOT
-files = json.loads(sys.stdin.read())
-mats = set({mats!r})
-total_calo = 0.0
-files_seen = 0
-for path in files:
-    tfile = ROOT.TFile.Open(path, "READ")
-    if not tfile or tfile.IsZombie():
-        continue
-    hist = tfile.Get("TargetMuonFinder/stopmat")
-    if not hist:
-        tfile.Close()
-        continue
-    files_seen += 1
-    xaxis = hist.GetXaxis()
-    for b in range(1, xaxis.GetNbins() + 1):
-        if xaxis.GetBinLabel(b) in mats:
-            total_calo += float(hist.GetBinContent(b))
-    tfile.Close()
-print(json.dumps({{"total_calo": total_calo, "files_seen": files_seen}}))
-"""
-
 
 def _events_per_job(stage: str) -> int:
     """events_per_job actually used at submit time (stamped file, falling
@@ -1134,31 +1069,6 @@ def _events_per_job(stage: str) -> int:
     """
     return hv.events_per_job(STATE, stage, stage_cfg(stage, MODE)["events"])
 
-
-def _extract_calo_per_pot(run1b_files, env):
-    """Sum TargetMuonFinder/stopmat calo bins across run1b_mubeam nts files;
-    calo_per_pot = (sum / total simulated events) * input_corr. PyROOT needs
-    the muse env, so shell out to a subprocess inheriting `env`.
-    """
-    if not run1b_files:
-        return None, None, None
-    # len(run1b_files), not configured njobs -- lost-job denominator rule.
-    total_events = len(run1b_files) * _events_per_job("run1b_mubeam")
-
-    script = _CALO_EXTRACT_SCRIPT.format(mats=list(_CALO_STOP_MATERIALS))
-    proc = subprocess.run(
-        ["python3", "-c", script],
-        input=json.dumps([str(p) for p in run1b_files]),
-        env=env, capture_output=True, text=True, check=True,
-    )
-    result = json.loads(proc.stdout.strip().splitlines()[-1])
-    total_calo = result["total_calo"]
-    files_seen = result["files_seen"]
-    if files_seen == 0:
-        return None, None, None
-    calo_per_event = total_calo / total_events
-    calo_per_pot = calo_per_event * RUN1A_MUBEAM_INPUT_CORRECTION
-    return calo_per_pot, total_calo, files_seen
 
 
 def _count_events_art(art_path: Path, env: dict, harvest_dir: Path) -> int:
@@ -1202,8 +1112,7 @@ def cmd_harvest(args):
     """
     # Check config-sha only for stages this run actually produced (chains
     # differ per mode) -- key off the stamped files, not a per-mode tuple.
-    for stage in ("mubeam", "run1b_mubeam", "concat", "mustops_ce",
-                  "elebeam_flash"):
+    for stage in ALL_STAGES:
         if (STATE / f"{stage}_config_sha.txt").exists():
             _check_stage_config_sha(stage)
     env = sourced_env(with_muse=True)
@@ -1213,9 +1122,7 @@ def cmd_harvest(args):
     ce_files = hv.read_outputs(STATE, "mustops_ce") or []
     if not ce_files:
         raise SystemExit("No mustops_ce outputs to harvest")
-    # Stamp+presence-driven, NOT env-driven (ff11R00_07 +1.5% sob bias):
-    # harvest.resolve_muminus_inputs owns "did concat run for THIS Eval".
-    muminus_files, muminus_source = hv.resolve_muminus_inputs(STATE)
+    muminus_files = hv.resolve_muminus_inputs(STATE)
 
     # Denominators derive from the files actually harvested, NOT configured
     # njobs: lost jobs (OOM, held) would bias ce_abs_eff / s_over_sqrt_b
@@ -1258,25 +1165,12 @@ def cmd_harvest(args):
     macro_log = harvest_dir / "rough_run1a_sensitivity.log"  # path hv wrote; summary needs it
 
     degraded: dict = {}  # stage -> reason, for every fail-softed extraction
-    print(">>> Step 5: TargetMuonFinder/stopmat from run1b_mubeam outputs")
-    calo = hv.extract_secondary_calo(
-        STATE, runner=lambda files: _extract_calo_per_pot(files, env)) \
-        or hv.SecondaryCalo()
-    calo_per_pot, calo_total, calo_files_seen = calo.per_pot, calo.total, calo.files_seen
-    _note_degraded(calo, "run1b_mubeam", degraded)
-    if calo_per_pot is not None:
-        print(f"    calo_total          = {calo_total}")
-        print(f"    calo_files_seen     = {calo_files_seen}")
-        print(f"    calo_per_pot        = {calo_per_pot:.6g}")
-    else:
-        print("    calo_per_pot        = (unavailable)")
-
-    # Step 6: EARLY-FLASH StrawGasStep Edep (foilsflash 2nd objective);
+    # Step 5: EARLY-FLASH StrawGasStep Edep (foilsflash 2nd objective);
     # present only when the chain ran elebeam_flash (un-prescaled, so the
     # total is the FULL early flash). Objective = flash_edep_per_pot = total
     # / (n_input_electrons * POT_PER_ELECTRON); per-event mean is BLIND to
-    # rate, kept as a diagnostic. Fail-soft like calo.
-    print(">>> Step 6: tracker StrawGasStep Edep from elebeam_flash (early) outputs")
+    # rate, kept as a diagnostic. Fail-soft.
+    print(">>> Step 5: tracker StrawGasStep Edep from elebeam_flash (early) outputs")
     flash = hv.extract_secondary_edep(
         STATE, "elebeam_flash",
         runner=lambda files: _extract_trk_edep_per_pot(files, env)) \
@@ -1316,10 +1210,6 @@ def cmd_harvest(args):
         stopping_factor=stopping_factor,
         ce_abs_eff=ce_abs_eff,
         s_over_sqrt_b=s_over_sqrt_b,
-        muminus_source=muminus_source,
-        calo_per_pot=calo_per_pot,
-        calo_total=calo_total,
-        calo_files_seen=calo_files_seen,
         flash_edep_per_event=flash_edep_per_event,
         flash_edep_per_pot=flash_edep_per_pot,
         flash_edep_per_pot_winsor=flash_edep_per_pot_winsor,

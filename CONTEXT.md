@@ -40,7 +40,7 @@ The append-only per-mode TSV of completed evals; the ONLY durable source of trut
 ### Execution
 
 **Stage**:
-One grid-submission unit in an eval's chain (`mubeam`, `concat`, `mustops_ce`, `elebeam_flash`, …) driven by idempotent submit/poll/list-outputs verbs.
+One grid-submission unit in an eval's chain (`mubeam`, `mustops_ce`, `elebeam_flash`) driven by idempotent submit/poll/list-outputs verbs.
 
 **Stage chain**:
 The ordered stages one eval runs; declared per Mode.
@@ -61,9 +61,6 @@ A config name the Pool refuses to launch under because an earlier process alread
 **Eval summary**:
 The explicit, typed product of harvest (`harvest.EvalSummary` → `harvest/summary.json`): the primary sob chain plus fail-soft secondary objectives, with a `degraded` record of every extraction that fail-softed. The leaderboard row is derived from it.
 _Avoid_: "the summary dict" (implicit 26-key contract)
-
-**Stage-chain stamp**:
-`state/stage_chain.txt`, written at first submit — the one owner of "which stages ran for THIS Eval" (e.g. did concat run). Harvest and template materialization read the stamp (legacy fallback: file presence), never the process env.
 
 **Preflight**:
 The local 1-event G4 feasibility check gating grid submission; verdicts are `pass` / `fail_managed` / `fail_init` / `ambiguous`.

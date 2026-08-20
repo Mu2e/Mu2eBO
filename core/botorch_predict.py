@@ -18,8 +18,9 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from paths import REPO_ROOT as AUTORESEARCH  # noqa: E402  (see core/paths.py)
-import bo_driver as bo  # noqa: E402
+from paths import REPO_ROOT as AUTORESEARCH  # noqa: E402,F401  (pinned by
+import bo_driver as bo  # noqa: E402      tests/test_paths.py: every module
+#                                          agrees on ONE resolved root)
 
 
 # float64 + CPU: history is tiny (<200 pts), CPU beats GPU incl. transfer.
@@ -219,11 +220,8 @@ def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
 
 
 def _qlnei_picks(model, X, bounds, q: int, round_idx: int, x_pending=None):
-    """qLogNoisyExpectedImprovement over 1D Y (sob only); calo unused.
-
-    No longer drops the run1b_mubeam stage: the AUTORESEARCH_NO_RUN1B=1
-    auto-stamp died with graph/presniff.py (2026-08-19) and was not restored.
-    x_pending: as in _qnehvi_picks.
+    """qLogNoisyExpectedImprovement over 1D Y (sob only); the second
+    objective is unused. x_pending: as in _qnehvi_picks.
     """
     from botorch.acquisition.logei import qLogNoisyExpectedImprovement
 

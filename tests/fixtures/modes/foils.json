@@ -1,6 +1,6 @@
 {
   "name": "foils",
-  "note": "6D extra-foil geometry vs Run1B calo-stop background, S/sqrt(B) preserved. REFERENCE FIXTURE: reproduces the live foils line; the acceptance test compares this against FoilsMode at default env.",
+  "note": "6D extra-foil geometry, S/sqrt(B) preserved. REFERENCE FIXTURE: a generic, valid, fully-populated mode spec used by tests that need one (mode-registry wiring, stage_cfg tuning). The `foils` LINE itself was retired 2026-07-12; this file is a fixture, not a live mode.",
 
   "software": {
     "musing":       "${ARTIFACT}/Offline_helical/setup_local.sh",
@@ -8,7 +8,7 @@
   },
 
   "run": {
-    "stages":          ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
+    "stages":          ["mubeam", "mustops_ce", "elebeam_flash"],
     "jobs_per_stage":  {},
     "presubmit_after": {},
     "stage_tuning": {}
@@ -26,11 +26,11 @@
 
   "leaderboard": {
     "file":      "leaderboards/leaderboard_bo_foils_v2.tsv",
-    "columns":   ["sob", "calo", "alpha", "obj"],
+    "columns":   ["sob", "flash_edep", "alpha", "obj"],
     "obs_noise": [0.006, 0.035],
     "metrics": {
       "sob":  ["s_over_sqrt_b"],
-      "calo": ["calo_per_pot"]
+      "flash_edep": ["flash_edep_per_pot"]
     }
   },
 

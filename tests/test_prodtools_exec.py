@@ -125,11 +125,11 @@ class TestRenderEntry(unittest.TestCase):
             **self._base(
                 desc="Run1A_MuStopsCat_t001", njobs=1,
                 input_data={"sim.a.art": 200, "sim.b.art": 200},
-                inloc="dir:/pnfs/stage/t001/concat_inputs"))
+                inloc="dir:/pnfs/stage/t001/mustops_ce_inputs"))
         self.assertNotIn("events", e)
         self.assertNotIn("run", e)
         self.assertNotIn("resampler_name", e)
-        self.assertEqual(e["inloc"], "dir:/pnfs/stage/t001/concat_inputs")
+        self.assertEqual(e["inloc"], "dir:/pnfs/stage/t001/mustops_ce_inputs")
 
     def test_memory_formatted(self):
         e = pex.render_entry(**self._base(memory_mb=3000, events=2500,
@@ -246,12 +246,11 @@ class TestLoadStageEntry(unittest.TestCase):
             e = pex.load_stage_entry("x", cfg="c", geom="g", entries_dir=d)
         self.assertEqual(e["_comment"], "see pipeline.py")
 
-    def test_real_stage_entries_dir_all_five_stages_load_without_error(self):
+    def test_real_stage_entries_dir_every_stage_loads_without_error(self):
         # Smoke-validates the checked-in JSON: any typo'd placeholder in
         # the real stage_entries/<stage>.json files fails here, not three
         # subprocesses deep inside a real submit.
-        for stage in ("mubeam", "run1b_mubeam", "concat", "mustops_ce",
-                     "elebeam_flash"):
+        for stage in ("mubeam", "mustops_ce", "elebeam_flash"):
             with self.subTest(stage=stage):
                 pex.load_stage_entry(stage, cfg="x001", geom="geom.txt")
 
@@ -867,9 +866,8 @@ class TestSubmitCnf(unittest.TestCase):
 
 class TestWorkerLogPathsBothOutstageShapes(unittest.TestCase):
     """graph/pipeline_io.py's `_worker_log_paths` (Task 8): scan_logs must
-    find worker logs whether the cluster was submitted by legacy mu2ejobsub
-    (`<outstage>/<cluster>/00/<00000>/*.log`) or prodtools direct
-    (`<outstage>/<cluster>/<proc>/*.log`, no zero-padded 00/ sublevel).
+    find worker logs under the prodtools direct outstage layout
+    (`<outstage>/<cluster>/<proc>/*.log`).
 
     All these fixtures have no `<stage>_outputs.txt` (i.e. every job in the
     cluster died before producing an .art) -- the case the outputs.txt-
@@ -895,40 +893,6 @@ class TestWorkerLogPathsBothOutstageShapes(unittest.TestCase):
                  mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
                 found = pio._worker_log_paths("cfgA", "mubeam")
             self.assertEqual(found, [log])
-
-    def test_legacy_shape_found(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            outstage = root / "outstage"
-            state_dir = self._state_dir(root, "cfgB")
-            (state_dir / "mubeam_cluster.txt").write_text("42\n")
-            log = outstage / "42" / "00" / "00003" / "bar.log"
-            log.parent.mkdir(parents=True)
-            log.write_text("some log text\n")
-            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
-                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
-                found = pio._worker_log_paths("cfgB", "mubeam")
-            self.assertEqual(found, [log])
-
-    def test_both_shapes_present_legacy_wins(self):
-        # A cluster submitted pre-switch is legacy-only in practice, but the
-        # documented tie-break (legacy checked first) should still hold if
-        # both somehow have files.
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            outstage = root / "outstage"
-            state_dir = self._state_dir(root, "cfgC")
-            (state_dir / "mubeam_cluster.txt").write_text("42\n")
-            flat_log = outstage / "42" / "3" / "foo.log"
-            flat_log.parent.mkdir(parents=True)
-            flat_log.write_text("flat\n")
-            legacy_log = outstage / "42" / "00" / "00003" / "bar.log"
-            legacy_log.parent.mkdir(parents=True)
-            legacy_log.write_text("legacy\n")
-            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
-                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
-                found = pio._worker_log_paths("cfgC", "mubeam")
-            self.assertEqual(found, [legacy_log])
 
     def test_no_cluster_file_returns_empty(self):
         with tempfile.TemporaryDirectory() as td:

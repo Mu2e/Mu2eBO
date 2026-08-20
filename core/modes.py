@@ -2,9 +2,9 @@
 
 Frozen dataclasses, every field passed explicitly (a missing fact is an
 import error, never a default) -- the fix for the foilsflash-tarball,
-preflight-tuple and foilsg-tarball incident class. Stdlib-only. Two env
-seams apply ON TOP of the spec: AUTORESEARCH_NO_RUN1B and
-AUTORESEARCH_ELEBEAM_NJOBS. Completeness pinned by tests/test_modes.py.
+preflight-tuple and foilsg-tarball incident class. Stdlib-only. One env seam
+applies ON TOP of the spec: AUTORESEARCH_ELEBEAM_NJOBS. Completeness pinned
+by tests/test_modes.py.
 """
 from __future__ import annotations
 

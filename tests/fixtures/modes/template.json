@@ -8,7 +8,7 @@
   },
 
   "run": {
-    "stages":          ["mubeam", "run1b_mubeam", "concat", "mustops_ce"],
+    "stages":          ["mubeam", "mustops_ce", "elebeam_flash"],
     "jobs_per_stage":  {},
     "presubmit_after": {},
     "stage_tuning":    {}
@@ -24,11 +24,11 @@
 
   "leaderboard": {
     "file":      "leaderboards/leaderboard_bo_template.tsv",
-    "columns":   ["sob", "calo", "alpha", "obj"],
+    "columns":   ["sob", "flash_edep", "alpha", "obj"],
     "obs_noise": [0.006, 0.035],
     "metrics": {
       "sob":  ["s_over_sqrt_b"],
-      "calo": ["calo_per_pot"]
+      "flash_edep": ["flash_edep_per_pot"]
     }
   },
 

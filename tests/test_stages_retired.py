@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 
-STAGES = ["mubeam", "run1b_mubeam", "concat", "mustops_ce", "elebeam_flash"]
+STAGES = sorted(p.stem for p in (ROOT / "stage_entries").glob("*.json"))
 
 
 class TestStagesRetired(unittest.TestCase):

@@ -239,12 +239,12 @@ class TestRejections(unittest.TestCase):
         self._expect_error(mutate, "mubeem")
 
     def test_stage_tuning_stage_outside_this_chain_rejected(self):
-        """'concat' is a real core/pipeline.py STAGES entry but is NOT in
-        foilsflash's chain, so the tuning loads clean and is SILENTLY INERT
+        """A stage name that is not in THIS mode's chain must be rejected at
+        load: the tuning would otherwise load clean and be SILENTLY INERT
         forever -- the intended events_per_job never applies, no error (F5)."""
         def mutate(d):
-            d["run"]["stage_tuning"]["concat"] = {"events_per_job": 424242}
-        self._expect_error(mutate, "concat")
+            d["run"]["stage_tuning"]["run1b_mubeam"] = {"events_per_job": 424242}
+        self._expect_error(mutate, "run1b_mubeam")
 
     # -- F6: jobs_per_stage VALUES are validated (keys already were) ---------
     def test_jobs_per_stage_bool_value_rejected(self):

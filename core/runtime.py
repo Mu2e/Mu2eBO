@@ -7,7 +7,6 @@ core/modes.py::stamp_mode_from_argv(), which owns that story.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import modes as _modes
 from paths import GRAPH_DATA, REPO_ROOT

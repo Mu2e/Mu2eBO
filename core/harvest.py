@@ -3,10 +3,8 @@
 Everything decidable without grid/muse/subprocess lives here; pipeline.py
 passes its subprocess extractors IN as callables (every branch unit-testable).
 An **Eval summary** (CONTEXT.md) = harvest/summary.json; the leaderboard row
-derives from it. Invariant: whether concat ran is decided by
-resolve_muminus_inputs from the Eval's state dir alone (stamp, else file
-presence) — NEVER the process env; submit-side template materialization must
-consult the same stamp.
+derives from it. Invariant: every input set is resolved from the Eval's own
+state dir (its <stage>_outputs.txt), NEVER the process env.
 """
 from __future__ import annotations
 
@@ -26,8 +24,6 @@ POT_PER_ELECTRON = 25_000_000 / 2_166_994  # EleBeamCat dh.gencount / event_coun
 EDEP_SAW_RX = re.compile(r"EdepAna summary:\s*Saw\s+([\d.eE+-]+)\s+events")
 S_OVER_SQRTB_RX = re.compile(
     r"^Signal box.*S/sqrt\(B\)\s*=\s*([\d.eE+-]+)\s*$", re.MULTILINE)
-
-STAGE_CHAIN_STAMP = "stage_chain.txt"
 
 
 # --- pure parsers ------------------------------------------------------------
@@ -117,23 +113,6 @@ def run_sensitivity_macro(harvest_dir: Path, nts_path: Path,
         raise SystemExit(f"{e}; see {macro_log}")
 
 
-# --- stage-chain stamp (the one owner of "did concat run for this Eval") ----
-
-def stamp_stage_chain(state_dir: Path, stages: Sequence[str]) -> None:
-    """Record the mode's stage chain at first submit (events_per_job pattern):
-    a config evaluated under an older chain is never re-interpreted under the
-    current env's chain."""
-    (state_dir / STAGE_CHAIN_STAMP).write_text("\n".join(stages) + "\n")
-
-
-def stamped_stage_chain(state_dir: Path) -> Optional[list[str]]:
-    """The submit-time stage chain, or None for pre-stamp legacy configs."""
-    p = state_dir / STAGE_CHAIN_STAMP
-    if not p.exists():
-        return None
-    return [ln.strip() for ln in p.read_text().splitlines() if ln.strip()]
-
-
 def read_outputs(state_dir: Path, stage: str) -> Optional[list[Path]]:
     """Non-blank lines of state/<stage>_outputs.txt, or None if absent.
 
@@ -146,47 +125,17 @@ def read_outputs(state_dir: Path, stage: str) -> Optional[list[Path]]:
     return [Path(ln) for ln in p.read_text().splitlines() if ln.strip()]
 
 
-def concatless(state_dir: Path, fallback: bool) -> bool:
-    """Did THIS Eval's chain skip concat? Stamp-first; `fallback` only for
-    pre-stamp legacy configs. The one submit-side accessor — never key off
-    the env (ff11R00_07 +1.5% sob bias class)."""
-    chain = stamped_stage_chain(state_dir)
-    if chain is not None:
-        return "concat" not in chain
-    return fallback
-
-
-def resolve_muminus_inputs(state_dir: Path) -> tuple[list[Path], str]:
-    """The mu⁻-stop count inputs for this Eval: (files, source).
-
-    source: "concat" (MuminusStopsCat) or "mubeam" (mu⁻-pure TargetStops,
-    muminusSelector guarantees purity). Stamp first; else file presence —
-    existing concat outputs are the truth regardless of the current env
-    (ff11R00_07 +1.5% sob bias). SystemExit when inputs are missing.
-    """
-    chain = stamped_stage_chain(state_dir)
-    if chain is not None:
-        use_concat = "concat" in chain
-    else:
-        use_concat = (state_dir / "concat_outputs.txt").exists()
-
-    if use_concat:
-        concat_files = read_outputs(state_dir, "concat")
-        if not concat_files:
-            raise SystemExit("No concat outputs to count mu- stops from "
-                             "(blank or missing concat_outputs.txt)")
-        files = [f for f in concat_files if "MuminusStopsCat" in f.name]
-        if not files:
-            raise SystemExit("No MuminusStopsCat in concat outputs")
-        return files, "concat"
-
+def resolve_muminus_inputs(state_dir: Path) -> list[Path]:
+    """The mu⁻-stop count inputs for this Eval: mubeam's mu⁻-pure
+    TargetStops (muminusSelector guarantees purity). SystemExit when inputs
+    are missing."""
     mubeam_files = read_outputs(state_dir, "mubeam")
     if not mubeam_files:
         raise SystemExit("No mubeam outputs to count mu- stops from")
     files = [f for f in mubeam_files if "TargetStops" in f.name]
     if not files:
         raise SystemExit("No TargetStops in mubeam outputs")
-    return files, "mubeam"
+    return files
 
 
 def events_per_job(state_dir: Path, stage: str, fallback: int) -> int:
@@ -237,32 +186,6 @@ def extract_secondary_edep(state_dir: Path, stage: str,
                          per_file=list(per_file) if per_file else None,
                          n_files=len(files))
 
-
-@dataclass
-class SecondaryCalo:
-    """The calo secondary objective (run1b_mubeam stopmat histogram sum)."""
-    per_pot: Optional[float] = None
-    total: Optional[float] = None
-    files_seen: Optional[int] = None
-    error: Optional[str] = None
-
-
-def extract_secondary_calo(state_dir: Path,
-                           runner: Callable[[list[Path]], tuple],
-                           ) -> Optional[SecondaryCalo]:
-    """Calo twin of extract_secondary_edep — same fail-soft policy, 3-tuple
-    runner shape. None = stage absent from this Eval's chain."""
-    files = read_outputs(state_dir, "run1b_mubeam")
-    if files is None:
-        return None
-    if not files:
-        return SecondaryCalo(error="run1b_mubeam_outputs.txt is blank "
-                                   "(stage-out-lag face?)")
-    try:
-        per_pot_v, total, files_seen = runner(files)
-    except Exception as e:  # noqa: BLE001 — fail-soft by contract
-        return SecondaryCalo(error=f"calo extraction failed: {e}")
-    return SecondaryCalo(per_pot=per_pot_v, total=total, files_seen=files_seen)
 
 
 def per_pot(total_MeV: Optional[float], n_files: int, epj: int) -> tuple[Optional[float], Optional[int]]:
@@ -323,11 +246,6 @@ class EvalSummary:
     stopping_factor: float
     ce_abs_eff: float
     s_over_sqrt_b: float
-    muminus_source: str  # "concat" | "mubeam" — provenance of the stop count
-    # calo (fail-soft)
-    calo_per_pot: Optional[float] = None
-    calo_total: Optional[float] = None
-    calo_files_seen: Optional[int] = None
     # flash / bo-foilsflash (fail-soft)
     flash_edep_per_event: Optional[float] = None
     flash_edep_per_pot: Optional[float] = None

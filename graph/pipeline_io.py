@@ -4,7 +4,6 @@ the long-lived runner process)."""
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -56,9 +55,6 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
                             pending=[px for _, px in pending],
                             venv_py=BOTORCH_VENV_PY)
         x = xs[0]
-        if not mode.is_buildable(x):
-            print(f"WARN: submitting unbuildable pick {list(x)} "
-                  f"(preflight will reject)", file=sys.stderr)
     geom_path = mode.render_proposal(config_name, x)
     # Stage geom where pipeline.py submit expects it (mirrors cmd_propose).
     work_geom_dir = GRID_DATA_ROOT / config_name / "geom"

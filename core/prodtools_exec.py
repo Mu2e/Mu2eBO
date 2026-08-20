@@ -83,15 +83,9 @@ def outstage_root() -> str:
 
 
 def cluster_worker_logs(cluster_dir) -> list:
-    """Worker .log files under one cluster's outstage dir, both layouts:
-    legacy mu2ejobsub (`00/<idx>/*.log`, checked first — pre-switch clusters
-    can only be legacy, which is also the tie-break) then prodtools flat
-    `<proc>/*.log`. Layout knowledge lives ONLY here."""
-    cluster_dir = Path(cluster_dir)
-    legacy = sorted(cluster_dir.glob("00/*/*.log"))
-    if legacy:
-        return legacy
-    return sorted(cluster_dir.glob("*/*.log"))
+    """Worker .log files under one cluster's outstage dir: the prodtools
+    flat `<proc>/*.log` layout. Layout knowledge lives ONLY here."""
+    return sorted(Path(cluster_dir).glob("*/*.log"))
 
 
 _DEFAULT_OUTLOC = {"*.art": "outstage", "*.root": "outstage"}

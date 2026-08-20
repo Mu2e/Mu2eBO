@@ -92,8 +92,8 @@ SAMPLE_X = {
     # docs/superpowers/specs/2026-08-08-leaderboard-module-design.md), so
     # TestFoilsParity below (which compared FoilsMode's live renderer against
     # a would-be JSON replacement) no longer has a subject. Its frozen
-    # golden captures (fixtures/golden_geom/foils_*.txt) are left in place as
-    # a historical record of the retired Python renderer's output.
+    # golden captures were deleted with the dead-code sweep (2026-08-20);
+    # git history holds them.
 }
 
 

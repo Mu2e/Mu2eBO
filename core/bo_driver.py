@@ -125,20 +125,6 @@ class JsonMode:
                 zip(spec.bounds_lo, spec.bounds_hi, self.KNOB_NAMES))
         ]
 
-    # Constraint hook: reject infeasible regions. Default = no constraint.
-    def is_buildable(self, x) -> bool:
-        return True
-
-    # Summary-extraction hook: summary.json -> the (sob, calo) pair
-    # Point.obj() consumes. Default = the 4-stage harvest schema.
-    def extract_metrics(self, summary: dict) -> tuple[float, float]:
-        return summary["s_over_sqrt_b"], summary["calo_per_pot"]
-
-    # Optional side metrics (Point.extras; not part of obj). x supplied for
-    # derived quantities needing both harvest output and the geom.
-    def extract_extras(self, summary: dict, x=None) -> dict | None:
-        return None
-
     def render_proposal(self, name: str, x) -> Path:
         self.proposal_dir.mkdir(parents=True, exist_ok=True)
         out = self.proposal_dir / f"{name}_geom.txt"
@@ -196,9 +182,9 @@ class JsonMode:
         """Map summary.json onto (sob, second objective).
 
         UNRESOLVED and RESOLVED-TO-ZERO are deliberately different:
-        unresolved returns None (cmd_evaluate substitutes 0.0 only under
-        AUTORESEARCH_NO_RUN1B=1, else rc=1 -- raising here made every child
-        of a second-objective-less launch fail after full wall-clock);
+        unresolved returns None and cmd_evaluate refuses the row with rc=1
+        (raising here made every child of a second-objective-less launch
+        fail after full wall-clock);
         resolved to zero/negative from a REAL key is refused outright -- a
         fake zero row at good sob dominates the whole Pareto front at the
         next GP refit (7 poison rows landed that way 2026-07-10). A missing
@@ -327,10 +313,6 @@ def _cmd_propose_locked(args, mode, names):
           f"{len(pending)} pending (in-flight, fantasized as X_pending)")
 
     xs = botorch_ask(mode.name, q=q, pending=[px for _, px in pending])
-    n_unbuildable = sum(1 for x in xs if not mode.is_buildable(x))
-    if n_unbuildable:
-        print(f"WARN: batch contains {n_unbuildable} unbuildable pick(s) "
-              f"(preflight will reject them)", file=sys.stderr)
     print(f"\nProposed batch of {q}:")
 
     for name, x in zip(names, xs):
@@ -350,7 +332,7 @@ def _cmd_propose_locked(args, mode, names):
     print(f"\nPending file: {mode.pending_path()}")
     print(f"\nNext per config (run in parallel):")
     for name in names:
-        print(f"  pipeline.py --config {name} submit mubeam   (and run1b_mubeam)")
+        print(f"  pipeline.py --config {name} submit mubeam")
     print(f"\nThen as each finishes:")
     print(f"  ./core/bo_driver.py --mode {mode.name} --alpha {args.alpha} "
           f"evaluate <name> <summary.json>")
@@ -365,30 +347,15 @@ def cmd_evaluate(args):
     except (KeyError, TypeError) as e:
         print(f"summary.json missing metric for {mode.name}: {e}; got {summary}")
         return 1
-    # AUTORESEARCH_NO_RUN1B=1 drops run1b_mubeam (~40% wall-clock) and so
-    # intentionally produces calo=None; a MANUAL seam (recovery recipe in
-    # wiki/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md
-    # sets it by hand). Substituting 0.0 lets the row land; without it
-    # SqliteSaver crashes serializing the None-bearing state (foilsf08R00).
-    # ...but ONLY for a mode that HAS run1b_mubeam to drop: for a chain that
-    # never contained it, a missing second objective means the producing
-    # stage fail-softed, and coercing to 0.0 writes a fake zero-flash row
-    # dominating the Pareto front (the 7-poison-row incident, 2026-07-10;
-    # wiki/incidents/no-run1b-substitution-poisons-flash-modes.md). Gating
-    # on the spec's stage chain cannot go stale like a mode-name list.
-    _has_run1b = "run1b_mubeam" in _modes.SPECS[mode.name].grid_stages
-    if calo is None and os.environ.get("AUTORESEARCH_NO_RUN1B") == "1":
-        if not _has_run1b:
-            print(f"[{mode.name}] second objective missing and this mode has "
-                  f"no run1b_mubeam stage to drop — NOT substituting 0.0; "
-                  f"refusing to append a row (a fake zero would dominate the "
-                  f"Pareto front). Recover the failed stage first.")
-            return 1
-        print(f"[{mode.name}] calo is None (AUTORESEARCH_NO_RUN1B=1); "
-              f"substituting 0.0 for sob-only objective")
-        calo = 0.0
+    # A missing second objective is NEVER coerced to a number. Every stage
+    # in every mode chain produces a real second objective, so None means
+    # its producing stage fail-softed; writing 0.0 would land a fake
+    # zero-flash row that dominates the whole Pareto front at the next GP
+    # refit (the 7-poison-row incident, 2026-07-10;
+    # wiki/incidents/no-run1b-substitution-poisons-flash-modes.md).
     if sob is None or calo is None:
-        print(f"summary.json metric is None for {mode.name}: {summary}")
+        print(f"[{mode.name}] summary.json metric is None ({summary}) — "
+              f"refusing to append a row; recover the failed stage first.")
         return 1
     geom = mode.proposal_dir / f"{args.config_name}_geom.txt"
     if not geom.exists():
@@ -398,8 +365,7 @@ def cmd_evaluate(args):
     if x is None:
         print(f"Failed to parse {mode.name} params from {geom}", file=sys.stderr)
         return 1
-    extras = mode.extract_extras(summary, x=x)
-    p = Point(cfg=args.config_name, x=x, sob=float(sob), calo=float(calo), extras=extras)
+    p = Point(cfg=args.config_name, x=x, sob=float(sob), calo=float(calo))
     # Clear pending BEFORE appending: a crash in between leaves "missing
     # leaderboard row" (loud, re-runnable) rather than a silent phantom
     # pending row that trips propose_one's collision guard.

@@ -92,7 +92,6 @@ class Point:
     x: list
     sob: float
     calo: float
-    extras: dict | None = None  # side metrics, logged not optimized
 
     def obj(self, alpha: float) -> float:
         return self.sob - alpha * self.calo
