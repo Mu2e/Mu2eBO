@@ -1,14 +1,10 @@
 """Leaderboard: the schema-owning module for per-mode history + pending TSVs.
 
-The ModeSpec declares the row schema; this module ENFORCES it. Every read
-checks the physical header against the spec-derived one and fails loudly on
-disagreement (never a silent 0-row history — see
-wiki/incidents/touched-leaderboard-headerless-history-loss.md). Every append
-that hits a mismatched file saves the row to <file>.quarantine.tsv BEFORE
-raising, so a finished eval's result is never lost to a schema error.
-
-Stdlib-only, no project imports: everything arrives via the constructor, so
-the botorch venv and tests import it with no path games.
+Every read checks the physical header against the spec-derived one and fails
+loudly (never a silent 0-row history — see
+wiki/incidents/touched-leaderboard-headerless-history-loss.md); every append
+hitting a mismatch quarantines the row BEFORE raising, so a finished eval is
+never lost to a schema error. Stdlib-only, no project imports.
 Spec: docs/superpowers/specs/2026-08-08-leaderboard-module-design.md
 """
 from __future__ import annotations
@@ -54,12 +50,9 @@ class RowParseError(LeaderboardError):
 def _lock_path(target: Path) -> Path:
     """Flock anchor for `target`: <target's dir>/locks/<target's name>.lock.
 
-    All runtime lock files live in a dedicated locks/ folder next to the
-    thing they guard (relative to the target's parent, NOT a global constant,
-    so tests that point a mode's TSVs at a tmp dir keep their lock isolation).
-    Lock files are created if absent and intentionally NEVER deleted —
-    deleting one while a process holds it would let the next opener lock a
-    fresh inode at the same path, silently splitting the mutual exclusion.
+    Lock files are intentionally NEVER deleted — deleting one while a process
+    holds it lets the next opener lock a fresh inode at the same path,
+    silently splitting the mutual exclusion.
     """
     lock_dir = target.parent / "locks"
     lock_dir.mkdir(parents=True, exist_ok=True)
@@ -68,11 +61,7 @@ def _lock_path(target: Path) -> Path:
 
 @contextmanager
 def _flock_ex(target: Path):
-    """Exclusive-lock target's locks/-dir anchor for the duration of the block.
-
-    Used by leaderboard/pending TSV writers when multiple closed-loop child
-    processes may append concurrently.
-    """
+    """Exclusive-lock target's locks/-dir anchor for the duration of the block."""
     lock_path = _lock_path(target)
     with open(lock_path, "w") as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
@@ -84,13 +73,9 @@ def _flock_ex(target: Path):
 
 @contextmanager
 def _flock_sh(target: Path):
-    """Shared-lock target's locks/-dir anchor for the duration of the block.
-
-    Paired with _flock_ex on the same path: writers (append_history) hold EX
-    and block readers; readers (load_history) hold SH and block only writers,
-    not each other. Closes the torn-row race where a reader could observe a
-    partially-written leaderboard line mid-append.
-    """
+    """Shared-lock target's locks/-dir anchor: readers block only writers,
+    closing the torn-row race where a reader could observe a partially
+    written line mid-append."""
     lock_path = _lock_path(target)
     with open(lock_path, "w") as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_SH)
@@ -104,18 +89,17 @@ def _flock_sh(target: Path):
 class Point:
     """Generic BO point: x layout depends on mode."""
     cfg: str
-    x: list      # mode-specific list of param values
+    x: list
     sob: float
     calo: float
-    extras: dict | None = None  # mode-specific side metrics (logged not optimized)
+    extras: dict | None = None  # side metrics, logged not optimized
 
     def obj(self, alpha: float) -> float:
         return self.sob - alpha * self.calo
 
 
 def to_py_scalars(x) -> list:
-    """Coerce numpy scalars (np.int64/np.float64) to native Python types for
-    JSON/msgpack. Shared by append_pending and graph/pipeline_io.propose_one —
+    """Coerce numpy scalars to native Python types for JSON/msgpack —
     see wiki/incidents/langgraph-checkpoint-numpy-int64.md."""
     return [v.item() if hasattr(v, "item") else v for v in x]
 
@@ -160,15 +144,10 @@ class Leaderboard:
         return self.path.with_name(self.path.name + ".quarantine.tsv")
 
     def _load_one(self, path: Path, *, lock: bool = True) -> list[Point]:
-        """lock=False for the committed archive.
-
-        _lock_path CREATES <dir>/locks/<name>.lock, so taking even a SHARED
-        lock on the archive needs WRITE access to the repo -- which a user
-        running from someone else's checkout does not have (PermissionError
-        at propose, mmackenz 2026-08-13). Nothing here writes the archive: it
-        changes only by a reviewed git commit, which no flock serializes
-        against anyway. The lock bought nothing there and cost read-only
-        deployments everything.
+        """lock=False for the committed archive: _lock_path CREATES the lock
+        file, so even a SHARED lock needs WRITE access to the repo
+        (PermissionError at propose from someone else's checkout). The
+        archive changes only by git commit, which no flock serializes anyway.
         """
         if not path.exists():
             return []
@@ -191,13 +170,9 @@ class Leaderboard:
         return out
 
     def load(self) -> list[Point]:
-        """Committed priors first, then this operator's own rows.
-
-        A config appearing in BOTH is counted once, archive-wins: promoting
-        live rows into the committed archive is a manual git commit, so a
-        row left behind in the live file would otherwise enter the GP
-        training set twice.
-        """
+        """Committed priors first, then live rows; a config in BOTH counts
+        once, archive-wins (a row left behind after promotion would enter
+        the GP training set twice)."""
         archive = (self._load_one(self.archive_path, lock=False)
                    if self.archive_path else [])
         seen = {p.cfg for p in archive}
@@ -327,8 +302,8 @@ class Leaderboard:
 
     def pending_remove(self, name: str) -> bool:
         pp = self.pending_path()
-        # Read-modify-write under lock: without LOCK_EX two concurrent removals
-        # can race and one's truncate overwrites the other's deletion.
+        # LOCK_EX: two concurrent removals can race, one truncate clobbering
+        # the other's deletion.
         with _flock_ex(pp):
             if not pp.exists():
                 return False
@@ -339,20 +314,12 @@ class Leaderboard:
             kept = [r for r in body if not r.startswith(name + "\t")]
             if len(kept) == len(body):
                 return False
-            # ALWAYS terminate with a newline, including when `kept` is empty.
-            # The old `("\n" if kept else "")` left the header unterminated
-            # once the last pending row was removed, and append_pending opens
-            # in "a" mode -- so the NEXT proposal was written straight onto the
-            # header line ("...submitted_atfoilsflash22R00_00\t[...]"). From
-            # then on the file was a single line forever: load_pending()
-            # returned 0 rows, silently. That went unnoticed for a long time
-            # because nothing depended on reading it back -- Python modes
-            # recovered x via parse_geom, and the only other consumers degrade
-            # quietly (the propose_one collision guard stops seeing pending
-            # names, and botorch_ask gets an empty X_pending so concurrent
-            # children no longer repel each other's in-flight points). It
-            # became fatal the moment foilsflash went JSON-defined and
-            # x_for_evaluate made the pending TSV the ONLY record of x:
-            # foilsflash24R00_00 lost a finished 3.5 h eval to it (2026-07-26).
+            # ALWAYS terminate with a newline, even when `kept` is empty: the
+            # old `("\n" if kept else "")` left the header unterminated, and
+            # appends in "a" mode then wrote the next row straight onto the
+            # header line -- the file became a single line forever and
+            # load_pending() returned 0 rows, silently. Fatal once the
+            # pending TSV became the ONLY record of x: foilsflash24R00_00
+            # lost a finished 3.5 h eval to it (2026-07-26).
             pp.write_text("\n".join([header] + kept) + "\n")
             return True

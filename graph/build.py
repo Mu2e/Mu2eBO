@@ -1,16 +1,12 @@
-"""Compile the BO iteration graph: one eval, one chain.
-
-No checkpointer: this graph compiles bare. Durability comes from the
-on-disk artifacts the nodes write; the only resume is per-stage
-cluster.txt idempotency in core/pipeline.py.
-"""
+"""Compile the BO iteration graph: one eval, one chain, no checkpointer --
+durability is the nodes' on-disk artifacts plus per-stage cluster.txt
+idempotency in core/pipeline.py."""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Importable both as `graph.X` (python -m) and plain `X` (langgraph_api
-# loading this file standalone).
+# Importable both as `graph.X` (python -m) and plain `X` (langgraph_api).
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 
@@ -30,9 +26,8 @@ from nodes import (  # noqa: E402
 from state import BOIterationState  # noqa: E402
 
 
-# GRID_STAGES resolves from AUTORESEARCH_MODE at core/runtime.py import
-# time -- mode-dependent, so graph/run.py must stamp --mode before
-# importing this module (core/modes.py::stamp_mode_from_argv).
+# GRID_STAGES resolves from AUTORESEARCH_MODE at core/runtime.py import time:
+# graph/run.py must stamp --mode BEFORE importing this module.
 STAGE_NODES = {stage: f"stage_{stage}" for stage in GRID_STAGES}
 
 
@@ -58,7 +53,7 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # Linear stage chain with a shared "fail-fast" guard.
+    # Linear stage chain with a shared fail-fast guard.
     stage_names = list(STAGE_NODES.values())
     for prev, nxt in zip(stage_names, stage_names[1:]):
         g.add_conditional_edges(prev, route_after_stage, {"next": nxt, END: END})
@@ -68,8 +63,5 @@ def build_graph() -> StateGraph:
 
     g.add_edge("harvest", "scan_logs")
     g.add_edge("scan_logs", "evaluate")
-    # evaluate is terminal for one iteration; graph/closed_loop.py drives
-    # multi-round BO from outside.
     g.add_edge("evaluate", END)
     return g
-

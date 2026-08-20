@@ -1,8 +1,7 @@
 """Load and validate JSON-defined modes into ModeSpec objects.
 
-One JSON file per optimization line, in mode_specs/. Every check happens at load
-time so a typo is an import error, never a corrupt geometry six hours into a
-campaign. STDLIB ONLY (see core/modes.py:1-8).
+Every check happens at load time so a typo is an import error, never a
+corrupt geometry six hours into a campaign. STDLIB ONLY.
 """
 from __future__ import annotations
 
@@ -11,9 +10,7 @@ import re
 from pathlib import Path
 from typing import Dict, Tuple
 
-# Mirror our own package-qualification when importing sibling modules, so
-# GeomTemplate resolves to the ALREADY-loaded copy on both the qualified and
-# the bare (bo_driver.py subprocess) path. Either hardcoding breaks: see the
+# Mirror __package__ so GeomTemplate resolves to the ALREADY-loaded copy;
 # full account at the `load_mode_dir` import in core/modes.py.
 if __package__:
     from core import paths
@@ -26,31 +23,23 @@ else:
 
 _REQUIRED_TOP = ("name", "software", "run", "knobs", "leaderboard",
                  "preflight", "geom")
-# "note" and "int_dims" are legal top-level keys that are optional (no
-# _need entry) -- listed here only so _reject_unknown doesn't flag them.
 _ALLOWED_TOP = _REQUIRED_TOP + ("note", "int_dims")
 _REQUIRED_SOFTWARE = ("musing", "grid_tarball")
 _REQUIRED_RUN = ("stages",)
-# jobs_per_stage/presubmit_after/stage_tuning are optional (default to
-# empty when absent -- see load_mode_file below).
 _ALLOWED_RUN = _REQUIRED_RUN + ("jobs_per_stage", "presubmit_after", "stage_tuning")
 _REQUIRED_PREFLIGHT = ("dumps_gdml", "verifies_foil_gdml",
                        "checks_managed_overlap", "require_zero_overlaps")
 _REQUIRED_LEADERBOARD = ("file", "columns", "obs_noise", "metrics")
 _ALLOWED_KNOB = ("name", "min", "max", "fmt")
 
-# run.stage_tuning[<stage>] accepted keys: the stage_entries/<stage>.json
-# fields a mode may override. Anything else (a typo, or a field this schema
-# doesn't cover) is a load error. THE allow-list -- core/pipeline.py's
-# stage_cfg deliberately does not re-enumerate these, so a key added here
-# reaches the merge with no second edit.
+# THE allow-list of stage_entries/<stage>.json fields a mode may override;
+# core/pipeline.py's stage_cfg does not re-enumerate these, so a key added
+# here reaches the merge with no second edit.
 _STAGE_TUNING_KEYS = ("events_per_job", "memory_mb", "quorum")
 
-# Leaderboard columns a knob may NOT be named after (why a collision is
-# silent: see the reserved_cols check in load_mode_file). `config` is the
-# writer-side leading column; `alpha`/`obj` are normally in
-# leaderboard.columns already, listed here so a spec that renames the tail
-# still cannot collide. The spec's own columns are added on top at load.
+# Columns a knob may NOT be named after (why a collision is silent: the
+# reserved_cols check in load_mode_file). `config` is the writer-side
+# leading column; the spec's own columns are added on top at load.
 _RESERVED_KNOB_COLUMNS = ("config", "alpha", "obj")
 
 
@@ -63,9 +52,8 @@ class _DuplicateJsonKey(ValueError):
 
 
 def _reject_duplicate_json_keys(pairs):
-    """json.loads object_pairs_hook: plain json.loads keeps the LAST of two
-    duplicate keys, so editing the first block has no effect and no error --
-    the silent-wrong-geometry class that tainted 62 foilsg rows."""
+    """object_pairs_hook: plain json.loads keeps the LAST duplicate key
+    silently -- the silent-wrong-geometry class that tainted 62 foilsg rows."""
     out = {}
     for k, v in pairs:
         if k in out:
@@ -75,13 +63,8 @@ def _reject_duplicate_json_keys(pairs):
 
 
 def _normalize_leaderboard_rel(rel: str, where: str) -> str:
-    """Canonical form for comparing two leaderboard declarations.
-
-    Collapses './' and doubled slashes so 'leaderboards/x.tsv' and
-    './leaderboards/x.tsv' cannot name the same file past the uniqueness
-    check. '..' is rejected outright: it both escapes the repo and defeats
-    that comparison.
-    """
+    """Canonical form for comparing leaderboard declarations; '..' is
+    rejected outright (escapes the repo and defeats the uniqueness check)."""
     p = Path(rel)
     if ".." in p.parts:
         raise ValueError(
@@ -95,13 +78,9 @@ _ARTIFACT_TOKEN = "${ARTIFACT}/"
 
 
 def _expand_artifact(value: str, field: str, where: str) -> str:
-    """Expand the one supported token, `${ARTIFACT}/`, through
-    paths.artifact() -- local artifact wins, backing fills in, a miss returns
-    the intended local path (paths.verify() turns a miss into a failure, so
-    spec loading stays safe in a bare environment). A bare absolute path
-    under someone's user area is refused: that is how the tree acquired ~20
-    personal literals in the first place.
-    """
+    """Expand `${ARTIFACT}/` through paths.artifact() (a miss stays a path;
+    paths.verify() makes it fatal). A bare personal-user-area absolute is
+    refused: that is how the tree acquired ~20 personal literals."""
     if value.startswith(_ARTIFACT_TOKEN):
         return str(paths.artifact(value[len(_ARTIFACT_TOKEN):]))
     if "${" in value:
@@ -126,7 +105,6 @@ def _need(d: dict, keys, where: str) -> None:
 
 def _reject_unknown(d: dict, allowed, where: str) -> None:
     """Fail loud on a typo'd key instead of silently no-oping it -- e.g.
-    'jobs_per_stagez' parsing to stage_target_overrides={} with no error, or
     'intdims' leaving int_dims=() and silently turning an integer knob
     continuous."""
     unknown = set(d) - set(allowed)
@@ -138,17 +116,10 @@ def _reject_unknown(d: dict, allowed, where: str) -> None:
 
 def _validate_stage_tuning(run: dict, declared_stages,
                            where: str) -> Dict[str, Dict[str, object]]:
-    """Validate + normalize run.stage_tuning (overrides applied on top of the
-    stage_entries/<stage>.json defaults -- see core/pipeline.py::stage_cfg).
-    Defaults to {} when absent, never silently drops an unknown tuning key.
-
-    Stage NAMES are checked against this mode's run.stages, as in
-    _validate_jobs_per_stage/_validate_presubmit_after. Unchecked, a name
-    with a stage_entries file but outside this mode's chain is SILENTLY INERT
-    forever, and a pure typo ('mubeem') raises only at core/pipeline.py
-    import -- inside every child at first submit, after propose and preflight
-    have passed.
-    """
+    """Validate + normalize run.stage_tuning ({} when absent, never silently
+    drops an unknown key). Stage names checked against run.stages: unchecked,
+    an out-of-chain name is SILENTLY INERT forever, and a pure typo raises
+    only inside every child at first submit."""
     raw = run.get("stage_tuning")
     if raw is None:
         return {}
@@ -187,10 +158,9 @@ def _validate_stage_tuning(run: dict, declared_stages,
 
 
 def _validate_jobs_per_stage(run: dict, declared_stages, where: str) -> Dict[str, int]:
-    """Validate run.jobs_per_stage keys against the mode's declared
-    run.stages. A typo'd stage name (e.g. 'mubeem') otherwise loads fine and
-    adds a dead key to stage_cfg()'s ModeSpec.stage_target_overrides lookup,
-    leaving the REAL stage at its default job count with no error."""
+    """Validate run.jobs_per_stage keys against run.stages: a typo'd name
+    otherwise loads fine, leaving the REAL stage at its default job count
+    with no error."""
     raw = run.get("jobs_per_stage")
     if raw is None:
         return {}
@@ -199,9 +169,7 @@ def _validate_jobs_per_stage(run: dict, declared_stages, where: str) -> Dict[str
             f"{where}[run.jobs_per_stage]: must be an object of "
             f"{{stage: njobs}}, got {raw!r}")
     _reject_unknown(raw, declared_stages, f"{where}[run.jobs_per_stage]")
-    # The value reaches the jobsub command line unchanged (stage_cfg's
-    # njobs), so a bad one on a LATER stage surfaces only after the earlier
-    # stages' hours have run. isinstance(True, int) is True -> reject bool.
+    # Reaches the jobsub command line unchanged; isinstance(True, int) is True.
     for stage, njobs in raw.items():
         if isinstance(njobs, bool) or not isinstance(njobs, int) or njobs <= 0:
             raise ValueError(
@@ -213,10 +181,8 @@ def _validate_jobs_per_stage(run: dict, declared_stages, where: str) -> Dict[str
 
 
 def _validate_presubmit_after(run: dict, declared_stages, where: str) -> Dict[str, Tuple[str, ...]]:
-    """Validate run.presubmit_after the same way as jobs_per_stage: keys must
-    be stages declared in run.stages, and each value must be a LIST of
-    stage-name strings -- a bare string silently becomes a tuple of its
-    characters via tuple(str)."""
+    """Keys must be declared stages; each value must be a LIST of stage-name
+    strings (a bare string silently becomes a tuple of its characters)."""
     raw = run.get("presubmit_after")
     if raw is None:
         return {}
@@ -241,10 +207,8 @@ def _validate_presubmit_after(run: dict, declared_stages, where: str) -> Dict[st
 def load_mode_file(path: Path) -> "object":
     """Parse one mode JSON file into a ModeSpec. Raises ValueError on any
     schema problem, always naming the file."""
-    # Local import (modes.py imports this module), mirroring __package__ for
-    # the same reason as the GeomTemplate import above: it must resolve
-    # whichever `modes` is ALREADY loaded, not a second copy with its own
-    # non-identical ModeSpec class.
+    # Local import (modes.py imports this module), mirroring __package__ as
+    # at the GeomTemplate import above.
     if __package__:
         from core.modes import ModeSpec
     else:
@@ -295,13 +259,10 @@ def load_mode_file(path: Path) -> "object":
         _need(k, _ALLOWED_KNOB, kw)
         _reject_unknown(k, _ALLOWED_KNOB, kw)
         # An unvalidated fmt like "75.0" (no replacement field) writes a
-        # CONSTANT into every knob column; core/leaderboard.py parses it back
-        # as a valid float, so every past eval collapses to one point and the
-        # GP trains on garbage -- silently.
+        # CONSTANT into every knob column, so every past eval collapses to
+        # one point and the GP trains on garbage -- silently.
         _validate_fmt(k["fmt"], kw)
-        # `i`/`n` are injected by the geometry renderer's per_index loop and
-        # would silently shadow the knob there. Checked here too so the error
-        # names the knob index rather than the whole geom block.
+        # Checked here too so the error names the knob index.
         if k["name"] in _RESERVED_ELEMENTWISE_NAMES:
             raise ValueError(
                 f"{kw}: knob name {k['name']!r} is reserved -- 'i' (element "
@@ -348,11 +309,10 @@ def load_mode_file(path: Path) -> "object":
             f"header doesn't match, tripping up anyone diffing/grepping "
             f"leaderboards/*.tsv by that convention.")
 
-    # Knob and metric columns share one TSV header row (core/leaderboard.py's
-    # Leaderboard.header writes `config` + knob_names + metric_cols), so a
-    # knob named after one emits that column TWICE; csv.DictReader keeps the
-    # LAST, and Leaderboard.load then reads the METRIC back into that knob's
-    # coordinate -- the GP trains on garbage, silently.
+    # Reserved-column collision rule: knob and metric columns share one TSV
+    # header, so a knob named after one emits that column TWICE;
+    # csv.DictReader keeps the LAST, and Leaderboard.load reads the METRIC
+    # back into that knob's coordinate -- the GP trains on garbage, silently.
     reserved_cols = set(columns) | set(_RESERVED_KNOB_COLUMNS)
     for i, nm in enumerate(names):
         if nm in reserved_cols:
@@ -432,22 +392,16 @@ def load_mode_file(path: Path) -> "object":
 
 
 def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, object]:
-    """Load every mode_specs/*.json. A name already present in `existing` is a
-    hard error (silently shadowing a mode is a new way to build the wrong
-    geometry), as is a leaderboard already claimed by another mode. Both
-    checks live HERE, not in load_mode_file, so test fixtures -- which
-    deliberately declare the LIVE names and leaderboards to prove parity --
-    can still be loaded from any path.
-    """
+    """Load every mode_specs/*.json. A name already in `existing` or a
+    leaderboard claimed by another mode is a hard error. Both checks live
+    HERE, not load_mode_file, so fixtures declaring live names can load."""
     if not directory.is_dir():
         return {}
     out: Dict[str, object] = {}
     seen_leaderboards: Dict[str, Path] = {}
-    # Flat glob on purpose: mode_specs/archive/ holds retired one-shot A/B
-    # specs; a recursive glob would resurrect them into the registry.
+    # Flat glob on purpose: recursive would resurrect mode_specs/archive/.
     for path in sorted(directory.glob("*.json")):
         spec = load_mode_file(path)
-        # Registered modes must be findable by file name.
         if spec.name != path.stem:
             raise ValueError(
                 f"{path}: mode name {spec.name!r} does not match its file name "
@@ -457,11 +411,8 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
                 f"{path}: mode name {spec.name!r} collides with an existing "
                 f"mode; JSON modes never override Python modes")
         # Two modes writing one leaderboard is silent cross-mode GP
-        # contamination in BOTH directions -- the schemas match
-        # column-for-column, so each mode's load_history() parses the other's
-        # rows as its own evals. Realistic path: a copy-pasted spec whose
-        # leaderboard line was never edited. Keyed on the BASENAME because
-        # paths.leaderboard_live flattens to a per-operator directory, so
+        # contamination in BOTH directions (schemas match column-for-column).
+        # Keyed on BASENAME because paths.leaderboard_live flattens, so
         # 'a/x.tsv' and 'b/x.tsv' would become one file.
         lb = Path(spec.leaderboard_rel).name
         if lb in seen_leaderboards:

@@ -1,21 +1,9 @@
 """Single source of truth for every filesystem root this project uses.
 
-Stdlib only, and it imports nothing from the rest of the project, so the
-botorch venv subprocess and the test suite can import it with no path games
-(the same rule core/leaderboard.py follows).
-
-Resolution is string math over the environment. Importing this module never
-raises for a missing path and never requires /exp/mu2e to exist. The only
-filesystem access at import is canonicalising this file's own location and a
-single lstat probe of the `backing` symlink; nothing under DATA_ROOT or
-ARTIFACT_ROOT is touched. Only artifact() and verify() stat those -- which is
-what keeps the suite green on a machine with no /exp/mu2e.
-
-Layout borrowed from Mu2e's own build system (see museSetup.sh /
-museBacking.sh on cvmfs): location is identity, a `backing` link supplies
-what you have not built yourself, and a setup-time gate refuses a backing
-that cannot deliver. Full rationale, including what we deliberately do NOT
-copy from muse (cwd-as-identity), is in
+Stdlib only, no project imports. Importing never raises for a missing path
+and never requires /exp/mu2e to exist: only artifact() and verify() stat
+anything under the roots, which keeps the suite green on a machine with no
+/exp/mu2e. Full rationale:
 docs/superpowers/specs/2026-08-11-portable-paths-design.md.
 """
 from __future__ import annotations
@@ -28,9 +16,8 @@ class PathsError(RuntimeError):
     """A root could not be resolved, or verify() found a missing input."""
 
 
-# Deliberately NOT configurable: this is not a preference, it is where the
-# code is. An env override could only ever let the two disagree. Verified
-# equal to the old hardcoded constant before this module existed.
+# Deliberately NOT configurable: an env override could only ever let this
+# disagree with where the code is.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -66,22 +53,17 @@ def _resolve_backing() -> Path | None:
 
 BACKING = _resolve_backing()
 
-# Per-operator runtime volumes. Everything the runner writes derives from
-# DATA_ROOT: grid work trees, parent/child logs, and this operator's own
-# appendable leaderboards.
+# Per-operator runtime volumes; everything the runner writes derives from
+# DATA_ROOT.
 GRID_DATA_ROOT = DATA_ROOT / "autoresearch_grid"
 GRAPH_DATA = DATA_ROOT / "autoresearch_graph_data"
 LEADERBOARD_LIVE = DATA_ROOT / "autoresearch_leaderboards"
-# propose/preflight scratch: candidate geom files and preflight G4 logs. This
-# is runtime OUTPUT, so it belongs on /data with everything else the runner
-# writes. It sat under REPO_ROOT until 2026-08-13, where it made `propose` die
-# with PermissionError for anyone running from a checkout they do not own
-# (mmackenz, running tools/run_local.sh out of another user's worktree).
+# propose/preflight scratch: runtime OUTPUT, so /data -- under REPO_ROOT it
+# made `propose` die with PermissionError for anyone running from a checkout
+# they do not own.
 BO_WORK = DATA_ROOT / "autoresearch_bo_work"
 
-# A concrete path beats a "<them>" placeholder: the person hitting this
-# error is usually new and does not know whose area to name. Same value
-# the README's Quick start prints, so the two never disagree.
+# Concrete example beats a "<them>" placeholder; same value the README prints.
 _EXAMPLE_BACKING = "/exp/mu2e/app/users/oksuzian"  # personal-path-ok: the published artifact area, see README
 
 
@@ -99,10 +81,8 @@ def _relative(rel: str, what: str) -> Path:
 def artifact(rel: str) -> Path:
     """Muse's link order in one function: local wins, backing fills in.
 
-    Total -- never raises for a missing file. A miss returns the INTENDED
-    local path, so a caller's error message names where the operator meant
-    to put it. verify() is the single place that turns a miss into a
-    failure, which is why spec loading at import cannot explode in a bare
+    TOTAL -- a miss returns the INTENDED local path; verify() alone turns a
+    miss into a failure, so spec loading at import cannot explode in a bare
     environment.
     """
     p = _relative(rel, "artifact() path")
@@ -123,17 +103,14 @@ def leaderboard_archive(rel: str) -> Path:
 
 def leaderboard_live(rel: str) -> Path:
     """This operator's own appendable board. The live tree is FLAT, so only
-    the basename survives -- which is why core/mode_json.py enforces
-    uniqueness on the basename rather than the whole relative path."""
+    the basename survives -- why core/mode_json.py enforces basename
+    uniqueness."""
     return LEADERBOARD_LIVE / _relative(rel, "leaderboard 'file'").name
 
 
 def prodtools_root() -> Path:
-    """The prodtools checkout, from env AUTORESEARCH_PRODTOOLS.
-
-    Env-resolved, never a hardcoded personal path (9f0c43c convention).
-    Checked for bin/json2jobdef so a typo fails at the seam, not three
-    subprocesses deep inside a stage submit.
+    """The prodtools checkout from $AUTORESEARCH_PRODTOOLS; checked for
+    bin/json2jobdef so a typo fails at the seam, not three subprocesses deep.
     """
     root = os.environ.get("AUTORESEARCH_PRODTOOLS")
     if not root:
@@ -149,8 +126,8 @@ def prodtools_root() -> Path:
 
 
 def _operator_hint() -> str:
-    """Shared remediation tail. Reads ARTIFACT_ROOT/BACKING at raise time, so
-    a test that patches them sees its own values."""
+    """Shared remediation tail; reads the roots at raise time so a test that
+    patches them sees its own values."""
     return (f"  ARTIFACT_ROOT = {ARTIFACT_ROOT}\n"
             f"  BACKING       = {BACKING if BACKING else '(none)'}\n"
             f"Point at an operator who has it -- copy-paste "
@@ -163,16 +140,10 @@ def _operator_hint() -> str:
 def require(path, what: str, *, tail: str = "") -> Path:
     """Stat one artifact; a miss is a named PathsError, not an rc=1.
 
-    The single formatter for "this is not where the roots say it should be".
-    verify() calls it per field at preflight; sourced_env() calls it on the
-    musing it is about to `source`, because a direct
-    `pipeline.py --config X submit <stage>` never runs preflight. That path is
-    why this exists: bash answers a missing `source` target with rc=1, which
-    the sourced_env retry loop cannot tell apart from a cvmfs flake -- so a
-    typo'd or unbacked musing burned four retries (~50 s) and surfaced as a
-    CalledProcessError quoting the whole command line and naming no cause.
-    Reported by a second operator whose ${ARTIFACT} resolved to her own
-    (empty) app area, 2026-08-18.
+    Exists because a direct `pipeline.py submit` never runs preflight, and
+    bash answers a missing `source` target with rc=1 -- indistinguishable
+    from a cvmfs flake, so the sourced_env retry loop burned four retries
+    and named no cause (wiki/incidents/sourced-env-stderr-swallowed.md).
     """
     p = Path(path)
     if not p.exists():
@@ -183,22 +154,14 @@ def require(path, what: str, *, tail: str = "") -> Path:
 def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
     """Fail at launch, not three hours into a grid chain.
 
-    `specs` is any iterable of objects carrying .name, .musing and
-    .grid_tarball -- pass core.modes.SPECS.values(). `extra` is an iterable
-    of (path, description) for artifacts that are not per-mode ModeSpec
-    fields -- pass core.harvest.REQUIRED_ARTIFACTS. Both are injected rather
-    than imported so this module stays project-import-free.
-
-    Modelled on museSetup.sh:502, which refuses to proceed when the backing
-    build cannot supply what is needed. Both prodtarget-env-divergence and
-    foilsflash-tarball-mode-key-omission were "preflight used a patched
-    local environment while the grid shipped an unpatched tarball"; both
-    become unrepresentable once these resolve through one function.
-
-    Deliberately does NOT validate leaderboard headers -- that would need an
-    import of leaderboard.py, breaking the stdlib-only rule. Leaderboard's
-    own SchemaMismatch and tests/test_live_leaderboard_headers.py already
-    cover it twice over.
+    `specs`: iterable with .name/.musing/.grid_tarball (pass
+    core.modes.SPECS.values()); `extra`: (path, description) pairs -- both
+    injected, not imported, to stay project-import-free. Both
+    prodtarget-env-divergence and foilsflash-tarball-mode-key-omission were
+    "preflight used a patched local environment while the grid shipped an
+    unpatched tarball"; unrepresentable once these resolve through one
+    function. Leaderboard headers are deliberately NOT validated here
+    (stdlib-only rule; SchemaMismatch covers it).
     """
     for spec in specs:
         for field in ("musing", "grid_tarball"):

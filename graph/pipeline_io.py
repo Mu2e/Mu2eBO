@@ -1,9 +1,6 @@
-"""Thin wrappers around bo_driver.py + pipeline.py.
-
-BO ops go in-process (bo_driver's JsonMode adapters are clean). Preflight,
-evaluate, and grid-stage wrappers shell out via subprocess, firewalling
-their I/O from the long-lived runner process.
-"""
+"""Thin wrappers around bo_driver.py + pipeline.py: BO ops in-process,
+preflight/evaluate/grid stages via subprocess (firewalling their I/O from
+the long-lived runner process)."""
 from __future__ import annotations
 
 import json
@@ -21,10 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
-# read_stage_status reads njobs via pipeline.stage_cfg() -- the same
-# function pipeline.py's submit/poll/list-outputs use, not a copy that
-# could drift (wiki/incidents/events-per-job-mid-flight-edit.md). No import
-# cycle: pipeline.py doesn't import this module.
+# read_stage_status reads njobs via pipeline.stage_cfg() -- the same function
+# pipeline.py's submit/poll/list-outputs use, not a copy that could drift
+# (wiki/incidents/events-per-job-mid-flight-edit.md). No import cycle.
 import pipeline as _pipeline  # noqa: E402
 import prodtools_exec as _prodtools_exec  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
@@ -38,23 +34,14 @@ from runtime import (  # noqa: E402
 )
 
 
-# --- propose (in-process, single-config flavor of cmd_propose) ---
-
-
 def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
                 x_override: list[float] | None = None, seed_idx: int = 0):
-    """Propose a single config, materialize its geom, append to pending TSV.
+    """Propose one config, materialize its geom, append to pending TSV.
 
-    x_override skips the BO ask and uses that x directly (forced GP-Pareto
-    picks); the pending row is still written so concurrent proposals see it
-    as in-flight. Otherwise asks bo.botorch_ask (botorch-venv subprocess,
-    fantasizing over pending x-points); seed_idx (node_propose's retry
-    counter) varies the picker seed so a re-propose after a preflight
-    failure draws a fresh point.
-
-    Returns (x_point, geom_path). Raises ValueError on a config-name
-    collision with the leaderboard or pending TSV.
-    """
+    x_override forces that x but still writes the pending row so concurrent
+    proposals see it in-flight; seed_idx varies the picker seed so a
+    re-propose after preflight failure draws a fresh point. Returns
+    (x_point, geom_path); ValueError on a name collision."""
     mode = bo.MODES[mode_name]
 
     pending = mode.load_pending()
@@ -70,36 +57,25 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
                             venv_py=BOTORCH_VENV_PY)
         x = xs[0]
         if not mode.is_buildable(x):
-            # x_override bypasses this check (deliberate caller choice); a
-            # GP pick that fails is surfaced here and left for preflight to
-            # reject.
             print(f"WARN: submitting unbuildable pick {list(x)} "
                   f"(preflight will reject)", file=sys.stderr)
     geom_path = mode.render_proposal(config_name, x)
-    # Stage geom into pipeline.py's per-config work tree (mirrors
-    # cmd_propose in bo_driver.py; submit checks this exact path).
+    # Stage geom where pipeline.py submit expects it (mirrors cmd_propose).
     work_geom_dir = GRID_DATA_ROOT / config_name / "geom"
     work_geom_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(geom_path, work_geom_dir / f"autoresearch_{config_name}_geom.txt")
     mode.append_pending(config_name, x, alpha)
-    # Coerce numpy scalars to native types for JSON (picker subprocess) and
-    # the leaderboard/pending TSVs. Originally guarded a now-retired
-    # SqliteSaver msgpack write against np.int64 (wiki/incidents/langgraph-
-    # checkpoint-numpy-int64.md); still needed for these.
+    # Coerce numpy scalars for JSON + TSVs (originally for the retired
+    # SqliteSaver, wiki/incidents/langgraph-checkpoint-numpy-int64.md).
     return bo.to_py_scalars(x), str(geom_path)
 
 
-# --- preflight (subprocess) ---
-
-
 def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_TIMEOUT_S) -> tuple[str, str]:
-    """Run `bo_driver.py preflight <cfg>` and read the typed verdict JSON.
+    """Run `bo_driver.py preflight <cfg>`; read the typed verdict JSON.
 
-    status ∈ {"pass", "fail_managed", "fail_init", "ambiguous", "timeout"}.
-    Missing/unparseable JSON (process crash, transport failure) decodes as
-    "ambiguous" with a loud reason -- fail-safe, since ambiguous retries
-    and never silently passes.
-    """
+    status ∈ {"pass", "fail_managed", "fail_init", "ambiguous", "timeout"};
+    missing/unparseable JSON decodes as "ambiguous" -- fail-safe: ambiguous
+    retries and never silently passes."""
     state_dir = GRID_DATA_ROOT / config_name / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     verdict_path = state_dir / "preflight_verdict.json"
@@ -123,10 +99,10 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
         status = json.loads(verdict_path.read_text())["verdict"]
     except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
         status = "ambiguous"
-        # A python death writes its traceback to STDERR, not the stdout
-        # tail above -- capture it, or the operator sees only "ambiguous"
-        # (same swallowed-stderr class as wiki/incidents/jobsub-disk-quota-
-        # stderr-swallowed.md, sourced-env-stderr-swallowed.md).
+        # A python death tracebacks to STDERR, not the stdout tail -- capture
+        # it or the operator sees only "ambiguous" (swallowed-stderr class:
+        # wiki/incidents/jobsub-disk-quota-stderr-swallowed.md,
+        # wiki/incidents/sourced-env-stderr-swallowed.md).
         err = "\n".join(proc.stderr.splitlines()[-40:])
         tail = (f"(preflight verdict JSON missing/unparseable at "
                 f"{verdict_path}: {e!r}; rc={proc.returncode} — decoding as "
@@ -136,14 +112,9 @@ def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_T
     return status, tail
 
 
-# --- per-stage grid driver (Phase 2b) ---
-
-
 def _run_pipeline_verb(config_name: str, verb: str, stage: str | None) -> Path:
-    """Shell out to pipeline.py with one verb + optional stage. Returns log path.
-
-    Raises RuntimeError on non-zero exit; caller adds stage context.
-    """
+    """Shell out to pipeline.py with one verb + optional stage; returns log
+    path, raises RuntimeError on non-zero exit."""
     log_dir = GRID_DATA_ROOT / config_name / "graph_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, str(PIPELINE_DRIVER), "--config", config_name, verb]
@@ -162,25 +133,17 @@ def _run_pipeline_verb(config_name: str, verb: str, stage: str | None) -> Path:
 
 
 def run_stage(config_name: str, stage: str) -> dict:
-    """Run submit → poll → list-outputs for one stage. Returns a StageStatus.
-
-    Each verb is idempotent (submit no-ops if the cluster file exists;
-    list-outputs no-ops if the outputs file validates; poll is naturally
-    re-entrant), so a killed-and-resumed graph node won't double-submit.
-    """
+    """Run submit → poll → list-outputs for one stage; returns a StageStatus.
+    Each verb is idempotent, so a killed-and-resumed node won't double-submit."""
     for verb in ("submit", "poll", "list-outputs"):
         _run_pipeline_verb(config_name, verb, stage)
     return read_stage_status(config_name, stage)
 
 
 def presubmit_stage(config_name: str, stage: str) -> None:
-    """Early submit of a data-independent stage (see runtime.PRESUBMIT_AFTER).
-
-    Submit-only: the stage's own node later finds the cluster (submit
-    no-ops) and polls/lists normally, so its grid time overlaps the
-    intervening chain. Best-effort -- on failure the stage node just
-    submits sequentially.
-    """
+    """Early submit-only of a data-independent stage (runtime.PRESUBMIT_AFTER)
+    so its grid time overlaps the chain; best-effort -- on failure the
+    stage's own node submits sequentially."""
     _run_pipeline_verb(config_name, "submit", stage)
 
 
@@ -197,18 +160,11 @@ def run_harvest(config_name: str, mode: str | None = None) -> dict:
 
 
 def read_stage_status(config_name: str, stage: str) -> dict:
-    """Parse state/<stage>_cluster.txt + outputs.txt into a StageStatus dict.
-
-    Pure I/O -- testable with a tmpdir of fake state files. n_failed is
-    `target - n_done`; idempotency guards mean "done" is final, not a poll
-    snapshot.
-    """
+    """Parse state/<stage>_cluster.txt + outputs.txt into a StageStatus dict."""
     state_dir = GRID_DATA_ROOT / config_name / "state"
     cluster_file = state_dir / f"{stage}_cluster.txt"
     cid = cluster_file.read_text().strip() if cluster_file.exists() else None
     outputs = hv.read_outputs(state_dir, stage) or []
-    # Same njobs pipeline.py's submit/poll/list-outputs use -- see the
-    # import comment above.
     target = _pipeline.stage_cfg(stage, _pipeline.MODE)["njobs"]
     n_done = len(outputs)
     status = "done" if (cid and outputs) else ("in_flight" if cid else "pending")
@@ -219,9 +175,6 @@ def read_stage_status(config_name: str, stage: str) -> dict:
         "n_failed": max(0, target - n_done),
         "last_poll_ts": time.time(),
     }
-
-
-# --- end-of-workflow log scanner (report-only) ---
 
 
 # Patterns counted per worker log. Order matters only for report column order.
@@ -243,25 +196,18 @@ _SCAN_PATTERNS = (
 )
 
 
-# Outstage root prodtools writes to (core/prodtools_exec.py
-# outstage_root()). Module-level so tests can point it at a tmp dir via
-# mock.patch.object(pipeline_io, "OUTSTAGE_ROOT", ...).
+# prodtools outstage root; module-level so tests can mock.patch.object it.
 OUTSTAGE_ROOT = Path(_prodtools_exec.outstage_root())
 
 
 def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
-    """Resolve every .log under the per-worker outstage dirs for one stage.
+    """Every .log under the per-worker outstage dirs for one stage.
 
-    Primary source: `<state>/<stage>_outputs.txt` -- each .art's parent dir
-    IS the outstage dir, so globbing *.log there self-adapts to whichever
-    backend wrote it. Returned as-is even if empty rather than falling back
-    to a cluster-wide glob, which could attribute an unrelated job's log to
-    this one (a .log can lag its .art -- wiki/incidents/stage-out-lag.md,
-    stage-out-rename-race.md).
-
-    Fallback when outputs.txt is missing/empty: glob the cluster's outstage
-    dir via prodtools_exec.cluster_worker_logs.
-    """
+    Primary: dirs of `<stage>_outputs.txt` entries, returned as-is even if
+    empty -- a cluster-wide glob could attribute an unrelated job's log (a
+    .log can lag its .art: wiki/incidents/stage-out-lag.md,
+    wiki/incidents/stage-out-rename-race.md). Fallback when outputs.txt is
+    missing/empty: prodtools_exec.cluster_worker_logs."""
     state_dir = GRID_DATA_ROOT / config_name / "state"
     outputs = hv.read_outputs(state_dir, stage)
     if outputs:
@@ -282,11 +228,9 @@ def _worker_log_paths(config_name: str, stage: str) -> list[Path]:
 
 
 def _scan_one_stage(config_name: str, stage: str, jobs: int = 16) -> dict[str, int]:
-    """Count occurrences of each _SCAN_PATTERNS regex across all worker logs.
-
-    Uses `xargs -P jobs grep -cE` for a single fan-out per pattern; on /pnfs
-    this is ~4-5s per 200 logs (file-open is the bottleneck, not regex).
-    """
+    """Count each _SCAN_PATTERNS regex across all worker logs via
+    `xargs -P jobs grep -cE` (~4-5s per 200 logs on /pnfs; file-open bound,
+    not regex)."""
     logs = _worker_log_paths(config_name, stage)
     if not logs:
         return {code: 0 for code, _ in _SCAN_PATTERNS}
@@ -311,10 +255,8 @@ def _scan_one_stage(config_name: str, stage: str, jobs: int = 16) -> dict[str, i
     return counts
 
 
-# Nonzero count here means the run is physics-broken; gates the leaderboard
-# append. GeomSolids1001 is the smoking gun for
-# wiki/incidents/tessellated-solid-facet-orientation.md (a misfacetted
-# solid silently corrupts particle navigation).
+# Nonzero => physics-broken; gates the leaderboard append. GeomSolids1001 is
+# the smoking gun for wiki/incidents/tessellated-solid-facet-orientation.md.
 SCAN_BROKEN_CODES = ("GeomSolids1001",)
 
 
@@ -328,13 +270,10 @@ def is_scan_broken(report: dict[str, dict[str, int]]) -> bool:
 
 
 def scan_worker_logs(config_name: str) -> tuple[dict[str, dict[str, int]], Path, bool]:
-    """Scan all stages' worker logs for known issue patterns.
-
-    Returns ({stage: {code: count}}, report_path, broken). Always writes
-    the TSV, even all-zero, for visibility. When broken (SCAN_BROKEN_CODES),
-    also writes `<config>/state/broken.txt` so the closed-loop refit can
-    filter the chain without re-scanning.
-    """
+    """Scan all stages' worker logs; returns ({stage: {code: count}},
+    report_path, broken). Writes the TSV even all-zero; when broken, also
+    writes state/broken.txt so the closed loop can filter without
+    re-scanning."""
     report_dir = GRID_DATA_ROOT / config_name / "scan_logs"
     report_dir.mkdir(parents=True, exist_ok=True)
     report: dict[str, dict[str, int]] = {}
@@ -369,19 +308,14 @@ def scan_worker_logs(config_name: str) -> tuple[dict[str, dict[str, int]], Path,
     return report, report_path, broken
 
 
-# --- evaluate (subprocess; writes leaderboard, clears pending) ---
-
-
 def run_evaluate(mode_name: str, config_name: str, metrics: dict,
                  alpha: float = DEFAULT_ALPHA) -> tuple[float | None, str]:
-    """Write metrics to a tmp summary.json, call the driver's evaluate verb,
-    and read the objective from the typed result JSON.
+    """Run the driver's evaluate verb on a tmp summary.json; read the
+    objective from the typed result JSON.
 
-    Contract: rc != 0 → the driver refused (missing metrics, bad geom…) and
-    appended nothing → return (None, tail) — callers already treat that as
-    a zero_row. rc == 0 with missing/unparseable JSON is a HARD error: a
-    run that cannot prove it recorded a row already is one.
-    """
+    rc != 0 => driver refused, nothing appended => (None, tail) (a zero_row).
+    rc == 0 with missing/unparseable JSON is a HARD error: a run that cannot
+    prove it recorded a row already is one."""
     tmp = Path(tempfile.mkdtemp(prefix=f"graph_eval_{config_name}_"))
     summary_path = tmp / "summary.json"
     summary_path.write_text(json.dumps(metrics, indent=2))
@@ -409,9 +343,6 @@ def run_evaluate(mode_name: str, config_name: str, metrics: dict,
         raise RuntimeError(
             f"evaluate rc=0 but result JSON missing/unparseable at "
             f"{result_path}: {e!r}; stdout tail:\n{tail}")
-
-
-# --- helper: synthesize next config name from leaderboard width ---
 
 
 def next_config_name(mode_name: str, prefix: str = "graph") -> str:

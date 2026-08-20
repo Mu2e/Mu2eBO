@@ -1,22 +1,12 @@
 """The parent rolling work-pool: q children in flight, replenish on resolve.
 
-A child resolves when its SUBPROCESS EXITS. That is one RESOLUTION truth
-source, not five (checkpoint terminal, pid_alive, *_cluster.txt, broken.txt,
-leaderboard membership). *_cluster.txt survives in a different role:
-`_name_busy_reason` reads it at LAUNCH time as an already-submitted signal
-(the double-launch guard). Retiring it as a resolution signal is not the same
-as retiring it as a launch guard.
-
-Four incidents stop being possible rather than guarded:
-
-  barrier-false-positive-round1          no checkpoint `.next` to misread
-  closed-loop-barrier-timeout-zero-rows  no parent-level barrier timeout
-  closed-loop-final-round-orphan-children `or inflight` drains before exit
-  rolling-no-row-streak-false-increment   no wave baselines to absorb a row
-
-run_child / next_pick / stop_flag / renew / row_landed / broken are injected
-callables -- the test seam: tests pass fakes and never touch grid, sqlite, or
-a subprocess.
+A child resolves when its SUBPROCESS EXITS -- the single resolution truth
+source; *_cluster.txt survives only as `_name_busy_reason`'s LAUNCH-time
+double-launch guard. Retired-by-design (wiki/incidents/):
+barrier-false-positive-round1, closed-loop-barrier-timeout-zero-rows-falsepos,
+closed-loop-final-round-orphan-children, rolling-no-row-streak-false-increment.
+The run_child/next_pick/stop_flag/renew/row_landed/broken callables are the
+test seam.
 """
 from __future__ import annotations
 
@@ -30,37 +20,27 @@ from concurrent.futures import as_completed
 
 Outcome = namedtuple("Outcome", "name x rc row_landed broken reason")
 
-# How often the parent prints what it is waiting on. Diagnostic only (see
-# _wait_one). 15 min is short enough that a q=20 launch (30 min of 90 s
-# stagger before the first resolution is even possible) is never silent for
-# long, and long enough that a multi-day campaign log stays readable.
+# Heartbeat cadence: 15 min so a q=20 launch (30 min of 90 s stagger before
+# the first possible resolution) is never silent long, yet multi-day campaign
+# logs stay readable. Diagnostic only (see _log_inflight).
 HEARTBEAT_S = 15 * 60
 
-# Age at which an in-flight child gets a WARNING rather than a heartbeat
-# line. 24 h matches core/pipeline.py's own poll cap_hours: past that, the
-# child is outside every documented normal duration.
+# In-flight age that upgrades the heartbeat to a WARNING: 24 h matches
+# core/pipeline.py's poll cap_hours -- past it, outside every normal duration.
 STALL_WARN_S = 24 * 3600
 
-# How many busy-name skips are logged in full before the rest are summarised
-# as a count. Each SKIP line carries a multi-line recovery recipe, so an
-# uncapped loop over a long-lived --name-prefix floods the parent log right
-# where an operator is looking for the first launch.
+# Busy-name skips logged in full before summarising as a count: each SKIP
+# line carries a multi-line recovery recipe, so an uncapped loop floods the log.
 SKIP_LOG_LIMIT = 5
 
 
 def _log_inflight(inflight, log, now=None, warn_after=STALL_WARN_S):
     """One heartbeat line: what is in flight and for how long.
 
-    REPORT-ONLY, deliberately: it must never resolve, abandon or abort a
-    child. A parent-level timeout that DECIDES things is
-    wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md, where a
-    240-min barrier timeout was misread as "all children failed" and the
-    campaign exited with 8 orphans still running. What was missing there was
-    DIAGNOSTICS: `as_completed` with no timeout means a hung child
-    (wiki/incidents/harvest-pyroot-nfs-rpc-hang.md, harvest D-state 5.5 h;
-    wiki/incidents/poll-deadlock-missing-outstage-dirs.md, a full 24 h
-    cap_hours wait) freezes the parent log, and silence is indistinguishable
-    from healthy grid time.
+    REPORT-ONLY: never resolves, abandons or aborts a child (a DECIDING
+    timeout is wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md);
+    without it a hung child (wiki/incidents/harvest-pyroot-nfs-rpc-hang.md,
+    wiki/incidents/poll-deadlock-missing-outstage-dirs.md) freezes the log.
     """
     now = time.time() if now is None else now
     ages = sorted((now - t0, name) for name, _x, t0 in inflight.values())
@@ -83,11 +63,8 @@ def _log_inflight(inflight, log, now=None, warn_after=STALL_WARN_S):
 
 
 def _wait_one(inflight, log, heartbeat=HEARTBEAT_S):
-    """Block until one future resolves, emitting a heartbeat meanwhile.
-
-    Returns exactly when a child exits, never earlier; the timeout drives
-    logging only.
-    """
+    """Block until one future resolves; the timeout drives heartbeat logging
+    only, never an early return."""
     while True:
         try:
             return next(as_completed(list(inflight), timeout=heartbeat))
@@ -107,17 +84,10 @@ def classify(name, x, rc, row_landed, broken) -> Outcome:
 
 
 def _should_abort(streak: int, q: int) -> bool:
-    """MORE THAN q-1 consecutive rowless resolutions -- i.e. at least
-    max(q, 2) in a row.
-
-    At q=1, "streak >= q" would abort a campaign on its very first failure --
-    zero corroborating evidence of "systemically broken". At q>1,
-    max(q, 2) == q: a full pool's worth of consecutive failures (the
-    wiki/incidents/rolling-no-row-streak-false-increment.md guard, restated
-    for a design with no wave baseline to misattribute a row against). A pure
-    function so the threshold is unit-testable without simulating pool
-    concurrency -- see tests/test_pool.py::TestAbortThreshold.
-    """
+    """Abort at max(q, 2) consecutive rowless resolutions: at q=1 a bare
+    `streak >= q` would abort on the very first failure. Restates the
+    wiki/incidents/rolling-no-row-streak-false-increment.md guard for a
+    design with no wave baseline to misattribute a row against."""
     return streak >= max(q, 2)
 
 
@@ -127,20 +97,10 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
                 heartbeat=HEARTBEAT_S):
     """Keep q children in flight until max_evals launched and the pool drains.
 
-    Returns {"launched", "rows", "outcomes", "aborted"}. Aborts per
-    `_should_abort`: each child's own outcome is read at the moment it
-    resolves, so a row cannot be absorbed into a neighbouring wave's baseline.
-
-    `stagger` seconds separate consecutive launches (not before the first
-    one): concurrent mu2ejobsub submissions within ~10s are known to race
-    (wiki/incidents/concurrent-token-contention.md measured 60-90s as safe).
-    Defaults to `runtime.CLOSED_LOOP_STAGGER_SEC`; tests pass `stagger=0` so
-    the suite doesn't sleep.
-
-    `heartbeat` seconds between "here is what I am waiting on" log lines
-    while the pool is blocked. REPORT-ONLY -- it never resolves or abandons a
-    child (see `_log_inflight`); without it a hung child freezes the parent
-    log indefinitely and silence is indistinguishable from healthy grid time.
+    Returns {"launched", "rows", "outcomes", "aborted"}. `stagger` separates
+    launches: concurrent mu2ejobsub within ~10s races
+    (wiki/incidents/concurrent-token-contention.md measured 60-90s safe).
+    `heartbeat` is REPORT-ONLY -- never resolves/abandons (_log_inflight).
     """
     run_child = run_child or _default_run_child(mode, alpha)
     next_pick = next_pick or _default_pick_source(name_prefix)
@@ -160,25 +120,15 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
     outcomes = []
 
     def _resolve_one(fut):
-        """Pop one resolved future -> Outcome, with a per-child log line
-        regardless of which site (main loop or drain) calls this, so an
-        abort's abandoned children still produce diagnostics at exactly the
-        moment an operator needs them.
+        """Pop one resolved future -> Outcome, logging per child from main
+        loop and drain alike.
 
-        Also renews the ticket, AFTER the outcome is recorded: a q=20 pool
-        can drain for hours after the last LAUNCH, and children share the
-        parent's ccache, so an expiry during a late-stage submit is
-        wiki/incidents/kerberos-mid-run-expiry.md -- the eval dies before
-        harvest and VANISHES (no row, no loud failure) rather than failing
-        visibly. renew_token is time-gated at RENEW_MIN_INTERVAL_S, so the
-        extra call sites cost nothing.
-
-        Failures here are REPORTED, not fatal -- deliberately asymmetric with
-        the pre-launch renew(), which stays fatal because it answers "can we
-        still submit?". This one is opportunistic hygiene for children already
-        running, and during a drain there is nothing left to refuse to launch.
-        SystemExit is caught explicitly because renew_token signals fatal with
-        sys.exit(2)."""
+        Renews the ticket AFTER recording the outcome: a q=20 drain runs for
+        hours and children share the parent's ccache
+        (wiki/incidents/kerberos-mid-run-expiry.md -- an expired-ticket eval
+        VANISHES rather than failing visibly). Failure here is REPORTED, not
+        fatal -- only the pre-launch renew gates "can we still submit?".
+        SystemExit caught: renew_token signals fatal via sys.exit(2)."""
         name, x, _t0 = inflight.pop(fut)
         try:
             rc = fut.result()
@@ -224,11 +174,8 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
                 log(f"[pool] ABORT: {streak} consecutive resolutions with "
                     f"no row (>= {max(q, 2)})")
         # Drain: never exit with work in flight -- the structural fix for
-        # wiki/incidents/closed-loop-final-round-orphan-children.md. Uses the
-        # SAME _resolve_one/_wait_one as the main loop, so an abort's
-        # abandoned children still get a log line and the drain -- where a
-        # q=20 pool spends its last hours and a STOP spends all of its time --
-        # is not silent either.
+        # wiki/incidents/closed-loop-final-round-orphan-children.md. Same
+        # _resolve_one/_wait_one, so an abort/STOP drain still logs per child.
         while inflight:
             oc = _resolve_one(_wait_one(inflight, log, heartbeat))
             outcomes.append(oc)
@@ -266,14 +213,9 @@ def _default_run_child(mode, alpha):
 
 
 def _pending_names(mode) -> set:
-    """Names carrying an unresolved row in the mode's pending TSV.
-
-    An unregistered mode raises KeyError from the registry lookup rather than
-    returning an empty set: fail-open here would leave a mode-registry
-    mismatch with a silently EMPTY busy-name set, i.e. the double-launch
-    guard quietly finding nothing to skip. Tests inject `next_pick` or patch
-    this function.
-    """
+    """Names with an unresolved row in the mode's pending TSV. An
+    unregistered mode raises KeyError loudly: fail-open would give the
+    double-launch guard a silently EMPTY busy-name set."""
     import bo_driver as bo  # noqa: WPS433
     return {n for n, _x in bo.MODES[mode].load_pending()}
 
@@ -281,33 +223,15 @@ def _pending_names(mode) -> set:
 def _name_busy_reason(cl, name, lb_names, pending_names):
     """Why `name` must not be launched again, or None if it is free.
 
-    FOUR signals, in two groups that are NOT the same kind of thing:
-
-      leaderboard row / broken.txt   -- the name is already RESOLVED by an
-                                        earlier process.
-      *_cluster.txt / pending row    -- the name has WORK IN FLIGHT (or
-                                        abandoned mid-flight) from an
-                                        earlier process.
-
-    The second pair is the double-launch guard. Relaunching under the same
-    --name-prefix while a detached child from the prior run is still alive is
-    the STANDARD recovery move here, so this is the normal operating envelope.
-    Without the guard, a second `graph.run` under the same name would delete
-    child 1's pending row and re-propose with child 2's x (graph/nodes.py
-    caller_pinned branch), then find child 1's `<stage>_cluster.txt` already
-    present and SKIP submit (core/pipeline.py's submit idempotency guard) --
-    so child 2 polls child 1's clusters and harvests child 1's outputs.
-    core/leaderboard.py append() has no duplicate-name guard, so two rows land
-    under one name with two different x values, BOTH carrying child 1's
-    geometry's metrics, and the GP then trains on a point whose x does not
-    describe the geometry that produced it. Nothing errors.
-
-    This cannot recreate
-    wiki/incidents/closed-loop-stale-cluster-silent-no-launch.md (0 children
-    launched, barrier polls forever): that bug filtered a FIXED list of q
-    names and ended with pending == []. Here the index counter is monotonic,
-    so a skip ADVANCES to a fresh unused name rather than removing a launch
-    from the batch. `next_pick` always returns a name.
+    leaderboard row / broken.txt = RESOLVED by a prior process;
+    *_cluster.txt / pending row = work IN FLIGHT (the double-launch guard).
+    Relaunching under the same --name-prefix with a prior detached child
+    alive is the STANDARD recovery move; without the guard, pipeline.py's
+    submit idempotency makes child 2 harvest child 1's outputs -- two rows
+    under one name, both with child 1's metrics, and the GP trains on an x
+    that does not describe its geometry. Nothing errors. Cannot recreate
+    wiki/incidents/closed-loop-stale-cluster-silent-no-launch.md: the
+    monotonic launch index means a skip ADVANCES to a fresh name.
     """
     if name in lb_names:
         return (f"already has a leaderboard row from a PRIOR run under this "
@@ -341,41 +265,23 @@ def _name_busy_reason(cl, name, lb_names, pending_names):
 
 
 def child_name(name_prefix: str, i: int) -> str:
-    """THE child-name shape: `{prefix}R{i:02d}_00`, i the monotonic launch
-    index.
-
-    One function rather than an f-string repeated per call site, because that
-    drift has already happened once: the --dry-run preview printed a stale
-    name shape and so previewed names the campaign would never use. Every
-    producer of a child name -- the pool's allocator, its skip summary, and
-    the dry-run preview -- goes through here.
-    """
+    """THE child-name shape `{prefix}R{i:02d}_00`; every producer (allocator,
+    skip summary, dry-run preview) goes through here so names cannot drift."""
     return f"{name_prefix}R{i:02d}_00"
 
 
 def _default_pick_source(name_prefix):
-    """Closure so the picker sees the running launch index for its name and
-    round-seed. Imports closed_loop lazily -- closed_loop imports pool.
-
-    Skips any candidate name an EARLIER process already resolved OR still has
-    work in flight for; see `_name_busy_reason` for the four signals and why
-    the cluster-file/pending pair is a DOUBLE-LAUNCH guard rather than a
-    resolution signal.
-    """
+    """Closure holding the monotonic launch index; imports closed_loop lazily
+    (closed_loop imports pool). Busy names skip per `_name_busy_reason`."""
     counter = {"i": 0}
     busy_cache = {}
 
     def next_pick(mode, picker, x_pending):
         import closed_loop as cl
         i = counter["i"]
-        # Read the two TSVs ONCE per process, not once per launch: both are
-        # flock'd full-file reads of files a live campaign is appending to,
-        # and they are consulted strictly for PRIOR-run state. The launch
-        # index is monotonic within this process, so a name cleared as free
-        # can never be re-collided with later, and names THIS process goes on
-        # to write are at higher indices it has not reached yet. Under the
-        # single-writer-per---name-prefix invariant this guard already
-        # assumes, the relevant disk state is fixed at process start.
+        # Both TSVs read ONCE per process: flock'd full-file reads consulted
+        # strictly for PRIOR-run state; the monotonic index plus the
+        # single-writer-per---name-prefix invariant make later reads moot.
         if mode not in busy_cache:
             busy_cache[mode] = (cl._leaderboard_names(mode),
                                 _pending_names(mode))
@@ -386,9 +292,6 @@ def _default_pick_source(name_prefix):
             why = _name_busy_reason(cl, name, lb_names, pending_names)
             if why is None:
                 break
-            # First SKIP_LOG_LIMIT in full, then count-and-summarise. The
-            # full text is what carries the recovery recipe, so it must not
-            # be the part that gets truncated.
             if skipped < SKIP_LOG_LIMIT:
                 print(f"[pool] SKIP {name}: {why}", flush=True)
             skipped += 1
@@ -407,19 +310,13 @@ def _default_pick_source(name_prefix):
 
 
 def _default_row_landed(name, mode):
-    """Did this child land a leaderboard row? THE signal `_should_abort`
-    reads.
+    """Did this child land a leaderboard row? THE signal `_should_abort` reads.
 
-    No registry guard, deliberately: an unregistered mode raises loudly from
-    the registry lookup rather than fail-open returning True ("every child
-    landed a row"). Fail-open on the ONE signal the no-row-streak abort guard
-    reads means a mode-registry mismatch reports a campaign of
-    silently-failing children as fully successful and the abort guard never
-    fires -- the shape of both
+    An unregistered mode raises loudly (ADR-0002) rather than fail-open
+    "every child landed a row", which would let a mode-registry mismatch
+    report a campaign of silent failures as fully successful -- the shape of
     wiki/incidents/foilsflash-tarball-mode-key-omission.md and
-    wiki/incidents/preflight-mode-tuple-prodtarget6d-omission.md, which have
-    both happened. Tests inject `row_landed=` the way they already inject
-    `broken=`.
+    wiki/incidents/preflight-mode-tuple-prodtarget6d-omission.md.
     """
     import bo_driver as bo  # noqa: WPS433
     bo.MODES[mode]   # loud KeyError on an unregistered mode (ADR-0002)

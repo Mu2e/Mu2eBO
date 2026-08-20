@@ -1,10 +1,6 @@
-"""Headless driver: invoke the BO iteration graph once, no checkpointer.
-
-Used directly for one-off chains, and spawned per child by
-graph/pool.py's run_rolling (graph/closed_loop.py's parent).
-
-Usage:
-  source .venv/bin/activate
+"""Headless driver: run the BO iteration graph once, no checkpointer.
+Spawned per child by graph/pool.py's run_rolling; also used for one-off
+chains. Usage:
   python -m graph.run --thread-id smoke001 --config-name graphsmoke001
 """
 from __future__ import annotations
@@ -18,19 +14,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 
-# Load .env (LANGSMITH_*, etc.) before any langchain/langgraph import so the
-# tracing client picks them up.
+# Load .env before any langchain/langgraph import so tracing picks it up.
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # MUST precede `from build import ...` / `from runtime import ...`: both
-# core/runtime.py (_SPEC) and core/pipeline.py (MODE) resolve mode from
-# AUTORESEARCH_MODE at import time, un-repointable later. Rationale/
-# precedence: core/modes.py::stamp_mode_from_argv; main() re-checks with
-# assert_mode_stamped().
+# resolve AUTORESEARCH_MODE at import time
+# (core/modes.py::stamp_mode_from_argv); the return value becomes --mode's
+# argparse default, so args.mode IS the resolved mode.
 import modes as _modes  # noqa: E402
-# Its RETURN VALUE becomes --mode's argparse default, so `args.mode` IS
-# the resolved mode, not a second constant that happens to match it.
 _MODE = _modes.stamp_mode_from_argv()
 
 from build import build_graph  # noqa: E402
@@ -54,27 +46,22 @@ def main() -> int:
                     help="comma-separated forced x (e.g. '0.587,304.77,198.91,94.17'). "
                          "Skips BO propose and uses this point directly.")
     args = ap.parse_args()
-    # Loud, cheap: a mode mismatch between CLI/env-stamp/_SPEC/pipeline.MODE
-    # is otherwise SILENT -- the grid runs another mode's events_per_job/
-    # njobs/tarball/stage chain with no error surface (wiki/incidents/
-    # events-per-job-mid-flight-edit.md).
+    # Loud, cheap: a CLI/env-stamp/_SPEC/pipeline.MODE mode mismatch is
+    # otherwise SILENT (wiki/incidents/events-per-job-mid-flight-edit.md).
     _modes.assert_mode_stamped(args.mode)
 
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
 
-    # No checkpointer: audited 51 campaigns, 0 resumes ever, 5 incidents
-    # caused (one blocked restart outright: wiki/incidents/sqlite-wal-
-    # corrupt-after-kill.md). The useful half of resume -- skip a resolved
-    # config, don't double-launch one in flight -- survives via
-    # graph/pool.py's _default_pick_source (reads leaderboard rows,
-    # broken.txt, *_cluster.txt, pending rows). That backs the standard
-    # recovery: relaunch under the same --name-prefix.
+    # No checkpointer: 51 campaigns audited, 0 resumes ever, 5 incidents
+    # caused (wiki/incidents/sqlite-wal-corrupt-after-kill.md blocked a
+    # restart outright). Resume's useful half survives via
+    # graph/pool.py::_default_pick_source.
     graph = build_graph().compile()
 
     thread_id = args.thread_id or f"cli-{uuid.uuid4().hex[:8]}"
-    # Pinned: langgraph 1.2.9 has no practical cap, but 0.2.50 (ana_v2.8.0
-    # pyenv candidate) defaults to 25. Chain is ~8 supersteps plus up to
-    # MAX_PROPOSE_RETRIES re-proposes; 100 covers that with margin.
+    # langgraph 1.2.9 has no practical cap, but 0.2.50 (ana_v2.8.0 pyenv
+    # candidate) defaults to 25; the chain is ~8 supersteps plus up to
+    # MAX_PROPOSE_RETRIES re-proposes, so 100 covers it with margin.
     cfg = {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
     init = {
         "mode": args.mode,
@@ -90,10 +77,9 @@ def main() -> int:
     final = None
     for ev in graph.stream(init, cfg, stream_mode="values"):
         final = ev
-        # Config-name swap guard, unreachable now (no checkpointer) --
-        # existed for wiki/incidents/closed-loop-thread-id-checkpoint-
-        # collision.md. Kept as cheap insurance against a silent,
-        # unrecoverable wrong-name leaderboard row.
+        # Config-name swap guard, unreachable now (no checkpointer); kept as
+        # cheap insurance against a silent wrong-name leaderboard row
+        # (wiki/incidents/closed-loop-thread-id-checkpoint-collision.md).
         if expected_name is not None:
             got = ev.get("config_name")
             if got is not None and got != expected_name:

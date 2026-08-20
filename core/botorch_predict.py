@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 """BoTorch pickers for any pure-numeric mode (bounds from modes.SPECS).
 
-THE production picker: graph/closed_loop.py shells into this CLI every
-round (subprocess seam — runs under the project .venv; picks round-trip
-via --emit-picks-json). Pickers: qnehvi, qlnei,
-budget_sob, hybrid — details in compute_explore_picks.
-`michael` is unsupported (mixed Real+Categorical space needs a different
-model). Acquisition budget + seeding: see ACQ_* constants and _seed().
-
-CLI (used by _botorch_picks_subprocess; keep argparse-compatible):
-  .venv/bin/python botorch_predict.py \\
-      --mode foils --q 5 --round-idx 0 --emit-picks-json picks.json
+THE production picker: graph/closed_loop.py shells this CLI every round
+(--emit-picks-json round-trip; keep argparse-compatible). Pickers: qnehvi,
+qlnei, budget_sob, hybrid — see compute_explore_picks. `michael` is
+unsupported (mixed Real+Categorical space).
 """
 from __future__ import annotations
 
@@ -23,26 +17,19 @@ from pathlib import Path
 
 import torch
 
-# This file lives in core/, so its own directory IS the core/ dir. Bootstrap
-# sys.path from it, then take the root from the resolver.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paths import REPO_ROOT as AUTORESEARCH  # noqa: E402  (see core/paths.py)
 import bo_driver as bo  # noqa: E402
 
 
-# torch defaults: float64 + CPU. The history matrix is tiny (<200 pts), so
-# CPU is faster than GPU once you account for transfer; float64 matches
-# botorch's recommended SingleTaskGP precision.
+# float64 + CPU: history is tiny (<200 pts), CPU beats GPU incl. transfer.
 torch.set_default_dtype(torch.float64)
 DEVICE = torch.device("cpu")
 
 
-# Per-mode bounds + integer-dim mask come from the ModeSpec registry
-# (root modes.py, ADR-0002) — stdlib-only, so any venv can
-# import it. Order matches the Point.x layout (= build_space order); the
-# lockstep is ENFORCED by tests/test_modes.py (driver build_space bounds ==
-# spec bounds per mode), retiring the "MUST mirror build_space" comments.
-# Modes without a numeric box (michael's Categorical COL5 space) are absent.
+# Per-mode bounds + integer-dim mask from the ModeSpec registry (ADR-0002).
+# Order matches Point.x (= build_space); lockstep ENFORCED by
+# tests/test_modes.py. Modes without a numeric box (michael) are absent.
 import modes as _modes  # noqa: E402
 
 MODE_SPECS = {
@@ -56,13 +43,8 @@ MODE_SPECS = {
 def _load_history_tensor(mode: str, sob_only: bool = False):
     """Return (X, Y, bounds, int_dims) tensors over the mode's search space.
 
-    X shape (n, d): per-mode x vector as floats (Integer dims coerced).
-    Y shape (n, 2): [sob, -log10(calo)] — botorch maximizes both.
-    If sob_only=True: Y shape (n, 1) = [sob]; rows with missing/invalid
-      calo are kept (calo not consulted). For the qlnei single-objective
-      picker.
-    bounds shape (2, d): from MODE_SPECS.
-    int_dims: list of column indices to round on emit.
+    Y is (n, 2) [sob, -log10(calo)], both maximized; sob_only=True gives
+    (n, 1) [sob] and keeps rows with invalid calo (qlnei picker).
     """
     if mode not in MODE_SPECS:
         raise SystemExit(f"[botorch_predict] mode={mode!r} not supported; "
@@ -70,10 +52,6 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
                          "michael's Real+Categorical space needs a mixed model.")
     spec = MODE_SPECS[mode]
     bo_mode = bo.MODES[mode]
-    # Seeds = priors + history.
-    # For foils v2, priors are the projected v1 n=6/6 subset (~51 rows);
-    # without them an early v2 run with zero leaderboard rows has nothing
-    # to fit on.
     priors = bo_mode.load_priors() if hasattr(bo_mode, "load_priors") else []
     history = bo_mode.load_history()
     seeds = priors + history
@@ -82,14 +60,13 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
     Y_rows = []
     for p in seeds:
         if sob_only:
-            # 1D objective: only need sob. Drop rows with missing sob.
             if p.sob is None or not math.isfinite(p.sob):
                 continue
             X_rows.append([float(v) for v in p.x])
             Y_rows.append([p.sob])
         else:
             if p.calo <= 0:
-                continue  # log10 undefined; rare but possible on broken harvest
+                continue  # log10 undefined (broken harvest)
             X_rows.append([float(v) for v in p.x])
             Y_rows.append([p.sob, -math.log10(p.calo)])
     lo = torch.tensor(spec["lo"], device=DEVICE)
@@ -107,11 +84,8 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
                 f"{_modes.SPECS[mode].knob_names}). Leaderboard schema and "
                 f"registry disagree.")
     else:
-        # Cold start: return empty (n=0, d) tensors. The caller switches to a
-        # Sobol cold-start path when X is empty so the very first launch of a
-        # brand-new mode doesn't need any seeding (no propose+evaluate, no
-        # projected priors). MUST emit empty with correct d so downstream
-        # shape-checks against `bounds` still pass.
+        # Cold start: empty (0, d) tensors with correct d so downstream
+        # shape-checks against `bounds` pass; caller switches to Sobol.
         d = len(spec["lo"])
         m = 1 if sob_only else 2
         X = torch.empty((0, d), device=DEVICE)
@@ -120,9 +94,8 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
 
 
 def _seed(round_idx: int) -> int:
-    """Per-round RNG seed: `42 ^ round_idx` (xor, NOT pow — see
-    wiki/incidents/botorch-predict-seed-pow-vs-xor.md). Single home for the
-    formula; every picker/cold-start path calls this."""
+    """Per-round seed `42 ^ round_idx` (xor, NOT pow — see
+    wiki/incidents/botorch-predict-seed-pow-vs-xor.md); single home."""
     return 42 ^ int(round_idx)
 
 
@@ -133,26 +106,22 @@ def _sampler(round_idx: int):
 
 
 # Acquisition-optimization budget — ONE tuning point for every picker.
-# _qnparego_picks structurally bypasses _optimize (per-candidate scalarization
-# + growing X_pending, see its docstring) but MUST share this budget; these
-# were previously copy-pasted (friction-survey FP-4, 2026-07-11).
+# _qnparego_picks bypasses _optimize but MUST share this budget (was
+# copy-pasted; friction-survey FP-4).
 ACQ_NUM_RESTARTS = 16
 ACQ_RAW_SAMPLES = 512
 ACQ_OPTIONS = {"batch_limit": 5, "maxiter": 200}
-# budget_sob front-thinning spread (normalized-space euclidean); see the
-# comment at its use site for why it differs from the closed-loop 0.05.
+# budget_sob front-thinning spread (normalized euclidean; wider than the
+# closed-loop 0.05 on purpose).
 SOB_CORNER_MIN_SPACING = 0.10
 
 
 def _optimize(acq, bounds, q: int) -> torch.Tensor:
     """Shared optimize_acqf call for all acquisition pickers; returns (q, d).
 
-    sequential greedy: optimize the q candidates one-at-a-time (each a
-    cheap d-dim problem) instead of jointly (one q*d-dim problem). For
-    qNEHVI/qLogNEHVI this is the recommended batch mode AND the only
-    tractable one at large q — joint (sequential=False) is ~q*d dims and
-    blew past a 10-min wall at q=10 (botorch_predict q=10 smoke-test,
-    2026-06-04). The "N" handles pending picks correctly via fantasies.
+    sequential=True is REQUIRED: joint mode is a ~q*d-dim problem and blew
+    past a 10-min wall at q=10 (smoke-test 2026-06-04). The "N" handles
+    pending picks via fantasies.
     """
     from botorch.optim import optimize_acqf
     candidates, _ = optimize_acqf(
@@ -168,31 +137,21 @@ def _optimize(acq, bounds, q: int) -> torch.Tensor:
 
 
 def _sobol_cold_start(bounds: torch.Tensor, q: int, round_idx: int) -> torch.Tensor:
-    """Draw q Sobol points over `bounds` for the very-first batch.
-
-    Used when load_priors()+load_history() is empty: there's nothing for the
-    GP to fit on. Sobol is the standard cold-start for BO and matches what
-    skopt does internally via N_INITIAL_POINTS. Seed via the shared _seed().
-    (int rounding happens in the caller's _emit_picks.)
-    """
+    """Draw q Sobol points over `bounds` for the very-first (no-history) batch."""
     from botorch.utils.sampling import draw_sobol_samples
     seed = _seed(round_idx)
-    # draw_sobol_samples returns (n=1, q, d); squeeze the leading dim.
     cands = draw_sobol_samples(bounds=bounds, n=1, q=q, seed=seed).squeeze(0)
     return cands.detach()
 
 
 def _fit_gp(X, Y, bounds, obs_noise=None):
-    """Fit a 2-output SingleTaskGP with input normalization + output stdize.
+    """Fit a SingleTaskGP (input Normalize + outcome Standardize).
 
-    obs_noise: per-output-axis ABSOLUTE sigma from modes.ModeSpec.obs_noise,
-    or None to leave noise as a free MLL hyperparameter. When supplied it is
-    squared into train_Yvar, which switches SingleTaskGP to a fixed-noise
-    likelihood. This matters: left free on the foilsflash history the fit
-    lands at sigma(sob)=0.0507 against a replicate-measured 0.0051, and that
-    12x overestimate shrinks the line's best eval (SOBX01, observed 3.90) to
-    a predicted 3.787 — ranking it 16th of 324 and steering every picker away
-    from the true optimum. Pinning the measured sigma restores it to rank 1.
+    obs_noise (ModeSpec.obs_noise, ABSOLUTE per-output sigma) squares into
+    train_Yvar -> fixed-noise likelihood. Left free, the foilsflash fit found
+    sigma(sob)=0.0507 vs replicate-measured 0.0051 (12x), demoting the best
+    eval (SOBX01, 3.90) to rank 16/324 — wiki/incidents/
+    gp-free-noise-erases-champion.md. Pinning restores rank 1.
     """
     from botorch.fit import fit_gpytorch_mll
     from botorch.models import SingleTaskGP
@@ -203,9 +162,8 @@ def _fit_gp(X, Y, bounds, obs_noise=None):
     m = Y.shape[-1]
     train_Yvar = None
     if obs_noise is not None:
-        # Y columns are (sob, <second axis>); sob_only fits use just the
-        # first. Broadcast the per-axis sigma^2 across all n rows — the
-        # noise is a property of the pipeline's event budget, not the point.
+        # Broadcast sigma^2 across rows: noise is a property of the
+        # pipeline's event budget, not the point.
         sig = torch.tensor([float(v) for v in obs_noise[:m]],
                            dtype=Y.dtype, device=Y.device)
         train_Yvar = (sig ** 2).expand(Y.shape[0], m).contiguous()
@@ -219,12 +177,9 @@ def _fit_gp(X, Y, bounds, obs_noise=None):
     )
     mll = ExactMarginalLogLikelihood(model.likelihood, model)
     fit_gpytorch_mll(mll)
-    # Noise audit: likelihood.noise is in Standardize'd units; × stdvs
-    # recovers raw-output σ, comparable to the measured budget in
-    # wiki/concepts/bo-noise-budget.md (σ_sob≈0.4% rel, σ_calo≈8%).
-    # A fitted likelihood carries one noise per output (m,); a fixed-noise
-    # one carries the full train_Yvar (m, n). Collapse the latter to its
-    # per-output value — it is constant within an output by construction.
+    # Noise audit vs wiki/concepts/bo-noise-budget.md (σ_sob≈0.4%, σ_calo≈8%):
+    # likelihood noise is standardized (× stdvs = raw); fixed-noise carries
+    # (m, n) — collapse to per-output (constant within an output).
     noise = model.likelihood.noise.detach()
     noise_std = (noise.reshape(-1) if noise.numel() == m
                  else noise.reshape(m, -1)[:, 0]).sqrt()
@@ -237,23 +192,17 @@ def _fit_gp(X, Y, bounds, obs_noise=None):
 
 
 def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
-    """Optimize qLogNEHVI for q candidates; return shape (q, d) tensor.
+    """Optimize qLogNEHVI (log-stabilized qNEHVI, Ament 2023) for q candidates.
 
-    qLogNEHVI = log-stabilized qNEHVI (Ament et al. 2023): same Pareto-HV
-    objective, fixes the vanishing acquisition-value / flat-gradient failure of
-    the plain MC version so optimize_acqf finds better candidates near
-    saturation. Drop-in: identical constructor args.
-
-    x_pending: optional (k, d) tensor of in-flight evals (rolling closed-loop);
-    the acqf fantasizes over them so replacements don't re-pick a running point.
+    x_pending: optional (k, d) in-flight evals; the acqf fantasizes over them
+    so replacements don't re-pick a running point.
     """
     from botorch.acquisition.multi_objective.logei import (
         qLogNoisyExpectedHypervolumeImprovement,
     )
 
-    # Per-round ref-point: nadir of the observed front, pushed out 10% of
-    # the span. For maximization, "dominated" = smaller — so subtract the
-    # offset (sign-robust; "× 1.1" only works when nadir is negative).
+    # Ref point = observed nadir pushed out 10% of span; subtract the offset
+    # (sign-robust — "× 1.1" only works when nadir is negative).
     nadir = Y.min(dim=0).values
     span = (Y.max(dim=0).values - nadir).abs().clamp(min=1e-9)
     ref_point = (nadir - 0.1 * span).tolist()
@@ -270,14 +219,10 @@ def _qnehvi_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
 
 
 def _qlnei_picks(model, X, bounds, q: int, round_idx: int, x_pending=None):
-    """Optimize qLogNoisyExpectedImprovement for q candidates over 1D Y (sob).
+    """qLogNoisyExpectedImprovement over 1D Y (sob only); calo unused.
 
-    Single-objective picker — use when you want to push sob ceiling and
-    don't care about calo trade-off; converges much faster on the plateau.
-    It no longer drops the run1b_mubeam stage: the `AUTORESEARCH_NO_RUN1B=1`
-    auto-stamp that did that died with graph/presniff.py (2026-08-19) and
-    was not restored, and no live mode's stage chain contains that stage
-    anyway. The calo measurement is simply unused by this acquisition.
+    No longer drops the run1b_mubeam stage: the AUTORESEARCH_NO_RUN1B=1
+    auto-stamp died with graph/presniff.py (2026-08-19) and was not restored.
     x_pending: as in _qnehvi_picks.
     """
     from botorch.acquisition.logei import qLogNoisyExpectedImprovement
@@ -293,29 +238,15 @@ def _qlnei_picks(model, X, bounds, q: int, round_idx: int, x_pending=None):
 
 
 def _qnparego_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
-    """Optimize qNParEGO for q candidates; return shape (q, d) tensor.
+    """qNParEGO: qLogNEI over a fresh random Chebyshev scalarization per
+    candidate — fans the batch across the WHOLE front, incl. corners qNEHVI
+    underprices near saturation (wiki/concepts/saturation-is-acquisition-relative.md).
 
-    qNParEGO (Daulton et al. 2020) = qLogNoisyExpectedImprovement over a
-    *random augmented-Chebyshev scalarization* drawn fresh per candidate. Each
-    of the q candidates gets its own simplex weight vector, so the batch fans
-    out along the WHOLE Pareto front — including the corners qNEHVI's
-    hypervolume economics underprice near saturation (see
-    wiki/concepts/saturation-is-acquisition-relative.md). No HV box
-    decomposition either, so it degrades gracefully on big fronts where qNEHVI
-    times out.
-
-    Weights are drawn inside ONE torch.manual_seed(_seed(round_idx)) block: the
-    q scalarizations are DISTINCT per candidate (each sample_simplex call
-    advances the RNG) yet REPRODUCIBLE per round (seed is XOR, never pow — see
-    wiki/incidents/botorch-predict-seed-pow-vs-xor.md). Candidates are chosen
-    sequentially-greedy, each conditioned on the ones already picked via
-    X_pending so the batch stays diverse. NOT via the shared _optimize: its
-    single-acq sequential=True path can't take a per-candidate scalarization +
-    a growing X_pending.
-
-    x_pending: optional (k, d) tensor of already-committed picks (e.g. the
-    qnehvi half of a hybrid batch) pre-loaded into X_pending before the loop;
-    those k rows are NOT returned (only the q fresh parego candidates are).
+    Seed discipline: weights drawn inside ONE torch.manual_seed(_seed(round_idx))
+    block — DISTINCT per candidate, REPRODUCIBLE per round (XOR, never pow:
+    wiki/incidents/botorch-predict-seed-pow-vs-xor.md). Sequential-greedy via
+    a growing X_pending; can't use the shared _optimize (per-candidate
+    scalarization). x_pending rows are conditioned on but NOT returned.
     """
     from botorch.acquisition.logei import qLogNoisyExpectedImprovement
     from botorch.acquisition.objective import GenericMCObjective
@@ -345,21 +276,14 @@ def _qnparego_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None)
 
 
 def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
-    """One batch = ~60% qnehvi (HV efficiency) + ~40% qnparego (tail coverage).
+    """One batch = hv_frac qnehvi + rest qnparego; parego conditions on the
+    qnehvi picks via X_pending so the halves don't collide. qnehvi first.
 
-    q_hv = max(1, round(0.6*q)) qnehvi picks first (mines the useful region);
-    the remaining q_pe = q - q_hv qnparego picks then patrol the front's tails,
-    conditioned on the qnehvi picks via X_pending so the two halves don't
-    collide. One GP fit / one subprocess call (the caller already fit `model`).
-    Recommended default for new multi-objective lines. If q_pe == 0 (small q)
-    this is pure qnehvi. Batch order: qnehvi picks first, parego picks after.
-
-    The hv fraction is an env seam (AUTORESEARCH_HYBRID_HV_FRAC, default
-    0.6): two rounds of live attribution (ff09+ff11, 2026-07-10) showed
-    qnehvi's front hit-rate collapsing at deep saturation (4/6 → 0/6) while
-    parego kept delivering (3/4 → 2/4 incl. the new champion) — drop toward
-    0.3-0.4 for end-of-line campaigns; 0.0 is valid (pure qnparego).
-    See wiki saturation-is-acquisition-relative.
+    AUTORESEARCH_HYBRID_HV_FRAC default 0.6: live attribution (ff09+ff11,
+    2026-07-10) showed qnehvi's front hit-rate collapsing at deep saturation
+    (4/6 → 0/6) while parego kept delivering (3/4 → 2/4 incl. the new
+    champion) — drop toward 0.3-0.4 for end-of-line campaigns; 0.0 = pure
+    qnparego. See wiki saturation-is-acquisition-relative.
     """
     hv_frac = float(os.environ.get("AUTORESEARCH_HYBRID_HV_FRAC", "0.6"))
     q_hv = min(q, max(0, round(hv_frac * q)))
@@ -369,8 +293,6 @@ def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
                                x_pending=x_pending)
     hv_cands = _qnehvi_picks(model, X, Y, bounds, q=q_hv, round_idx=round_idx,
                              x_pending=x_pending)
-    # parego half conditions on BOTH the external pending set and the fresh
-    # qnehvi half, so no part of the batch collides with anything in flight.
     pe_pending = (torch.cat([x_pending, hv_cands])
                   if x_pending is not None else hv_cands)
     if q_pe == 0:
@@ -381,11 +303,10 @@ def _hybrid_picks(model, X, Y, bounds, q: int, round_idx: int, x_pending=None):
 
 
 def _emit_picks(cands, int_dims):
-    """Cast (q, d) tensor -> list of native-typed tuples.
+    """Cast (q, d) tensor -> native-typed tuples (int_dims rounded).
 
-    int_dims get round() + int(); other dims get float(). Native types only:
-    LangGraph's SqliteSaver checkpoint serializer (msgpack) rejects numpy
-    scalars — see wiki/incidents/langgraph-checkpoint-numpy-int64.md.
+    Native types only: SqliteSaver's msgpack rejects numpy scalars — see
+    wiki/incidents/langgraph-checkpoint-numpy-int64.md.
     """
     int_set = set(int_dims)
     out = []
@@ -396,17 +317,12 @@ def _emit_picks(cands, int_dims):
     return out
 
 
-# The DEPLOYED stopping target's damage, in MeV/POT. This is the deployment
-# constraint line, not a tuning knob: a design at or below it is buildable at
-# today's radiation budget, one above it is not, however high its significance.
-# Env-overridable so a different scenario (or a re-measured baseline) can move
-# the line without a code edit.
+# The DEPLOYED stopping target's damage in MeV/POT — the deployment
+# constraint line, not a tuning knob. Env-overridable for other scenarios.
 DEP_FLASH_PER_POT = float(os.environ.get("AUTORESEARCH_FLASH_BUDGET", "6.85443e-7"))
-# Feasibility margin, in posterior sigmas, for the budget_sob constraint.
-# k=0 constrains the posterior MEAN (~50% of picks land over budget once
-# measured); k=1 asks for ~84% feasibility at the cost of aiming slightly
-# under the line. Tunable because the right trade depends on how much of the
-# round you are willing to spend on rows that turn out unbuildable.
+# budget_sob feasibility margin in posterior sigmas: k=0 constrains the MEAN
+# (~50% of picks land over budget once measured); k=1 ≈ 84% feasibility at
+# the cost of aiming slightly under the line.
 BUDGET_SOB_K_SIGMA = float(os.environ.get("AUTORESEARCH_BUDGET_KSIGMA", "1.0"))
 
 
@@ -415,31 +331,13 @@ def _budget_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None,
                       k_sigma: float | None = None):
     """Return the q highest-sob points the GP believes stay INSIDE the damage budget.
 
-    An unconstrained max-sob exploit walks off to +60% damage -- exactly what
-    happened over three pareto_sob exploit rounds (picker retired 2026-08-19):
-    a 4.41 record that cannot be built.
-    This one maximizes the posterior-mean sob subject to a constraint on
-    the SECOND objective, so every pick is aimed at a design that could
-    actually be deployed.
-
-    The constraint. Y[:,1] is -log10(flash per POT) and botorch maximizes it,
-    so "flash <= budget" is the lower bound Y1 >= -log10(budget). We require
-
-        mean_1 - k*sigma_1  >=  -log10(flash_budget)
-
-    i.e. feasibility at roughly the k-sigma level rather than on the mean
-    alone, because a pick whose TRUE damage lands above the line contributes
-    nothing to the deployment question. Since sob is still being maximized,
-    the batch naturally presses right up against the constraint from below --
-    which is where the interesting designs are.
-
-    Why this is worth a round: "best-at-budget stalled at 4.00" was measured by
-    campaigns whose acquisition (qNEHVI hypervolume, or pure max-sob) never
-    aimed at the budget line. Saturation is acquisition-relative
-    (wiki/concepts/saturation-is-acquisition-relative.md) -- the same reasoning
-    that made the max-sob exploit rounds break a supposed ceiling twice. The
-    budget corner has never had a dedicated exploit round.
-
+    An unconstrained max-sob exploit walks off to +60% damage — three
+    pareto_sob exploit rounds did exactly that (picker retired 2026-08-19: a
+    4.41 record that cannot be built). Constraint: Y[:,1] = -log10(flash/POT)
+    is maximized, so "flash <= budget" is  mean_1 - k*sigma_1 >= -log10(budget)
+    — k-sigma feasibility, not mean-only, because a pick whose TRUE damage
+    lands over the line contributes nothing. Max-sob presses the batch up
+    against the line from below.
     x_pending (k, d): in-flight evals, seeding the min-distance filter
     (NOT returned).
     """
@@ -463,9 +361,8 @@ def _budget_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None,
     sob = mean[:, 0]
     feas_margin = mean[:, 1] - k * std[:, 1]
 
-    # Relax the margin rather than return an empty batch: if the GP thinks
-    # almost nothing is k-sigma-feasible, a smaller k still answers the
-    # question, and returning 0 picks would silently stall the campaign.
+    # Relax k rather than return an empty batch (0 picks would silently
+    # stall the campaign).
     used_k = k
     feasible = feas_margin >= thr
     for relaxed in (k * 0.5, 0.0):
@@ -499,9 +396,7 @@ def _budget_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None,
         if dmin >= SOB_CORNER_MIN_SPACING:
             picks.append(idx)
             avoid.append(norm[idx])
-    # Top up ONLY from the feasible set -- topping up from `order` over all
-    # candidates would leak over-budget picks into a batch whose entire
-    # purpose is to stay under the line.
+    # Top up ONLY from the feasible set — never leak over-budget picks.
     if len(picks) < q:
         for idx in order.tolist():
             if idx not in picks:
@@ -523,22 +418,12 @@ def compute_explore_picks(q: int = 5,
                           picker: str = "qnehvi",
                           x_pending: list | None = None,
                           ) -> list[tuple]:
-    """Explore-pick engine.
+    """Explore-pick engine: picker = qnehvi | qlnei | budget_sob | hybrid
+    (see the picker functions).
 
-    picker = "qnehvi" (default, multi-objective Pareto-HV), "qlnei"
-    (single-objective qLogNoisyExpectedImprovement on sob only — ignores
-    calo. It used to also SAVE the DS-off stage's grid time, via a
-    closed_loop auto-stamp of AUTORESEARCH_NO_RUN1B=1; that stamp died with
-    graph/presniff.py 2026-08-19 and was not restored, so today this is an
-    acquisition choice with no wall-clock effect), "budget_sob" (GP-mean
-    sob corner CONSTRAINED to flash <= the deployed damage budget — the
-    deployment-facing exploit) or "hybrid" (~60% qnehvi + ~40% qnparego
-    Chebyshev-scalarization spread; recommended for new multi-objective
-    lines). hybrid uses the same 2-objective path as qnehvi.
-
-    x_pending: optional list of x-lists for evals currently IN FLIGHT (rolling
-    closed-loop). Acquisition pickers fantasize over them (X_pending); the
-    budget_sob exploit spreads away from them. Cold-start Sobol ignores it.
+    x_pending: optional list of x-lists for evals IN FLIGHT — acquisition
+    pickers fantasize over them (X_pending); budget_sob spreads away from
+    them; cold-start Sobol ignores them.
     """
     X, Y, bounds, int_dims = _load_history_tensor(mode, sob_only=(picker == "qlnei"))
     pend = None
@@ -549,10 +434,8 @@ def compute_explore_picks(q: int = 5,
             raise SystemExit(
                 f"[botorch_predict] x_pending dim {pend.shape[-1]} != "
                 f"search-space dim {bounds.shape[-1]} for mode={mode}")
-    # Cold-start guard: SingleTaskGP needs >= 2 points to fit; <2 makes
-    # fit_gpytorch_mll either crash or fit to a degenerate posterior that
-    # collapses the acquisition. Fall back to Sobol so a brand-new mode
-    # (empty leaderboard, no load_priors override) launches cleanly.
+    # <2 points: fit_gpytorch_mll crashes or fits a degenerate posterior —
+    # fall back to Sobol.
     if X.shape[0] < 2:
         print(f"[botorch_predict] mode={mode} cold-start: history={X.shape[0]} rows "
               f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)

@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
 """Bayesian Optimization driver for Mu2e geometry searches.
 
-Modes (select with --mode; bounds/facts live in modes.SPECS, the registry of
-record) are JSON-defined: one mode_specs/<name>.json file per optimization
-line (schema in mode_specs/README.md), loaded at import time by
-core/mode_json.py. Run `bo_driver.py --help` for the live --mode choices --
-the roster changes as campaigns come and go, so it is not hand-listed here.
+Modes are JSON-defined (mode_specs/<name>.json, schema in
+mode_specs/README.md; bounds/facts in modes.SPECS, the registry of record).
 
 Subcommands:
-  propose      : seed GP, propose next candidate, render geom override file
-  evaluate     : after pipeline run, parse summary.json + append to leaderboard
-  preflight    : run mu2e -n 1 locally on a proposal to catch G4 init failures
+  propose   : propose next candidate(s), render geom override file(s)
+  evaluate  : parse summary.json + append to leaderboard
+  preflight : run mu2e -n 1 locally to catch G4 init failures
 
-Architecture: JsonMode is the single driver class, one instance per
-mode_specs/*.json file. MODES = {name: instance} is the registry argparse
-selects from, keyed 1:1 with modes.SPECS (ADR-0002).
-Adding a mode = drop a mode_specs/<name>.json file (no Python change; the
-lockstep with modes.SPECS/graph/state.py is pinned by test_modes).
+JsonMode is the single driver class, one instance per spec; MODES is keyed
+1:1 with modes.SPECS (ADR-0002). Adding a mode = drop a JSON file.
 """
 from __future__ import annotations
 
@@ -31,9 +25,8 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-# ModeSpec registry (ADR-0002): preflight policy flags replace the six
-# hand-listed mode tuples behind the preflight-mode-tuple-omission incident
-# class. Stdlib-only import.
+# ModeSpec registry (ADR-0002): preflight policy flags replace the
+# hand-listed mode tuples behind the preflight-mode-tuple-omission class.
 import modes as _modes  # noqa: E402
 
 from leaderboard import (  # noqa: E402  (re-exports: Point, to_py_scalars
@@ -44,8 +37,7 @@ from paths import REPO_ROOT as ROOT  # single root resolver, see core/paths.py
 from paths import BO_WORK, GRID_DATA_ROOT
 from paths import leaderboard_archive, leaderboard_live
 
-# Same explicit-env stamp as core/pipeline.py; see
-# core/modes.py::stamp_mode_from_argv for the mechanism and the incident.
+# Explicit-env mode stamp; see core/modes.py::stamp_mode_from_argv.
 os.environ.setdefault("AUTORESEARCH_MODE", _modes.resolve_env_mode())
 from runtime import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
 sys.path.insert(0, str(ROOT / "graph"))
@@ -56,27 +48,20 @@ DEFAULT_ALPHA = 1.0e5  # mmackenz calo range 4e-8..2.5e-5; alpha=1e5 makes
 
 
 class SpaceDim(NamedTuple):
-    """One search-space dimension. Plain data — the picker consumes bounds
-    from modes.SPECS directly; this exists for the KNOB_NAMES↔bounds
-    lockstep check and for printing."""
+    """One search-space dimension (the picker reads bounds from modes.SPECS
+    directly; this exists for the lockstep check and printing)."""
     name: str
     low: float
     high: float
     is_int: bool
 
 
-# ============================================================================
-# JsonMode: the mode seam. One instance per mode_specs/*.json (see MODES).
-# ============================================================================
+# --- JsonMode: the mode seam. One instance per mode_specs/*.json ----------
 
 class JsonMode:
-    """A BO mode = search space + render + prior loader + leaderboard format.
-
-    The single driver class behind every JSON-defined mode: geometry text
-    renders from the spec's geom template; build_space, priors, x recovery
-    at evaluate time, and leaderboard + pending TSV I/O (delegated to
-    core/leaderboard.py via leaderboard_io()) read the same spec.
-    """
+    """A BO mode = search space + render + prior loader + leaderboard format,
+    all read from the same modes.SPECS spec (TSV I/O delegated to
+    core/leaderboard.py via leaderboard_io())."""
     name: str
     leaderboard: Path
     proposal_dir: Path
@@ -87,8 +72,8 @@ class JsonMode:
         if spec.geom is None:
             raise ValueError(f"{name}: JsonMode requires a geom template")
         self.name = name
-        # Live rows go to this operator's own /data board; the committed
-        # leaderboards/ are read-only priors both operators start warm from.
+        # Live rows -> operator's /data board; committed leaderboards/ are
+        # read-only priors.
         self.leaderboard = leaderboard_live(spec.leaderboard_rel)
         self.leaderboard_archive = leaderboard_archive(spec.leaderboard_rel)
         self.proposal_dir = BO_WORK / "proposals" / name
@@ -98,19 +83,14 @@ class JsonMode:
         return _modes.SPECS[self.name].geom.render(x)
 
     def load_priors(self) -> list[Point]:
-        """No mode has code-carried priors: botorch Sobol cold-starts a fresh
-        line, and history comes from the leaderboard."""
+        """No code-carried priors: Sobol cold-start + leaderboard history."""
         return []
 
     # --- x recovery at evaluate time (the seam cmd_evaluate calls) ---
     def x_for_evaluate(self, config_name: str, geom_text: str):
-        """Recover x from the pending TSV instead of parsing the geometry.
-
-        append_pending wrote the exact proposed x as JSON at propose time and
-        cmd_evaluate clears pending only after this call, so the row is still
-        there. An absent config is a HARD refusal: a guessed x would put a
-        real (sob, calo) measurement at the wrong coordinates and train the
-        GP on a point that was never evaluated.
+        """Recover x from the pending TSV (written at propose, cleared only
+        after this call). An absent config is a HARD refusal: a guessed x
+        would train the GP on a point that was never evaluated.
         """
         for name, x in self.load_pending():
             if name == config_name:
@@ -123,11 +103,8 @@ class JsonMode:
             f"evaluate. Re-running evaluate for an already-recorded config "
             f"hits this. Refusing to append a row rather than guess x.")
 
-    # Leaderboard row shape: knob columns = KNOB_NAMES, per-position
-    # precision = KNOB_FMTS, both read from modes.SPECS (the single source —
-    # ADR-0002 extension), so a mode changing its knob names or objective
-    # column needs no class-attr override. The second-objective column is
-    # metric_cols[1], read by leaderboard_io() when it builds the Leaderboard.
+    # Row shape (KNOB_NAMES/KNOB_FMTS/metric_cols) reads modes.SPECS, the
+    # single source (ADR-0002 extension) -- no class-attr overrides.
     @property
     def KNOB_NAMES(self) -> tuple:
         return _modes.SPECS[self.name].knob_names
@@ -136,9 +113,8 @@ class JsonMode:
     def KNOB_FMTS(self) -> tuple:
         return _modes.SPECS[self.name].knob_fmts
 
-    # Search space: SpaceDim rows from the ModeSpec registry box
-    # (bounds_lo/hi/int_dims) paired with KNOB_NAMES. The two must line up
-    # 1:1 — a mismatch is a loud error, never a silently-truncated space.
+    # bounds↔KNOB_NAMES must line up 1:1 -- a mismatch is a loud error,
+    # never a silently-truncated space.
     def build_space(self) -> list[SpaceDim]:
         spec = _modes.SPECS[self.name]
         # lockstep enforced at ModeSpec construction (modes.py __post_init__)
@@ -149,26 +125,20 @@ class JsonMode:
                 zip(spec.bounds_lo, spec.bounds_hi, self.KNOB_NAMES))
         ]
 
-    # Constraint hook: override to reject infeasible regions of search space.
-    # propose() calls this on every ask() output and tells the GP a penalty
-    # for unbuildable picks before re-asking. Default = no constraint.
+    # Constraint hook: reject infeasible regions. Default = no constraint.
     def is_buildable(self, x) -> bool:
         return True
 
-    # Summary-extraction hook: map a per-config summary.json into the
-    # (sob, calo) pair Point.obj() consumes. Default reads the 4-stage
-    # harvest schema; override for a different summary schema.
+    # Summary-extraction hook: summary.json -> the (sob, calo) pair
+    # Point.obj() consumes. Default = the 4-stage harvest schema.
     def extract_metrics(self, summary: dict) -> tuple[float, float]:
         return summary["s_over_sqrt_b"], summary["calo_per_pot"]
 
-    # Optional side metrics (Point.extras; not part of obj); modes opt in.
-    # x is the BO x_point (geometry knobs), supplied so modes can compute
-    # derived quantities needing both per-plate harvest output and the geom
-    # that produced it (e.g. peak specific dose = max_i Edep_i/mass_i).
+    # Optional side metrics (Point.extras; not part of obj). x supplied for
+    # derived quantities needing both harvest output and the geom.
     def extract_extras(self, summary: dict, x=None) -> dict | None:
         return None
 
-    # --- concrete: shared ---
     def render_proposal(self, name: str, x) -> Path:
         self.proposal_dir.mkdir(parents=True, exist_ok=True)
         out = self.proposal_dir / f"{name}_geom.txt"
@@ -178,14 +148,12 @@ class JsonMode:
     # --- leaderboard + pending I/O: owned by core/leaderboard.py -----------
     def leaderboard_io(self) -> Leaderboard:
         lb = getattr(self, "_lb_cache", None)
-        # Rebuild whenever `self.leaderboard`/`self.leaderboard_archive` no
-        # longer matches the cached instance's paths, not just on first
-        # access: patching those attrs is the standard test seam, and
-        # botorch_predict --leaderboard does the same at runtime. A
-        # path-blind cache would keep serving the PRE-patch (or an
-        # already-deleted tmpdir's) Leaderboard -- the failure mode of
+        # Rebuild whenever the cached instance's paths no longer match (attr
+        # patching is the standard test seam AND a runtime path): a
+        # path-blind cache would keep serving a stale Leaderboard -- the
+        # failure mode of
         # wiki/incidents/touched-leaderboard-headerless-history-loss.md at
-        # the object-cache layer instead of the TSV layer.
+        # the object-cache layer.
         archive = getattr(self, "leaderboard_archive", None)
         if lb is None or lb.path != self.leaderboard or lb.archive_path != archive:
             spec = _modes.SPECS[self.name]
@@ -227,22 +195,14 @@ class JsonMode:
     def extract_metrics(self, summary: dict) -> tuple[float, float | None]:
         """Map summary.json onto (sob, second objective).
 
-        UNRESOLVED and RESOLVED-TO-ZERO are deliberately different cases:
-
-        * Unresolved (no candidate key present and non-null) returns None for
-          that column. cmd_evaluate then either substitutes 0.0 (only under
-          AUTORESEARCH_NO_RUN1B=1, a manual env seam for a chain that dropped
-          the second-objective stage by design) or exits rc=1 "metric is
-          None". Do NOT raise here: that made every child of a
-          second-objective-less launch fail at evaluate, after the full
-          wall-clock.
-        * Resolved to zero or negative from a REAL key is refused outright.
-          A fake zero row at good sob dominates the entire Pareto front at
-          the next GP refit; 7 poison rows landed that way 2026-07-10.
-
-        sob (column 0) raises KeyError, which cmd_evaluate's
-        `except (KeyError, TypeError)` turns into rc=1: any real value is a
-        legitimate BO objective there, so there is nothing to substitute.
+        UNRESOLVED and RESOLVED-TO-ZERO are deliberately different:
+        unresolved returns None (cmd_evaluate substitutes 0.0 only under
+        AUTORESEARCH_NO_RUN1B=1, else rc=1 -- raising here made every child
+        of a second-objective-less launch fail after full wall-clock);
+        resolved to zero/negative from a REAL key is refused outright -- a
+        fake zero row at good sob dominates the whole Pareto front at the
+        next GP refit (7 poison rows landed that way 2026-07-10). A missing
+        sob raises KeyError (rc=1); nothing to substitute there.
         """
         spec = _modes.SPECS[self.name]
         sob_col, second_col = spec.metric_cols[0], spec.metric_cols[1]
@@ -273,9 +233,7 @@ for _name, _spec in _modes.SPECS.items():
         MODES[_name] = JsonMode(_name)
 
 
-# ============================================================================
-# BO ask — botorch subprocess (the single ask engine)
-# ============================================================================
+# --- BO ask: botorch subprocess (the single ask engine) --------------------
 
 def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
                 picker: str = "qnehvi", pending: list | None = None,
@@ -284,20 +242,13 @@ def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
                 timeout_s: int = 14400) -> list[list]:
     """Ask the botorch picker for q points; returns a list of x-lists.
 
-    Shells into the botorch venv to run botorch_predict.py (this file's
-    sibling) and round-trips picks through a temp JSON file. Every BO ask
-    goes through here: CLI propose, graph propose_one, and the closed-loop
-    picker (which passes its own picker/venv). The picker loads priors +
-    leaderboard history itself.
-
-    seed_idx maps to --round-idx (Sobol/acq seed = 42 ^ idx), so retries
-    with a bumped seed_idx draw fresh points. `pending` x-lists ride via
-    --pending-json, and the acquisition fantasizes over them (X_pending).
-
-    venv_py: python interpreter to use; default resolves the
-    AUTORESEARCH_BOTORCH_VENV env seam against the project root (same rule
-    as core/runtime.py BOTORCH_VENV_PY).
-    leaderboard: test/golden-only override forwarded as --leaderboard.
+    EVERY BO ask goes through here (CLI propose, graph propose_one,
+    closed-loop picker): shells botorch_predict.py in the botorch venv,
+    round-tripping picks through a temp JSON file. seed_idx -> --round-idx
+    (Sobol/acq seed = 42 ^ idx), so a bumped seed_idx draws fresh points.
+    `pending` x-lists ride --pending-json and are fantasized (X_pending).
+    venv_py default resolves the AUTORESEARCH_BOTORCH_VENV env seam;
+    leaderboard is a test/golden-only override.
     """
     import subprocess
 
@@ -348,9 +299,7 @@ def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
     return [list(p) for p in raw]
 
 
-# ============================================================================
-# Subcommands
-# ============================================================================
+# --- Subcommands ------------------------------------------------------------
 
 def cmd_propose(args):
     mode = MODES[args.mode]
@@ -389,8 +338,8 @@ def _cmd_propose_locked(args, mode, names):
         for dim, val in zip(space, x):
             print(f"    {dim.name:24s} = {val}")
         geom = mode.render_proposal(name, x)
-        # Auto-stage geom into the parametric pipeline's per-config work tree
-        # (see wiki/incidents/template-fcl-staleness.md).
+        # Auto-stage geom into the per-config work tree
+        # (wiki/incidents/template-fcl-staleness.md).
         work_geom_dir = GRID_DATA_ROOT / name / "geom"
         work_geom_dir.mkdir(parents=True, exist_ok=True)
         work_geom = work_geom_dir / f"autoresearch_{name}_geom.txt"
@@ -416,22 +365,17 @@ def cmd_evaluate(args):
     except (KeyError, TypeError) as e:
         print(f"summary.json missing metric for {mode.name}: {e}; got {summary}")
         return 1
-    # AUTORESEARCH_NO_RUN1B=1 drops the run1b_mubeam stage (~40% wall-clock)
-    # and so intentionally produces calo=None. A MANUAL seam: nothing
-    # auto-stamps it, but the recovery recipe in wiki/incidents/
-    # closed-loop-sqlite-checkpoint-transient-corruption.md sets it by hand.
-    # Substituting 0.0 lets the row land and obj() becomes sob - alpha*0 =
-    # sob; without it run_evaluate returns obj=None, graph records
-    # `obj_unparseable`, and SqliteSaver crashes serializing the None-bearing
-    # state (foilsf08R00, 10/10 children).
-    # ...but ONLY for a mode that actually HAS run1b_mubeam to drop. For a
-    # chain that never contained it (foilsflash), a missing second objective
-    # means the stage that WAS supposed to produce it fail-softed — coercing
-    # that to 0.0 writes a fake zero-flash row at good sob, dominating the
-    # whole Pareto front at the next GP refit (the 7-poison-row incident of
-    # 2026-07-10). Gating on the stage chain keeps the guarantee generic: it
-    # comes from the mode's own spec, so it cannot go stale like a mode-name
-    # list.
+    # AUTORESEARCH_NO_RUN1B=1 drops run1b_mubeam (~40% wall-clock) and so
+    # intentionally produces calo=None; a MANUAL seam (recovery recipe in
+    # wiki/incidents/closed-loop-sqlite-checkpoint-transient-corruption.md
+    # sets it by hand). Substituting 0.0 lets the row land; without it
+    # SqliteSaver crashes serializing the None-bearing state (foilsf08R00).
+    # ...but ONLY for a mode that HAS run1b_mubeam to drop: for a chain that
+    # never contained it, a missing second objective means the producing
+    # stage fail-softed, and coercing to 0.0 writes a fake zero-flash row
+    # dominating the Pareto front (the 7-poison-row incident, 2026-07-10;
+    # wiki/incidents/no-run1b-substitution-poisons-flash-modes.md). Gating
+    # on the spec's stage chain cannot go stale like a mode-name list.
     _has_run1b = "run1b_mubeam" in _modes.SPECS[mode.name].grid_stages
     if calo is None and os.environ.get("AUTORESEARCH_NO_RUN1B") == "1":
         if not _has_run1b:
@@ -456,10 +400,9 @@ def cmd_evaluate(args):
         return 1
     extras = mode.extract_extras(summary, x=x)
     p = Point(cfg=args.config_name, x=x, sob=float(sob), calo=float(calo), extras=extras)
-    # Clear pending BEFORE appending the leaderboard so a crash in between
-    # leaves "missing leaderboard row" (loud, re-runnable) rather than
-    # "phantom pending row" (silent; trips propose_one's collision guard and
-    # renames the next iteration — see wiki graph-runner resume gotcha).
+    # Clear pending BEFORE appending: a crash in between leaves "missing
+    # leaderboard row" (loud, re-runnable) rather than a silent phantom
+    # pending row that trips propose_one's collision guard.
     removed = mode.remove_pending(args.config_name)
     mode.append_history(p, args.alpha)
     if getattr(args, "emit_json", None):
@@ -481,12 +424,10 @@ G4_GEOM_FAIL_RX = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# Fatal G4/art aborts that must FAIL preflight regardless of past_init.
-# past_init tolerates advisory GeomVol1002 surface-check warnings (~117 in
-# stock geometry), but it also fires on pre-geometry strings like
-# EventGenerator's "...@BeginRun", so a geometry abort AFTER those strings
-# was misclassified PASS for every foilsg child while the grid died on the
-# identical error. See wiki/incidents/preflight-past-init-false-pass.md.
+# Fatal G4/art aborts that must FAIL preflight regardless of past_init:
+# past_init fires on pre-geometry strings, so a geometry abort AFTER them
+# was misclassified PASS while the grid died on the identical error. See
+# wiki/incidents/preflight-past-init-false-pass.md.
 G4_FATAL_RX = re.compile(
     r"G4Exception\s*:\s*GeomSolids00\d\d"
     r"|\*\*\* Fatal Exception \*\*\*"
@@ -494,9 +435,8 @@ G4_FATAL_RX = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# Surface-check pass detects silent volume overlaps that wouldn't fail G4 init
-# (e.g. TSdA disc vs helical plug as siblings of DS2Vacuum). See wiki:
-# external/mu2e-overlap-check + incidents/tsda-disc-helical-sibling-overlap.
+# Surface-check detects silent volume overlaps that wouldn't fail G4 init
+# (wiki external/mu2e-overlap-check, incidents/tsda-disc-helical-sibling-overlap).
 SURFACE_CHECK_GEOM_OVERLAY = """\
 #include "{base_geom_basename}"
 
@@ -513,31 +453,27 @@ SURFACE_CHECK_FCL = """\
 services.GeometryService.inputFile : "{geom_basename}"
 {gdml_lines}"""
 
-# Written into the preflight workdir when the mode requests a GDML geometry
-# assertion (foils family). The dump reflects what G4 ACTUALLY built,
-# catching value-level divergence (indexing, units, clipping) the
-# holeRadii canary can't see.
+# GDML geometry assertion (foils family): the dump reflects what G4 ACTUALLY
+# built, catching value-level divergence the holeRadii canary can't see.
 PREFLIGHT_GDML_NAME = "preflight_geom.gdml"
 PREFLIGHT_GDML_FCL_LINES = (
     'physics.producers.g4run.debug.writeGDML : true\n'
     f'physics.producers.g4run.debug.GDMLFileName : "{PREFLIGHT_GDML_NAME}"\n'
 )
 
-# G4's GDML writer appends a pointer suffix to every name
-# ("Foil_020x55d1..."). A greedy \d+ would swallow the leading 0 of "0x"
-# and scramble indices (foil 02 → "20"); the non-greedy digits + anchored
-# optional 0x-suffix parse is exact for both suffixed and bare names.
+# G4's GDML writer appends a pointer suffix ("Foil_020x55d1..."). A greedy
+# \d+ would swallow the leading 0 of "0x" and scramble indices (foil 02 ->
+# "20"); non-greedy digits + anchored optional 0x-suffix is exact.
 GDML_FOIL_TUBE_RX = re.compile(r"Foil_(\d+?)(?:0x[0-9a-fA-F]+)?$")
 
 
 def verify_stopping_target_gdml(gdml_path, geom_text, tol_mm=1e-3):
     """Assert the G4-built stopping-target foils match the geom file.
 
-    Parses the GDML with plain XML iterparse — NOT ROOT TGDMLParse, which
-    segfaults on forward volume refs (see
-    wiki/incidents/root-gdml-forward-volume-ref.md). Each foil is a uniquely
-    named G4Tubs "Foil_NN" (constructStoppingTarget.cc:162), so the writer
-    cannot dedupe them away. Returns mismatch strings; empty == verified.
+    Plain XML iterparse -- NOT ROOT TGDMLParse, which segfaults on forward
+    volume refs (wiki/incidents/root-gdml-forward-volume-ref.md). Each foil
+    is a uniquely named G4Tubs "Foil_NN" (constructStoppingTarget.cc:162).
+    Returns mismatch strings; empty == verified.
     """
     import xml.etree.ElementTree as ET
 
@@ -598,21 +534,16 @@ def verify_stopping_target_gdml(gdml_path, geom_text, tol_mm=1e-3):
                             f"geom={want:.4f} (Δ={got - want:+.4f} mm)")
     return errs
 
-# G4 CheckOverlaps emits lines like
-#   "Overlap is detected for volume <X> ... with [its mother volume] <Y> ..."
-# Only overlaps involving volumes our BO knobs touch matter
-# (StoppingTargetFoil_* -- the foils family). Stock Mu2e geometry has ~117 baseline overlap lines (FoilSupportStructure_*
-# with StoppingTargetMother; NorthRailDS3 / SouthRailDS3 with DS3Vacuum;
-# VirtualDetector_EMC_0_Front with StoppingTargetMother). Whitelisting by
-# volume name keeps those out of our failure signal.
+# Only overlaps involving BO-managed volumes (StoppingTargetFoil_*) matter:
+# stock Mu2e geometry has ~117 baseline overlap lines (FoilSupportStructure_*,
+# NorthRailDS3/SouthRailDS3, VirtualDetector_EMC_0_Front), whitelisted by
+# volume name.
 SURFACE_OVERLAP_RX = re.compile(r"Overlap is detected for volume\s+(\S+)")
 
 
 def _overlap_banner(mode_name):
-    """PASS-line suffix describing which overlap policy actually ran.
-
-    Kept next to the policy flags so the banner cannot drift from the gate.
-    """
+    """PASS-line suffix naming which overlap policy actually ran (kept next
+    to the policy flags so it cannot drift from the gate)."""
     spec = _modes.SPECS[mode_name]
     if not spec.checks_managed_overlap:
         return ""
@@ -628,8 +559,7 @@ PREFLIGHT_VERDICTS = {0: "pass", 1: "fail_managed", 2: "fail_init",
 
 
 def write_json_atomic(path: Path, payload: dict) -> None:
-    """Write JSON via tmp+rename in the destination dir (readers never see
-    a partial file; rename is atomic within one filesystem)."""
+    """Write JSON via tmp+rename (atomic within one filesystem)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2))
@@ -641,9 +571,8 @@ def _cmd_preflight_impl(args):
 
     import harvest as _harvest
     import paths as _paths
-    # Preflight is the first thing every chain runs, so it is where a missing
-    # backing has to surface -- including harvest's Run1BAna artifacts, which
-    # no earlier step touches and which a fresh clone does not have.
+    # Preflight runs first, so a missing backing surfaces here -- including
+    # harvest's Run1BAna artifacts, which no earlier step touches.
     _paths.verify([_modes.SPECS[mode.name]],
                   extra=_harvest.REQUIRED_ARTIFACTS, make_dirs=False)
 
@@ -659,15 +588,13 @@ def _cmd_preflight_impl(args):
     shutil.copyfile(geom, workdir / geom_basename)
 
     # One G4 init covers both checks: surfacecheck.fcl enables
-    # g4.doSurfaceCheck=true AND exercises the same init path a plain G4-init
-    # preflight would. Every mode sets preflight_fcl="surfacecheck" (pinned
-    # by test_modes.test_all_modes_use_surfacecheck_preflight).
+    # doSurfaceCheck AND exercises the plain G4-init path (pinned by
+    # test_modes.test_all_modes_use_surfacecheck_preflight).
     overlay_basename = f"autoresearch_{name}_surfacecheck_geom.txt"
     (workdir / overlay_basename).write_text(
         SURFACE_CHECK_GEOM_OVERLAY.format(base_geom_basename=geom_basename))
     fcl_basename = "surfacecheck.fcl"
-    # foils family: also dump the as-built geometry to GDML so the
-    # per-foil assertion below can verify it against the geom file.
+    # foils family: also dump the as-built geometry to GDML.
     gdml_lines = (PREFLIGHT_GDML_FCL_LINES
                   if _modes.SPECS[mode.name].dumps_gdml else "")
     (workdir / fcl_basename).write_text(
@@ -678,16 +605,13 @@ def _cmd_preflight_impl(args):
     print(f"[preflight/{mode.name}] cfg={name}  workdir={workdir}  log={log}")
     print(f"[preflight/{mode.name}] geom: {geom}  fcl: {fcl_basename}")
 
-    # SPACK_USER_CACHE_PATH moves spack's provider cache + flock off NFS HOME
-    # onto local /tmp. Under concurrent preflights (q>1 closed-loop) the NFS
-    # flock on ~/.spack/cache/providers/.fnal_art-index.json.lock races and
-    # self-corrupts, surfacing as [Errno 5] during `spack load` inside
-    # setupmu2e-art.sh -> muse undefined -> rc=3 ambiguous. It MUST be set
-    # INSIDE the bash command; export-at-launch did NOT propagate to the
-    # child. See wiki/incidents/foilsx04-all-preflight-ambiguous.md.
+    # SPACK_USER_CACHE_PATH off NFS HOME onto /tmp: under concurrent
+    # preflights the NFS flock on ~/.spack races and self-corrupts ->
+    # [Errno 5] during spack load -> muse undefined -> rc=3 ambiguous. It
+    # MUST be set INSIDE the bash command; export-at-launch did NOT
+    # propagate. See wiki/incidents/foilsx04-all-preflight-ambiguous.md.
     spack_cache = f"/tmp/spack_cache_{os.environ.get('USER','x')}"
-    # Per-mode Musing dispatch, resolved per-call (not import-time)
-    # because the BO driver is invoked with --mode as a CLI arg.
+    # Per-mode Musing, resolved per-call (--mode is a CLI arg).
     musing = _modes.SPECS[mode.name].musing
     bash_cmd = (
         f"export SPACK_USER_CACHE_PATH={spack_cache} && "
@@ -698,15 +622,12 @@ def _cmd_preflight_impl(args):
         f"cd {workdir} && "
         f"mu2e -c {fcl_basename} -n 1"
     )
-    # Transient cvmfs/spack env-source flakes (==> Error: [Errno 5]) leave
-    # `mu2e` unsourced -> the subprocess exits nonzero with NO output, which
-    # the rc-map below misreads as rc=3 "ambiguous" (a real but rare G4
-    # outcome); that false-ambiguous burned 2/3 foilsY02 round-0 children.
-    # Retry ONLY when mu2e never started -- a genuine run always emits a
-    # Geant4/art banner, so its presence means the result is real (pass,
-    # geom-fail, or true-ambiguous) and must NOT be retried. `>/dev/null`
-    # (not `2>&1`) in bash_cmd lets the flake's stderr reach the captured log.
-    # See wiki/incidents/sourced-env-stderr-swallowed.md.
+    # Transient env-source flakes ([Errno 5]) leave `mu2e` unsourced -> exit
+    # nonzero with NO output -> misread as rc=3 "ambiguous" (burned 2/3
+    # foilsY02 round-0 children). Retry ONLY when mu2e never started: a
+    # genuine run always emits a Geant4/art banner, and a banner-bearing
+    # result must NOT be retried. `>/dev/null` (not `2>&1`) lets the flake's
+    # stderr reach the log; wiki/incidents/sourced-env-stderr-swallowed.md.
     def _retry_if_no_banner(p):
         combined = (p.stdout or "") + (p.stderr or "")
         started = any(s in combined for s in
@@ -735,19 +656,17 @@ def _cmd_preflight_impl(args):
 
     print(f"[preflight/{mode.name}] return code: {rc}  timed_out={timed_out}")
 
-    # Fatal aborts FAIL unconditionally — before past_init or surface-check
-    # logic can mask them; see wiki/incidents/preflight-past-init-false-pass.md
-    # and G4_FATAL_RX above.
+    # Fatal aborts FAIL unconditionally, before past_init or surface-check
+    # logic can mask them (see G4_FATAL_RX).
     fatal = G4_FATAL_RX.search(out)
     if fatal:
         snippet = out[max(0, fatal.start() - 300): fatal.end() + 400]
         print(f"[preflight/{mode.name}] FAIL  fatal G4/art abort:\n{snippet}")
         return 1
 
-    # Env-divergence canary: if the geom requests per-foil holeRadii, the
-    # patched StoppingTargetMaker MUST have announced it. A silent scalar
-    # fallback means the sourced env runs unpatched GeometryService — the
-    # exact silent-wrong-geometry failure of
+    # Env-divergence canary: a geom requesting per-foil holeRadii without
+    # the patched StoppingTargetMaker's announcement means an unpatched
+    # GeometryService silently built the wrong geometry --
     # wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md.
     if "stoppingTarget.holeRadii" in Path(geom).read_text() \
             and "holeRadii vector active" not in out:
@@ -757,11 +676,9 @@ def _cmd_preflight_impl(args):
               f"(scalar fallback). Check modes.py musing / grid tarball.")
         return 1
 
-    # As-built geometry assertion: compare the G4-constructed foil stack
-    # (GDML dump) against the geom file, per foil (rIn / rOut / thickness).
-    # Catches value-level divergence the canary can't: indexing bugs, unit
-    # errors, repeat-last mistakes, silent clipping. HARD gate — a foils run
-    # whose built geometry differs from x must never reach the grid.
+    # As-built assertion: G4-constructed foil stack (GDML) vs the geom file,
+    # per foil. Catches value-level divergence the canary can't. HARD gate:
+    # a run whose built geometry differs from x must never reach the grid.
     if _modes.SPECS[mode.name].verifies_foil_gdml:
         gdml_path = workdir / PREFLIGHT_GDML_NAME
         if not gdml_path.exists():
@@ -783,17 +700,15 @@ def _cmd_preflight_impl(args):
         n_foils = len(radii_m.group(1).split(",")) if radii_m else 0
         print(f"[preflight/{mode.name}] geometry assertion: {n_foils} foils "
               f"verified against as-built GDML (rIn/rOut/thickness)")
-        # Preserve the verified as-built GDML alongside the config's grid
-        # artifacts (the /tmp workdir is node-local and tmpwatch-cleaned).
+        # Preserve the verified GDML (the /tmp workdir is tmpwatch-cleaned).
         keep_dir = GRID_DATA_ROOT / name / "geom"
         keep_dir.mkdir(parents=True, exist_ok=True)
         keep_path = keep_dir / f"asbuilt_{name}.gdml"
         shutil.copyfile(gdml_path, keep_path)
 
-    # Surface-check emits G4Exception(GeomVol1002) WWWW warnings on every
-    # baseline overlap (~117 in stock geometry). These are advisory, not init
-    # failures, so the geom_fail regex must only be consulted when geometry
-    # construction actually aborted (past_init=False).
+    # Surface-check emits advisory GeomVol1002 warnings on every baseline
+    # overlap (~117 in stock geometry), so the geom_fail regex is only
+    # consulted when construction actually aborted (past_init=False).
     if _modes.SPECS[mode.name].checks_managed_overlap:
         all_hits = SURFACE_OVERLAP_RX.findall(out)
         unique_all = sorted(set(all_hits))
@@ -811,14 +726,11 @@ def _cmd_preflight_impl(args):
                     print(f"[preflight/{mode.name}] context:\n{ctx}")
 
         # Strict policy first, so the reported reason is the real one. The
-        # managed/baseline split below classifies by volume NAME, which
-        # silently assumes "not named like a BO volume" => "independent of BO
-        # knobs". That is false: IPAsupport_* sits at a z derived from
-        # targetEnd (MECOStyleProtonAbsorberMaker.cc:124-129) -- our foil
-        # stack. foilsflashRUN1BAP01 introduced 3 such overlaps, unseen in the
-        # preceding 461 evals, and still PASSED as "known stock-geometry ...
-        # ignored". Modes whose Musing can reach zero opt into failing on ANY
-        # overlap.
+        # name-based managed/baseline split falsely assumes "not named like
+        # a BO volume" => "independent of BO knobs": IPAsupport_* sits at a
+        # z derived from targetEnd (MECOStyleProtonAbsorberMaker.cc:124-129);
+        # foilsflashRUN1BAP01 introduced 3 such overlaps and still PASSED.
+        # Modes whose Musing can reach zero opt into failing on ANY overlap.
         if _modes.SPECS[mode.name].require_zero_overlaps and all_hits:
             print(f"[preflight/{mode.name}] FAIL  zero-overlap policy: "
                   f"{len(all_hits)} overlap(s) in {len(unique_all)} volume(s):")

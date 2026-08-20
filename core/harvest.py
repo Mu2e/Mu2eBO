@@ -1,19 +1,12 @@
 """Eval-summary module: the schema and pure logic behind `pipeline.py harvest`.
 
-Everything that can be computed or decided WITHOUT touching the grid, a muse
-env, or a subprocess lives here, behind small typed interfaces. pipeline.py
-keeps the CLI verb, env sourcing, and the subprocess-invoking extractors, and
-passes those extractors IN as callables — so every branch here is
-unit-testable from tests/ (no grid, no ROOT).
-
-Vocabulary (CONTEXT.md): an **Eval summary** is the explicit product of
-harvest — the typed key set below, written to harvest/summary.json; the
-leaderboard row is derived from it by the driver's extract_metrics.
-
-Invariant ownership: whether concat ran for THIS Eval is decided by
-`resolve_muminus_inputs` from the Eval's state dir alone (stage-chain stamp
-if present, else file presence) — never from the process env. Submit-side
-template materialization must consult the same stamp.
+Everything decidable without grid/muse/subprocess lives here; pipeline.py
+passes its subprocess extractors IN as callables (every branch unit-testable).
+An **Eval summary** (CONTEXT.md) = harvest/summary.json; the leaderboard row
+derives from it. Invariant: whether concat ran is decided by
+resolve_muminus_inputs from the Eval's state dir alone (stamp, else file
+presence) — NEVER the process env; submit-side template materialization must
+consult the same stamp.
 """
 from __future__ import annotations
 
@@ -56,18 +49,11 @@ def parse_s_over_sqrt_b(stdout: str) -> float:
 
 
 # --- Steps 1 & 4: subprocess-shaped harvest work, behind injected runners ---
-# (harvest.py stays stdlib-only; runner(cmd, cwd) is a proc-like the CALLER
-# binds env for — see pipeline.py's _mu2e_runner / _root_runner.)
+# (runner(cmd, cwd) is a proc-like the CALLER binds env for.)
 
-# Run1BAna (github.com/michaelmackenzie/Run1BAna) supplies EdepAna's FCL and
-# the sensitivity macro. It is an ARTIFACT, not source -- gitignored, never
-# tracked here -- so it resolves through artifact()/backing exactly like the
-# muse work area holding EdepAna's built lib (the same `autoresearch_muse`
-# root). Resolving it from REPO_ROOT instead left a fresh clone with no
-# Run1BAna at all, dying here after every stage had run. Anchoring on
-# MUSE_WORKAREA also keeps the #include below honest: harvest runs with that
-# work area on FHICL_FILE_PATH, so a workarea-relative string is what
-# actually resolves the file.
+# Run1BAna (github.com/michaelmackenzie/Run1BAna) is an ARTIFACT (gitignored),
+# resolved via artifact()/backing — REPO_ROOT resolution died on fresh clones.
+# MUSE_WORKAREA anchoring keeps the #include honest (FHICL_FILE_PATH).
 from paths import artifact  # see core/paths.py
 
 MUSE_WORKAREA = artifact("autoresearch_muse")
@@ -75,9 +61,8 @@ EDEP_FCL = MUSE_WORKAREA / "Run1BAna/workflows/fcl/edep.fcl"
 SENSITIVITY_MACRO = (MUSE_WORKAREA /
                      "Run1BAna/workflows/scripts/rough_run1a_sensitivity.C")
 
-# Checked by paths.verify() at preflight so a missing backing fails in the
-# first minute rather than after the last stage. Not per-mode: every mode's
-# harvest needs both.
+# Checked by paths.verify() at preflight — a missing backing fails in the
+# first minute, not after the last stage. Every mode's harvest needs both.
 REQUIRED_ARTIFACTS = (
     (EDEP_FCL, "EdepAna FCL (Run1BAna)"),
     (SENSITIVITY_MACRO, "sensitivity macro (Run1BAna)"),
@@ -85,10 +70,8 @@ REQUIRED_ARTIFACTS = (
 
 
 def run_edepana(harvest_dir: Path, ce_files: Sequence[Path], *, runner):
-    """Harvest Step 1: EdepAna over the CeEndpoint art files.
+    """Harvest Step 1: EdepAna over the CeEndpoint art files -> (ce_seen, nts_path).
 
-    Returns (ce_seen, nts_path). Writes ce_files.txt, edep_wrapper.fcl and
-    edep.log into harvest_dir; the caller binds env/FHICL_FILE_PATH.
     HARD-fail (SystemExit) on rc != 0 or an unparseable 'Saw N events' line
     — this is the sob numerator, never fail-soft.
     """
@@ -114,12 +97,9 @@ def run_edepana(harvest_dir: Path, ce_files: Sequence[Path], *, runner):
 
 def run_sensitivity_macro(harvest_dir: Path, nts_path: Path,
                           ce_abs_eff: float, *, runner) -> float:
-    """Harvest Step 4: rough_run1a_sensitivity.C -> S/sqrt(B).
-
-    cwd is the Run1BAna workflows dir (macro path in cmd is
-    workflows-relative). Writes rough_run1a_sensitivity.log. HARD-fail on
-    rc != 0 / unparseable output.
-    """
+    """Harvest Step 4: rough_run1a_sensitivity.C -> S/sqrt(B); HARD-fail on
+    rc != 0 / unparseable output. cwd is the Run1BAna workflows dir (macro
+    path is workflows-relative)."""
     macro_log = harvest_dir / "rough_run1a_sensitivity.log"
     cwd = SENSITIVITY_MACRO.parent.parent
     cmd = ["root", "-q", "-b", "-l",
@@ -140,12 +120,9 @@ def run_sensitivity_macro(harvest_dir: Path, nts_path: Path,
 # --- stage-chain stamp (the one owner of "did concat run for this Eval") ----
 
 def stamp_stage_chain(state_dir: Path, stages: Sequence[str]) -> None:
-    """Record the mode's stage chain at submit time (events_per_job pattern).
-
-    Written once per Eval at first submit; harvest and template
-    materialization read it back so a config evaluated under an older chain
-    is never re-interpreted under the current env's chain.
-    """
+    """Record the mode's stage chain at first submit (events_per_job pattern):
+    a config evaluated under an older chain is never re-interpreted under the
+    current env's chain."""
     (state_dir / STAGE_CHAIN_STAMP).write_text("\n".join(stages) + "\n")
 
 
@@ -170,10 +147,9 @@ def read_outputs(state_dir: Path, stage: str) -> Optional[list[Path]]:
 
 
 def concatless(state_dir: Path, fallback: bool) -> bool:
-    """Did THIS Eval's chain skip concat? Stamp-first; `fallback` (the
-    env-derived mode default) only applies to pre-stamp legacy configs.
-    The one accessor for every submit-side consumer — never key this off
-    the env directly (ff11R00_07 +1.5% sob bias class)."""
+    """Did THIS Eval's chain skip concat? Stamp-first; `fallback` only for
+    pre-stamp legacy configs. The one submit-side accessor — never key off
+    the env (ff11R00_07 +1.5% sob bias class)."""
     chain = stamped_stage_chain(state_dir)
     if chain is not None:
         return "concat" not in chain
@@ -183,14 +159,10 @@ def concatless(state_dir: Path, fallback: bool) -> bool:
 def resolve_muminus_inputs(state_dir: Path) -> tuple[list[Path], str]:
     """The mu⁻-stop count inputs for this Eval: (files, source).
 
-    source is "concat" (MuminusStopsCat from the concat stage) or "mubeam"
-    (mu⁻-pure TargetStops — concat-less chain, muminusSelector in the mubeam
-    template guarantees purity). Decision order:
-      1. stage-chain stamp, when present (the authoritative record);
-      2. else file presence: existing concat outputs are the truth for this
-         config regardless of the current env (never key this off the env —
-         ff11R00_07 +1.5% sob bias).
-    Raises SystemExit with a diagnosable message when inputs are missing.
+    source: "concat" (MuminusStopsCat) or "mubeam" (mu⁻-pure TargetStops,
+    muminusSelector guarantees purity). Stamp first; else file presence —
+    existing concat outputs are the truth regardless of the current env
+    (ff11R00_07 +1.5% sob bias). SystemExit when inputs are missing.
     """
     chain = stamped_stage_chain(state_dir)
     if chain is not None:
@@ -246,11 +218,9 @@ def extract_secondary_edep(state_dir: Path, stage: str,
                            ) -> Optional[SecondaryEdep]:
     """THE fail-soft wrapper for secondary objectives (one copy, not three).
 
-    Returns None when the stage didn't run in this Eval's chain (no
-    outputs.txt). Never raises: extraction failures come back as a
-    SecondaryEdep carrying `error`, so harvest degrades to a metric-less
-    summary. `runner(files)` is pipeline.py's gallery extractor
-    (subprocess); tests inject a fake.
+    None = stage absent from this Eval's chain (no outputs.txt). Never
+    raises: failures come back as SecondaryEdep.error, so harvest degrades
+    to a metric-less summary.
     """
     files = read_outputs(state_dir, stage)
     if files is None:
@@ -296,8 +266,8 @@ def extract_secondary_calo(state_dir: Path,
 
 
 def per_pot(total_MeV: Optional[float], n_files: int, epj: int) -> tuple[Optional[float], Optional[int]]:
-    """(metric_per_pot, n_input) from a landed-file count — the POT
-    denominator convention shared by flash (and any future per-POT edep)."""
+    """(metric_per_pot, n_input) from a landed-file count — the shared
+    per-POT denominator convention."""
     if total_MeV is None or not n_files:
         return None, None
     n_input = n_files * epj
@@ -312,11 +282,9 @@ def winsorized_diagnostics(per_file: Optional[Sequence[float]], epj: int,
     """Per-run flash DIAGNOSTICS (not the objective): 5/95-Winsorized
     per-POT mean + per-file spread stats.
 
-    Clips the heavy per-job tail (sd/mean 25-35%) that makes single runs
-    swing ±5-11% (bo-noise-budget). Slightly biased low vs the physical mean
-    (the tail is real flash), so the leaderboard objective STAYS the plain
-    mean; these fields exist for run-level QA (the sigma_flash split-half
-    measurement).
+    Clips the heavy per-job tail (sd/mean 25-35%, single-run swing ±5-11% —
+    bo-noise-budget). Biased slightly low (the tail is real flash), so the
+    leaderboard objective STAYS the plain mean.
     """
     if not per_file or len(per_file) < min_files:
         return None, None
@@ -343,9 +311,8 @@ def winsorized_diagnostics(per_file: Optional[Sequence[float]], epj: int,
 class EvalSummary:
     """The explicit contract behind harvest/summary.json.
 
-    Every key the driver's extract_metrics, the graph's evaluate node, or a
-    human reader may consume. Optional fields are the fail-soft secondary
-    objectives — None means 'stage absent or extraction degraded'.
+    Optional fields are fail-soft secondary objectives — None means 'stage
+    absent or extraction degraded'.
     """
     config: str
     # primary (hard-fail) chain

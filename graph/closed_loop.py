@@ -1,31 +1,11 @@
 """Rolling closed-loop BO campaign: a bounded work-pool parent.
 
-The parent keeps `q` children in flight (`graph.run` subprocesses) and tops
-up as each one exits, until `max_evals` have been launched and the pool
-drains. All of that lives in `graph/pool.py::run_rolling`; this module wires
-CLI args to it and keeps the pieces `run_rolling` depends on:
-
-  renew_token              — kerberos + bearer refresh; passed as
-                             `renew=renew_token` and called once before EVERY
-                             child launch. Time-gated internally (see
-                             RENEW_MIN_INTERVAL_S) so the call frequency
-                             doesn't multiply exposure to the /cvmfs sourcing
-                             flake class.
-  _stop_requested          — the STOP_CLOSED_LOOP kill switch; passed as
-                             `stop_flag=_stop_requested`.
-  _botorch_picks_subprocess — the picker subprocess wrapper; what `pool.py`
-                             calls in production, once per pick, and what
-                             `--dry-run` previews.
-  _leaderboard_names / _child_is_broken — the two signals `pool.py` reads
-                             at resolution time (rows landed / broken.txt).
-
-There is no LangGraph state machine and no SqliteSaver checkpoint for the
-parent. A child resolves when its subprocess EXITS — `run_rolling`'s
-`ThreadPoolExecutor` + `as_completed` IS the barrier. See graph/pool.py for
-the rationale and the incidents that retires.
-
-See wiki/concepts/closed-loop-bo-design.md and
-wiki/drivers/closed-loop-runner.md.
+Keeps q `graph.run` children in flight until max_evals launched and the pool
+drains (graph/pool.py::run_rolling -- its ThreadPoolExecutor + as_completed
+IS the barrier; no LangGraph, no SqliteSaver). Wires CLI args and supplies
+renew_token, _stop_requested, _botorch_picks_subprocess,
+_leaderboard_names/_child_is_broken. See
+wiki/concepts/closed-loop-bo-design.md, wiki/drivers/closed-loop-runner.md.
 """
 from __future__ import annotations
 
@@ -41,15 +21,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "core"))  # BO/pipeline mo
 
 import modes as _modes  # noqa: E402
 
-# MUST precede `from runtime import ...` below (and every lazy `import
-# bo_driver` / `import pipeline` further down): both core/runtime.py (_SPEC)
-# and core/pipeline.py (MODE) resolve the process's mode from
-# AUTORESEARCH_MODE at IMPORT time and cannot be re-pointed later. The parent
-# also passes --mode explicitly to each child, so it must not hand children an
-# env that contradicts it. Precedence rules:
-# core/modes.py::stamp_mode_from_argv; main() re-checks with
-# assert_mode_stamped(). The RETURN VALUE becomes --mode's argparse default
-# below, so `args.mode` IS the resolved mode rather than a second constant.
+# MUST precede `from runtime import ...` (and lazy bo_driver/pipeline
+# imports): core/runtime.py (_SPEC) and core/pipeline.py (MODE) resolve
+# AUTORESEARCH_MODE at IMPORT time (core/modes.py::stamp_mode_from_argv).
+# The return value becomes --mode's argparse default: args.mode IS the
+# resolved mode.
 _MODE = _modes.stamp_mode_from_argv()
 
 from dotenv import load_dotenv  # noqa: E402
@@ -66,22 +42,15 @@ from runtime import (  # noqa: E402
 
 from sourced_bash import run_sourced_bash  # noqa: E402
 
-# Module-level (not lazy inside main()) so `run_rolling` is a patchable
-# attribute of THIS module (cl.run_rolling) for tests/test_closed_loop.py.
-# No circular-import hazard: pool.py imports closed_loop only inside its own
-# function bodies.
+# Module-level so tests can patch cl.run_rolling; no import cycle -- pool.py
+# imports closed_loop only inside function bodies.
 from pool import child_name, run_rolling  # noqa: E402
 
-# cl_min retired per ADR-0001: the closed loop must never import code outside
-# this repo; all pickers route through in-repo botorch_predict.py in the
-# project .venv.
+# cl_min retired per ADR-0001: the closed loop never imports code outside
+# this repo; all pickers route through in-repo botorch_predict.py.
 PICKER_CHOICES = ("qnehvi", "qlnei", "budget_sob", "hybrid")
 DEFAULT_PICKER = "hybrid"
 
-
-# ============================================================================
-# Helpers
-# ============================================================================
 
 def _stop_requested() -> bool:
     return STOP_FLAG.exists()
@@ -106,49 +75,29 @@ def _leaderboard_names(mode: str) -> set:
     return {p.cfg for p in _history(mode)}
 
 
-# ============================================================================
-# Renew token — wired into run_rolling as `renew=renew_token`
-# ============================================================================
-
-# Minimum spacing between successful renewals. run_rolling calls renew() once
-# per LAUNCH (up to ~40 times in a q=20 max_evals=40 campaign). The cost is
-# not wall time (kinit -R IS cheap) but FAILURE SURFACE: every call sources
-# setupmu2e-art.sh from /cvmfs, a known flake class
-# (wiki/incidents/sourced-env-stderr-swallowed.md and
-# wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md -- the second is
-# *triggered* by concurrent lock churn on exactly this path), and a
-# persistent failure here is FATAL. krb5 lifetime is ~25h, so 30 min gives
-# the same freshness guarantee at a twentieth of the exposure. Kept inside
-# renew_token (not at the call site) so the gate can't be bypassed.
+# Renewal spacing. The cost is FAILURE SURFACE, not wall time: each call
+# sources setupmu2e-art.sh from /cvmfs, a known flake class
+# (wiki/incidents/sourced-env-stderr-swallowed.md,
+# wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md -- triggered by exactly
+# this concurrent lock churn), and persistent failure is FATAL. krb5 lifetime
+# ~25h, so 30 min gives the same freshness at 1/20 the exposure. Gated inside
+# renew_token so call sites can't bypass it.
 RENEW_MIN_INTERVAL_S = 30 * 60
 
 _last_renewed_at = 0.0
 
 
 def renew_token() -> None:
-    """Refresh krb5 ticket + bearer token. A plain zero-arg callable per
-    run_rolling's `renew` seam, called before every child launch. Time-gated:
-    a no-op if the last successful renewal was under RENEW_MIN_INTERVAL_S ago.
+    """Refresh krb5 + bearer token (run_rolling's `renew` seam, called before
+    every launch); no-op under RENEW_MIN_INTERVAL_S.
 
-    Campaigns run many hours wall; default krb5 lifetime is ~25h, so a long
-    rolling run can outlive the ticket. The first post-expiry subprocess.run
-    raises Errno 127 (ENOKEY) and the inner graph terminates before harvest —
-    the eval is silently LOST (no leaderboard row, no loud failure) rather
-    than visibly failed. See wiki/incidents/kerberos-mid-run-expiry.md.
-
-    Hard gate: if `getToken` fails (proxy for "can we actually submit?"),
-    `sys.exit(2)` with an actionable message. SystemExit is not an Exception
-    subclass, so run_rolling's `except Exception` around a resolved future
-    never swallows it; it propagates out of the launch loop and out of the
-    `with ThreadPoolExecutor(...)` block, whose `shutdown(wait=True)` on
-    unwind still drains already-launched children, so nothing already
-    submitted to the grid is abandoned mid-flight. No new children launch
-    past this point; already-submitted ones don't need the parent's local
-    ticket. The FATAL print says so explicitly, because the drain can take
-    hours and an operator watching the tail could mistake it for a hang.
-
-    `kinit -R` is best-effort (failing is normal past the renewable
-    lifetime); the load-bearing check is `getToken`.
+    A campaign can outlive the ~25h ticket: the post-expiry eval is silently
+    LOST (wiki/incidents/kerberos-mid-run-expiry.md). getToken failure
+    ("can we actually submit?") sys.exit(2)s -- SystemExit is not an
+    Exception, so run_rolling never swallows it, and the ThreadPoolExecutor
+    unwind still DRAINS already-launched children (the FATAL print says so:
+    the drain can take hours and is not a hang). `kinit -R` is best-effort;
+    getToken is the load-bearing check.
     """
     global _last_renewed_at
     if time.time() - _last_renewed_at < RENEW_MIN_INTERVAL_S:
@@ -163,9 +112,7 @@ def renew_token() -> None:
     cmd = "source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh && getToken"
     try:
         # getToken shares the cvmfs/spack flake class -> retry via the shared
-        # helper. A persistent rc!=0 after retries is still FATAL (krb5 likely
-        # expired); a transient flake recovers instead of hard-exiting the
-        # whole campaign.
+        # helper; persistent rc!=0 stays FATAL (krb5 likely expired).
         r = run_sourced_bash(cmd, login=True, timeout=120, label="renew_token")
     except Exception as exc:  # noqa: BLE001
         msg = (f"[closed_loop] FATAL renew_token: getToken raised: {exc}. "
@@ -188,52 +135,26 @@ def renew_token() -> None:
     print("[closed_loop] renew_token: krb5 + bearer refreshed", flush=True)
 
 
-# ============================================================================
-# Picker
-# ============================================================================
-
 def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "qnehvi",
                               pending: list | None = None) -> list[tuple]:
-    """Shell into the botorch venv for q picks (thin wrapper on bo.botorch_ask).
-
-    bo.botorch_ask owns the subprocess + JSON round-trip; this wrapper pins
-    the venv from runtime.BOTORCH_VENV_PY (the AUTORESEARCH_BOTORCH_VENV A/B
-    seam) and keeps the list-of-tuples return contract.
-
-    picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj), "qlnei"
-    (single-obj sob -- acquisition ONLY, it changes no stage chain),
-    "budget_sob" (GP-mean sob corner constrained to the deployed damage
-    budget), "hybrid" (~60% qnehvi + ~40% qnparego; recommended for new
-    multi-objective lines). `pending` carries in-flight x_points so
-    replacements fantasize over them (X_pending) instead of re-picking a
-    point already being measured; `run_rolling`'s `next_pick` hook passes it
-    the literal in-flight set.
-    """
+    """Shell into the botorch venv for q picks (wraps bo.botorch_ask; venv
+    pinned via runtime.BOTORCH_VENV_PY, the AUTORESEARCH_BOTORCH_VENV A/B
+    seam). `pending` carries in-flight x_points so replacements fantasize
+    over them (X_pending) instead of re-picking a point being measured."""
     import bo_driver as bo  # noqa: WPS433  (env-independent; safe pre-stamp)
     raw = bo.botorch_ask(mode, q, seed_idx=round_idx, picker=picker,
                          pending=pending, venv_py=BOTORCH_VENV_PY)
     return [tuple(p) for p in raw]
 
 
-# ============================================================================
-# CLI
-# ============================================================================
-
 def _dry_run(args: argparse.Namespace) -> int:
-    """Preview the picks and names a real launch would start with.
-
-    Names come from `pool.child_name`, so an operator is never shown names the
-    campaign will not use. The indices are only indicative: a live run
-    advances past any name already resolved or with work in flight (see
-    `pool._name_busy_reason`), and refits the GP between picks instead of
-    drawing them as one batch.
-    """
+    """Preview the picks and names a real launch would start with. Names come
+    from pool.child_name so the preview cannot drift; indices are indicative
+    only (a live run skips busy names and refits between picks)."""
     picks = _botorch_picks_subprocess(args.mode, args.q, round_idx=0, picker=args.picker)
     print(f"[dry-run] first {len(picks)} picks (mode={args.mode}, "
           f"picker={args.picker})")
-    # Labels come from the registry (ModeSpec.knob_names, ADR-0002), not a
-    # hand-maintained table: the local copy this replaced covered 5 of 11
-    # modes, so every JSON mode printed bare x0..xN with drifted labels.
+    # Labels from the registry (ModeSpec.knob_names, ADR-0002).
     labels = _modes.SPECS[args.mode].knob_names
     for j, p in enumerate(picks):
         name = child_name(args.name_prefix, j)
@@ -272,11 +193,8 @@ def main() -> int:
                     help="print the first q picks + their names without "
                          "launching")
     args = ap.parse_args()
-    # Loud, cheap: a mode disagreement between the CLI, the env stamp,
-    # runtime._SPEC and pipeline.MODE is otherwise SILENT -- the grid just
-    # runs another mode's events_per_job / njobs / grid tarball / stage chain,
-    # a metric denominator error with no error surface
-    # (wiki/incidents/events-per-job-mid-flight-edit.md).
+    # Loud, cheap: a CLI/env-stamp/_SPEC/pipeline.MODE mode disagreement is
+    # otherwise SILENT (wiki/incidents/events-per-job-mid-flight-edit.md).
     _modes.assert_mode_stamped(args.mode)
 
     if args.dry_run:
@@ -288,10 +206,8 @@ def main() -> int:
 
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
 
-    # Resolve the target leaderboard so the banner is self-incriminating: a
-    # mode/prefix mismatch (rows landing on the wrong board) is visible in the
-    # first log line rather than only after the first eval completes. See
-    # wiki/datasets/leaderboards.md.
+    # Resolve the target leaderboard so a mode/prefix mismatch (rows landing
+    # on the wrong board) is visible in the first log line.
     try:
         import bo_driver as _bo  # noqa: WPS433
         _lb = str(_bo.MODES[args.mode].leaderboard)
@@ -305,9 +221,6 @@ def main() -> int:
         mode=args.mode, picker=args.picker, q=args.q, max_evals=max_evals,
         alpha=args.alpha, name_prefix=args.name_prefix,
         renew=renew_token, stop_flag=_stop_requested)
-    # Tally by outcome reason so a multi-day log ends with the failure
-    # breakdown on one line instead of scattered through thousands of
-    # per-child lines.
     tally = Counter(oc.reason for oc in result["outcomes"])
     tally_str = ", ".join(f"{reason}={n}" for reason, n in
                           sorted(tally.items(), key=lambda kv: -kv[1]))
