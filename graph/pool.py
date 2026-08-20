@@ -25,8 +25,9 @@ Outcome = namedtuple("Outcome", "name x rc row_landed broken reason")
 # logs stay readable. Diagnostic only (see _log_inflight).
 HEARTBEAT_S = 15 * 60
 
-# In-flight age that upgrades the heartbeat to a WARNING: 24 h matches
-# core/pipeline.py's poll cap_hours -- past it, outside every normal duration.
+# In-flight age that upgrades the heartbeat to a WARNING: 24 h is past every
+# normal stage duration. Since prodtools jobwait has no internal timeout, this
+# WARNING and the closed-loop barrier are the only signals a child is stuck.
 STALL_WARN_S = 24 * 3600
 
 # Busy-name skips logged in full before summarising as a count: each SKIP

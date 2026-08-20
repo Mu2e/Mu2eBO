@@ -458,8 +458,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
             pipeline._bind_config("cfg001")
             pipeline.STATE.mkdir(parents=True)
             (pipeline.STATE / "mubeam_cluster.txt").write_text("777\n")
-            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
-                                              cap_hours=24.0))
+            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None))
 
     def test_cnf_path_matches_px_cnf_path(self):
         # M1: cmd_poll re-derives the cnf path (no entry.json to re-read at
@@ -510,8 +509,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
             pipeline._bind_config("cfg001")
             pipeline.STATE.mkdir(parents=True)
             (pipeline.STATE / "mubeam_local.txt").write_text("1\n")
-            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
-                                              cap_hours=24.0))
+            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None))
         rj.assert_not_called()
 
     def test_the_env_var_alone_does_not_make_poll_skip_a_live_grid_cluster(self):
@@ -542,8 +540,8 @@ class TestCmdPollViaJobwait(unittest.TestCase):
                  mock.patch.object(pipeline, "sourced_env", return_value={}), \
                  mock.patch.object(pipeline.px, "run_jobwait",
                                    side_effect=fake_run_jobwait) as pc:
-                pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
-                                                  cap_hours=24.0))
+                pipeline.cmd_poll(SimpleNamespace(stage="mubeam",
+                                                  quorum=None))
         pc.assert_called_once()
         # jobid arg (position 2) falls back to <stage>_cluster.txt when no
         # <stage>_jobsub_id.txt exists.
@@ -570,7 +568,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
                     return 0
                 rj.side_effect = fake
                 pipeline.cmd_poll(SimpleNamespace(
-                    stage="mubeam", quorum=None, cap_hours=24.0))
+                    stage="mubeam", quorum=None))
             self.assertEqual(rj.call_args[0][2], "777@jobsub02.fnal.gov")
 
 
