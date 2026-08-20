@@ -32,9 +32,8 @@ def has_python_renderer(mode: str) -> bool:
     True only while a *Python* renderer still produces it. This is a REGISTRY
     fact -- `ModeSpec.geom` is non-None exactly for JSON-defined modes
     (core/modes.py) -- and must never be an attribute check:
-    `hasattr(m, "_geom_text")` is True for every mode alive, because BOMode
-    declares `_geom_text` abstract and JsonMode implements it from the JSON
-    geom template. The attribute form silently stopped skipping JSON modes
+    `hasattr(m, "_geom_text")` is True for every mode alive, because JsonMode
+    implements `_geom_text` from the JSON geom template. The attribute form silently stopped skipping JSON modes
     when foilsflash went JSON-only (2026-07-26), which would have let
     tools/capture_golden_geom.py rebuild those goldens from the very spec
     they exist to verify. Shared with that tool; pinned below by

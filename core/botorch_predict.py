@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BoTorch pickers for any pure-numeric BOMode (bounds from modes.SPECS).
+"""BoTorch pickers for any pure-numeric mode (bounds from modes.SPECS).
 
 THE production picker: graph/closed_loop.py shells into this CLI every
 round (subprocess seam — runs under the project .venv; picks round-trip

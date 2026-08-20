@@ -477,7 +477,7 @@ class TestLeaderboardUniqueness(unittest.TestCase):
 
     # test_python_leaderboard_table_matches_the_driver_classes removed
     # 2026-08-08: pinned PYTHON_MODE_LEADERBOARDS (core/mode_json.py) against
-    # the live Python BOMode subclasses' `leaderboard` class attributes.
+    # the live Python mode classes' `leaderboard` class attributes.
     # Both sides are gone -- every mode is JsonMode now, so
     # `bo.MODES.items() if not isinstance(m, bo.JsonMode)` is always empty
     # and there is no second leaderboard table left to keep in lockstep.

@@ -1,6 +1,6 @@
 """Thin wrappers around bo_driver.py + pipeline.py.
 
-BO ops go in-process (bo_driver's BOMode adapters are clean). Preflight,
+BO ops go in-process (bo_driver's JsonMode adapters are clean). Preflight,
 evaluate, and grid-stage wrappers shell out via subprocess, firewalling
 their I/O from the long-lived runner process.
 """

@@ -12,9 +12,9 @@ Subcommands:
   evaluate     : after pipeline run, parse summary.json + append to leaderboard
   preflight    : run mu2e -n 1 locally on a proposal to catch G4 init failures
 
-Architecture: BOMode is an ABC; JsonMode is the single concrete adapter,
-one instance per mode_specs/*.json file. MODES = {name: instance} is the
-registry argparse selects from, keyed 1:1 with modes.SPECS (ADR-0002).
+Architecture: JsonMode is the single driver class, one instance per
+mode_specs/*.json file. MODES = {name: instance} is the registry argparse
+selects from, keyed 1:1 with modes.SPECS (ADR-0002).
 Adding a mode = drop a mode_specs/<name>.json file (no Python change; the
 lockstep with modes.SPECS/graph/state.py is pinned by test_modes).
 """
@@ -28,7 +28,6 @@ import re
 import shutil
 import sys
 import tempfile
-from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import NamedTuple
 
@@ -67,24 +66,36 @@ class SpaceDim(NamedTuple):
 
 
 # ============================================================================
-# BOMode: the seam. One concrete adapter per mode below (see MODES).
+# JsonMode: the mode seam. One instance per mode_specs/*.json (see MODES).
 # ============================================================================
 
-class BOMode(ABC):
+class JsonMode:
     """A BO mode = search space + render + prior loader + leaderboard format.
 
-    Subclasses fill in the one abstract method (_geom_text); build_space,
-    priors, x recovery at evaluate time, and leaderboard + pending TSV I/O
-    (delegated to core/leaderboard.py via leaderboard_io()) are concrete here.
+    The single driver class behind every JSON-defined mode: geometry text
+    renders from the spec's geom template; build_space, priors, x recovery
+    at evaluate time, and leaderboard + pending TSV I/O (delegated to
+    core/leaderboard.py via leaderboard_io()) read the same spec.
     """
     name: str
     leaderboard: Path
     proposal_dir: Path
     preflight_dir: Path
 
-    # --- abstract: each concrete mode implements ---
-    @abstractmethod
-    def _geom_text(self, x) -> str: ...
+    def __init__(self, name: str):
+        spec = _modes.SPECS[name]
+        if spec.geom is None:
+            raise ValueError(f"{name}: JsonMode requires a geom template")
+        self.name = name
+        # Live rows go to this operator's own /data board; the committed
+        # leaderboards/ are read-only priors both operators start warm from.
+        self.leaderboard = leaderboard_live(spec.leaderboard_rel)
+        self.leaderboard_archive = leaderboard_archive(spec.leaderboard_rel)
+        self.proposal_dir = BO_WORK / "proposals" / name
+        self.preflight_dir = BO_WORK / "preflight" / name
+
+    def _geom_text(self, x) -> str:
+        return _modes.SPECS[self.name].geom.render(x)
 
     def load_priors(self) -> list[Point]:
         """No mode has code-carried priors: botorch Sobol cold-starts a fresh
@@ -204,31 +215,6 @@ class BOMode(ABC):
     def remove_pending(self, name: str) -> bool:
         return self.leaderboard_io().pending_remove(name)
 
-
-class JsonMode(BOMode):
-    """The single driver class behind every JSON-defined mode.
-
-    Leaderboard/search-space/priors/x-recovery behaviour is all inherited:
-    BOMode reads KNOB_NAMES, KNOB_FMTS and build_space from modes.SPECS, and
-    leaderboard_io() builds the Leaderboard from the same spec. Only the one
-    abstract method needs filling.
-    """
-
-    def __init__(self, name: str):
-        spec = _modes.SPECS[name]
-        if spec.geom is None:
-            raise ValueError(f"{name}: JsonMode requires a geom template")
-        self.name = name
-        # Live rows go to this operator's own /data board; the committed
-        # leaderboards/ are read-only priors both operators start warm from.
-        self.leaderboard = leaderboard_live(spec.leaderboard_rel)
-        self.leaderboard_archive = leaderboard_archive(spec.leaderboard_rel)
-        self.proposal_dir = BO_WORK / "proposals" / name
-        self.preflight_dir = BO_WORK / "preflight" / name
-
-    def _geom_text(self, x) -> str:
-        return _modes.SPECS[self.name].geom.render(x)
-
     @staticmethod
     def _resolve_metric(summary: dict, keys) -> tuple:
         """First candidate key that is present AND non-null wins.
@@ -279,7 +265,7 @@ class JsonMode(BOMode):
         return sob, second
 
 
-MODES: dict[str, BOMode] = {}
+MODES: dict[str, JsonMode] = {}
 
 # One JsonMode per spec carrying a geom template.
 for _name, _spec in _modes.SPECS.items():

@@ -207,7 +207,7 @@ class TestSchemaFields(unittest.TestCase):
             self.assertEqual(mode.KNOB_FMTS, modes.SPECS[name].knob_fmts)
 
     def test_calo_col_derives_from_metric_cols(self):
-        # CALO_COL (the BOMode property) was retired with format_row/
+        # CALO_COL (the old mode-class property) was retired with format_row/
         # load_history_row 2026-08-08 -- core/leaderboard.py's Leaderboard
         # reads metric_cols[1] directly, so that's the fact worth pinning.
         self.assertEqual(modes.SPECS["foilsflash"].metric_cols[1], "flash_edep")

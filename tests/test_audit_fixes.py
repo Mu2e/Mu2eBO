@@ -683,7 +683,7 @@ class TestPendingTsvRoundTrip(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        # Any live mode exercises this generically (BOMode.append_pending/
+        # Any live mode exercises this generically (JsonMode.append_pending/
         # remove_pending/load_pending); "foils" (Python mode, archived
         # 2026-08-08) repointed to the JSON-defined "foilsflash".
         self.mode = bo.MODES["foilsflash"]

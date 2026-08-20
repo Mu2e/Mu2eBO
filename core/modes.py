@@ -5,7 +5,7 @@ with silent fallbacks -- the soil of the foilsflash-tarball, preflight-tuple
 and foilsg-tarball incident class. Here they are frozen dataclasses with
 every field passed explicitly (a missing fact is an import error, never a
 default), stdlib-only so any venv and pipeline.py can import it. Behavior
-stays on bo_driver.py's BOMode subclasses, which bind to their spec by name.
+stays on bo_driver.py's JsonMode instances, which bind to their spec by name.
 Consumers: core/runtime.py, pipeline.py, botorch_predict.py, bo_driver.py.
 Completeness is pinned by tests/test_modes.py.
 
