@@ -3,8 +3,8 @@
 
 THE production picker: graph/closed_loop.py shells into this CLI every
 round (subprocess seam — runs under the project .venv; picks round-trip
-via --emit-picks-json). Pickers: qnehvi,
-qlnei, pareto_sob, qnparego, hybrid — details in compute_explore_picks.
+via --emit-picks-json). Pickers: qnehvi, qlnei,
+budget_sob, hybrid — details in compute_explore_picks.
 `michael` is unsupported (mixed Real+Categorical space needs a different
 model). Acquisition budget + seeding: see ACQ_* constants and _seed().
 
@@ -157,9 +157,9 @@ def _sampler(round_idx: int):
 ACQ_NUM_RESTARTS = 16
 ACQ_RAW_SAMPLES = 512
 ACQ_OPTIONS = {"batch_limit": 5, "maxiter": 200}
-# pareto_sob front-thinning spread (normalized-space euclidean); see the
+# budget_sob front-thinning spread (normalized-space euclidean); see the
 # comment at its use site for why it differs from the closed-loop 0.05.
-PARETO_SOB_MIN_SPACING = 0.10
+SOB_CORNER_MIN_SPACING = 0.10
 
 
 def _optimize(acq, bounds, q: int) -> torch.Tensor:
@@ -414,76 +414,6 @@ def _emit_picks(cands, int_dims):
     return out
 
 
-def _pareto_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None):
-    """Return the q highest-sob points on the GP-predicted Pareto frontier.
-
-    x_pending (k, d): in-flight evals; they seed the min-distance filter so
-    exploit picks don't re-measure a corner already being measured (they are
-    NOT returned).
-
-    Mirrors the cloud renderer's pushforward (gp_predict_foils_v2v3_cloud.py):
-    Sobol-sample the input box, evaluate the GP posterior MEAN for both
-    objectives (sob = output 0, -log10(calo) = output 1; both maximized), keep
-    the non-dominated set, and return the q frontier points with the highest
-    predicted sob. This submits the GP's own best-sob predictions as real evals
-    — a by-hand exploit of the sob corner. Tests whether the GP's high-sob
-    envelope (~4.06) holds at specific geometries (expect regression to ~3.9 on
-    the saturated foilsf front; see wiki/concepts/gp-cloud-rendering.md).
-    """
-    from scipy.stats import qmc
-
-    N = 16384
-    seed = _seed(round_idx)
-    # Bulk Sobol via scipy (matches the cloud renderer); botorch's
-    # draw_sobol_samples builds SobolEngine(q*d) and caps at 21201 dims, so it
-    # can't bulk-sample N points. Draw in [0,1]^d then scale to bounds.
-    d = bounds.shape[-1]
-    unit = qmc.Sobol(d=d, scramble=True, seed=seed).random(N)  # (N, d)
-    lo = bounds[0].cpu().numpy()
-    hi = bounds[1].cpu().numpy()
-    Xs = torch.tensor(lo + unit * (hi - lo), dtype=bounds.dtype, device=bounds.device)
-    with torch.no_grad():
-        mean = model.posterior(Xs).mean  # (N, m), already un-standardized
-    sob = mean[:, 0]
-    # "highest sob" = top-q by predicted sob directly. NOTE: do NOT pre-filter to
-    # the Pareto frontier — the (sob, -log10 calo) frontier deliberately includes
-    # low-sob/low-calo corners (big-hole rings), so "top-q-sob among frontier
-    # points" leaks those in. The single max-sob Sobol point IS on the frontier
-    # anyway (it's non-dominated on the sob axis), so direct top-q-sob is both
-    # correct and simpler. Spread: take top candidates and thin to q by a
-    # min-distance filter so the batch isn't all one near-duplicate cluster.
-    order = torch.argsort(sob, descending=True)
-    norm = (Xs - bounds[0]) / (bounds[1] - bounds[0])  # (N,d) in [0,1]
-    # The min-distance "avoid" set starts with the normalized in-flight
-    # pending points (rolling mode), so the batch spreads away from them
-    # exactly as it spreads away from its own accepted picks. With no
-    # pending this reduces to the original behavior (first pick = top sob).
-    avoid = []
-    if x_pending is not None and len(x_pending):
-        avoid = list((x_pending - bounds[0]) / (bounds[1] - bounds[0]))
-    picks: list[int] = []
-    for idx in order.tolist():
-        if len(picks) >= q:
-            break
-        dmin = min((float((norm[idx] - a).pow(2).sum().sqrt()) for a in avoid),
-                   default=float("inf"))
-        # PARETO_SOB_MIN_SPACING is deliberately looser than the closed-loop
-        # duplicate-guard (0.05, retired with cl_min): this thins the
-        # GP-MEAN front so q exploit picks don't re-measure one corner point,
-        # a different job than de-duplicating acquisition picks.
-        if dmin >= PARETO_SOB_MIN_SPACING:
-            picks.append(idx)
-            avoid.append(norm[idx])
-    # if min-distance thinning didn't yield q, top up with the next-highest sob
-    if len(picks) < q:
-        for idx in order.tolist():
-            if idx not in picks:
-                picks.append(idx)
-            if len(picks) >= q:
-                break
-    return Xs[torch.tensor(picks[:q])].detach()
-
-
 # The DEPLOYED stopping target's damage, in MeV/POT. This is the deployment
 # constraint line, not a tuning knob: a design at or below it is buildable at
 # today's radiation budget, one above it is not, however high its significance.
@@ -503,10 +433,10 @@ def _budget_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None,
                       k_sigma: float | None = None):
     """Return the q highest-sob points the GP believes stay INSIDE the damage budget.
 
-    The deployment-facing sibling of _pareto_sob_picks. That picker maximizes
-    sob outright and therefore walks off to +60% damage, which is exactly what
-    happened over three exploit rounds: a 4.41 record that cannot be built.
-    This one maximizes the same posterior-mean sob subject to a constraint on
+    An unconstrained max-sob exploit walks off to +60% damage -- exactly what
+    happened over three pareto_sob exploit rounds (picker retired 2026-08-19):
+    a 4.41 record that cannot be built.
+    This one maximizes the posterior-mean sob subject to a constraint on
     the SECOND objective, so every pick is aimed at a design that could
     actually be deployed.
 
@@ -528,8 +458,8 @@ def _budget_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None,
     that made the max-sob exploit rounds break a supposed ceiling twice. The
     budget corner has never had a dedicated exploit round.
 
-    x_pending (k, d): in-flight evals, seeding the min-distance filter exactly
-    as in _pareto_sob_picks (NOT returned).
+    x_pending (k, d): in-flight evals, seeding the min-distance filter
+    (NOT returned).
     """
     from scipy.stats import qmc
 
@@ -584,12 +514,12 @@ def _budget_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None,
             break
         dmin = min((float((norm[idx] - a).pow(2).sum().sqrt()) for a in avoid),
                    default=float("inf"))
-        if dmin >= PARETO_SOB_MIN_SPACING:
+        if dmin >= SOB_CORNER_MIN_SPACING:
             picks.append(idx)
             avoid.append(norm[idx])
     # Top up ONLY from the feasible set -- topping up from `order` over all
-    # candidates (as pareto_sob may) would leak over-budget picks into a batch
-    # whose entire purpose is to stay under the line.
+    # candidates would leak over-budget picks into a batch whose entire
+    # purpose is to stay under the line.
     if len(picks) < q:
         for idx in order.tolist():
             if idx not in picks:
@@ -618,18 +548,15 @@ def compute_explore_picks(q: int = 5,
     calo. It used to also SAVE the DS-off stage's grid time, via a
     closed_loop auto-stamp of AUTORESEARCH_NO_RUN1B=1; that stamp died with
     graph/presniff.py 2026-08-19 and was not restored, so today this is an
-    acquisition choice with no wall-clock effect), "pareto_sob"
-    (GP-mean sob corner), "budget_sob" (GP-mean sob corner CONSTRAINED to
-    flash <= the deployed damage budget — the deployment-facing exploit),
-    "qnparego"
-    (qLogNEI over random Chebyshev scalarizations — spreads across the whole
-    front) or "hybrid" (~60% qnehvi + ~40% qnparego; recommended for new
-    multi-objective lines). qnparego/hybrid use the same 2-objective path as
-    qnehvi.
+    acquisition choice with no wall-clock effect), "budget_sob" (GP-mean
+    sob corner CONSTRAINED to flash <= the deployed damage budget — the
+    deployment-facing exploit) or "hybrid" (~60% qnehvi + ~40% qnparego
+    Chebyshev-scalarization spread; recommended for new multi-objective
+    lines). hybrid uses the same 2-objective path as qnehvi.
 
     x_pending: optional list of x-lists for evals currently IN FLIGHT (rolling
     closed-loop). Acquisition pickers fantasize over them (X_pending); the
-    pareto_sob exploit spreads away from them. Cold-start Sobol ignores it.
+    budget_sob exploit spreads away from them. Cold-start Sobol ignores it.
     """
     X, Y, bounds, int_dims = _load_history_tensor(mode, sob_only=(picker == "qlnei"))
     pend = None
@@ -653,15 +580,9 @@ def compute_explore_picks(q: int = 5,
     if picker == "qlnei":
         cands = _qlnei_picks(model, X, bounds, q=q, round_idx=round_idx,
                              x_pending=pend)
-    elif picker == "pareto_sob":
-        cands = _pareto_sob_picks(model, bounds, q=q, round_idx=round_idx,
-                                  x_pending=pend)
     elif picker == "budget_sob":
         cands = _budget_sob_picks(model, bounds, q=q, round_idx=round_idx,
                                   x_pending=pend)
-    elif picker == "qnparego":
-        cands = _qnparego_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
-                                x_pending=pend)
     elif picker == "hybrid":
         cands = _hybrid_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
                               x_pending=pend)
@@ -681,14 +602,12 @@ def main(argv=None):
     ap.add_argument("--round-idx", type=int, default=0,
                     help="Round index; seeds MC sampler (default 0)")
     ap.add_argument("--picker",
-                    choices=("qnehvi", "qlnei", "pareto_sob", "budget_sob",
-                             "qnparego", "hybrid"),
+                    choices=("qnehvi", "qlnei", "budget_sob", "hybrid"),
                     default="qnehvi",
                     help="qnehvi = multi-obj Pareto-HV (default); "
                          "qlnei = single-obj qLogNoisyEI on sob only; "
-                         "pareto_sob = highest-sob points on the GP Pareto frontier; "
-                         "qnparego = qLogNEI over random Chebyshev scalarizations "
-                         "(spreads across the whole front); "
+                         "budget_sob = GP-mean sob corner constrained to the "
+                         "deployed damage budget; "
                          "hybrid = ~60%% qnehvi + ~40%% qnparego "
                          "(recommended for new multi-objective lines)")
     ap.add_argument("--emit-picks-json", type=str, default=None,

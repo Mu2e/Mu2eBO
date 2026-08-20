@@ -75,8 +75,7 @@ from pool import child_name, run_rolling  # noqa: E402
 # cl_min retired per ADR-0001: the closed loop must never import code outside
 # this repo; all pickers route through in-repo botorch_predict.py in the
 # project .venv.
-PICKER_CHOICES = ("qnehvi", "qlnei", "pareto_sob", "budget_sob",
-                  "qnparego", "hybrid")
+PICKER_CHOICES = ("qnehvi", "qlnei", "budget_sob", "hybrid")
 DEFAULT_PICKER = "hybrid"
 
 
@@ -203,9 +202,8 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
 
     picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj), "qlnei"
     (single-obj sob -- acquisition ONLY, it changes no stage chain),
-    "pareto_sob" (GP-mean sob corner), "budget_sob" (same, constrained to the
-    deployed damage budget), "qnparego" (random-Chebyshev-scalarization
-    spread), "hybrid" (~60% qnehvi + ~40% qnparego; recommended for new
+    "budget_sob" (GP-mean sob corner constrained to the deployed damage
+    budget), "hybrid" (~60% qnehvi + ~40% qnparego; recommended for new
     multi-objective lines). `pending` carries in-flight x_points so
     replacements fantasize over them (X_pending) instead of re-picking a
     point already being measured; `run_rolling`'s `next_pick` hook passes it
@@ -266,9 +264,8 @@ def main() -> int:
                     help="batch picker (all subprocess into the picker venv; "
                          "cl_min retired per ADR-0001). hybrid (~60%% qnehvi + "
                          "~40%% qnparego, the default) is recommended for "
-                         "multi-objective lines; qnparego spreads picks across "
-                         "the whole front; pareto_sob exploits the GP-mean "
-                         "sob corner")
+                         "multi-objective lines; budget_sob exploits the "
+                         "GP-mean sob corner inside the damage budget")
     ap.add_argument("--max-evals", type=int, default=None,
                     help="total evals to launch (default q * max-rounds)")
     ap.add_argument("--dry-run", action="store_true",

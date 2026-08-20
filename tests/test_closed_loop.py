@@ -179,8 +179,8 @@ class TestDryRun(unittest.TestCase):
         n = self._dims("foilsflash")
         picks = [(float(i),) * n for i in range(3)]
         rc, m, out = self._run(
-            self._args(mode="foilsflash", q=3, picker="qnparego"), picks)
-        self.assertEqual(m.call_args.kwargs.get("picker"), "qnparego")
+            self._args(mode="foilsflash", q=3, picker="qlnei"), picks)
+        self.assertEqual(m.call_args.kwargs.get("picker"), "qlnei")
         self.assertEqual(m.call_args.args[1], 3)  # q
 
     def test_prints_production_shaped_names(self):
