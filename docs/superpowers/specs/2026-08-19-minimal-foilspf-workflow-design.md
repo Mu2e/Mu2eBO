@@ -401,3 +401,31 @@ than execution slippage:
 Neither reason undercuts the goal in §1: the incident wins (five barrier truth
 sources down to one; four incidents made impossible rather than guarded) are
 about *structure*, and they landed. LOC was the proxy, not the target.
+
+### As built, continued (2026-08-20)
+
+The figures above were captured at `005d120` and are left as recorded. Fifteen
+commits followed (review-round hardening, two comment passes, three feature
+retirements); same code paths, measured `005d120..f66e27b`: **+2,505 / −3,184,
+net −679**, bringing the whole branch (`e63f79d..f66e27b`) to
+**net −1,953 (5,690 deleted, 3,737 added)** — from 42% of the ≈3,000 forecast
+at first capture to 65%.
+
+Composition of the −679, because the three streams pull in different
+directions:
+
+- **Hardening added ≈ +1,300**: mode-resolution fixes (unknown `--mode` named
+  as such; set-but-unknown env FATAL; omitted `--mode` no longer FATAL), the
+  restored `*_cluster.txt` double-launch guard, the parent heartbeat, the
+  `_default_row_landed` fail-open fix, and their tests (suite 613 → 655).
+- **Two comment passes cut ≈ −1,845**: prose across all 21 `core/`+`graph/`
+  files went 4,200 → 2,143 lines (−49%), AST-verified as comment/docstring-only.
+- **Feature retirements cut ≈ −186**: `pareto_sob` + standalone `qnparego`
+  (subsumed by `budget_sob`), the `BOMode` ABC collapsed into `JsonMode`,
+  and the prodtarget residue (`harvest_verb` + `preserves_gdml` ModeSpec
+  fields, dead objective branch, `ProductionTarget*` regex arms).
+
+Updated table lines (rest unchanged): `graph/` orchestration **1,447**
+(was 1,700 at capture, vs ~900 predicted); `core/pipeline.py` **1,393** —
+now *under* the ~1,700 prediction, though about half the drop is comment
+prose, not mechanism; `tests/test_closed_loop.py` 222.
