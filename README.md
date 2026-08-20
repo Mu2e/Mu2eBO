@@ -74,7 +74,7 @@ above as one self-contained recipe.
   `submit --local`):
 
   ```bash
-  export AUTORESEARCH_PRODTOOLS=/exp/mu2e/app/users/oksuzian/muse_050125/prodtools   # personal-path-ok: a real operator's checkout; any prodtools clone works
+  export AUTORESEARCH_PRODTOOLS=/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.1.0   # pinned release; any prodtools checkout with bin/json2jobdef works
   ```
 
   Unset or pointing at something without `bin/json2jobdef` fails loudly at
@@ -299,7 +299,7 @@ here too — `runlocal` is a prodtools binary. From a bare clone:
 git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
 ./setup.sh --venv                                     # link the shared venv
 ./setup.sh --backing /exp/mu2e/app/users/oksuzian     # borrow a built Offline (personal-path-ok: a real operator's)
-export AUTORESEARCH_PRODTOOLS=/exp/mu2e/app/users/oksuzian/muse_050125/prodtools   # personal-path-ok: any prodtools checkout works
+export AUTORESEARCH_PRODTOOLS=/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.1.0   # pinned release; any prodtools checkout works
 tools/run_local.sh local01                            # one evaluation, ~20 min
 ```
 
