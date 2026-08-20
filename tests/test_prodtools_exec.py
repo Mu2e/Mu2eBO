@@ -800,7 +800,8 @@ class TestSubmitCnf(unittest.TestCase):
                                return_value=Path("/fake/prodtools")):
             cluster, jobsub_id = pex.submit_cnf(
                 Path(td), Path(td) / "e.json", Path(td) / "l.db",
-                "autoresearch:t001/mubeam", {}, runner=self._runner(out))
+                "autoresearch:t001/mubeam", {},
+                cnf=Path(td) / "cnf.u.d.c.0.tar", runner=self._runner(out))
         self.assertEqual(cluster, 86123999)
         # jobwait wants NNNN@schedd -- proc stripped, schedd kept.
         self.assertEqual(jobsub_id, "86123999@jobsub01.fnal.gov")
@@ -812,6 +813,7 @@ class TestSubmitCnf(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 pex.submit_cnf(Path(td), Path(td) / "e.json",
                                Path(td) / "l.db", "o", {},
+                               cnf=Path(td) / "cnf.u.d.c.0.tar",
                                runner=self._runner("boom", rc=1,
                                                    stderr="ledger sad"))
 
@@ -822,7 +824,8 @@ class TestSubmitCnf(unittest.TestCase):
              mock.patch.dict(os.environ, {"AUTORESEARCH_PRODTOOLS": td}):
             (Path(td) / "bin").mkdir(); (Path(td) / "bin" / "json2jobdef").touch()
             pex.submit_cnf(Path(td), Path(td) / "e.json", Path(td) / "l.db",
-                           "o", {}, runner=self._runner(out))
+                           "o", {}, cnf=Path(td) / "cnf.u.d.c.0.tar",
+                           runner=self._runner(out))
         joined = " ".join(str(c) for c in self.last_cmd)
         self.assertIn("prodtools_submit_driver.py", joined)
         self.assertIn("--entry", joined)
@@ -845,6 +848,7 @@ class TestSubmitCnf(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 pex.submit_cnf(Path(td), Path(td) / "e.json",
                                Path(td) / "l.db", "o", {},
+                               cnf=Path(td) / "cnf.u.d.c.0.tar",
                                runner=self._runner(out))
         self.assertIn("86123999", str(cm.exception))
 
@@ -859,6 +863,7 @@ class TestSubmitCnf(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 pex.submit_cnf(Path(td), Path(td) / "e.json",
                                Path(td) / "l.db", "o", {},
+                               cnf=Path(td) / "cnf.u.d.c.0.tar",
                                runner=self._runner(out))
 
 

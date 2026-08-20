@@ -708,7 +708,7 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
         _maybe_refresh_token(stage)
         cluster, jobsub_id = px.submit_cnf(
             stage_dir, entry_path, LEDGER_DB,
-            f"autoresearch:{CONFIG}/{stage}", env)
+            f"autoresearch:{CONFIG}/{stage}", env, cnf=cnf)
     (STATE / f"{stage}_cluster.txt").write_text(f"{cluster}\n")
     (STATE / f"{stage}_jobsub_id.txt").write_text(f"{jobsub_id}\n")
     _stamp_stage_config_sha(stage)

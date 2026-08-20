@@ -24,6 +24,7 @@ def main():
     ap.add_argument("--entry", required=True)
     ap.add_argument("--ledger", required=True)
     ap.add_argument("--origin", required=True)
+    ap.add_argument("--cnf", required=True)
     # From prodtools_exec's WFTOP/WFPROJECT; passed as args because this
     # runs standalone under the Mu2e env (no cross-env import).
     ap.add_argument("--wftop", required=True)
@@ -35,6 +36,18 @@ def main():
     from utils.submit import SubmitOptions, submit_entry
 
     entry = json.loads(open(args.entry).read())[0]
+    # submit_entry consumes a JOBDESC, not the json2jobdef entry we keep
+    # on disk (schema split upstream 2026-08-15, code-tarball branch):
+    # required keys 'tarball' (cnf NAME) and 'outputs' (list of
+    # {dataset, location}) don't exist in json2jobdef's input schema.
+    # Stamp both at the seam -- same conversion json2jobdef's own
+    # --enqueue path applies to 'outloc' -- so the on-disk schema stays
+    # json2jobdef's alone. Extra keys (fcl_overrides, ...) ride along;
+    # submit_entry reads only jobdesc accessors.
+    entry.setdefault("tarball", Path(args.cnf).name)
+    entry.setdefault("outputs", [
+        {"dataset": pattern, "location": location}
+        for pattern, location in entry.get("outloc", {}).items()])
     Path(args.ledger).parent.mkdir(parents=True, exist_ok=True)
     opts = SubmitOptions(ledger_db=args.ledger, dry_run=args.dry_run,
                          origin=args.origin,

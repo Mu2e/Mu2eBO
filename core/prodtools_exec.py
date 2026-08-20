@@ -266,10 +266,14 @@ def run_runlocal(stage_dir, cnf, njobs, wait_json, env, *, code_tarball,
     return res.returncode
 
 
-def submit_cnf(stage_dir, entry_path, ledger_db, origin, env,
+def submit_cnf(stage_dir, entry_path, ledger_db, origin, env, *, cnf,
                runner=subprocess.run, dry_run=False) -> tuple[int, str]:
     """Submit a built cnf via core/prodtools_submit_driver.py; return
     (cluster_id, jobsub_id normalized to NNNN@schedd for jobwait).
+
+    `cnf` is the tarball build_cnf returned; the driver stamps its
+    basename as the entry's `tarball` key, which prodtools submit_entry
+    requires (schema change upstream 2026-08-15, code-tarball branch).
 
     SystemExit if no cluster id came back (the driver already closed its
     ledger reservation — nothing to unwind) or if jobsub_id lacks "@schedd":
@@ -280,7 +284,7 @@ def submit_cnf(stage_dir, entry_path, ledger_db, origin, env,
     cmd = ["python3", str(driver),
            "--prodtools", str(prodtools_root()),
            "--entry", str(entry_path), "--ledger", str(ledger_db),
-           "--origin", origin,
+           "--origin", origin, "--cnf", str(cnf),
            "--wftop", WFTOP, "--wfproject", WFPROJECT]
     if dry_run:
         cmd.append("--dry-run")

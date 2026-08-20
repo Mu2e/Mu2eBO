@@ -728,7 +728,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
                 return cnf
 
             def fake_submit_cnf(stage_dir, entry_path, ledger_db, origin,
-                                env, runner=None, dry_run=False):
+                                env, cnf=None, runner=None, dry_run=False):
                 self.submit_args = (stage_dir, entry_path, ledger_db, origin)
                 return 86123999, "86123999@jobsub01.fnal.gov"
 
