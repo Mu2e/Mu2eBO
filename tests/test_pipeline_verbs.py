@@ -6,11 +6,9 @@ sourced_env guards, local scale resolution, local_input_farm).
 No grid contact: STATE/STAGES/ROOT are patched to tmp dirs and the
 prodtools_exec (px) / subprocess boundary is faked."""
 import contextlib
-import copy
 import errno
 import io
 import json
-import math
 import os
 import subprocess
 import sys
@@ -24,7 +22,29 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import pipeline  # noqa: E402
-import harvest as hv  # noqa: E402
+
+
+def _stage_cfg_override(stage, **overrides):
+    """Patch pipeline.stage_cfg so `stage`'s merged config carries
+    `overrides` on top of the REAL stage_entries/<stage>.json + mode-spec
+    data. The old module-level STAGES dict (retired Task 6) was a plain
+    dict any test could mock.patch.dict directly; stage_cfg() computes its
+    return fresh on every call, so tests patch the function instead."""
+    real = pipeline.stage_cfg
+
+    def fake(s, *a, **kw):
+        # Signature-agnostic passthrough on purpose: restating stage_cfg's
+        # own parameter defaults here would let this fake drift from it
+        # silently (it did -- the fake pinned the old `mode=None` default,
+        # which is now "raw JSON, no mode merge" rather than "the process
+        # mode", so a bare stage_cfg(s) under the patch answered with
+        # unmerged njobs/events).
+        cfg = real(s, *a, **kw)
+        if s == stage:
+            cfg.update(overrides)
+        return cfg
+
+    return mock.patch.object(pipeline, "stage_cfg", side_effect=fake)
 
 
 def _stub_run_runlocal(rc=0, ok=None):
@@ -57,33 +77,6 @@ class TestSubmitIdempotency(unittest.TestCase):
                                                 dry_run=False))
             sub.assert_not_called()
 
-    def test_stamps_chain_then_submits_on_first_submit(self):
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.object(pipeline, "GRID_STAGES", ("poke", "harvest2")), \
-             mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
-             mock.patch.object(pipeline, "sourced_env", return_value={}):
-            pipeline.cmd_submit(SimpleNamespace(stage="poke", force=False,
-                                                dry_run=False))
-            stamp = Path(tmp) / hv.STAGE_CHAIN_STAMP
-            self.assertTrue(stamp.exists())
-            self.assertEqual(hv.stamped_stage_chain(Path(tmp)),
-                             ["poke", "harvest2"])
-            sub.assert_called_once()
-
-    def test_existing_stamp_not_overwritten(self):
-        # Stamp-once semantics: a legacy config resubmitted under a new env
-        # keeps ITS chain (the ff11R00_07 +1.5% sob bias class).
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.object(pipeline, "GRID_STAGES", ("newchain",)), \
-             mock.patch.object(pipeline, "submit_stage_prodtools"), \
-             mock.patch.object(pipeline, "sourced_env", return_value={}):
-            hv.stamp_stage_chain(Path(tmp), ["oldchain"])
-            pipeline.cmd_submit(SimpleNamespace(stage="newchain", force=False,
-                                                dry_run=False))
-            self.assertEqual(hv.stamped_stage_chain(Path(tmp)), ["oldchain"])
-
 
 class TestListOutputsGating(unittest.TestCase):
     def test_noop_when_outputs_listed_and_resolvable(self):
@@ -108,8 +101,9 @@ class TestListOutputsGating(unittest.TestCase):
         # path for grid and local.
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.dict(pipeline.STAGES,
-                             {"poke": {"output_glob": "sim.*.art"}}):
+             mock.patch.object(pipeline, "stage_cfg",
+                               lambda stage, mode=None:
+                                   {"output_glob": "sim.*.art"}):
             (Path(tmp) / "poke_outputs.txt").write_text(
                 f"{tmp}/gone.art\n")
             (Path(tmp) / "poke_wait.json").write_text(json.dumps({
@@ -126,102 +120,78 @@ class TestListOutputsGating(unittest.TestCase):
 
 
 class TestStageTuning(unittest.TestCase):
-    """core/mode_json.py `run.stage_tuning` -> pipeline.STAGES wiring (I4 in
-    the json-configurable-modes final review). All tests operate on a local
-    deepcopy of pipeline.STAGES, never the live module dict -- STAGES is
-    shared mutable module state and mock.patch.dict only shallow-restores
-    it, so mutating the nested per-stage dicts in place would leak into
-    other tests."""
+    """core/mode_json.py `run.stage_tuning` -> pipeline.stage_cfg() wiring
+    (I4 in the json-configurable-modes final review; retargeted to
+    stage_cfg() in Task 6, which replaced the old module-level
+    `_apply_stage_tuning(STAGES, ...)` mutation with a per-call merge --
+    `spec.stage_tuning` overrides `stage_entries/<stage>.json`, applied fresh
+    on every stage_cfg() call instead of once at import). Tests register a
+    throwaway ModeSpec into `modes.SPECS` (via `dataclasses.replace` on a
+    real spec, so every other required field stays valid) rather than
+    mutating a local dict, since stage_cfg() always reads from the real
+    registry + the real stage_entries/ tree."""
 
-    def test_stage_tuning_lands_on_stages(self):
-        local_stages = {
-            "mubeam": {"events_per_job": 5000, "memory_mb": 2500, "quorum": 0.9},
-            "mustops_ce": {"events_per_job": 2500},
-        }
-        pipeline._apply_stage_tuning(
-            local_stages,
-            {"mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}})
-        self.assertEqual(local_stages["mubeam"]["events_per_job"], 200000)
-        self.assertEqual(local_stages["mubeam"]["memory_mb"], 2000)
-        self.assertEqual(local_stages["mubeam"]["quorum"], 0.8)
-        # Untouched: stage_tuning only had a "mubeam" key.
-        self.assertEqual(local_stages["mustops_ce"]["events_per_job"], 2500)
+    def _probe_spec(self, stage_tuning, *, stage_target_overrides=None):
+        import dataclasses
+        import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
+        base = _modes.SPECS["foilspf"]
+        return dataclasses.replace(
+            base, name=f"_stagetuningprobe{uuid.uuid4().hex[:8]}",
+            stage_target_overrides=(stage_target_overrides
+                                    if stage_target_overrides is not None
+                                    else {}),
+            stage_tuning=stage_tuning)
 
-    def test_stage_tuning_unknown_stage_name_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            pipeline._apply_stage_tuning({"mubeam": {}}, {"not_a_stage": {"memory_mb": 1}})
-        self.assertIn("not_a_stage", str(cm.exception))
+    def test_stage_tuning_lands_on_stage_cfg(self):
+        import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
+        probe = self._probe_spec(
+            {"mubeam": {"events_per_job": 200000, "memory_mb": 2000,
+                       "quorum": 0.8}})
+        with mock.patch.dict(_modes.SPECS, {probe.name: probe}):
+            tuned = pipeline.stage_cfg("mubeam", mode=probe.name)
+            self.assertEqual(tuned["events"], 200000)
+            self.assertEqual(tuned["memory_mb"], 2000)
+            self.assertEqual(tuned["quorum"], 0.8)
+            # Untouched: stage_tuning only had a "mubeam" key -- mustops_ce
+            # falls back to stage_entries/mustops_ce.json's own default.
+            untouched = pipeline.stage_cfg("mustops_ce", mode=probe.name)
+            self.assertEqual(untouched["events"], 2500)
 
     def test_json_spec_stage_tuning_applies_to_real_stages(self):
         """End-to-end: the foilsflash fixture's run.stage_tuning (mirrors
-        the live Python foilsflash mode's hardcoded values) actually lands
-        on a copy of pipeline.STAGES for its stages."""
+        the live JSON foilsflash mode's real values) lands on stage_cfg()'s
+        merged view for its stages."""
+        import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
         from mode_json import load_mode_file  # noqa: E402 (bare, core/ on sys.path)
         fixture = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
         spec = load_mode_file(fixture)
-        local_stages = copy.deepcopy(pipeline.STAGES)
-        pipeline._apply_stage_tuning(local_stages, spec.stage_tuning)
-        self.assertEqual(local_stages["mubeam"]["events_per_job"], 200000)
-        self.assertEqual(local_stages["mustops_ce"]["events_per_job"], 75000)
-        self.assertEqual(local_stages["elebeam_flash"]["events_per_job"], 110000)
-        self.assertEqual(local_stages["mubeam"]["memory_mb"], 2000)
-        self.assertEqual(local_stages["mubeam"]["quorum"], 0.8)
-
-    def test_foilsflash_python_mode_stage_tuning_is_a_noop(self):
-        """The Python foilsflash mode's stage_tuning is {} (core/modes.py);
-        applying it must not touch STAGES at all -- the hardcoded
-        AUTORESEARCH_MODE == "foilsflash" block (core/pipeline.py, above
-        _apply_stage_tuning) owns that mode's tuning instead.
-
-        R2 in the json-configurable-modes final review: the ORIGINAL version
-        of this test built local_stages from copy.deepcopy(pipeline.STAGES)
-        (whatever ambient values that happened to hold under the unittest
-        process's AUTORESEARCH_MODE, which is normally unset -- so NOT the
-        foilsflash hardcoded values at all) and asserted before == after
-        applying {}. That is trivially true for ANY starting dict and ANY
-        correct-or-broken _apply_stage_tuning, since updating with {} is a
-        no-op regardless -- it never actually checked the hardcoded
-        foilsflash tuning was present. This version seeds local_stages with
-        those literal hardcoded values (mirroring the pipeline.py block) and
-        asserts they are both PRESENT beforehand and UNMODIFIED afterward."""
-        import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
-        local_stages = {
-            "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8},
-            "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8},
-            "elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000},
-        }
-        # Present beforehand (the premise this test is checking).
-        self.assertEqual(local_stages["mubeam"]["events_per_job"], 200000)
-        self.assertEqual(local_stages["mustops_ce"]["events_per_job"], 75000)
-        self.assertEqual(local_stages["elebeam_flash"]["events_per_job"], 110000)
-
-        pipeline._apply_stage_tuning(local_stages, _modes.SPECS["foilsflash"].stage_tuning)
-
-        # Unmodified afterward.
-        self.assertEqual(local_stages["mubeam"]["events_per_job"], 200000)
-        self.assertEqual(local_stages["mustops_ce"]["events_per_job"], 75000)
-        self.assertEqual(local_stages["elebeam_flash"]["events_per_job"], 110000)
-        self.assertEqual(local_stages["mubeam"]["memory_mb"], 2000)
-        self.assertEqual(local_stages["mubeam"]["quorum"], 0.8)
+        probe = self._probe_spec(spec.stage_tuning)
+        with mock.patch.dict(_modes.SPECS, {probe.name: probe}):
+            self.assertEqual(
+                pipeline.stage_cfg("mubeam", mode=probe.name)["events"], 200000)
+            self.assertEqual(
+                pipeline.stage_cfg("mustops_ce", mode=probe.name)["events"], 75000)
+            self.assertEqual(
+                pipeline.stage_cfg("elebeam_flash", mode=probe.name)["events"], 110000)
+            self.assertEqual(
+                pipeline.stage_cfg("mubeam", mode=probe.name)["memory_mb"], 2000)
+            self.assertEqual(
+                pipeline.stage_cfg("mubeam", mode=probe.name)["quorum"], 0.8)
 
 
 class TestStageTuningModuleLevelWiring(unittest.TestCase):
-    """R2 in the json-configurable-modes final review: every test in
-    TestStageTuning above calls `pipeline._apply_stage_tuning` directly on a
-    local dict, so deleting the MODULE-LEVEL call in core/pipeline.py
-    (~line 319, right after `_apply_stage_tuning` is defined) fails nothing
-    in that class.
-
-    This test genuinely exercises that module-level call: it hand-registers
-    a throwaway ModeSpec carrying a non-empty run.stage_tuning directly into
-    a fresh subprocess's `modes.SPECS` (bypassing mode_specs/ directory
-    discovery entirely -- core/modes.py's MODES_DIR is a hardcoded path, not
+    """End-to-end, real subprocess: hand-register a throwaway ModeSpec
+    carrying a non-empty run.stage_tuning directly into a fresh
+    subprocess's `modes.SPECS` (bypassing mode_specs/ directory discovery
+    entirely -- core/modes.py's MODES_DIR is a hardcoded path, not
     overridable via env, and the real mode_specs/ directory must stay
-    clean), then imports core/pipeline.py under that mode and reads back the
-    REAL module-level pipeline.STAGES dict. If the module-level
-    `_apply_stage_tuning(STAGES, ...)` call is ever deleted, this fails."""
+    clean), then imports core/pipeline.py under that mode and calls
+    pipeline.stage_cfg() -- the ONE place stage_tuning is read now (Task 6;
+    was the module-level `_apply_stage_tuning(STAGES, ...)` mutation at
+    import). If stage_cfg() ever stops reading spec.stage_tuning, this
+    fails."""
 
-    def test_json_mode_stage_tuning_lands_on_real_stages_at_import(self):
+    def test_json_mode_stage_tuning_lands_on_real_stages_via_stage_cfg(self):
         root = Path(__file__).resolve().parent.parent
         mode_name = f"stagetuningprobe{uuid.uuid4().hex[:8]}"
         doc = json.loads(
@@ -243,7 +213,7 @@ class TestStageTuningModuleLevelWiring(unittest.TestCase):
                 "modes.SPECS[spec.name] = spec\n"
                 "os.environ['AUTORESEARCH_MODE'] = spec.name\n"
                 "import pipeline\n"
-                "print(pipeline.STAGES['mubeam']['events_per_job'])\n"
+                "print(pipeline.stage_cfg('mubeam', pipeline.MODE)['events'])\n"
             )
             env = dict(os.environ)
             env.pop("PYTHONPATH", None)
@@ -314,13 +284,13 @@ class TestStageEntries(unittest.TestCase):
     schema): golden per-stage entry data (loaded through the real
     stage_entries/ tree -- no fixture dir, so a checked-in JSON typo fails
     this suite) + the two per-call substitution points ({geom} placeholder,
-    mustops_ce's concat-less MaxEventsToSkip)."""
+    mustops_ce's MaxEventsToSkip)."""
 
     def _entry(self, stage, *, cfg="x001", geom="autoresearch_x001_geom.txt"):
         return pipeline.px.load_stage_entry(stage, cfg=cfg, geom=geom)
 
     def test_every_stage_has_a_published_fcl_and_overrides_dict(self):
-        for stage in pipeline.STAGES:
+        for stage in pipeline.ALL_STAGES:
             with self.subTest(stage=stage):
                 entry = self._entry(stage)
                 self.assertTrue(entry["fcl"].startswith("Production/JobConfig/"))
@@ -334,36 +304,13 @@ class TestStageEntries(unittest.TestCase):
             ["Production/JobConfig/pileup/epilog_1b.fcl",
              "sim_kept_products_extras.fcl", "mubeam_targetstop_path.fcl"])
 
-    def test_run1b_mubeam_include_key_is_first_and_carries_epilog_and_extras(self):
-        overrides = self._entry("run1b_mubeam")["fcl_overrides"]
-        self.assertEqual(list(overrides.keys())[0], "#include")
-        self.assertEqual(
-            overrides["#include"],
-            ["Production/JobConfig/pileup/epilog_1b.fcl",
-             "sim_kept_products_extras.fcl"])
-
-    def test_both_resampler_stages_share_one_kept_products_file(self):
-        # The dedupe's whole point (2026-08-17): the outputCommands blocks
-        # were byte-identical in the two former per-stage extras files, so a
-        # change to the kept-products shape had to be made twice or silently
-        # diverge. Pin that they now name the SAME file, and that only
-        # mubeam carries the targetStopPath override -- Run1B keeps the
-        # published path.
+    def test_mubeam_carries_the_shared_kept_products_file(self):
+        # The dedupe's whole point (2026-08-17): the outputCommands block
+        # lives in ONE file, so a change to the kept-products shape is made
+        # once. mubeam also carries the targetStopPath override.
         mubeam = self._entry("mubeam")["fcl_overrides"]["#include"]
-        run1b = self._entry("run1b_mubeam")["fcl_overrides"]["#include"]
-        shared = "sim_kept_products_extras.fcl"
-        self.assertIn(shared, mubeam)
-        self.assertIn(shared, run1b)
+        self.assertIn("sim_kept_products_extras.fcl", mubeam)
         self.assertIn("mubeam_targetstop_path.fcl", mubeam)
-        self.assertNotIn("mubeam_targetstop_path.fcl", run1b)
-
-    def test_concat_has_no_include_key_and_no_geom_key(self):
-        # concat's base FCL (MuonStopSelector.fcl) had only ONE #include in
-        # the old template -- nothing to carry as a '#include' override --
-        # and no G4 stage, so no services.GeometryService key either.
-        overrides = self._entry("concat")["fcl_overrides"]
-        self.assertNotIn("#include", overrides)
-        self.assertNotIn("services.GeometryService.inputFile", overrides)
 
     def test_mustops_ce_has_no_include_key(self):
         # mustops_ce's base FCL (CeEndpoint.fcl) also had only one #include.
@@ -373,18 +320,18 @@ class TestStageEntries(unittest.TestCase):
     def test_elebeam_flash_include_key_is_epilog_only_no_extras(self):
         # elebeam_flash has no @sequence::-bearing override -- its
         # '#include' key carries only epilog_1b.fcl, as a bare string (not
-        # a list), unlike mubeam/run1b_mubeam.
+        # a list), unlike mubeam.
         overrides = self._entry("elebeam_flash")["fcl_overrides"]
         self.assertEqual(list(overrides.keys())[0], "#include")
         self.assertEqual(overrides["#include"],
                          "Production/JobConfig/pileup/epilog_1b.fcl")
 
     def test_cat_resampler_stages_never_carry_max_events_to_skip(self):
-        # mubeam/run1b_mubeam/elebeam_flash resample a static SAM Cat
+        # mubeam/elebeam_flash resample a static SAM Cat
         # dataset -- json2jobdef auto-computes MaxEventsToSkip and appends
         # it as a post_line that beats fcl_overrides, so carrying the old
         # templates' hardcoded 319542 forward would be a silent lie.
-        for stage in ("mubeam", "run1b_mubeam", "elebeam_flash"):
+        for stage in ("mubeam", "elebeam_flash"):
             with self.subTest(stage=stage):
                 overrides = self._entry(stage)["fcl_overrides"]
                 self.assertFalse(
@@ -409,10 +356,6 @@ class TestStageEntries(unittest.TestCase):
             "mubeam": {"resampler_name": "beamResampler",
                       "input_data": {"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
                       "inloc": "tape", "run": 1800, "events": 5000},
-            "run1b_mubeam": {"resampler_name": "beamResampler",
-                            "input_data": {"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
-                            "inloc": "tape", "run": 1810, "events": 5000},
-            "concat": {"inloc": "disk"},
             "mustops_ce": {"resampler_name": "TargetStopResampler",
                           "inloc": "disk", "run": 1801, "memory": 3000,
                           "events": 2500},
@@ -430,25 +373,21 @@ class TestStageEntries(unittest.TestCase):
                 self.assertEqual(
                     entry["outloc"], {"*.art": "outstage", "*.root": "outstage"})
 
-    def test_concat_and_mustops_ce_have_no_run_or_events_default(self):
-        # concat has neither (no G4, no run number); mustops_ce's input_data
-        # is always staged (no static Cat dataset).
-        self.assertNotIn("run", self._entry("concat"))
-        self.assertNotIn("events", self._entry("concat"))
-        self.assertNotIn("input_data", self._entry("concat"))
+    def test_mustops_ce_has_no_static_input_data(self):
+        # mustops_ce's input_data is always staged (no static Cat dataset).
         self.assertNotIn("input_data", self._entry("mustops_ce"))
-        self.assertNotIn("resampler_name", self._entry("concat"))
 
     def test_load_stage_entry_substitutes_geom_placeholder(self):
         entry = pipeline.px.load_stage_entry(
             "mubeam", cfg="x001", geom="autoresearch_x001_geom.txt")
         self.assertEqual(entry["fcl_overrides"]["services.GeometryService.inputFile"],
                          "autoresearch_x001_geom.txt")
-        # concat has no geom key to substitute -- a no-op, not an error.
-        self.assertNotIn(
-            "services.GeometryService.inputFile",
-            pipeline.px.load_stage_entry(
-                "concat", cfg="x001", geom="g.txt")["fcl_overrides"])
+        # Substitution is textual over the whole entry, so a stage entry
+        # WITHOUT the key is a no-op, not an error.
+        self.assertEqual(
+            pipeline.px._substitute_placeholders(
+                {"fcl": "X.fcl"}, {"cfg": "x001", "geom": "g.txt"}, "entry"),
+            {"fcl": "X.fcl"})
 
     def test_render_fcl_overrides_substitutes_the_geom_placeholder(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -475,31 +414,27 @@ class TestStageEntries(unittest.TestCase):
             raw["fcl_overrides"]["services.GeometryService.inputFile"],
             "{geom}")
 
-    def test_render_fcl_overrides_mustops_ce_concatless_toggle(self):
+    def test_render_fcl_overrides_mustops_ce_lowers_max_events_to_skip(self):
+        # Each mustops_ce job reads ONE mubeam file (~16k events), so the
+        # random skip must stay below the smallest plausible file -- the
+        # checked-in 100720 is dropped to 8000 at submit time.
         key = "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
-                 mock.patch.object(pipeline, "STATE", Path(tmp)), \
-                 mock.patch.object(pipeline, "CONCATLESS", False):
-                self.assertEqual(
-                    pipeline._render_fcl_overrides("mustops_ce")[key], 100720)
-            with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
-                 mock.patch.object(pipeline, "STATE", Path(tmp)), \
-                 mock.patch.object(pipeline, "CONCATLESS", True):
+                 mock.patch.object(pipeline, "STATE", Path(tmp)):
                 self.assertEqual(
                     pipeline._render_fcl_overrides("mustops_ce")[key], 8000)
 
-    def test_stage_extra_files_only_mubeam_and_run1b_mubeam(self):
+    def test_stage_extra_files_only_mubeam(self):
         # Derived from the entry's '#include' (bare basenames ship,
         # published Production/... paths don't), so the JSON is the single
         # declaration of "this stage needs this extra include".
-        for stage in pipeline.STAGES:
+        for stage in pipeline.ALL_STAGES:
             with self.subTest(stage=stage):
                 extras = pipeline._stage_extra_files(self._entry(stage))
                 # mubeam ships two since the 2026-08-17 dedupe (the shared
-                # kept-products file + its own targetStopPath); run1b_mubeam
-                # ships only the shared one.
-                expected = {"mubeam": 2, "run1b_mubeam": 1}.get(stage, 0)
+                # kept-products file + its own targetStopPath).
+                expected = {"mubeam": 2}.get(stage, 0)
                 self.assertEqual(len(extras), expected)
                 for f in extras:
                     self.assertTrue(f.exists(), f"{f} must exist on disk")
@@ -510,7 +445,7 @@ class TestStageEntries(unittest.TestCase):
         # FHiCL is last-wins, so a shipped-but-reordered include could
         # silently change which override survives. Published Production/...
         # paths resolve from the release and ship nothing.
-        for stage in ("mubeam", "run1b_mubeam"):
+        for stage in ("mubeam",):
             with self.subTest(stage=stage):
                 entry = self._entry(stage)
                 inc = entry["fcl_overrides"]["#include"]
@@ -530,10 +465,11 @@ class TestStageEntries(unittest.TestCase):
     def test_stages_never_carry_the_dead_pre_task14_fields(self):
         # run_number/memory_mb/default_loc/ships_geom/auxinput all moved to
         # stage_entries/<stage>.json (or were dropped as dead -- see the
-        # comment above STAGES); a regression that reintroduces one of
-        # these onto STAGES defeats the point of the shrink.
-        for stage, cfg in pipeline.STAGES.items():
+        # comment above stage_cfg()); a regression that reintroduces one of
+        # these onto a stage_cfg() result defeats the point of the shrink.
+        for stage in pipeline.ALL_STAGES:
             with self.subTest(stage=stage):
+                cfg = pipeline.stage_cfg(stage, pipeline.MODE)
                 for dead in ("run_number", "default_loc", "ships_geom",
                             "auxinput"):
                     self.assertNotIn(dead, cfg)
@@ -541,8 +477,8 @@ class TestStageEntries(unittest.TestCase):
 
 class TestWriteCodeTarballExtraFiles(unittest.TestCase):
     """write_code_tarball's extra_files param (prodtools switch, Task 4;
-    Task 13 changed WHAT ships here -- a static mubeam/run1b_mubeam extras
-    fcl instead of a per-config materialized template -- but not the
+    Task 13 changed WHAT ships here -- a static mubeam extras fcl
+    instead of a per-config materialized template -- but not the
     mechanism): ships extra files beside the geom in Code/, the same
     search-path mechanism the geom already uses. Staleness for extra_files
     is CONTENT-based (_extra_files_digest), not mtime -- see that function's
@@ -605,7 +541,7 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
                 cnf_a = pipeline.write_code_tarball(stage_dir, base_tarball=base)
                 # Stage B's submit: an extras fcl not yet cached under ANY
                 # name -- must build its own cache file, not overwrite A's.
-                extra_b = root / "run1b_mubeam_extras.fcl"
+                extra_b = root / "other_stage_extras.fcl"
                 extra_b.write_text('#include "geom.txt"\n')
                 cnf_b = pipeline.write_code_tarball(
                     stage_dir, base_tarball=base, extra_files=[extra_b])
@@ -613,8 +549,8 @@ class TestWriteCodeTarballExtraFiles(unittest.TestCase):
             self.assertTrue(cnf_a.exists())    # A's cache untouched by B's build
             listing_a = self._tar_listing(cnf_a)
             listing_b = self._tar_listing(cnf_b)
-        self.assertNotIn("Code/run1b_mubeam_extras.fcl", listing_a)
-        self.assertIn("Code/run1b_mubeam_extras.fcl", listing_b)
+        self.assertNotIn("Code/other_stage_extras.fcl", listing_a)
+        self.assertIn("Code/other_stage_extras.fcl", listing_b)
 
     def test_two_stages_with_different_extras_cache_independently(self):
         # I1 [Important]: pre-fix, the per-config cache filename was
@@ -727,7 +663,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
                 return cnf
 
             def fake_submit_cnf(stage_dir, entry_path, ledger_db, origin,
-                                env, runner=None, dry_run=False):
+                                env, cnf=None, runner=None, dry_run=False):
                 self.submit_args = (stage_dir, entry_path, ledger_db, origin)
                 return 86123999, "86123999@jobsub01.fnal.gov"
 
@@ -756,7 +692,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
                 "86123999@jobsub01.fnal.gov")
             self.assertEqual(
                 (state / "mubeam_events_per_job.txt").read_text().strip(),
-                str(pipeline.STAGES["mubeam"]["events_per_job"]))
+                str(pipeline.stage_cfg("mubeam", pipeline.MODE)["events"]))
             self.assertTrue((state / "mubeam_config_sha.txt").exists())
 
             entry = json.loads((state / "mubeam_entry.json").read_text())[0]
@@ -775,7 +711,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
             # stage_tuning-tunable (not in mode_json._STAGE_TUNING_KEYS) --
             # it's the static stage_entries/mubeam.json default.
             self.assertEqual(entry["events"],
-                             pipeline.STAGES["mubeam"]["events_per_job"])
+                             pipeline.stage_cfg("mubeam", pipeline.MODE)["events"])
             self.assertEqual(entry["run"], 1800)
             self.assertEqual(entry["resampler_name"], "beamResampler")
             self.assertEqual(
@@ -897,11 +833,11 @@ class TestSubmitStageProdtools(unittest.TestCase):
                 ["sim_kept_products_extras.fcl",
                  "mubeam_targetstop_path.fcl"])
 
-    def test_mustops_ce_concatless_overrides_max_events_to_skip_to_8000(self):
-        # Folded-in from the old _materialize_template's stamp-first
-        # conditional (concat-less chains resample ONE mubeam file instead
-        # of the merged concat file, so the random skip must stay below the
-        # smallest plausible file -- see the mustops_ce.json comment block above pipeline._render_fcl_overrides).
+    def test_mustops_ce_overrides_max_events_to_skip_to_8000(self):
+        # Folded-in from the old _materialize_template: each mustops_ce job
+        # resamples ONE mubeam file, so the random skip must stay below the
+        # smallest plausible file -- see the mustops_ce.json comment block
+        # above pipeline._render_fcl_overrides.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg001"
             state = root / "state"
@@ -923,7 +859,6 @@ class TestSubmitStageProdtools(unittest.TestCase):
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
-                 mock.patch.object(pipeline, "CONCATLESS", True), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    side_effect=fake_build_cnf), \
                  mock.patch.object(pipeline.px, "submit_cnf",
@@ -940,7 +875,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
                 8000)
 
     def test_staged_inputs_feed_input_data_and_inloc(self):
-        # mustops_ce / concat shape: staged_inputs=(dir, {basename: count})
+        # mustops_ce shape: staged_inputs=(dir, {basename: count})
         # replaces the static Cat-dataset input_data with the hard-linked
         # farm's basenames, and inloc becomes dir:<staged_dir>.
         with tempfile.TemporaryDirectory() as tmp:
@@ -967,7 +902,6 @@ class TestSubmitStageProdtools(unittest.TestCase):
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
-                 mock.patch.object(pipeline, "CONCATLESS", False), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    side_effect=fake_build_cnf), \
                  mock.patch.object(pipeline.px, "submit_cnf",
@@ -986,13 +920,11 @@ class TestSubmitStageProdtools(unittest.TestCase):
                              "Production/JobConfig/primary/CeEndpoint.fcl")
             # mustops_ce is a dir:-inloc resampler -- no auto-compute
             # post_line, so MaxEventsToSkip MUST ride fcl_overrides (unlike
-            # mubeam above). No stage-chain stamp exists in this fresh
-            # STATE, so the module-level CONCATLESS fallback (forced False
-            # above) decides: a concat-bearing chain keeps 100720.
+            # mubeam above), lowered to 8000 by _render_fcl_overrides.
             self.assertEqual(
                 entry["fcl_overrides"][
                     "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"],
-                100720)
+                8000)
 
     def test_build_cnf_env_carries_templates_root_on_fhicl_file_path(self):
         # Task 11 empirical finding (docs/superpowers/sdd/
@@ -1002,7 +934,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
         # confirmed by direct reproduction that fhicl-get does NOT fall back
         # to cwd, even though build_cnf's subprocess cwd is the stage dir.
         # Since Task 13, the bare-basename include that needs this is the
-        # mubeam/run1b_mubeam extras fcl (stage_entries/<stage>.json's '#include' key), which
+        # mubeam extras fcl (stage_entries/mubeam.json's '#include' key), which
         # lives permanently in TEMPLATES_ROOT, not a per-config STATE dir.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg001"
@@ -1044,12 +976,11 @@ class TestSubmitStageProdtools(unittest.TestCase):
             self.assertIn("/some/other/path", fcl_path)
 
     def test_stage_tuning_memory_override_flows_into_the_rendered_entry(self):
-        # memory_mb moved OUT of STAGES' static literals (Task 14) --
-        # _apply_stage_tuning's dict.update() still works on a stage dict
-        # that never had the key (see core/mode_json.py
-        # _STAGE_TUNING_KEYS): stage_tuning={"mustops_ce":
-        # {"memory_mb": 4200}} injects it, and that tuned value must win
-        # over stage_entries/mustops_ce.json's static default (3000).
+        # A mode's stage_tuning memory_mb override must win over
+        # stage_entries/mustops_ce.json's static default (3000) -- exercised
+        # via stage_cfg() (Task 6: STAGES is gone, so this patches
+        # stage_cfg() itself instead of a module-level dict; see
+        # _stage_cfg_override's docstring).
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg001"
             state = root / "state"
@@ -1061,24 +992,16 @@ class TestSubmitStageProdtools(unittest.TestCase):
                 cnf.touch()
                 return cnf
 
-            tuned_cfg = dict(pipeline.STAGES["mustops_ce"])
-            pipeline._apply_stage_tuning(
-                {"mustops_ce": tuned_cfg}, {"mustops_ce": {"memory_mb": 4200}})
-            self.assertEqual(tuned_cfg["memory_mb"], 4200)  # sanity
-
             with mock.patch.object(pipeline, "ROOT", root), \
                  mock.patch.object(pipeline, "STATE", state), \
                  mock.patch.object(pipeline, "CONFIG", "cfg001"), \
                  mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
-                 mock.patch.object(pipeline, "STAGES",
-                                   {**pipeline.STAGES,
-                                    "mustops_ce": tuned_cfg}), \
+                 _stage_cfg_override("mustops_ce", memory_mb=4200), \
                  mock.patch.object(pipeline, "LEDGER_DB",
                                    Path(tmp) / "ledger" / "submissions.db"), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
-                 mock.patch.object(pipeline, "CONCATLESS", False), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    side_effect=fake_build_cnf), \
                  mock.patch.object(pipeline.px, "submit_cnf",
@@ -1092,16 +1015,13 @@ class TestSubmitStageProdtools(unittest.TestCase):
             self.assertEqual(entry["memory"], "4200MB")
 
     def test_untuned_memory_falls_back_to_the_stage_entries_json_default(self):
-        # Same shape, no tuning: STAGES carries no memory_mb key at all for
-        # a stage never mentioned in a mode's stage_tuning, so the entry
-        # must fall back to stage_entries/mustops_ce.json's static "memory".
+        # No mode (MODE=None): stage_cfg()'s mode branch never runs, so
+        # memory_mb is never injected and the entry must fall back to
+        # stage_entries/mustops_ce.json's static "memory".
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg001"
             state = root / "state"
             state.mkdir(parents=True)
-            untuned_cfg = {k: v for k, v in pipeline.STAGES["mustops_ce"].items()
-                          if k != "memory_mb"}
-            self.assertNotIn("memory_mb", untuned_cfg)  # sanity
 
             def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
                                runner=None):
@@ -1113,15 +1033,12 @@ class TestSubmitStageProdtools(unittest.TestCase):
                  mock.patch.object(pipeline, "STATE", state), \
                  mock.patch.object(pipeline, "CONFIG", "cfg001"), \
                  mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
-                 mock.patch.object(pipeline, "STAGES",
-                                   {**pipeline.STAGES,
-                                    "mustops_ce": untuned_cfg}), \
+                 mock.patch.object(pipeline, "MODE", None), \
                  mock.patch.object(pipeline, "LEDGER_DB",
                                    Path(tmp) / "ledger" / "submissions.db"), \
                  mock.patch.object(pipeline, "write_code_tarball",
                                    return_value=Path(tmp) / "Code.tar.bz2"), \
                  mock.patch.object(pipeline, "_maybe_refresh_token"), \
-                 mock.patch.object(pipeline, "CONCATLESS", False), \
                  mock.patch.object(pipeline.px, "build_cnf",
                                    side_effect=fake_build_cnf), \
                  mock.patch.object(pipeline.px, "submit_cnf",
@@ -1134,10 +1051,14 @@ class TestSubmitStageProdtools(unittest.TestCase):
                 (state / "mustops_ce_entry.json").read_text())[0]
             self.assertEqual(entry["memory"], "3000MB")  # stage_entries default
 
-    def test_events_falls_back_to_the_stage_entries_json_default_when_stages_lacks_it(self):
-        # mubeam always carries events_per_job in STAGES today, so this
-        # fallback is dormant in normal operation -- exercise it directly
-        # by mocking a STAGES entry that (hypothetically) doesn't.
+    def test_events_falls_back_to_the_stage_entries_json_default_under_an_untuned_mode(self):
+        # Every LIVE mode's stage_tuning overrides mubeam's events (foilsflash
+        # included, so submit_stage_prodtools's normal-ambient-MODE coverage
+        # in test_state_files_written above never exercises the untuned
+        # path). MODE=None skips stage_cfg()'s whole mode branch, so events
+        # resolves straight from stage_entries/mubeam.json's own default --
+        # there is no second dict to fall back to any more (Task 6 collapsed
+        # that fallback into stage_cfg() reading ONE source).
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg001"
             state = root / "state"
@@ -1145,9 +1066,6 @@ class TestSubmitStageProdtools(unittest.TestCase):
             geom = root / "geom" / "autoresearch_cfg001_geom.txt"
             geom.parent.mkdir(parents=True)
             geom.write_text("geom\n")
-            no_events_cfg = {k: v for k, v in pipeline.STAGES["mubeam"].items()
-                             if k != "events_per_job"}
-            self.assertNotIn("events_per_job", no_events_cfg)  # sanity
 
             def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
                                runner=None):
@@ -1160,8 +1078,7 @@ class TestSubmitStageProdtools(unittest.TestCase):
                  mock.patch.object(pipeline, "CONFIG", "cfg001"), \
                  mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
                  mock.patch.object(pipeline, "GEOM_FILE", geom), \
-                 mock.patch.object(pipeline, "STAGES",
-                                   {**pipeline.STAGES, "mubeam": no_events_cfg}), \
+                 mock.patch.object(pipeline, "MODE", None), \
                  mock.patch.object(pipeline, "LEDGER_DB",
                                    Path(tmp) / "ledger" / "submissions.db"), \
                  mock.patch.object(pipeline, "write_code_tarball",
@@ -1197,6 +1114,11 @@ class TestSubmitStageProdtools(unittest.TestCase):
             (entries_dir / "mubeam.json").write_text(json.dumps({
                 "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
                 "outloc": custom_outloc,
+                # stage_cfg() (Task 6) needs these on every stage_entries
+                # fixture now, not just the real checked-in tree.
+                "desc_fmt": "Run1A_MuBeam_{cfg}",
+                "output_glob": "sim.*.TargetStops.*.art",
+                "njobs": 200,
             }))
 
             def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
@@ -1236,6 +1158,11 @@ class TestSubmitStageProdtools(unittest.TestCase):
             (entries_dir / "mubeam.json").write_text(json.dumps({
                 "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
                 "outloc": custom_outloc,
+                # stage_cfg() (Task 6) needs these on every stage_entries
+                # fixture now, not just the real checked-in tree.
+                "desc_fmt": "Run1A_MuBeam_{cfg}",
+                "output_glob": "sim.*.TargetStops.*.art",
+                "njobs": 200,
             }))
 
             def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
@@ -1305,47 +1232,22 @@ class TestSubmitStageProdtools(unittest.TestCase):
 
 
 class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
-    """cmd_submit's grid concat/mustops_ce branches: stage_hardlink_farm is
-    kept verbatim (mocked out here -- its own behavior is untested by this
-    class), but the input_map built around it must carry the CLAMPED merge
-    factor (Task 7 controller resolution #2): mu2ejobdef used to yield ZERO
-    jobs when the merge factor exceeded the input count, and prodtools'
-    behavior at that corner is unvalidated, so cmd_submit clamps as a guard.
-    """
-
-    def test_concat_input_map_clamps_merge_factor_to_source_count(self):
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.object(pipeline, "GRID_STAGES",
-                               ("mubeam", "concat", "mustops_ce")), \
-             mock.patch.object(pipeline, "sourced_env", return_value={}), \
-             mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
-             mock.patch.object(pipeline, "stage_hardlink_farm",
-                               return_value=Path("/pnfs/x/concat")) as farm:
-            sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(3)]
-            (Path(tmp) / "mubeam_outputs.txt").write_text(
-                "\n".join(sources) + "\n")
-            pipeline.cmd_submit(SimpleNamespace(stage="concat", force=False,
-                                                dry_run=False))
-            farm.assert_called_once()
-            _, kwargs = sub.call_args
-            staged_dir, input_map = kwargs["staged_inputs"]
-            self.assertEqual(staged_dir, Path("/pnfs/x/concat"))
-            # merge_factor is 200 by default; clamped to the 3 sources.
-            self.assertEqual(input_map,
-                             {Path(s).name: 3 for s in sources})
+    """cmd_submit's grid mustops_ce branch: stage_hardlink_farm is kept
+    verbatim (mocked out here -- its own behavior is untested by this
+    class), but the input_map built around it must give every staged
+    basename a count of 1 (one input file per job)."""
 
     def test_mustops_ce_input_map_values_are_all_one(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
              mock.patch.object(pipeline, "GRID_STAGES",
-                               ("mubeam", "concat", "mustops_ce")), \
+                               ("mubeam", "mustops_ce")), \
              mock.patch.object(pipeline, "sourced_env", return_value={}), \
              mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
              mock.patch.object(pipeline, "stage_hardlink_farm",
                                return_value=Path("/pnfs/x/mustops_ce")):
             sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(4)]
-            (Path(tmp) / "concat_outputs.txt").write_text(
+            (Path(tmp) / "mubeam_outputs.txt").write_text(
                 "\n".join(sources) + "\n")
             pipeline.cmd_submit(SimpleNamespace(stage="mustops_ce",
                                                 force=False, dry_run=False))
@@ -1401,7 +1303,7 @@ class TestRequireLocalStage(unittest.TestCase):
         with mock.patch.object(pipeline, "LOCAL_SUPPORTED_STAGES",
                                ("mubeam",)), \
              self.assertRaises(SystemExit):
-            pipeline._require_local_stage("concat")
+            pipeline._require_local_stage("run1b_mubeam")
 
     def test_refuses_when_no_config_is_bound(self):
         # STATE's unbound default is Path() -- the CURRENT DIRECTORY. Reaching
@@ -1527,7 +1429,7 @@ class TestLocalScaleResolution(unittest.TestCase):
 
     def test_bare_value_applies_to_every_stage(self):
         self.assertEqual(pipeline._resolve_scale(["4"], 1, "mubeam"), 4)
-        self.assertEqual(pipeline._resolve_scale(["4"], 1, "concat"), 4)
+        self.assertEqual(pipeline._resolve_scale(["4"], 1, "mustops_ce"), 4)
 
     def test_per_stage_override_wins_regardless_of_order(self):
         self.assertEqual(
@@ -1615,24 +1517,20 @@ class TestLocalInputFarm(unittest.TestCase):
             src_dir.mkdir()
             sources = []
             for i in range(3):
-                f = src_dir / f"sim.x.MuminusStopsCat.{i}.art"
+                f = src_dir / f"sim.x.TargetStops.{i}.art"
                 f.write_text("x")
                 sources.append(f)
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.dict(pipeline.STAGES,
-                                 {"concat": {"merge_factor": 200}},
-                                 clear=True):
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
                 farm_dir, input_map = pipeline.local_input_farm(
-                    "concat", sources)
+                    "mustops_ce", sources)
             self.assertEqual(farm_dir,
-                             Path(tmp) / "root" / "concat" / "local_inputs")
+                             Path(tmp) / "root" / "mustops_ce" / "local_inputs")
             self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
                              sorted(s.name for s in sources))
-            # merge_factor (200) CLAMPED to the input count (3).
-            self.assertEqual(input_map, {s.name: 3 for s in sources})
+            # One input file per job.
+            self.assertEqual(input_map, {s.name: 1 for s in sources})
 
-    def test_mustops_ce_map_values_are_all_one(self):
-        # mustops_ce has no merge_factor (TargetStopResampler, not a merge).
+    def test_map_values_are_all_one(self):
         with tempfile.TemporaryDirectory() as tmp:
             src_dir = Path(tmp) / "src"
             src_dir.mkdir()
@@ -1641,9 +1539,7 @@ class TestLocalInputFarm(unittest.TestCase):
                 f = src_dir / f"sim.x.TargetStops.{i}.art"
                 f.write_text("x")
                 sources.append(f)
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.dict(pipeline.STAGES, {"mustops_ce": {}},
-                                 clear=True):
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
                 _, input_map = pipeline.local_input_farm(
                     "mustops_ce", sources)
             self.assertEqual(set(input_map.values()), {1})
@@ -1654,14 +1550,11 @@ class TestLocalInputFarm(unittest.TestCase):
             src = Path(tmp) / "src.art"
             src.write_text("data")
             with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.dict(pipeline.STAGES,
-                                 {"concat": {"merge_factor": 200}},
-                                 clear=True), \
                  mock.patch.object(
                      pipeline.os, "link",
                      side_effect=OSError(errno.EXDEV, "cross-device link")):
                 farm_dir, input_map = pipeline.local_input_farm(
-                    "concat", [src])
+                    "mustops_ce", [src])
             linked = farm_dir / "src.art"
             self.assertFalse(linked.is_symlink())
             self.assertEqual(linked.read_text(), "data")
@@ -1672,14 +1565,11 @@ class TestLocalInputFarm(unittest.TestCase):
             src = Path(tmp) / "src.art"
             src.write_text("data")
             with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.dict(pipeline.STAGES,
-                                 {"concat": {"merge_factor": 200}},
-                                 clear=True), \
                  mock.patch.object(
                      pipeline.os, "link",
                      side_effect=OSError(errno.EACCES, "permission denied")):
                 with self.assertRaises(OSError):
-                    pipeline.local_input_farm("concat", [src])
+                    pipeline.local_input_farm("mustops_ce", [src])
 
     def test_a_second_call_clears_the_prior_farm_contents(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1687,9 +1577,7 @@ class TestLocalInputFarm(unittest.TestCase):
             src_dir.mkdir()
             a = src_dir / "a.art"
             a.write_text("a")
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.dict(pipeline.STAGES, {"mustops_ce": {}},
-                                 clear=True):
+            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
                 farm_dir, _ = pipeline.local_input_farm("mustops_ce", [a])
                 b = src_dir / "b.art"
                 b.write_text("b")
@@ -1843,17 +1731,16 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
         ]
 
     def test_a_consuming_stage_refuses_when_its_input_stage_never_ran_local(self):
-        # concat/mustops_ce need the PREVIOUS stage's local marker -- the same
+        # mustops_ce needs the PREVIOUS stage's local marker -- the same
         # refusal the retired mu2ejobdef-based local executor made. Without
         # it, <prev>_outputs.txt holds /pnfs paths, and farming those locally
         # is a grid chain wearing a local hat.
-        for stage, prev in (("concat", "mubeam"), ("mustops_ce", "mubeam")):
+        for stage, prev in (("mustops_ce", "mubeam"),):
             with tempfile.TemporaryDirectory() as tmp:
                 state = Path(tmp) / "state"
                 state.mkdir()
                 with self.subTest(stage=stage), \
                      mock.patch.object(pipeline, "STATE", state), \
-                     mock.patch.object(pipeline, "CONCATLESS", True), \
                      contextlib.ExitStack() as stack:
                     for p in self._consuming_stage_patches(tmp):
                         stack.enter_context(p)
@@ -1871,7 +1758,6 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
             state.mkdir()
             (state / "mubeam_local.txt").write_text("1\n")
             with mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.object(pipeline, "CONCATLESS", True), \
                  contextlib.ExitStack() as stack:
                 for p in self._consuming_stage_patches(tmp):
                     stack.enter_context(p)
@@ -1889,7 +1775,6 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
             (state / "mubeam_local.txt").write_text("1\n")
             (state / "mubeam_outputs.txt").write_text("")
             with mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.object(pipeline, "CONCATLESS", True), \
                  contextlib.ExitStack() as stack:
                 for p in self._consuming_stage_patches(tmp):
                     stack.enter_context(p)
@@ -1899,82 +1784,6 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                         local=True, local_njobs=None, local_events=None,
                         local_pool=None))
             self.assertIn("empty", str(cm.exception))
-
-    def test_concat_stages_a_local_farm_and_scales_njobs_to_source_count(self):
-        # merge_factor patched small so 5 local sources yield njobs > 1 --
-        # otherwise the default merge_factor (200) always clamps to
-        # njobs=ceil(n/n)=1 and the scaling behavior is untestable.
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "state"
-            state.mkdir()
-            (state / "mubeam_local.txt").write_text("1\n")
-            src_dir = Path(tmp) / "mubeam_out"
-            src_dir.mkdir()
-            sources = []
-            for i in range(5):
-                f = src_dir / f"sim.x.TargetStops.{i}.art"
-                f.write_text("x")
-                sources.append(f)
-            (state / "mubeam_outputs.txt").write_text(
-                "\n".join(str(s) for s in sources) + "\n")
-            with mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.dict(pipeline.STAGES["concat"],
-                                 {"merge_factor": 2}), \
-                 contextlib.ExitStack() as stack:
-                for p in self._consuming_stage_patches(tmp):
-                    stack.enter_context(p)
-                rr = stack.enter_context(
-                    mock.patch.object(pipeline.px, "run_runlocal",
-                                      side_effect=_stub_run_runlocal()))
-                pipeline.cmd_submit(SimpleNamespace(
-                    stage="concat", force=False, dry_run=False, local=True,
-                    local_njobs=None, local_events=None, local_pool=None))
-
-            entry = json.loads((state / "concat_entry.json").read_text())[0]
-            merge = min(2, 5)  # clamped merge factor
-            self.assertEqual(entry["input_data"],
-                             {s.name: merge for s in sources})
-            farm_dir = Path(tmp) / "concat" / "local_inputs"
-            self.assertEqual(entry["inloc"], f"dir:{farm_dir}")
-            self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
-                             sorted(s.name for s in sources))
-            self.assertEqual(entry["njobs"], math.ceil(5 / merge))
-            call_args, call_kwargs = rr.call_args
-            self.assertEqual(call_args[2], math.ceil(5 / merge))
-            # C1 regression: a consuming stage's runlocal call must carry
-            # the SAME dir:<farm> inloc the rendered entry got -- without
-            # it, runlocal defaults to --inloc tape and resolves this
-            # locally-farmed basename against /pnfs/mu2e/tape.
-            self.assertEqual(call_kwargs["inloc"], f"dir:{farm_dir}")
-
-    def test_concat_local_njobs_flag_overrides_the_computed_default(self):
-        # Operator wins: an explicit --local-njobs beats the
-        # ceil(len(sources)/merge) default this task adds.
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "state"
-            state.mkdir()
-            (state / "mubeam_local.txt").write_text("1\n")
-            src_dir = Path(tmp) / "mubeam_out"
-            src_dir.mkdir()
-            sources = []
-            for i in range(5):
-                f = src_dir / f"sim.x.TargetStops.{i}.art"
-                f.write_text("x")
-                sources.append(f)
-            (state / "mubeam_outputs.txt").write_text(
-                "\n".join(str(s) for s in sources) + "\n")
-            with mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.dict(pipeline.STAGES["concat"],
-                                 {"merge_factor": 2}), \
-                 contextlib.ExitStack() as stack:
-                for p in self._consuming_stage_patches(tmp):
-                    stack.enter_context(p)
-                pipeline.cmd_submit(SimpleNamespace(
-                    stage="concat", force=False, dry_run=False, local=True,
-                    local_njobs=["9"], local_events=None, local_pool=None))
-
-            entry = json.loads((state / "concat_entry.json").read_text())[0]
-            self.assertEqual(entry["njobs"], 9)
 
     def test_mustops_ce_stages_a_local_farm_with_merge_one_and_default_njobs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1990,12 +1799,7 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                 sources.append(f)
             (state / "mubeam_outputs.txt").write_text(
                 "\n".join(str(s) for s in sources) + "\n")
-            # No stage-chain stamp exists (the local branch never writes
-            # one), so mustops_ce's prev-stage resolution falls back to the
-            # module-level CONCATLESS constant -- force it True (mubeam) so
-            # this test doesn't depend on which mode was live at import.
             with mock.patch.object(pipeline, "STATE", state), \
-                 mock.patch.object(pipeline, "CONCATLESS", True), \
                  contextlib.ExitStack() as stack:
                 for p in self._consuming_stage_patches(tmp):
                     stack.enter_context(p)
@@ -2008,9 +1812,7 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
             self.assertEqual(entry["input_data"], {s.name: 1 for s in sources})
             farm_dir = Path(tmp) / "mustops_ce" / "local_inputs"
             self.assertEqual(entry["inloc"], f"dir:{farm_dir}")
-            # njobs stays at the plain local-scale default (1) -- resolution
-            # #3 keeps mustops_ce's local njobs as-is, unlike concat's
-            # source-count scaling.
+            # njobs stays at the plain local-scale default (1).
             self.assertEqual(entry["njobs"], 1)
 
     def test_renders_and_stamps_with_the_local_scale_not_the_grid_cfg(self):
@@ -2027,14 +1829,15 @@ class TestCmdSubmitLocalViaRunlocal(unittest.TestCase):
                     local_njobs=["3"], local_events=["77"],
                     local_pool=None))
 
-            # render_entry got the LOCAL njobs/events, not STAGES["mubeam"]'s
-            # grid-scale 200 x 5000.
+            # render_entry got the LOCAL njobs/events, not
+            # stage_cfg("mubeam", MODE)'s grid-scale 200 x 5000.
             entry = json.loads(
                 (state / "mubeam_entry.json").read_text())[0]
             self.assertEqual(entry["njobs"], 3)
             self.assertEqual(entry["events"], 77)
-            self.assertNotEqual(entry["njobs"],
-                                pipeline.STAGES["mubeam"]["njobs"])
+            self.assertNotEqual(
+                entry["njobs"],
+                pipeline.stage_cfg("mubeam", pipeline.MODE)["njobs"])
 
             # harvest's stamp carries the LOCAL events value.
             self.assertEqual(

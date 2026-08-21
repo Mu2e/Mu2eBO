@@ -4,12 +4,59 @@ title: sourced_env stderr swallowed — transient setup blips look like silent s
   death
 description: pipeline.py:278 sourced_env() swallows bash stderr; 3/10 foilsX06R00
   children died on transient `setup mu2egrid` rc=127 + missing CET_PLUGIN_PATH mfPlugin
-  "cerr" with no captured cause
+  "cerr" with no captured cause; ALSO the non-transient face — a missing `${ARTIFACT}`
+  musing is rc=1 too, so the retry loop hid it until paths.require() (2026-08-18)
 status: active
-timestamp: '2026-07-17'
+timestamp: '2026-08-18'
+updated_note: 'added the NON-transient rc=1 face: a missing musing is the same
+  rc as the flake, so the retry loop hides it; fixed by paths.require() on
+  local-executor'
 ---
 
 # sourced_env stderr swallowed — transient setup blips look like silent stage death
+
+## THE NON-TRANSIENT rc=1 (2026-08-18): a missing musing wears the flake's face
+- **Every section below is about a TRANSIENT failure the retry loop recovers.
+  This one is permanent, and the retry loop is what conceals it.** `source
+  <missing-file>` is rc=1 — the same rc the cvmfs/spack flake produces — so
+  `sourced_env` burned all four retries (~50 s) and raised a
+  `CalledProcessError` quoting the whole command string and naming no cause.
+- **Reachable by ordinary use, not by typo.** The portable-paths work
+  (branch `local-executor`) replaced hardcoded musings in `mode_specs/*.json`
+  with `"musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh"`.
+  `${ARTIFACT}` resolves through `core/paths.py` → `AUTORESEARCH_ARTIFACT_ROOT`,
+  defaulting to `/exp/mu2e/app/users/$USER` — **the calling operator's own app
+  area**. A second operator who has not built the partial Run1Bap tree gets a
+  path that simply does not exist, on their first `submit`.
+- **First report: a second operator (sophie), 2026-08-18**, running
+  `python -m core.pipeline --config <cfg> submit digi` from her own
+  `Mu2eBO` fork. Symptom was three `[sourced_env] attempt N/4 ... (transient
+  cvmfs/spack flake?)` lines then the CalledProcessError — which reads as a
+  cvmfs problem and is not one.
+- **The operator fix is one command**, and it is the mechanism `paths.artifact()`
+  was built for (muse's link order: local wins, backing fills in):
+  `./setup.sh --backing /exp/mu2e/app/users/oksuzian`. Do NOT instead set
+  `AUTORESEARCH_ARTIFACT_ROOT` to another operator's area — that redirects
+  *writes* (autoresearch_muse, grid trees) there too; a backing is read-only
+  by construction.
+- **A `setup_local.sh` symlink dropped in the repo root does nothing.**
+  Nothing reads the repo root for artifacts; only `ARTIFACT_ROOT` then
+  `BACKING` are consulted.
+- **Code fix (branch `local-executor`)**: new `paths.require(path, what, *,
+  tail="")` — the single stat-or-raise that formats the "not where the roots
+  say it should be" failure, with the `ARTIFACT_ROOT`/`BACKING`/`--backing`
+  remediation tail. `paths.verify()` now calls it per field; `sourced_env()`
+  calls it on `MUSING` (and on the `autoresearch_muse` work area in the
+  `with_muse=True` branch) BEFORE shelling out, so the failure is instant and
+  names the path. `SETUPMU2E` is deliberately NOT checked — it is on cvmfs,
+  where "missing" usually IS the transient condition the retries recover.
+- **Why preflight's existing `paths.verify()` did not cover it**:
+  `bo_driver.py:_cmd_preflight_impl` verifies the whole spec, but
+  `pipeline.py ... submit <stage>` is driven directly for stalled-chain
+  recovery and never runs preflight. Two entry points, one of them unguarded.
+- Tests: `tests/test_paths.py:TestRequire` (4) +
+  `tests/test_pipeline_verbs.py:TestSourcedEnvGuards.
+  test_a_missing_musing_fails_fast_instead_of_retrying`. Suite 617 green.
 
 ## SECOND CODE PATH FOUND + FIXED (2026-06-01): cmd_preflight
 - The retry fix was applied to `pipeline.py:sourced_env` (submit/harvest)

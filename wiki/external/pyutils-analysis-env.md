@@ -155,6 +155,9 @@ wall: **the ntuples are reconstruction-filtered and carry no generated-event cou
 ## Cross-links
 - External: [Mu2e/pyutils](https://github.com/Mu2e/pyutils); Slack `#analysis-tools`.
 - Related: [mu2e-offline](/external/mu2e-offline.md), `reference_run1bana_repo` (user-memory note) (EdepAna lives elsewhere), building-with-muse skill.
+- Related: [mu2e-cvmfs-python-envs](/external/mu2e-cvmfs-python-envs.md) — what is
+  installed in each `env/` prefix (ana/rootana/trkqual) and how far this project's
+  own `.venv` is from them.
 - This project's own harvest path uses uproot/PyROOT directly, not pyutils — pyutils
   is for EventNtuple-style downstream analysis.
 

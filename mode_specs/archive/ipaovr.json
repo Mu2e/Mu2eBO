@@ -1,6 +1,6 @@
 {
-  "name": "ipafix",
-  "note": "IPA-position A/B, ipafix. A/B ARM A (control, CORRECT). protonabsorber.distFromTargetEnd 491.666672 holds the IPA at its true hardware position 6901-7901 for this 1066.67 mm stack. Identical to the live foilsflash spec. Throwaway measurement mode -- DELETE after the A/B lands.",
+  "name": "ipaovr",
+  "note": "IPA A/B arm C: today's Run1Bap code with the historical tracker.inDS2Vacuum + ds2.halfLength=3825 override pair RESTORED. Isolates that pair from the Offline version bump as the source of the +4.9% sob shift. Throwaway measurement mode -- DELETE after the A/B lands.",
   "software": {
     "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii.tar.bz2"
@@ -11,7 +11,6 @@
       "mustops_ce",
       "elebeam_flash"
     ],
-    "harvest": "harvest",
     "jobs_per_stage": {
       "mubeam": 15,
       "mustops_ce": 15,
@@ -79,7 +78,7 @@
   ],
   "int_dims": [],
   "leaderboard": {
-    "file": "leaderboards/leaderboard_ab_ipafix.tsv",
+    "file": "leaderboards/leaderboard_ab_ipaovr.tsv",
     "columns": [
       "sob",
       "flash_edep",
@@ -103,7 +102,6 @@
   "preflight": {
     "dumps_gdml": true,
     "verifies_foil_gdml": true,
-    "preserves_gdml": false,
     "checks_managed_overlap": true,
     "require_zero_overlaps": false
   },
@@ -277,6 +275,19 @@
         "key": "ds.lengthRail3",
         "type": "double",
         "value": 0.1
+      },
+      {
+        "comment": "RESTORED historical override pair (removed by the Run1Bap migration). Under v13_12_10 this was REQUIRED: constructVirtualDetectors:502 parented tracker VDs on `isDumbbell` while Mu2eWorld:346 put the tracker in DS3Vacuum, and without forcing both into an extended DS2Vacuum the job died GeomMgt0002. It moves the DS2/DS3 boundary 8339 -> 11829, so the tracker's mother volume changes and the DS3Vacuum polycone (with its nested rails and shielding) is reshaped. Restored here ONLY to test whether that is what shifted sob 3.90 -> 4.10."
+      },
+      {
+        "key": "tracker.inDS2Vacuum",
+        "type": "bool",
+        "value": true
+      },
+      {
+        "key": "ds2.halfLength",
+        "type": "double",
+        "value": 3825.0
       }
     ]
   }

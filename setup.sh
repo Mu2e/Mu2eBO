@@ -30,7 +30,14 @@ _SOURCED=0
 (( _SOURCED )) || set -uo pipefail
 
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_PY="$_HERE/.venv/bin/python"
+# The interpreter that resolves the roots. Prefer the one `activate.sh`
+# resolved, so --status reports roots derived by the SAME python that will
+# run the chain; `.venv` and a bare python3 are fallbacks for a shell that
+# has not sourced activate.sh yet. Any of them works -- core/paths.py is
+# stdlib-only by contract -- but reporting from a different interpreter than
+# the one about to run is the kind of near-miss that hides a real one.
+_PY="${AUTORESEARCH_PYTHON:-}"
+[[ -n "$_PY" && -x "$_PY" ]] || _PY="$_HERE/.venv/bin/python"
 [[ -x "$_PY" ]] || _PY="python3"
 
 # The reference venv of this deployment, used when --venv is given no path.
@@ -84,13 +91,19 @@ print(f"  logs        {paths.GRAPH_DATA}")
 print(f"  live boards {paths.LEADERBOARD_LIVE}")
 PY
     # Not a resolver root, so it is reported from the shell rather than from
-    # core/paths.py -- but an operator reading --status wants it here.
-    if [[ -L "$_HERE/.venv" ]]; then
-        echo "VENV          $(readlink "$_HERE/.venv")   (symlink)"
-    elif [[ -d "$_HERE/.venv" ]]; then
-        echo "VENV          $_HERE/.venv   (real directory)"
+    # core/paths.py -- but an operator reading --status wants it here. Report
+    # what is ACTIVE, which since the pyenv switch is usually not `.venv`:
+    # `source activate.sh` exports both of these.
+    if [[ -n "${AUTORESEARCH_PYTHON:-}" ]]; then
+        echo "PYTHON        $AUTORESEARCH_PYTHON   (${AUTORESEARCH_PYTHON_SOURCE:-?})"
     else
-        echo "VENV          (none)   -- ./setup.sh --venv to link the site venv"
+        echo "PYTHON        (not resolved)   -- 'source activate.sh' first;" \
+             "default is the published cvmfs env"
+    fi
+    if [[ -L "$_HERE/.venv" ]]; then
+        echo "  .venv       $(readlink "$_HERE/.venv")   (symlink; dev override, AUTORESEARCH_VENV)"
+    elif [[ -d "$_HERE/.venv" ]]; then
+        echo "  .venv       $_HERE/.venv   (real directory; dev override, AUTORESEARCH_VENV)"
     fi
 }
 

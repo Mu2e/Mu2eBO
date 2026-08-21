@@ -10,7 +10,7 @@ description: 'ML/stats audit: acquisition layer SOTA (keep); ranked gaps = ~~mea
   2026-07-18 (single .venv, foilsflash → 0.18-base); picker/botorch_predict.py
   test-coverage gap RESOLVED 2026-07-19 (unit tests + seam smoke in main suite)'
 status: active
-timestamp: '2026-07-21'
+timestamp: '2026-07-22'
 updated_note: 'gap #1 (train_Yvar) RESOLVED 2026-07-21 via ModeSpec.obs_noise — see gp-free-noise-erases-champion; earlier: verdict rec #1 revised: 0.10 retired with the single-venv consolidation; picker/botorch_predict.py test-coverage gap resolved 2026-07-19'
 ---
 
@@ -64,7 +64,12 @@ Versions at review time: **botorch 0.10.0 / gpytorch 1.11 / torch 2.8.0**
   4. **Known GP misfit in the high-sob corner is unaddressed** — forward-LOO
      log-calo bias −0.80 (2.3× underprediction, [gp-cloud-rendering](/concepts/gp-cloud-rendering.md)) is a
      stationarity failure; botorch's `Warp` input transform (Kumaraswamy) is the
-     cheap targeted fix; TuRBO-style trust region only if warping fails.
+     cheap targeted fix. (TuRBO-style trust region was proposed as the fallback
+     and **REJECTED 2026-07-22** after a 4-agent review — dimension-misapplied at
+     d=6, and it degenerates to a fixed local box at this round budget; see
+     `log.md` 2026-07-22. If corner refinement is still needed after the
+     `foilsflashBASIN01` seed test, the reduced fallback is a *fixed* local-box
+     picker, not adaptive TuRBO.)
   5. **qNEHVI ref point recomputed per round from the noisy observed nadir**
      (botorch_predict.py:252-254) — jitters the HV objective round-to-round and
      a single broken low-sob row drags it; pin per campaign (minor).

@@ -43,12 +43,11 @@ class TestLoadFixture(unittest.TestCase):
     def test_fixture_matches_the_python_spec(self):
         """The fixture is the acceptance target: its facts must equal the live spec."""
         spec, live = load_mode_file(FIXTURE), modes.SPECS["foilsflash"]
-        for field in ("musing", "grid_tarball", "grid_stages", "harvest_verb",
+        for field in ("musing", "grid_tarball", "grid_stages",
                       "stage_target_overrides", "presubmit_after", "bounds_lo",
                       "bounds_hi", "knob_names", "knob_fmts", "metric_cols",
                       "obs_noise", "dumps_gdml",
-                      "verifies_foil_gdml", "preserves_gdml",
-                      "checks_managed_overlap"):
+                      "verifies_foil_gdml", "checks_managed_overlap"):
             self.assertEqual(getattr(spec, field), getattr(live, field), field)
 
 
@@ -240,12 +239,12 @@ class TestRejections(unittest.TestCase):
         self._expect_error(mutate, "mubeem")
 
     def test_stage_tuning_stage_outside_this_chain_rejected(self):
-        """'concat' is a real core/pipeline.py STAGES entry but is NOT in
-        foilsflash's chain, so the tuning loads clean and is SILENTLY INERT
+        """A stage name that is not in THIS mode's chain must be rejected at
+        load: the tuning would otherwise load clean and be SILENTLY INERT
         forever -- the intended events_per_job never applies, no error (F5)."""
         def mutate(d):
-            d["run"]["stage_tuning"]["concat"] = {"events_per_job": 424242}
-        self._expect_error(mutate, "concat")
+            d["run"]["stage_tuning"]["run1b_mubeam"] = {"events_per_job": 424242}
+        self._expect_error(mutate, "run1b_mubeam")
 
     # -- F6: jobs_per_stage VALUES are validated (keys already were) ---------
     def test_jobs_per_stage_bool_value_rejected(self):
@@ -477,7 +476,7 @@ class TestLeaderboardUniqueness(unittest.TestCase):
 
     # test_python_leaderboard_table_matches_the_driver_classes removed
     # 2026-08-08: pinned PYTHON_MODE_LEADERBOARDS (core/mode_json.py) against
-    # the live Python BOMode subclasses' `leaderboard` class attributes.
+    # the live Python mode classes' `leaderboard` class attributes.
     # Both sides are gone -- every mode is JsonMode now, so
     # `bo.MODES.items() if not isinstance(m, bo.JsonMode)` is always empty
     # and there is no second leaderboard table left to keep in lockstep.

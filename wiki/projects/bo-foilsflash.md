@@ -26,8 +26,23 @@ status_note: '**CHAMPION: foilsflash11R00_07 (sob 3.31, flash 5.976e-7), 2026-07
   **1.3σ** at σ_sob 0.4% → needs a 400-job confirm re-eval before champion status
   (same flat-top-tie discipline as the 3.31 flash champion). Line is **near-saturated,
   not saturated**.'
-timestamp: '2026-07-17'
-updated_note: foilsflash18 new BO sob record 3.86; near-saturated not saturated
+timestamp: '2026-08-01'
+updated_note: 'Run1Bak→Run1Bap +5% sob shift MECHANISM ISOLATED + MAGNITUDE CONFIRMED
+  (2026-08-01): PrimaryFilter (DetectorStepFilter) gained two calo-acceptance relaxations
+  between the releases (Offline PR#1819 + Production PR#539), confirmed jointly (not
+  per-lever) same-day by a NO-GRID local re-filter of archived ipafixAB01 events —
+  Run1Bak-config filter passes 95.20%±0.05% vs 95.1-95.5% predicted, ~102% of the
+  shift, control 100.0000% — see
+  [run1bak-run1bap-sob-shift](/concepts/run1bak-run1bap-sob-shift.md). Earlier: foilsflash25 COMPLETE 20/20 0-fail (leaderboard 414) — first production
+  campaign on the pure-JSON mode; 2 Pareto additions on the flash axis, NO new champion.
+  The 3.91 ceiling has now survived TWO consecutive picker-driven campaigns (ff23, ff25),
+  so the next move is the corner-picker + transplant checklist, not another hybrid run.
+  Earlier: the line became defined by mode_specs/foilsflash.json, not Python
+  (FoilsFlashMode retired 2026-07-26, b361e09) — geometry/stages/noise/tuning all
+  moved into the spec with STAGES and geometry proved byte-identical, and the 392-row
+  leaderboard carried over untouched. Retiring it exposed
+  [no-run1b-substitution-poisons-flash-modes](/incidents/no-run1b-substitution-poisons-flash-modes.md).
+  Earlier still: foilsflash18 new BO sob record 3.86; near-saturated not saturated'
 ---
 
 # bo-foilsflash — foils geometry vs electron-beam-flash tracker edep (DS-on)
@@ -45,6 +60,97 @@ clone of the [bo-ipa](/projects/bo-ipa.md) mode (foils-family geometry + alterna
 stage + tracker-edep gallery harvest).
 
 ## Key facts
+- **⚠️ MIGRATION IN PROGRESS — DO NOT LAUNCH (2026-07-28).** The Musing move is done and
+  validated; the geometry half is NOT. `software.musing` → `Offline_run1bap_partial/setup_local.sh`
+  (Offline v13_32_10, envset **p101**) and `grid_tarball` → `Code_run1bap_holeradii.tar.bz2`
+  (**15 MB**, was 677 MB) are good. But the `tracker.inDS2Vacuum` / `ds2.halfLength` removal that
+  shipped with them is a **REGRESSION for this line: 1 → 3 overlaps**, and must be resolved before
+  any campaign. See the 2026-07-28 correction in [log](/log.md) for the full measurement set.
+  - **Historical baseline: exactly 1 overlap, always `VirtualDetector_EMC_0_Front`, in 461 of 462
+    preflights.** A true constant of the line across the whole 6D space — so the 414 leaderboard
+    rows are mutually comparable. The lone 3-overlap log is `foilsflashRUN1BAP01` (2026-07-28).
+  - **The two settings are a matched pair, not separable.** `ds2.halfLength=3825` extends DS2
+    *because* `inDS2Vacuum=true` puts the tracker there. Keeping one without the other →
+    **rc=134 core dump** (`TrackerMother` + 5 `VirtualDetector_TT_*`).
+  - **Why removing both breaks this line:** `MECOStyleProtonAbsorberMaker.cc:124-129` sizes the
+    proton absorber into `vac_zLocDs23Split() - targetEnd`. This line's 49 foils at the base
+    `deltaZ=22.222222` span 1066.7 mm (z_end 6404), vs stock 37 × 22.22 = 800 mm. Without the DS2
+    extension the absorber is squeezed until its support wires protrude from `DS2Vacuum`.
+    `ds2.halfLength` was buying headroom for our oversized target — not patching a bug.
+  - **Not caught by preflight**, because `SURFACE_OVERLAP_MANAGED` (`bo_driver.py:1607`) matches only
+    `StoppingTargetFoil_*`/`ProductionTarget*`; `IPAsupport_*` is filed as "baseline ... ignored"
+    even though its position is a function of our knobs. `foilsflashRUN1BAP01` PASSED with 3 new
+    overlaps. Proposed guard: fail on any CHANGE from the line's established count.
+  - Sibling Python modes `foils`/`foilsf`/`foilsg` stay on Run1Bak, so the family is **split across
+    two Musings**. Leaderboard discontinuity (414 Run1Bak rows) remains OPEN and unlaunched.
+  - **★ MECHANISM OF THE +5% SHIFT ISOLATED (2026-08-01)** — full audit in
+    [run1bak-run1bap-sob-shift](/concepts/run1bak-run1bap-sob-shift.md) + the evidence doc
+    `docs/run1bak_run1bap_shift_evidence.md`. Audited figures: ce_abs_eff **+4.93%±0.20%**
+    (champion, 3-vs-3) / **+4.08%±0.41%** (baseline); sob **+5.21%±0.12%** / **+4.82%±0.23%**
+    (supersede the carried +4.9%/+4.8%). Structure: ~100% acceptance-at-fixed-box, no box
+    migration, background unchanged by construction (macro model) + CE spectrum shape unchanged — a pure event-count rescale. Cause
+    isolated to **`PrimaryFilter` (`DetectorStepFilter`) on `PrimaryPath`**: Run1Bap adds a
+    `MinimumSumCaloE: 45` total-calo-energy OR-branch AND drops the 50 MeV/c calo-step momentum
+    floor (`MinimumCaloPartMom: 0`) — Offline PR#1819 (`a9839eeb4`) + Production PR#539
+    (`a387965f`), mmackenz 2026-05-06, a DELIBERATE signal-acceptance recovery. Direction proven
+    monotonic-increasing; **magnitude confirmed jointly (§8 local re-filter)** — a config-level
+    revert arm under Run1Bap (`MinimumSumCaloE: @erase` + `MinimumCaloPartMom: 50.0`, no rebuild
+    needed) was executed same-day as a NO-GRID local re-filter of archived ipafixAB01 events:
+    Run1Bak-config filter passes 95.20%±0.05% vs 95.1-95.5% predicted, ~102% of the shift, control
+    (unmodified Run1Bap filter re-applied to its own output) 100.0000% — the two levers were
+    reverted TOGETHER, not split, so this confirms the pair jointly, not per-lever.
+    Geant4 is ruled out hard (same spack build hash both eras); base geometry include-tree is
+    byte-identical (421/421). Flash: champion gap = override pair (+2.20% seed-paired), version
+    residual ≈ 0; baseline flash +6.35%±2.82% (2.25σ, opposite sign) stays OPEN. Leaderboard
+    consequence unchanged: old/new rows must not share a GP (a ~0.2-sob step ≈ 33× obs_noise);
+    ratios-to-baseline are era-invariant (+25.5% vs +26.0% audited, 1.5σ), so the physics claims stand.
+  `software.musing` → `Offline_run1bap_partial/setup_local.sh` (Offline v13_32_10, envset **p101**),
+  `grid_tarball` → `Code_run1bap_holeradii.tar.bz2` (**15 MB**, was 677 MB — an mgit-style partial
+  build ships 2 libs instead of 529 rebuilt-but-unchanged ones; see
+  [muse-backing-pattern](/external/muse-backing-pattern.md)). The
+  `tracker.inDS2Vacuum=true` / `ds2.halfLength=3825` pair is **deleted** from the geometry.
+  - **Why it was there, and why it can go.** v13_12_10 `constructVirtualDetectors.cc:502` picked the
+    tracker VDs' parent from `isDumbbell` — always false here — nailing them into `DS2Vacuum` while
+    `Mu2eWorld.cc:346` put the tracker itself in `DS3Vacuum`. The VDs then protruded **1.8–3.5 m**
+    outside their mother: `GeomMgt0002`, core dump. Forcing `inDS2Vacuum=true` (+ a longer DS2) made
+    the two agree. v13_32_10 keys VD parenting on `!tracker.inDS2Vacuum`, so **stock is
+    self-consistent** and our patch is not merely redundant — keeping it re-parented `EMC_0_Front`
+    into `DS2Vacuum` as a sibling of `StoppingTargetMother`, which WAS the last surviving overlap.
+  - **Measured 2×2** (foilspf corner_hi, patched GeometryService in every cell): Run1Bak+override
+    **1** overlap rc=0; Run1Bap+override **1** rc=0 (bit-identical — same log line, same pair, same
+    11.7059 cm, same 937 cases); Run1Bak−override **6** incl. `TT_MidInner`, **rc=134**;
+    Run1Bap−override **0**, rc=0. Migrating while KEEPING the override is geometrically a no-op —
+    so "fewer overlaps" was never a reason to hurry this; retiring a hand-maintained patch was.
+  - Suite 407/407 green after the fixture updates.
+  - **Leaderboard discontinuity is OPEN.** The 414 rows below were measured under Run1Bak *with*
+    the override. Appending Run1Bap rows mixes baselines in the GP training set — the failure class
+    of [no-run1b-substitution-poisons-flash-modes](/incidents/no-run1b-substitution-poisons-flash-modes.md).
+    Archive-and-restart vs a baseline column is undecided; **nothing has been launched**.
+  - Sibling Python modes `foils`/`foilsf`/`foilsg` stay on Run1Bak (override still mandatory there),
+    so the foils family is **split across two Musings**.
+- **★ CEILING 3.91 SURVIVES TWO PICKER-DRIVEN CAMPAIGNS — stop buying more of the same (2026-07-27).**
+  `foilsflash25` (20/20, 0 fail, leaderboard 394→414) and `foilsflash23` (20/20) ran the SAME
+  configuration — `hybrid` picker, q=10 rolling, noise-fixed GP (`train_Yvar` via
+  `obs_noise=(0.006, 0.01)`), leaderboard already dense in the high-sob basin — and NEITHER came
+  near `foilsflashBASIN01_00` (**sob 3.91 / flash 1.08e-6**). ff25 reached sob 3.76 max; ff23, 3.57.
+  - **Where the evals DID pay: the flash axis.** ff25 added 2 of the 23 Pareto points —
+    `R00_09` (**3.50 / 6.457e-7**, beating `foilsflash12R00_09` 3.52/6.578e-7 by 1.8% flash at
+    equal sob) and `R00_07` (3.29 / 6.163e-7). Front shape matters here: below sob ~3.3 flash
+    barely improves (6.16→6.00e-7 costs 1.3 in sob), so the *useful* front segment is **3.3–3.9**.
+  - **What a denser basin bought: fewer wasted evals, not a higher peak.** vs ff23 at identical
+    settings, ff25 lifted the sob distribution (19/20 above 2.96 vs ff23's floor 2.29; ceiling
+    3.76 vs 3.57) at the SAME flash floor (6.163e-7 vs 6.183e-7).
+  - **ACTION for the next session: do NOT launch another `hybrid`/`qlnei` campaign to chase 3.91.**
+    Two campaigns × 20 evals × ~4.5 h is the measured price of re-confirming the ceiling. Per
+    [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md) the prescribed move is the end-of-campaign checklist —
+    a **corner-picker round** plus **sibling-champion transplant probes** — or, if the flash axis
+    is what matters, keep running the picker there where it demonstrably still advances the front.
+- **`foilsflash25` = first PRODUCTION campaign on the pure-JSON mode (2026-07-27).** No
+  `FoilsFlashMode` class exists; `mode_specs/foilsflash.json` alone defines the line. Full-width
+  rolling campaign clean end-to-end: **20/20 preflight PASS, 20/20 rows, no `zero_rows`, no barrier
+  timeout, no orphans.** First-row wall **3h15m** — consistent with the JSON-sourced
+  `presubmit_after: {mubeam: [elebeam_flash]}` overlap working in production (vs the ~4.5-5 h
+  sequential baseline). This is the soak that `ffjson01` (q=2) and `foilsflash24` could not provide.
 - **flash-per-POT objective WIRED + leaderboard migrated + `foilsflash04` launched (2026-07-01).**
   The fix that closes the metric-bug loop:
   - **Harvest** (`pipeline.py` Step 7, ~:1256): computes

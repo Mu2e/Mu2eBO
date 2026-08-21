@@ -1,21 +1,12 @@
 #!/usr/bin/env python3
 """Shared retry-with-backoff runner for mu2e env-source shell commands.
 
-Centralizes the transient env-source failure retry that was copy-pasted in
-``pipeline.py:sourced_env`` and ``bo_driver.py:cmd_preflight``,
-and was absent entirely from the two ``getToken`` sites. Known causes of
-the transient class: cvmfs read misses, and the NFSv4.0 seqid wedge on
-``~/.spack`` lock files (wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md).
-Either way ``==> Error: [Errno 5]`` mid-``setupmu2e-art.sh`` leaves
-``muse``/``mu2e`` undefined -> the command exits nonzero (often rc=127)
-producing little/no output; a re-run seconds later succeeds.
-
-Additionally, every command runs with ``SPACK_USER_CACHE_PATH`` on
-node-local /tmp (prepended export), so spack's index-cache fcntl locks
-never touch NFS -- the wedge above cannot bite any caller of this helper.
-
-See wiki/incidents/sourced-env-stderr-swallowed.md (env-source coverage map).
-"""
+Transient class: cvmfs read misses and the NFSv4.0 seqid wedge on ~/.spack
+locks (wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md) -- ``==> Error:
+[Errno 5]`` mid-``setupmu2e-art.sh`` leaves ``muse``/``mu2e`` undefined
+(often rc=127); a re-run seconds later succeeds. Every command exports
+``SPACK_USER_CACHE_PATH`` onto node-local /tmp so spack's fcntl locks never
+touch NFS. Coverage map: wiki/incidents/sourced-env-stderr-swallowed.md."""
 from __future__ import annotations
 
 import os
@@ -26,12 +17,8 @@ from typing import Callable, Optional
 
 DEFAULT_BACKOFFS = (5, 15, 30)  # 4 attempts total, ~50s worst case
 
-# Keep spack's index cache + its fcntl locks on node-local /tmp, never NFS
-# HOME: concurrent lock traffic on /nashome (NFSv4.0) intermittently wedges
-# a lock file with permanent EIO (BAD_SEQID desync). Same path as the
-# per-site exports in pipeline.py:sourced_env / bo_driver.py:cmd_preflight,
-# which this seam supersedes (they stay, redundantly, to avoid churning
-# stable code). See wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md.
+# Node-local /tmp, never NFS HOME (module docstring); supersedes the per-site
+# exports in pipeline.py:sourced_env / bo_driver.py:cmd_preflight.
 _SPACK_CACHE = f"/tmp/spack_cache_{os.environ.get('USER', 'x')}"
 
 
@@ -47,17 +34,11 @@ def run_sourced_bash(
 ) -> subprocess.CompletedProcess:
     """Run ``bash -c cmd`` (``bash -lc`` if ``login``) with retry + backoff.
 
-    Retries while ``should_retry(proc)`` is True (default: ``returncode != 0``)
-    up to ``len(backoffs) + 1`` attempts, sleeping ``backoffs[attempt]`` between
-    tries. A subprocess timeout is treated as NON-retriable -- a timeout means
-    the command was running (slow init), not an env flake -- and is returned as
-    a ``CompletedProcess(returncode=-1)`` carrying ``.timed_out = True``.
-
-    Returns the final ``CompletedProcess`` (with a ``.timed_out`` bool attribute
-    set on every return path). Callers keep their own success/failure handling
-    (env parsing, raising CalledProcessError, sys.exit). This helper never
-    raises on a nonzero rc -- only an unrunnable ``bash`` would propagate.
-    """
+    Retries while ``should_retry(proc)`` (default rc != 0), up to
+    ``len(backoffs) + 1`` attempts. A timeout is NON-retriable -- it means
+    the command was running (slow init), not an env flake -- returned as
+    ``CompletedProcess(returncode=-1)`` with ``.timed_out = True``. Every
+    return path sets ``.timed_out``; never raises on a nonzero rc."""
     if should_retry is None:
         should_retry = lambda p: p.returncode != 0  # noqa: E731
     # Must be inside the command string: a parent-shell export does NOT

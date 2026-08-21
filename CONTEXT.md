@@ -25,47 +25,42 @@ One geometry point evaluated end-to-end; identified by its config name, which ke
 _Avoid_: trial, run (overloaded)
 
 **Campaign**:
-One closed-loop invocation — a name-prefix, q parallel evals per round, a round budget (e.g. `foilsflash08`, q=20×2).
+One closed-loop invocation — a name-prefix, a pool width q, and an eval budget (e.g. `foilspf05`, `--q 20 --max-evals 40`).
 
-**Round**:
-One propose → launch → barrier → refit cycle inside a campaign.
+**Pool**:
+The campaign parent (`graph/pool.py::run_rolling`): keeps q Children in flight and launches exactly one replacement each time one exits, until the eval budget is spent and the pool drains. It has no rounds — the GP is refit per pick, against the leaderboard as it stands at that moment.
+_Avoid_: round, batch, wave (all retired 2026-08-19)
 
 **Picker**:
-The between-rounds proposal strategy that turns leaderboard history into the next round's points (`qnehvi`, `qlnei`, `pareto_sob`).
+The proposal strategy that turns leaderboard history into the next point(s) (`hybrid`, `qnehvi`, `qnparego`, `qlnei`, `pareto_sob`, `budget_sob`). Runs once per replacement launch, in a subprocess, over the current In-flight set as `X_pending`.
 
 **Leaderboard**:
-The append-only per-mode TSV of completed evals; the durable source of truth for BO history (checkpoints are resume-convenience only).
+The append-only per-mode TSV of completed evals; the ONLY durable source of truth for BO history. There is no checkpointer (retired 2026-08-19) and no other resume state.
 
 ### Execution
 
 **Stage**:
-One grid-submission unit in an eval's chain (`mubeam`, `concat`, `mustops_ce`, `elebeam_flash`, …) driven by idempotent submit/poll/list-outputs verbs.
+One grid-submission unit in an eval's chain (`mubeam`, `mustops_ce`, `elebeam_flash`) driven by idempotent submit/poll/list-outputs verbs.
 
 **Stage chain**:
 The ordered stages one eval runs; declared per Mode.
 
 **Child**:
-One `graph.run` subprocess evaluating one config inside a round.
+One `graph.run` subprocess evaluating one config for a Campaign. Detached (`start_new_session=True`), so it outlives its parent.
 
-**Barrier**:
-The campaign parent's wait until every launched child reaches a Resolution.
+**In-flight set**:
+The Children the Pool is currently waiting on; never larger than q. Its x-points are what the picker fantasizes over (`X_pending`).
 
-**Resolution**:
-The ChildTracker's classification of a child: `running`, `done_row`, `done_broken`, `done_terminal_no_row`, `dead_unresolved`, or `stale_cluster`.
-_Avoid_: completed/resolved (ambiguous — say which Resolution)
+**Outcome**:
+A Child's result, decided at the moment its subprocess exits and never before: `ok`, `broken`, `child rc=N`, or `exit 0 but no leaderboard row` (`graph/pool.py::classify`). **A child resolves when its subprocess exits** — that one rule replaced a Barrier reconciling five signal sources.
+_Avoid_: resolution, running/dead_unresolved/stale_cluster (the retired ChildTracker vocabulary)
 
-**ChildTracker**:
-The per-round module that owns child Resolution — including the dead-PID grace ticks — behind a single `tick()` interface.
-
-**Signals adapter**:
-The injected reader of the five raw child signals (leaderboard row, broken.txt, terminal checkpoint, PID liveness, cluster.txt); production adapter reads disk/SQLite, tests inject a fake.
+**Busy name**:
+A config name the Pool refuses to launch under because an earlier process already resolved it (leaderboard row, `broken.txt`) or still has work in flight for it (`state/*_cluster.txt`, an unresolved pending-TSV row). The Pool skips to the next index and says why (`graph/pool.py::_name_busy_reason`). This is what makes a same-prefix relaunch the safe crash-recovery move.
 
 **Eval summary**:
 The explicit, typed product of harvest (`harvest.EvalSummary` → `harvest/summary.json`): the primary sob chain plus fail-soft secondary objectives, with a `degraded` record of every extraction that fail-softed. The leaderboard row is derived from it.
 _Avoid_: "the summary dict" (implicit 26-key contract)
-
-**Stage-chain stamp**:
-`state/stage_chain.txt`, written at first submit — the one owner of "which stages ran for THIS Eval" (e.g. did concat run). Harvest and template materialization read the stamp (legacy fallback: file presence), never the process env.
 
 **Preflight**:
 The local 1-event G4 feasibility check gating grid submission; verdicts are `pass` / `fail_managed` / `fail_init` / `ambiguous`.
@@ -78,21 +73,21 @@ The `Code.tar.bz2` shipped to grid workers; must be built from the same patched 
 
 ## Relationships
 
-- A **Campaign** runs **Rounds**; each Round launches q **Children**; each Child performs one **Eval**.
+- A **Campaign** runs a **Pool**; the Pool keeps q **Children** in its **In-flight set** and replaces each one as it exits; each Child performs one **Eval** and ends in one **Outcome**.
 - A **Mode** = one **ModeSpec** (data) + one **BOMode** (behavior); every Eval belongs to exactly one Mode.
 - An Eval runs its Mode's **Stage chain**; **Preflight** gates the first Stage; harvest appends one **Leaderboard** row.
-- The **Barrier** consumes only **Resolutions** from the **ChildTracker**, which reads raw signals through the **Signals adapter**.
-- The **Picker** consumes the **Leaderboard** and produces the next Round's points.
+- The **Pool** learns a Child's **Outcome** from its exit code plus two artifacts (leaderboard row, `broken.txt`); it never polls, and it never resolves a Child that has not exited.
+- The **Picker** consumes the **Leaderboard** and produces the next point, once per replacement launch.
 
 ## Example dialogue
 
-> **Dev:** "foilsflash08R00_07's process died — is the round stuck?"
-> **Domain expert:** "No. The **ChildTracker** gives it two grace ticks in case the **Leaderboard** append was racing the crash, then resolves it `dead_unresolved`; the **Barrier** counts it and the Round proceeds with 19 **Evals**."
+> **Dev:** "foilspf05R07_00's process died — is the campaign stuck?"
+> **Domain expert:** "No. Its subprocess exited, so the **Pool** has its **Outcome** — nonzero rc, no row — logs it, and launches a replacement. Nothing waits on it. If it had HUNG instead of died, the Pool would still be waiting, and would say so every 15 minutes in the parent log."
 > **Dev:** "And if I add a new **Mode**, where do its stage targets go?"
 > **Domain expert:** "Its **ModeSpec** in `core/modes.py` — every field is required, so forgetting the **Grid tarball** is an import error, not a silent michael fallback."
 
 ## Flagged ambiguities
 
 - "config" was used for both an Eval's identity and per-mode settings — resolved: an Eval has a *config name*; per-mode settings are the **ModeSpec**.
-- "completed" in closed_loop.py mixed done-with-row, done-broken, and died-unresolved — resolved: use the specific **Resolution** value.
+- "completed" in closed_loop.py mixed done-with-row, done-broken, and died-unresolved — resolved: use the specific **Outcome** reason. (The whole Barrier/ChildTracker/Resolution vocabulary this replaced was deleted 2026-08-19 with the parent rewrite; see `docs/superpowers/specs/2026-08-19-minimal-foilspf-workflow-design.md`.)
 - "mode tables" (the scattered `*_BY_MODE` dicts) — superseded by **ModeSpec** (see ADR-0002).

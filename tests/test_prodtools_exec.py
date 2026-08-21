@@ -23,6 +23,29 @@ import prodtools_exec as pex
 import pipeline_io as pio
 
 
+def _stage_cfg_override(stage, **overrides):
+    """Patch pipeline.stage_cfg so `stage`'s merged config carries
+    `overrides` on top of the REAL stage_entries/<stage>.json + mode-spec
+    data -- the STAGES module dict this task retired used to be a plain
+    dict any test could mock.patch.dict directly; stage_cfg() computes its
+    return fresh on every call, so tests patch the function instead."""
+    real = pipeline.stage_cfg
+
+    def fake(s, *a, **kw):
+        # Signature-agnostic passthrough on purpose: restating stage_cfg's
+        # own parameter defaults here would let this fake drift from it
+        # silently (it did -- the fake pinned the old `mode=None` default,
+        # which is now "raw JSON, no mode merge" rather than "the process
+        # mode", so a bare stage_cfg(s) under the patch answered with
+        # unmerged njobs/events).
+        cfg = real(s, *a, **kw)
+        if s == stage:
+            cfg.update(overrides)
+        return cfg
+
+    return mock.patch.object(pipeline, "stage_cfg", side_effect=fake)
+
+
 class TestProdtoolsRoot(unittest.TestCase):
     def test_unset_env_names_the_variable(self):
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -102,11 +125,11 @@ class TestRenderEntry(unittest.TestCase):
             **self._base(
                 desc="Run1A_MuStopsCat_t001", njobs=1,
                 input_data={"sim.a.art": 200, "sim.b.art": 200},
-                inloc="dir:/pnfs/stage/t001/concat_inputs"))
+                inloc="dir:/pnfs/stage/t001/mustops_ce_inputs"))
         self.assertNotIn("events", e)
         self.assertNotIn("run", e)
         self.assertNotIn("resampler_name", e)
-        self.assertEqual(e["inloc"], "dir:/pnfs/stage/t001/concat_inputs")
+        self.assertEqual(e["inloc"], "dir:/pnfs/stage/t001/mustops_ce_inputs")
 
     def test_memory_formatted(self):
         e = pex.render_entry(**self._base(memory_mb=3000, events=2500,
@@ -223,12 +246,11 @@ class TestLoadStageEntry(unittest.TestCase):
             e = pex.load_stage_entry("x", cfg="c", geom="g", entries_dir=d)
         self.assertEqual(e["_comment"], "see pipeline.py")
 
-    def test_real_stage_entries_dir_all_five_stages_load_without_error(self):
+    def test_real_stage_entries_dir_every_stage_loads_without_error(self):
         # Smoke-validates the checked-in JSON: any typo'd placeholder in
         # the real stage_entries/<stage>.json files fails here, not three
         # subprocesses deep inside a real submit.
-        for stage in ("mubeam", "run1b_mubeam", "concat", "mustops_ce",
-                     "elebeam_flash"):
+        for stage in ("mubeam", "mustops_ce", "elebeam_flash"):
             with self.subTest(stage=stage):
                 pex.load_stage_entry(stage, cfg="x001", geom="geom.txt")
 
@@ -333,8 +355,7 @@ class TestListOutputsFromWait(unittest.TestCase):
     def test_outputs_txt_has_ok_jobs_only(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
-             mock.patch.dict(pipeline.STAGES["mubeam"],
-                             {"output_glob": "sim.*.art"}):
+             _stage_cfg_override("mubeam", output_glob="sim.*.art"):
             pipeline._bind_config("cfg001")
             pipeline.STATE.mkdir(parents=True)
             (pipeline.STATE / "mubeam_wait.json").write_text(
@@ -429,16 +450,14 @@ class TestCmdPollViaJobwait(unittest.TestCase):
             return jobwait_rc
 
         with mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
-             mock.patch.dict(pipeline.STAGES["mubeam"],
-                             {"njobs": njobs, "quorum": quorum}), \
+             _stage_cfg_override("mubeam", njobs=njobs, quorum=quorum), \
              mock.patch.object(pipeline, "sourced_env", return_value={}), \
              mock.patch.object(pipeline.px, "run_jobwait",
                                side_effect=fake_run_jobwait) as self.rj:
             pipeline._bind_config("cfg001")
             pipeline.STATE.mkdir(parents=True)
             (pipeline.STATE / "mubeam_cluster.txt").write_text("777\n")
-            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
-                                              cap_hours=24.0))
+            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None))
 
     def test_cnf_path_matches_px_cnf_path(self):
         # M1: cmd_poll re-derives the cnf path (no entry.json to re-read at
@@ -489,8 +508,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
             pipeline._bind_config("cfg001")
             pipeline.STATE.mkdir(parents=True)
             (pipeline.STATE / "mubeam_local.txt").write_text("1\n")
-            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
-                                              cap_hours=24.0))
+            pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None))
         rj.assert_not_called()
 
     def test_the_env_var_alone_does_not_make_poll_skip_a_live_grid_cluster(self):
@@ -521,8 +539,8 @@ class TestCmdPollViaJobwait(unittest.TestCase):
                  mock.patch.object(pipeline, "sourced_env", return_value={}), \
                  mock.patch.object(pipeline.px, "run_jobwait",
                                    side_effect=fake_run_jobwait) as pc:
-                pipeline.cmd_poll(SimpleNamespace(stage="mubeam", quorum=None,
-                                                  cap_hours=24.0))
+                pipeline.cmd_poll(SimpleNamespace(stage="mubeam",
+                                                  quorum=None))
         pc.assert_called_once()
         # jobid arg (position 2) falls back to <stage>_cluster.txt when no
         # <stage>_jobsub_id.txt exists.
@@ -531,8 +549,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
     def test_jobsub_id_file_wins_over_cluster_txt(self):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
-                 mock.patch.dict(pipeline.STAGES["mubeam"],
-                                 {"njobs": 3, "quorum": 0.9}), \
+                 _stage_cfg_override("mubeam", njobs=3, quorum=0.9), \
                  mock.patch.object(pipeline, "sourced_env",
                                    return_value={}), \
                  mock.patch.object(pipeline.px, "run_jobwait") as rj:
@@ -550,7 +567,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
                     return 0
                 rj.side_effect = fake
                 pipeline.cmd_poll(SimpleNamespace(
-                    stage="mubeam", quorum=None, cap_hours=24.0))
+                    stage="mubeam", quorum=None))
             self.assertEqual(rj.call_args[0][2], "777@jobsub02.fnal.gov")
 
 
@@ -665,8 +682,7 @@ class TestListOutputsFromWaitLocal(unittest.TestCase):
     def test_outputs_txt_from_a_runlocal_shaped_wait_json(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "DATA_ROOT", Path(tmp)), \
-             mock.patch.dict(pipeline.STAGES["mubeam"],
-                             {"output_glob": "sim.*.art"}):
+             _stage_cfg_override("mubeam", output_glob="sim.*.art"):
             pipeline._bind_config("cfg001")
             pipeline.STATE.mkdir(parents=True)
             (pipeline.STATE / "mubeam_wait.json").write_text(
@@ -781,7 +797,8 @@ class TestSubmitCnf(unittest.TestCase):
                                return_value=Path("/fake/prodtools")):
             cluster, jobsub_id = pex.submit_cnf(
                 Path(td), Path(td) / "e.json", Path(td) / "l.db",
-                "autoresearch:t001/mubeam", {}, runner=self._runner(out))
+                "autoresearch:t001/mubeam", {},
+                cnf=Path(td) / "cnf.u.d.c.0.tar", runner=self._runner(out))
         self.assertEqual(cluster, 86123999)
         # jobwait wants NNNN@schedd -- proc stripped, schedd kept.
         self.assertEqual(jobsub_id, "86123999@jobsub01.fnal.gov")
@@ -793,6 +810,7 @@ class TestSubmitCnf(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 pex.submit_cnf(Path(td), Path(td) / "e.json",
                                Path(td) / "l.db", "o", {},
+                               cnf=Path(td) / "cnf.u.d.c.0.tar",
                                runner=self._runner("boom", rc=1,
                                                    stderr="ledger sad"))
 
@@ -803,7 +821,8 @@ class TestSubmitCnf(unittest.TestCase):
              mock.patch.dict(os.environ, {"AUTORESEARCH_PRODTOOLS": td}):
             (Path(td) / "bin").mkdir(); (Path(td) / "bin" / "json2jobdef").touch()
             pex.submit_cnf(Path(td), Path(td) / "e.json", Path(td) / "l.db",
-                           "o", {}, runner=self._runner(out))
+                           "o", {}, cnf=Path(td) / "cnf.u.d.c.0.tar",
+                           runner=self._runner(out))
         joined = " ".join(str(c) for c in self.last_cmd)
         self.assertIn("prodtools_submit_driver.py", joined)
         self.assertIn("--entry", joined)
@@ -826,6 +845,7 @@ class TestSubmitCnf(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 pex.submit_cnf(Path(td), Path(td) / "e.json",
                                Path(td) / "l.db", "o", {},
+                               cnf=Path(td) / "cnf.u.d.c.0.tar",
                                runner=self._runner(out))
         self.assertIn("86123999", str(cm.exception))
 
@@ -840,14 +860,14 @@ class TestSubmitCnf(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 pex.submit_cnf(Path(td), Path(td) / "e.json",
                                Path(td) / "l.db", "o", {},
+                               cnf=Path(td) / "cnf.u.d.c.0.tar",
                                runner=self._runner(out))
 
 
 class TestWorkerLogPathsBothOutstageShapes(unittest.TestCase):
     """graph/pipeline_io.py's `_worker_log_paths` (Task 8): scan_logs must
-    find worker logs whether the cluster was submitted by legacy mu2ejobsub
-    (`<outstage>/<cluster>/00/<00000>/*.log`) or prodtools direct
-    (`<outstage>/<cluster>/<proc>/*.log`, no zero-padded 00/ sublevel).
+    find worker logs under the prodtools direct outstage layout
+    (`<outstage>/<cluster>/<proc>/*.log`).
 
     All these fixtures have no `<stage>_outputs.txt` (i.e. every job in the
     cluster died before producing an .art) -- the case the outputs.txt-
@@ -873,40 +893,6 @@ class TestWorkerLogPathsBothOutstageShapes(unittest.TestCase):
                  mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
                 found = pio._worker_log_paths("cfgA", "mubeam")
             self.assertEqual(found, [log])
-
-    def test_legacy_shape_found(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            outstage = root / "outstage"
-            state_dir = self._state_dir(root, "cfgB")
-            (state_dir / "mubeam_cluster.txt").write_text("42\n")
-            log = outstage / "42" / "00" / "00003" / "bar.log"
-            log.parent.mkdir(parents=True)
-            log.write_text("some log text\n")
-            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
-                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
-                found = pio._worker_log_paths("cfgB", "mubeam")
-            self.assertEqual(found, [log])
-
-    def test_both_shapes_present_legacy_wins(self):
-        # A cluster submitted pre-switch is legacy-only in practice, but the
-        # documented tie-break (legacy checked first) should still hold if
-        # both somehow have files.
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            outstage = root / "outstage"
-            state_dir = self._state_dir(root, "cfgC")
-            (state_dir / "mubeam_cluster.txt").write_text("42\n")
-            flat_log = outstage / "42" / "3" / "foo.log"
-            flat_log.parent.mkdir(parents=True)
-            flat_log.write_text("flat\n")
-            legacy_log = outstage / "42" / "00" / "00003" / "bar.log"
-            legacy_log.parent.mkdir(parents=True)
-            legacy_log.write_text("legacy\n")
-            with mock.patch.object(pio, "GRID_DATA_ROOT", root / "grid_data"), \
-                 mock.patch.object(pio, "OUTSTAGE_ROOT", outstage):
-                found = pio._worker_log_paths("cfgC", "mubeam")
-            self.assertEqual(found, [legacy_log])
 
     def test_no_cluster_file_returns_empty(self):
         with tempfile.TemporaryDirectory() as td:
