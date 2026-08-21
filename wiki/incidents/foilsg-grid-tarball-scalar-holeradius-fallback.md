@@ -10,7 +10,7 @@ status_note: 'fix landed + grid-verified 2026-06-12. Landed: patched `StoppingTa
   in `Offline_helical/` (holeRadii vector + length validation + "holeRadii vector
   active (n=N)" canary print), `libmu2e_GeometryService.so` rebuilt clean; preflight
   of the crashing foilsg06R00_00 geom under the patched env = PASS with canary (n=49),
-  0 GeomSolids; classifier fixed ([[preflight-past-init-false-pass]]); `MUSING_BY_MODE`
+  0 GeomSolids; classifier fixed ([preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)); `MUSING_BY_MODE`
   foils/foilsf/foilsg → `Offline_helical/setup_local.sh` (preflight parity); `pipeline.py`
   `MUSE_TARBALL_BY_MODE` dispatch added (foils* → `Code_helical_holeradii.tar.bz2`,
   michael/helical stay on Code_helical_base because Offline_helical''s Mu2eG4 lib

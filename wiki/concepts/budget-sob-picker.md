@@ -20,7 +20,9 @@ already in the beam**?* It is a small variant of
 [pareto-sob-picker](/concepts/pareto-sob-picker.md) — same Sobol pushforward over
 the GP posterior mean, same min-distance thinning — with one addition: candidates
 must satisfy a constraint on the second objective before being ranked by sob.
-It exists because three `pareto_sob` exploit rounds produced a 4.41 record that
+Since 2026-08-19 it is the ONLY sob-corner picker (`pareto_sob` retired,
+subsumed: raise `AUTORESEARCH_FLASH_BUDGET` to reproduce an unconstrained
+round). It exists because three `pareto_sob` exploit rounds produced a 4.41 record that
 **cannot be built** (+60% damage), while the best *buildable* design sat
 untouched at 4.00.
 

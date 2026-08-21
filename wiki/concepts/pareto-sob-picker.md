@@ -4,14 +4,21 @@ title: pareto-sob-picker
 description: '`--picker pareto_sob`: submits the GP-predicted highest-sob points
   (top-q by posterior-mean sob, min-distance spread; the Pareto mask was removed — name is a misnomer) as real evals; multi-obj (keeps
   calo); by-hand sob-corner exploit; wired 2026-06-22'
-status: active
-timestamp: '2026-07-21'
-updated_note: Pareto-mask claim corrected (removed in code long ago) + Sobol-resolution/bound-reachability limitation recorded
+status: superseded
+status_note: code RETIRED 2026-08-19 — subsumed by budget-sob-picker (same corner scan, budget-constrained); unconstrained picks landed +50-70% over the damage budget
+timestamp: '2026-08-19'
+updated_note: picker deleted from botorch_predict.py/PICKER_CHOICES; do NOT re-add — budget_sob with a raised AUTORESEARCH_FLASH_BUDGET reproduces it
 ---
 
 # pareto-sob-picker
 
 ## Summary
+(**CODE RETIRED 2026-08-19** — `_pareto_sob_picks` deleted; [budget-sob-picker](/concepts/budget-sob-picker.md)
+subsumes it: identical Sobol posterior-mean-sob corner scan + min-distance
+spread, plus the flash-budget constraint. An unconstrained corner round is
+`budget_sob` with `AUTORESEARCH_FLASH_BUDGET` raised. History below kept for
+the leaderboard rows this picker produced.)
+
 A third closed-loop picker (`--picker pareto_sob`) that submits the **highest-sob
 points on the GP-predicted Pareto frontier** as real grid evals — the same
 frontier the cloud renderer draws. Added 2026-06-22 to test empirically whether
@@ -58,7 +65,7 @@ sob corner.
   not "is A > B".
 
 ## Cross-links
-- Related: [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [batch-bo](/concepts/batch-bo.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md),
+- Related: [budget-sob-picker](/concepts/budget-sob-picker.md) (the deployment-facing sibling: same sob corner, constrained to the damage budget), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [batch-bo](/concepts/batch-bo.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md),
   [bo-noise-budget](/concepts/bo-noise-budget.md), [bo-foils](/projects/bo-foils.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
 - Source: `botorch_predict.py` (`_pareto_sob_picks`, `compute_explore_picks`),
   `graph/closed_loop.py` (`PICKER_CHOICES`, picker-route guards)

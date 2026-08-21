@@ -6,9 +6,9 @@ description: The /cvmfs env/ area and `pyenv` mechanism; measured package delta 
   load-bearing); trkqual is the py3.11+torch precedent for a sibling ML env; our
   stack verified green on Python 3.12; requirements.lock landed 2026-08-18
 status: active
-status_note: measured 2026-08-12; lockfile blocker cleared 2026-08-18; no request sent
-  to the env maintainers yet
-timestamp: '2026-08-18'
+status_note: measured 2026-08-12; lockfile blocker cleared 2026-08-18; ana 2.8.0 published
+  on /cvmfs and adopted as the default interpreter 2026-08-20
+timestamp: '2026-08-21'
 updated_note: lockfile blocker resolved (requirements.lock, 77 pkgs / 1744 hashes,
   pinned to the installed venv because a fresh resolve drifts 20 packages); remaining
   Phase-1 work moved to docs/pyenv-publication-plan.md
@@ -101,8 +101,71 @@ re-derivable in under 5 minutes — it needs a dist-info diff across three prefi
   `git status` stayed clean and the one file a second operator or a publisher
   needs would never have left this machine. Fixed with a `!requirements.lock`
   exception; worth remembering the pattern is that broad.
-- The build recipe's hardcoded `/exp/mu2e/data/users/oksuzian/...` is fixed by the
-  portable-paths work (landed on `local-executor`, not yet on the default branch).
+- The build recipe's hardcoded `/exp/mu2e/data/users/oksuzian/...` was fixed by the
+  portable-paths work, on the default branch since 2026-08-21 (PR #31).
+- **PUBLISHED AND ADOPTED 2026-08-20: `ana 2.8.0` is on `/cvmfs` and is now
+  this project's default interpreter.** `source activate.sh` resolves
+  `/cvmfs/mu2e.opensciencegrid.org/env/ana/2.8.0/bin/python` (CPython 3.12.13)
+  and exports it as `$AUTORESEARCH_PYTHON`; `AUTORESEARCH_VENV=<path>` selects
+  a dev venv instead. The published build ships **numpy 2.5.2** — the single
+  load-bearing conflict recorded above, cleared. Measured on the published
+  prefix, not the staging copy: full suite **681/681 OK (skipped=2)**, warm
+  66 s vs 60 s on the venv (cold first run 187 s — cvmfs page cache, not the
+  env); `--picker budget_sob` **bit-identical** to the venv's torch
+  2.13.0+cpu; `graph.run` + `build_graph()` import clean on its langgraph
+  0.2.50. One full local evaluation (`pyenvlocal01`, 8×12500/stage) ran end to
+  end on it, harvest `degraded={}`, row appended.
+- **Two traps when pointing anything at this env.** (1) **Always name the
+  version.** `pyenv ana` with no version resolves to **2.7.0**
+  (`pyenv.sh:40`) and `env/ana/current` is **2.6.1** — both numpy 1.26, which
+  torch will not run on; `activate.sh` refuses a name without a version rather
+  than resolve one. (2) **Do NOT activate the env in a shell that spawns our
+  jobs.** `pyenv.sh` `export -f`s wrappers for `python`/`pip`/`jupyter`/
+  `conda`/`mamba`, and each wrapper re-runs `setup_mu2e_python_env` on EVERY
+  call, re-prepending the env's site-packages to `PYTHONPATH` and its `lib/`
+  to `LD_LIBRARY_PATH`. Exported bash functions cross into every child (see
+  [sourced-env-drops-muse-function-local-jobs](/incidents/sourced-env-drops-muse-function-local-jobs.md)),
+  so an activated shell pushes a second ROOT/XRootD binding and a second
+  libstdc++ into the harvest steps that run PyROOT under `muse setup` — the
+  shadowing behind [uproot-cannot-read-steppointmc](/incidents/uproot-cannot-read-steppointmc.md).
+  `activate.sh` therefore exports an absolute interpreter PATH and never
+  sources `pyenv.sh`; a test pins that.
+- **The picker interpreter must follow the caller.** `core/runtime.py` and
+  `core/bo_driver.py` both resolved a repo-relative `.venv/bin/python`; left
+  alone, the launchers would have moved to the published env while the GP fit
+  kept running on the old venv's torch. Both now default to `sys.executable`;
+  `AUTORESEARCH_BOTORCH_VENV` still names a repo-relative directory for a
+  two-build picker A/B.
+- **Superseded staging measurement (2026-08-18, kept for provenance):**
+  `/exp/mu2e/data/users/sophie/pyenv-v2.8.0/ana_v2.8.0` (318 packages, 13 GB)
+  ran the then-617-test suite with zero changes: `PYTHONPATH= <env>/bin/python -m unittest discover -s tests -t .`
+  → `Ran 617 tests ... OK (skipped=1)`. It already carries botorch 0.18.1,
+  gpytorch 1.15.2, langgraph + langgraph-checkpoint-sqlite, uproot, awkward,
+  scikit-learn — i.e. someone has already folded our ask into the candidate.
+  Only **3 of our 77 locked packages are absent** (`langgraph-prebuilt`,
+  `langchain-protocol`, `sqlite-vec`) and none is imported by our code —
+  they are transitive-only.
+- **Numerically equivalent for BO, verified against the deterministic picker.**
+  `--picker budget_sob` (GP-mean corner search, no acquisition optimizer) is
+  **bit-identical** across the two envs on `foilspfbpz`, despite torch
+  2.5.1 (ana, CUDA 12.4 build) vs our 2.13.0+cpu — so the GP fit and
+  posterior agree. `qnehvi`/`hybrid` differ across envs, but they differ
+  run-to-run *within a single venv* too, so that is
+  [hybrid-picker-scipy-abnormal-retry-nondeterminism](/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md),
+  not an env delta. `SqliteSaver` put/get round-trips identically on
+  checkpoint-sqlite 2.0.0 (ana) and 3.1.0 (ours), including the same
+  `np.int64` metadata rejection.
+- **The version deltas that look alarming are not.** langgraph 0.2.50 (ana)
+  vs 1.2.9 (ours) is a major-version gap, yet the suite is green and
+  `build_graph().compile(checkpointer=SqliteSaver(...))` works — we use only
+  `langgraph.graph.StateGraph` + `langgraph.checkpoint.sqlite`, both stable
+  across that gap. Warm suite wall-clock is a wash (41.9 s ana vs 40.5 s
+  ours); a **cold** first run cost 219 s, which is NFS page-cache, not the env.
+- **Caveat: sophie's path is a personal `/exp/mu2e/data` staging area**, not a
+  supported dependency — the same class of fragility as the `${ARTIFACT}`
+  misresolution in
+  [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md).
+  Treat it as evidence for the publication ask, not as a venv to point at.
 - **Remaining Phase-1 work** is tracked in `docs/pyenv-publication-plan.md`:
   merge portable paths, re-verify 3.12 at the current 612-test suite (the green
   run was at 471), and split the requirements mechanically into the 9-package ML

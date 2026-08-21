@@ -36,7 +36,9 @@ knew it.
   verdict (best-at-budget 4.00, search closed) is UNTOUCHED — this maps
   the ceiling, it does not reopen deployment. Checklist status: the
   end-of-campaign corner-picker round is now 2-for-2 (SOBX01 transplant,
-  bpz04) at finding tail the acquisition had abandoned.
+  bpz04) at finding tail the acquisition had abandoned. (`pareto_sob` was
+  retired 2026-08-19; the corner round is now `budget_sob` — raise
+  `AUTORESEARCH_FLASH_BUDGET` for an unconstrained ceiling-mapping round.)
 - **★ THE SCALAR RECORD IS THE WRONG SATURATION TEST (foilspfbp, 2026-08-06).**
   Four campaigns at a fixed 9D box (83 evals) moved the sob ceiling
   4.16 → 4.33 (+4%) — but the ceiling is a 1-D shadow of a 2-D problem, and
