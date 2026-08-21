@@ -239,14 +239,20 @@ def botorch_ask(mode_name: str, q: int = 1, *, seed_idx: int = 0,
     import subprocess
 
     if venv_py is None:
-        venv_py = (ROOT
-                   / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv")
-                   / "bin" / "python")
+        # Default to the CALLER's interpreter, so the picker's torch is the
+        # torch the rest of the chain runs on; a repo-relative `.venv`
+        # default silently pinned the GP fit to the old venv once the
+        # launchers moved to the published cvmfs env. The env seam still
+        # names a repo-relative venv directory, for a two-build picker A/B.
+        ab_venv = os.environ.get("AUTORESEARCH_BOTORCH_VENV")
+        venv_py = (ROOT / ab_venv / "bin" / "python") if ab_venv \
+            else Path(sys.executable)
     venv_py = Path(venv_py)
     if not venv_py.exists():
         raise FileNotFoundError(
-            f"[botorch_ask] picker venv python missing: {venv_py} "
-            f"(install .venv or set AUTORESEARCH_BOTORCH_VENV)")
+            f"[botorch_ask] picker python missing: {venv_py} "
+            f"(set AUTORESEARCH_BOTORCH_VENV to a repo-relative venv, or "
+            f"run under an interpreter that has botorch)")
 
     predict = Path(__file__).resolve().parent / "botorch_predict.py"
     with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tf:

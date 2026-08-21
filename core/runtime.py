@@ -7,6 +7,8 @@ core/modes.py::stamp_mode_from_argv(), which owns that story.
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 import modes as _modes
 from paths import GRAPH_DATA, REPO_ROOT
@@ -22,10 +24,17 @@ SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 BO_DRIVER = REPO_ROOT / "core" / "bo_driver.py"
 PIPELINE_DRIVER = REPO_ROOT / "core" / "pipeline.py"
 BOTORCH_PREDICT = REPO_ROOT / "core" / "botorch_predict.py"
-# AUTORESEARCH_BOTORCH_VENV overrides the venv DIRECTORY for a picker A/B.
-BOTORCH_VENV_PY = (REPO_ROOT
-                   / os.environ.get("AUTORESEARCH_BOTORCH_VENV", ".venv")
-                   / "bin" / "python")
+# The interpreter that runs botorch_predict.py. Defaults to THIS one, so the
+# picker's torch is the torch everything else was verified against -- when
+# the launcher switched to the published cvmfs env, a repo-relative `.venv`
+# default would have quietly kept the GP fit on the old venv's torch while
+# the rest of the chain moved. AUTORESEARCH_BOTORCH_VENV still names a
+# repo-relative venv DIRECTORY, which is how a picker A/B across two torch
+# builds is run.
+BOTORCH_VENV_PY = (
+    REPO_ROOT / os.environ["AUTORESEARCH_BOTORCH_VENV"] / "bin" / "python"
+    if os.environ.get("AUTORESEARCH_BOTORCH_VENV")
+    else Path(sys.executable))
 
 # Re-exported; core/modes.py owns the value.
 DEFAULT_MODE = _modes.DEFAULT_MODE

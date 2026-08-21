@@ -29,7 +29,11 @@ export AUTORESEARCH_LOCAL_NJOBS="${AUTORESEARCH_LOCAL_NJOBS:-8}"
 export AUTORESEARCH_LOCAL_EVENTS="${AUTORESEARCH_LOCAL_EVENTS:-12500}"
 export AUTORESEARCH_LOCAL_POOL="${AUTORESEARCH_LOCAL_POOL:-8}"
 
-source .venv/bin/activate
+# Resolves $AUTORESEARCH_PYTHON: the published cvmfs env by default,
+# AUTORESEARCH_VENV=<path> for a local dev venv. Never activates --
+# see activate.sh for why an exported `python` wrapper would poison
+# the harvest steps that run PyROOT under `muse setup`.
+source activate.sh || exit 2
 source setup.sh
 ./setup.sh --status
 
@@ -37,11 +41,11 @@ source setup.sh
 # run_grid.sh uses, minus the gates only a queued chain needs
 # (tests/test_launch_checks.py). Local jobs submit nothing but still stream
 # resampler inputs from /pnfs over xrootd, so they need a ticket too.
-PYTHONPATH= python core/launch_checks.py \
+PYTHONPATH= "$AUTORESEARCH_PYTHON" core/launch_checks.py \
     --mode "$MODE" --config "$CONFIG" || exit 2
 
 echo "run_local: config=$CONFIG mode=$MODE" \
      "scale=${AUTORESEARCH_LOCAL_NJOBS}x${AUTORESEARCH_LOCAL_EVENTS}"
 
-exec python -m graph.run --mode "$MODE" \
+exec "$AUTORESEARCH_PYTHON" -m graph.run --mode "$MODE" \
     --config-name "$CONFIG" --thread-id "$CONFIG"

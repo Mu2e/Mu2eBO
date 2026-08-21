@@ -30,17 +30,21 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 export AUTORESEARCH_DATA_ROOT="${AUTORESEARCH_DATA_ROOT:-/exp/mu2e/data/users/$USER/gridtest}"
 export AUTORESEARCH_BACKING="${AUTORESEARCH_BACKING:-/exp/mu2e/app/users/oksuzian}"  # personal-path-ok: the published artifact area, see README
 
-source .venv/bin/activate
+# Resolves $AUTORESEARCH_PYTHON: the published cvmfs env by default,
+# AUTORESEARCH_VENV=<path> for a local dev venv. Never activates --
+# see activate.sh for why an exported `python` wrapper would poison
+# the harvest steps that run PyROOT under `muse setup`.
+source activate.sh || exit 2
 source setup.sh
 ./setup.sh --status
 
 # Kerberos life, name collisions, stale cluster files, quota, artifacts and
 # prodtools -- every gate that has to fire before a job is queued, in one
 # tested module rather than inline bash (tests/test_launch_checks.py).
-PYTHONPATH= python core/launch_checks.py \
+PYTHONPATH= "$AUTORESEARCH_PYTHON" core/launch_checks.py \
     --mode "$MODE" --config "$CONFIG" --grid || exit 2
 
 echo "run_grid: config=$CONFIG mode=$MODE  (grid; expect 3-6 h)"
 
-exec python -m graph.run --mode "$MODE" \
+exec "$AUTORESEARCH_PYTHON" -m graph.run --mode "$MODE" \
     --config-name "$CONFIG" --thread-id "$CONFIG"
