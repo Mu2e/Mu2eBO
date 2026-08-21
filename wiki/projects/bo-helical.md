@@ -6,12 +6,12 @@ description: 5D BO over helical-plug inner namespace (dx, dy, halflength, z0, an
 status: superseded
 status_note: retired from active runs 2026-05-29 after 4D Pareto saturation (HV
   +1.6% over last 76 evals, hit rate 62%→38%). Champion **helical045 obj=2.533 (2026-05-18)**
-  stands but top-5 are likely G4 sibling-overlap artifacts (see [[tsda-disc-helical-sibling-overlap]]).
+  stands but top-5 are likely G4 sibling-overlap artifacts (see [tsda-disc-helical-sibling-overlap](/incidents/tsda-disc-helical-sibling-overlap.md)).
   **`HelicalMode` class DELETED from code 2026-07-12** (was the canonical test-fixture
   mode; fixtures migrated to `foils`). `leaderboard_bo_helical*.tsv` remain on disk;
   the OFF-repo `gp_predict_helical.py`/`botorch_predict_helical.py`/`overlay_knob_locations.py`
   in mmackenz_table_plots still call `bo.HelicalMode()` and now break at that call.
-  Active BO line is [[bo-foils]] / [[bo-foilsflash]].
+  Active BO line is [bo-foils](/projects/bo-foils.md) / [bo-foilsflash](/projects/bo-foilsflash.md).
 timestamp: '2026-07-12'
 updated_note: HelicalMode code retired; fixtures moved to foils
 ---

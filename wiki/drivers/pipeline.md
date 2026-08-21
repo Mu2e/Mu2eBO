@@ -129,7 +129,11 @@ this replaced.
   raises `SystemExit` naming the variable if it's unset or the checkout is
   bad. No hardcoded personal-path default in committed code (9f0c43c
   convention) — the operator checkout used for prodtools-switch validation
-  is `/exp/mu2e/app/users/oksuzian/muse_050125/prodtools`.
+  is `/exp/mu2e/app/users/oksuzian/muse_050125/prodtools`; since 2026-08-20
+  the README default is the pinned cvmfs release
+  `/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.1.0` (submit-layer files
+  byte-identical to that checkout's head, see
+  [prodtools-submit-entry-tarball-schema-drift](/incidents/prodtools-submit-entry-tarball-schema-drift.md)).
 - **`submit <stage>`**: `submit_stage_prodtools` builds the code tarball,
   loads + renders the stage's `stage_entries/<stage>.json` entry (merging in
   runtime njobs/events/memory/staged-input fields), writes

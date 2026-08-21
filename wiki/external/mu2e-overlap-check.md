@@ -4,7 +4,7 @@ title: Mu2e G4 overlap-check recipe
 description: G4 surface-check recipe for detecting silent volume overlaps; pre-built
   FCL + per-config wrapper pattern
 status: active
-timestamp: '2026-07-17'
+timestamp: '2026-08-19'
 updated_note: added the ROOT `overlapCheck.sh` method — complementary to the G4
   surface check
 ---
@@ -61,6 +61,23 @@ https://mu2ewiki.fnal.gov/wiki/Validation#Overlaps
     + 5 `VirtualDetector_TT_{Back,FrontHollow,InSurf,MidInner,OutSurf}`.
     Run1A *cannot* be surface-checked under Run1Bak without the patches
     `bo_driver.py:436` applies.
+  - **MDC2025av / Offline v13_35_00**, `geom_SurfaceCheck_run1a.txt`
+    (ships pre-built): **0 overlap lines**, 10,485 volumes checked, art exit
+    0, no G4Exception (measured 2026-08-19). The Run1A stopping target IS
+    built (StoppingTargetMother + `TargetFoil_*` + 111
+    `FoilSupportStructure_*` all checked), so the zero is real, not vacuous.
+    Two things changed versus the Run1Bak/v13_12_10 baseline below:
+    - **`VirtualDetector_EMC_0_Front` NO LONGER EXISTS.** The calorimeter
+      disk VDs were restructured into
+      `VirtualDetector_EMC_Disk_{0,1}_{SurfIn,SurfOut,EdgeIn,EdgeOut}` plus
+      `VirtualDetector_EMC_FEB_*` (`constructVirtualDetectors.cc:1220`,
+      `VirtualDetectorId::EMC_Disk_0_SurfIn`). So the classic
+      `EMC_0_Front -> StoppingTargetMother` overlap cannot occur there by
+      construction -- the volume is gone, not merely moved.
+    - **The 111 `FoilSupportStructure_* -> StoppingTargetMother` overlaps
+      are also gone**, with the support structure still built. Our modes
+      suppress those with `stoppingTarget.foilTarget_supportStructure=false`;
+      that workaround is unnecessary under v13_35_00.
   - **MDC2025an / Offline v13_11_00**, `geom_SurfaceCheck_run1a.txt`
     (ships pre-built, wraps `geom_run1_a.txt`): **0 overlap lines, full
     check completes.** The TT_MidInner→DS2Vacuum fix is baked into

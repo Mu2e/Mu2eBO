@@ -458,7 +458,7 @@ equivalent ways:
   - **Cheap first step: replicate champion** (foilsf03R01_09) at current stats + 2× Run1B stats — ~4 grid-hours, gives *measured* σ at the saturation plateau before committing.
 
 ## Cross-links
-- Related: [bo-foils](/projects/bo-foils.md), [batch-bo](/concepts/batch-bo.md), [scalarized-objective](/concepts/scalarized-objective.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md), [harvest-denominator-bug](/incidents/harvest-denominator-bug.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
+- Related: [bo-foils](/projects/bo-foils.md), [batch-bo](/concepts/batch-bo.md), [scalarized-objective](/concepts/scalarized-objective.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md), [harvest-denominator-bug](/incidents/harvest-denominator-bug.md), [gp-cloud-rendering](/concepts/gp-cloud-rendering.md), [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md), [budget-sob-picker](/concepts/budget-sob-picker.md), [run1bak-run1bap-sob-shift](/concepts/run1bak-run1bap-sob-shift.md)
 - Source files: `pipeline.py:116-172` (STAGES dict), `pipeline.py:191` (stamp-at-submit), `pipeline.py:132` (Run1B events_per_job), `botorch_predict.py:137-153` (_fit_gp), `graph/config.py:28-32` (STAGE_TARGETS)
 
 ## Open questions / TODO

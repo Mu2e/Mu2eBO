@@ -236,7 +236,7 @@ DIFFERENT code path (line 278, not 420).
   manual re-run.
 
 ## Cross-links
-- Related: [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) (sibling: pipeline.py
+- Related: [nfsv4-badseqid-lock-wedge-nashome](/incidents/nfsv4-badseqid-lock-wedge-nashome.md), [sourced-env-drops-muse-function-local-jobs](/incidents/sourced-env-drops-muse-function-local-jobs.md) (the other sourced_env loss: BASH_FUNC_* entries), [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) (sibling: pipeline.py
   swallows mu2ejobsub stderr at line 420 — same anti-pattern, different
   line), [edepana-saw-events-scientific-notation-parse](/incidents/edepana-saw-events-scientific-notation-parse.md), [mmackenz-edepana-lib-qualifier-bump](/incidents/mmackenz-edepana-lib-qualifier-bump.md)
 - Related: [closed-loop-thread-id-checkpoint-collision](/incidents/closed-loop-thread-id-checkpoint-collision.md) (PR2/#6/#8

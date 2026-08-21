@@ -4,7 +4,7 @@ title: Edmonds target-hole flash study (DocDB-10898)
 description: 'Edmonds 2017 (DocDB-10898): a CENTRAL stopping-target hole (R≈18-21.5mm)
   cuts beam flash ~30% (DAQ-window ~10-15%) + tracker dose ~30%, SES unchanged,
   2-3% stop loss at fixed mass; flash parents are central (RMS 24mm) — reconciles
-  the [[bo-foilsflash]] null (foilsflash varied the outer envelope, not the central
+  the [bo-foilsflash](/projects/bo-foilsflash.md) null (foilsflash varied the outer envelope, not the central
   hole)'
 status: active
 timestamp: '2026-06-29'

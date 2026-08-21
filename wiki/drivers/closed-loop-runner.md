@@ -118,7 +118,7 @@ in this phase.
 - **`--rolling` (wired 2026-07-12, commit c47cd90):**
   pool replenishment — barrier exits on the FIRST resolution, predict_picks
   refills only the free slots and passes in-flight x_points to
-  botorch_predict `--pending-json` (X_pending fantasies; pareto_sob spreads
+  botorch_predict `--pending-json` (X_pending fantasies; budget_sob spreads
   via its avoid set). Budget = `--max-evals` (default q·max_rounds);
   `--max-rounds` is ignored; `round_idx` counts replenish WAVES (still feeds
   `R{NN}` names, so rolling children are `prefixR03_00`-style with mostly

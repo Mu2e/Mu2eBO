@@ -83,7 +83,7 @@ EKEYEXPIRED on open, a different, self-healing signature).
 
 ## Cross-links
 
-- Related: [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md)
+- Related: [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md), [sourced-env-stderr-swallowed](/incidents/sourced-env-stderr-swallowed.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md), [sourced-env-drops-muse-function-local-jobs](/incidents/sourced-env-drops-muse-function-local-jobs.md), [torch-cpp-extension-stale-filebaton-suite-hang](/incidents/torch-cpp-extension-stale-filebaton-suite-hang.md) (the other stale-lock-on-a-shared-filesystem hang)
   (its "Errno 127 ENOKEY" is this experiment's measured EKEYEXPIRED open
   signature — a DIFFERENT failure class from the EIO wedge),
   [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md)

@@ -168,3 +168,31 @@ all 15 proc directories intact if you want to inspect the logs directly. The
 caller's behaviour is not in question: it follows the documented contract
 that `unknown`/`rc: null` never counts as `ok`, and that guard is what turned
 a silent wrong answer into a visible failure.
+
+---
+
+## RESOLVED 2026-08-20
+
+Root cause established before any jobwait change, as requested — and it
+is neither a prodtools design flaw nor a schedd defect. The deployed
+jobsub_lite 1.13 `jobsub_history` wrapper parses the `@schedd` out of
+`-J`, builds `-name <schedd>`, then discards it (`passthru = out`
+immediately after the append in `/opt/jobsub_lite/bin/jobsub_history`).
+Every query therefore goes to the node's default `SCHEDD_HOST` =
+jobsub01.fnal.gov. That is the whole asymmetry in the table above:
+`86299508@jobsub01` answered because the misdirected query happened to
+hit its home schedd; `29868598@jobsub05` returned header-only because
+jobsub01 has no such cluster. Proof: direct
+`condor_history -name jobsub05.fnal.gov 29868598 -limit 15 -af ProcId
+ExitCode` returns all 15 rows, every ExitCode 0. Upstream jobsub_lite
+master has rewritten the wrapper and passes `-name` correctly.
+
+Fix taken: the "query can be made to work" clean path. prodtools
+`collect_exit_codes` now shells `condor_history` directly with `-name`
+split from the jobid; empty history logs the schedd and the
+empty-history condition by name. The spec's deliberate non-features
+(no file checking, honest unknown) are untouched; directions 1 and 2
+were not needed. Verified live: the fixed code reads
+`29868598@jobsub05` as 15/15 rc=0. Tests extended
+(`test/test_jobwait.py`, 25 pass). Note the cvmfs prodtools v3.1.0
+still carries the old code until the next release.

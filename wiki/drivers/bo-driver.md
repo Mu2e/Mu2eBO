@@ -4,7 +4,7 @@ title: bo_driver.py — driver
 description: '`propose | evaluate | preflight` (6 modes; michael/helical retired
   2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)'
 status: active
-timestamp: '2026-07-20'
+timestamp: '2026-08-19'
 updated_note: 'fixed recorded drift: KNOB_NAMES/KNOB_FMTS/CALO_COL are registry
   properties (modes.SPECS) not driver-owned data; preflight/evaluate carry
   --emit-json; build_space lockstep guard now lives in ModeSpec.__post_init__'
@@ -48,13 +48,12 @@ after the michael mode was retired (2026-07-12).
   - `preflight <config_name>` — see [preflight](/drivers/preflight.md)
 - **α flag:** `--alpha 1e5` default ([scalarized-objective](/concepts/scalarized-objective.md))
 - **Search space:** see [bo-michael](/projects/bo-michael.md) / [bo-helical](/projects/bo-helical.md) (per mode)
-- **Architecture:** `BOMode(ABC)` with 6 adapters (michael + helical retired
-  2026-07-12; the file keeps its historical name). Each subclass owns its
-  pinned constants + 4 abstract methods (`load_priors`, `_geom_text`,
-  `parse_geom`, `format_row`/`load_history_row` — the last two are also
-  concrete-shared for the Foils family, see below). Shared concerns (history
-  I/O, pending TSV, proposal write) are concrete on the base. `MODES` is
-  the registry argparse selects from.
+- **Architecture (since 2026-08-19):** one class, `JsonMode` — the BOMode
+  ABC was collapsed into it once every mode was JSON-defined (one abstract
+  method + one subclass left = ceremony). One instance per
+  `mode_specs/<name>.json`; geometry renders from the spec's geom template;
+  history I/O, pending TSV, search space and leaderboard shape all read
+  `modes.SPECS`. `MODES` is the registry argparse selects from.
 - **`KNOB_NAMES`/`KNOB_FMTS`/`CALO_COL` are registry-reading PROPERTIES, not
   driver-owned data (since `bd37aa3`, 2026-07-19 — fixes a wiki drift a prior
   round flagged and skipped).** `BOMode.KNOB_NAMES`/`.KNOB_FMTS` read

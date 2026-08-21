@@ -3,7 +3,7 @@ type: driver
 title: autoresearch_bo.py — original 7D BO driver (removed)
 description: original 7D BO driver
 status: superseded
-status_note: (removed 2026-05-21; replaced by [[bo-driver]])
+status_note: (removed 2026-05-21; replaced by [bo-driver](/drivers/bo-driver.md))
 timestamp: '2026-05-21'
 ---
 

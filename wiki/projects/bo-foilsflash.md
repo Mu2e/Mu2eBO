@@ -3,7 +3,7 @@ type: project
 title: bo-foilsflash — foils geometry vs electron-beam-flash tracker edep (DS-on)
 description: '6D BO over the foilsf extra-foil geometry vs tracker StrawGasStep
   edep from the ELECTRON-beam early-flash peak (DS-on), replacing foilsf''s calo
-  objective; clone of [[bo-ipa]] structure (elebeam_flash stage resamples EleBeamCat);
+  objective; clone of [bo-ipa](/projects/bo-ipa.md) structure (elebeam_flash stage resamples EleBeamCat);
   early NULL (foilsflash02/03) was a METRIC BUG (per-event mean, blind to rate)
   — OVERTURNED 2026-06-30: under flash-per-POT foils are a STRONG lever (2.5×, R²=0.89,
   no sob trade-off); objective WIRED + `foilsflash04` relaunched 2026-07-01 (qNEHVI
@@ -699,7 +699,7 @@ half-thickness; writes `docs/foilsflash_predicted_cloud.png`). Render:
 No commit/push (operator reviews, like foils/ipa).
 
 ## Cross-links
-- Related: [bo-foils](/projects/bo-foils.md), [bo-ipa](/projects/bo-ipa.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)
+- Related: [bo-foilspf](/projects/bo-foilspf.md) (successor line: profile-parameterized all-foils stack against these objectives), [bo-foils](/projects/bo-foils.md), [bo-ipa](/projects/bo-ipa.md), [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)
 - Source files: `bo_driver.py` (FoilsFlashMode),
   `pipeline_templates/elebeam_flash/template.fcl`, `pipeline.py` (STAGES + Step 7),
   `graph/config.py` (chain/musing/targets), `mmackenz_table_plots/gp_predict_foilsflash.py`
