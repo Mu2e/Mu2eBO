@@ -56,7 +56,7 @@ This directory is deliberately NOT named `modes/`, even though that would
 read more naturally next to `core/modes.py`. A top-level `modes/` directory
 is an implicit Python namespace package: from the repo root, `import modes`
 would resolve to that empty directory instead of failing loudly, and
-anything that later did `modes.SPECS` (e.g. `core/runtime.py`, which puts
+anything that later did `modes.SPECS` (e.g. `graph/nodes.py:13`, which puts
 `core/` on `sys.path` before importing `modes`) would get a confusing
 `AttributeError` far from the real cause. Before this directory existed,
 `import modes` was a loud `ModuleNotFoundError` — much easier to diagnose

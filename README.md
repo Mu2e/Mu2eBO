@@ -115,6 +115,6 @@ crashed parents: [wiki/drivers/closed-loop-runner.md](wiki/drivers/closed-loop-r
 PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .
 ```
 
-681 tests, no grid contact.
+675 tests, no grid contact.
 
 More: `wiki/index.md`.

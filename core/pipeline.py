@@ -438,8 +438,13 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
                        extra_files: list[Path] | None = None) -> Path:
     """Build Code.tar.bz2 for the --code path: extract the base tarball, drop
     the per-config geom + extra_files into Code/, write Code/setup_post.sh
-    extending MU2E_SEARCH_PATH + FHICL_FILE_PATH, repack. base_tarball
-    overrides MUSE_BASE_TARBALL (stage_cfg's "code_tarball" key).
+    extending MU2E_SEARCH_PATH + FHICL_FILE_PATH, repack.
+
+    base_tarball defaults to MUSE_BASE_TARBALL and is now a TEST seam only
+    (tests/test_pipeline_verbs.py builds a synthetic base, since the real one
+    is a multi-hundred-MB artifact). There is no per-stage override key: the
+    stage_cfg "code_tarball" branch this used to read could never fire and
+    was deleted 2026-08-22.
     """
     if base_tarball is None:
         base_tarball = MUSE_BASE_TARBALL
@@ -512,15 +517,24 @@ def _prev_stage_sources(stage: str) -> list[Path]:
 INPUT_STAGE = "mubeam"
 
 
-def input_farm(dest: Path, sources: list[Path]) -> tuple[Path, dict]:
+def input_farm(stage: str, dest: Path, sources: list[Path], *,
+               allow_copy: bool) -> tuple[Path, dict]:
     """Put every input file in ONE dir (entry input_data is basename-keyed
     and inloc assumes a single dir), and return (dir, {basename: 1}) -- one
-    input file per job.
+    input file per job. Serves both executors.
 
     Hard links, NOT symlinks: xrootd doors don't follow /pnfs symlinks, but
-    hard links share the dCache namespace entry. Falls back to a copy on
-    EXDEV, which only the local farm can hit (a local outstage tree and ROOT
-    can land on different filesystems); on /pnfs it never fires.
+    hard links share the dCache namespace entry.
+
+    `allow_copy` is the ONLY behavioural difference between the two callers,
+    and it is explicit because the difference matters. The local farm sets it
+    (a local outstage tree and ROOT legitimately land on different
+    filesystems, so EXDEV is expected and a copy is right). The /pnfs grid
+    farm does NOT: there, EXDEV means the sources are not on dCache at all --
+    a stage chained off a --local previous stage -- and copying would
+    silently duplicate the whole previous stage's output into /pnfs, against
+    the quota that once killed a campaign
+    (wiki/incidents/data-quota-exhausted-grid-accumulation.md). Raise instead.
     """
     if dest.exists():
         for p in dest.iterdir():
@@ -533,11 +547,11 @@ def input_farm(dest: Path, sources: list[Path]) -> tuple[Path, dict]:
         try:
             os.link(src, dest / src.name)
         except OSError as e:
-            if e.errno != errno.EXDEV:
+            if e.errno != errno.EXDEV or not allow_copy:
                 raise
             shutil.copy2(src, dest / src.name)
         input_map[src.name] = 1
-    print(f"[{dest.name}] farmed {len(input_map)} file(s) into {dest}")
+    print(f"[{stage}] farmed {len(input_map)} file(s) into {dest}")
     return dest, input_map
 
 
@@ -824,8 +838,9 @@ def cmd_submit(args):
                     f"run ({local_marker(INPUT_STAGE)} missing). Run "
                     f"'--config {CONFIG} submit {INPUT_STAGE} --local' and "
                     f"'list-outputs {INPUT_STAGE}' first.")
-            staged_inputs = input_farm(ROOT / stage / "local_inputs",
-                                       _prev_stage_sources(stage))
+            staged_inputs = input_farm(
+                stage, ROOT / stage / "local_inputs",
+                _prev_stage_sources(stage), allow_copy=True)
         # Same render/build sequence as grid; only njobs/events differ (LOCAL
         # scale, not stage_cfg). `run` is a fixed cnf run-number.
         entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
@@ -874,8 +889,9 @@ def cmd_submit(args):
         # One input file per job. A >1 merge factor is unvalidated under
         # prodtools, and mu2ejobdef yielded ZERO jobs when it exceeded the
         # input count -- no stage in any mode chain merges today.
-        staged_inputs = input_farm(PNFS_STAGE / args.stage,
-                                   _prev_stage_sources(args.stage))
+        staged_inputs = input_farm(
+            args.stage, PNFS_STAGE / args.stage,
+            _prev_stage_sources(args.stage), allow_copy=False)
     submit_stage_prodtools(args.stage, env, staged_inputs=staged_inputs,
                            dry_run=args.dry_run)
 

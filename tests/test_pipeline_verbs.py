@@ -1259,7 +1259,7 @@ class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
              mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
              mock.patch.object(pipeline, "input_farm") as farm:
             sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(4)]
-            farm.side_effect = lambda dest, srcs: (
+            farm.side_effect = lambda stage, dest, srcs, **kw: (
                 dest, {Path(p).name: 1 for p in srcs})
             self._submit(tmp, sources)
             _, kwargs = sub.call_args
@@ -1547,9 +1547,10 @@ class TestInputFarm(unittest.TestCase):
     tests/test_local_exec.py."""
 
     @staticmethod
-    def _farm(root, sources):
+    def _farm(root, sources, *, allow_copy=True):
         return pipeline.input_farm(
-            Path(root) / "mustops_ce" / "local_inputs", sources)
+            "mustops_ce", Path(root) / "mustops_ce" / "local_inputs", sources,
+            allow_copy=allow_copy)
 
     def test_links_n_files_flat_and_returns_the_basenames_map(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1582,6 +1583,21 @@ class TestInputFarm(unittest.TestCase):
                 _, input_map = self._farm(Path(tmp) / "root", sources)
             self.assertEqual(set(input_map.values()), {1})
             self.assertEqual(len(input_map), 5)
+
+    def test_the_grid_farm_refuses_to_copy_across_a_device_boundary(self):
+        # allow_copy=False is the grid caller. EXDEV there means the sources
+        # are not on dCache at all (a stage chained off a --local previous
+        # stage), and copying would duplicate the whole previous stage's
+        # output into /pnfs against the quota that once killed a campaign.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.art"
+            src.write_text("data")
+            with mock.patch.object(
+                    pipeline.os, "link",
+                    side_effect=OSError(errno.EXDEV, "cross-device link")):
+                with self.assertRaises(OSError) as cm:
+                    self._farm(Path(tmp) / "root", [src], allow_copy=False)
+            self.assertEqual(cm.exception.errno, errno.EXDEV)
 
     def test_falls_back_to_copy_across_a_device_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -113,8 +113,11 @@ class ParityMixin:
         the parity proof along. The goldens in fixtures/golden_geom/ were
         captured from the Python renderers while they still existed, so parity
         remains provable for a mode whose Python implementation is gone.
-        `test_golden_still_matches_the_live_python_mode` keeps the goldens
-        honest for as long as a Python counterpart survives.
+        No Python counterpart survives, so nothing cross-checks the goldens
+        any more and they must NEVER be regenerated -- see the header. The
+        sibling that does the other half of the job is
+        test_production_spec_still_matches_the_golden: this one checks the
+        tests/fixtures/modes/ copy, that one the shipped mode_specs/*.json.
         """
         for i, x in enumerate(SAMPLE_X[self.mode_name]):
             golden = GOLDEN / f"{self.mode_name}_{i}.txt"
