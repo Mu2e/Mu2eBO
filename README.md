@@ -94,7 +94,7 @@ The closed loop is a work pool: `q` evaluations in flight, one replacement
 launched per exit, with the GP refit against the leaderboard as it stands.
 
 ```bash
-nohup python -m graph.closed_loop --mode foilspf --picker hybrid \
+nohup "$AUTORESEARCH_PYTHON" -m graph.closed_loop --mode foilspf --picker hybrid \
   --q 20 --max-evals 40 --name-prefix foilspf05 \
   > "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/foilspf05_parent.log" 2>&1 &
 ```
