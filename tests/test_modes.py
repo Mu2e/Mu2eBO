@@ -276,7 +276,7 @@ class TestSubprocessImport(unittest.TestCase):
 class TestModeSpecsDirectoryWiring(unittest.TestCase):
     """F8: the two lines that ARE the json-modes feature had zero coverage.
 
-    Deleting either `SPECS.update(load_mode_dir(MODES_DIR, SPECS))` at the
+    Deleting either `SPECS.update(load_mode_dir(MODES_DIR))` at the
     tail of core/modes.py or the `MODES[_name] = JsonMode(_name)` loop in
     core/bo_driver.py left the whole suite green -- verified by mutation,
     twice. Every other test registers its spec by hand into modes.SPECS and

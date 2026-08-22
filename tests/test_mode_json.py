@@ -341,7 +341,7 @@ class TestRejections(unittest.TestCase):
                 doc["leaderboard"]["file"] = rel
                 _write(d, f"dupmode{i}", doc)
             with self.assertRaises(ValueError) as cm:
-                load_mode_dir(d, {})
+                load_mode_dir(d)
         self.assertIn("basename", str(cm.exception).lower())
 
     # F13 ("pot_only chain with a foreign tarball rejected") removed
@@ -391,16 +391,14 @@ class TestDuplicateJsonKeys(unittest.TestCase):
 
 
 class TestCollision(unittest.TestCase):
-    def test_name_collision_with_python_mode_is_hard_error(self):
-        with tempfile.TemporaryDirectory() as td:
-            _write(Path(td), "foilsflash", json.loads(FIXTURE.read_text()))
-            with self.assertRaises(ValueError) as cm:
-                load_mode_dir(Path(td), modes.SPECS)
-            self.assertIn("foilsflash", str(cm.exception))
-            self.assertIn("collides", str(cm.exception))
+    # test_name_collision_with_python_mode_is_hard_error removed 2026-08-22:
+    # load_mode_dir lost its `existing` parameter with the last Python mode.
+    # An in-scan duplicate is now impossible by construction -- the
+    # name-must-equal-stem check fires first and a flat glob yields unique
+    # stems -- so the arm had no reachable input.
 
     def test_missing_directory_yields_no_modes(self):
-        self.assertEqual(load_mode_dir(Path("/nonexistent/modes"), {}), {})
+        self.assertEqual(load_mode_dir(Path("/nonexistent/modes")), {})
 
 
 class TestLeaderboardUniqueness(unittest.TestCase):
@@ -427,7 +425,7 @@ class TestLeaderboardUniqueness(unittest.TestCase):
             _write(tmp, "linetwo", self._spec_doc(
                 "linetwo", "leaderboards/leaderboard_bo_shared.tsv"))
             with self.assertRaises(ValueError) as cm:
-                load_mode_dir(tmp, {})
+                load_mode_dir(tmp)
         msg = str(cm.exception)
         self.assertIn("leaderboard_bo_shared.tsv", msg)
         self.assertIn("lineone", msg)
@@ -453,7 +451,7 @@ class TestLeaderboardUniqueness(unittest.TestCase):
             _write(tmp, "linetwo", self._spec_doc(
                 "linetwo", "./leaderboards/leaderboard_bo_dottest.tsv"))
             with self.assertRaises(ValueError) as cm:
-                load_mode_dir(tmp, {})
+                load_mode_dir(tmp)
         self.assertIn("leaderboard_bo_dottest.tsv", str(cm.exception))
 
     def test_parent_traversal_in_leaderboard_path_rejected(self):
@@ -471,7 +469,7 @@ class TestLeaderboardUniqueness(unittest.TestCase):
                 "lineone", "leaderboards/leaderboard_bo_lineone.tsv"))
             _write(tmp, "linetwo", self._spec_doc(
                 "linetwo", "leaderboards/leaderboard_bo_linetwo.tsv"))
-            out = load_mode_dir(tmp, modes.SPECS)
+            out = load_mode_dir(tmp)
         self.assertEqual(sorted(out), ["lineone", "linetwo"])
 
     # test_python_leaderboard_table_matches_the_driver_classes removed

@@ -46,10 +46,11 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 # imports closed_loop only inside function bodies.
 from pool import child_name, run_rolling  # noqa: E402
 
-# cl_min retired per ADR-0001: the closed loop never imports code outside
-# this repo; all pickers route through in-repo botorch_predict.py.
-PICKER_CHOICES = ("qnehvi", "qlnei", "budget_sob", "hybrid")
-DEFAULT_PICKER = "hybrid"
+# One home in core/modes.py: this argparse validates --picker in the parent,
+# core/botorch_predict.py validates it again in the picker subprocess, and two
+# literals would let the parent accept a value that dies in every child.
+PICKER_CHOICES = _modes.PICKER_CHOICES
+DEFAULT_PICKER = _modes.DEFAULT_PICKER
 
 
 def _stop_requested() -> bool:

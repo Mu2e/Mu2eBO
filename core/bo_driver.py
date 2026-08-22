@@ -82,10 +82,6 @@ class JsonMode:
     def _geom_text(self, x) -> str:
         return _modes.SPECS[self.name].geom.render(x)
 
-    def load_priors(self) -> list[Point]:
-        """No code-carried priors: Sobol cold-start + leaderboard history."""
-        return []
-
     # --- x recovery at evaluate time (the seam cmd_evaluate calls) ---
     def x_for_evaluate(self, config_name: str, geom_text: str):
         """Recover x from the pending TSV (written at propose, cleared only

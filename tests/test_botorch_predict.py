@@ -2,7 +2,7 @@
 single-venv consolidation) + the botorch_ask subprocess seam smoke.
 
 Fixtures repoint bo.MODES["foilsflash"].leaderboard at a tmp 10-row TSV
-(foilsflash: load_priors()==[] so history is exactly the fixture). The live
+(history is exactly the fixture leaderboard). The live
 leaderboards are never touched."""
 import json
 import math
@@ -42,8 +42,8 @@ def patched_leaderboard(tmp: str, **kw):
                                leaderboard=lb, leaderboard_archive=None)
 
 
-BOUNDS_LO = bp.MODE_SPECS["foilsflash"]["lo"]
-BOUNDS_HI = bp.MODE_SPECS["foilsflash"]["hi"]
+BOUNDS_LO = list(bp._modes.SPECS["foilsflash"].bounds_lo)
+BOUNDS_HI = list(bp._modes.SPECS["foilsflash"].bounds_hi)
 
 
 def in_bounds(x):
@@ -132,7 +132,7 @@ class TestComputeExplorePicks(unittest.TestCase):
         import torch
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
             X, Y, bounds, _ = bp._load_history_tensor("foilsflash")
-        declared = bp.MODE_SPECS["foilsflash"]["obs_noise"]
+        declared = list(bp._modes.SPECS["foilsflash"].obs_noise)
         model = bp._fit_gp(X, Y, bounds, obs_noise=declared)
         m = Y.shape[-1]
         noise = model.likelihood.noise.detach()
@@ -153,7 +153,7 @@ class TestComputeExplorePicks(unittest.TestCase):
         # was a 0.113 shrink on the best row, which demoted it to rank 16.
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
             X, Y, bounds, _ = bp._load_history_tensor("foilsflash")
-        declared = bp.MODE_SPECS["foilsflash"]["obs_noise"]
+        declared = list(bp._modes.SPECS["foilsflash"].obs_noise)
         model = bp._fit_gp(X, Y, bounds, obs_noise=declared)
         best = int(Y[:, 0].argmax())
         mu = model.posterior(X).mean.detach()[:, 0]

@@ -12,7 +12,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Tuple
 
 if TYPE_CHECKING:
     from core.geom_template import GeomTemplate
@@ -28,9 +28,9 @@ class ModeSpec:
     stage_target_overrides: Dict[str, int]
     presubmit_after: Dict[str, Tuple[str, ...]]
     stage_tuning: Dict[str, Dict[str, object]]
-    bounds_lo: Optional[Tuple[float, ...]]
-    bounds_hi: Optional[Tuple[float, ...]]
-    int_dims: Optional[Tuple[int, ...]]
+    bounds_lo: Tuple[float, ...]
+    bounds_hi: Tuple[float, ...]
+    int_dims: Tuple[int, ...]
     dumps_gdml: bool
     verifies_foil_gdml: bool
     checks_managed_overlap: bool
@@ -49,24 +49,21 @@ class ModeSpec:
     # Measured ABSOLUTE sigma per GP output axis, fed as train_Yvar: left a
     # free MLL hyperparameter, the foilsflash fit lands at sigma(sob)=0.0507
     # vs replicate-measured 0.0051 (12x), erasing the champion -- see
-    # wiki/incidents/gp-free-noise-erases-champion. None is passed
-    # EXPLICITLY by ProdTarget, not defaulted.
-    obs_noise: Optional[Tuple[float, ...]]
+    # wiki/incidents/gp-free-noise-erases-champion.
+    obs_noise: Tuple[float, ...]
 
-    geom: Optional[GeomTemplate]
-    metrics: Optional[Dict[str, Tuple[str, ...]]]
-    leaderboard_rel: Optional[str]
+    geom: GeomTemplate
+    metrics: Dict[str, Tuple[str, ...]]
+    leaderboard_rel: str
 
     def __post_init__(self):
-        if self.bounds_lo is not None and not (
-                len(self.knob_names) == len(self.knob_fmts)
+        if not (len(self.knob_names) == len(self.knob_fmts)
                 == len(self.bounds_lo)):
             raise ValueError(
                 f"{self.name}: knob_names ({len(self.knob_names)}) / "
                 f"knob_fmts ({len(self.knob_fmts)}) / bounds "
                 f"({len(self.bounds_lo)}) lockstep broken")
-        if self.obs_noise is not None and not (
-                len(self.obs_noise) == 2
+        if not (len(self.obs_noise) == 2
                 and all(v > 0 for v in self.obs_noise)):
             raise ValueError(
                 f"{self.name}: obs_noise must be 2 positive sigmas "
@@ -87,7 +84,7 @@ else:
     from mode_json import load_mode_dir  # noqa: E402
 
 MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
-SPECS.update(load_mode_dir(MODES_DIR, SPECS))
+SPECS.update(load_mode_dir(MODES_DIR))
 
 # THE fallback for every import-time AUTORESEARCH_MODE reader; single-sourced
 # because per-module literals drift. Pinned by
@@ -96,6 +93,14 @@ DEFAULT_MODE = "foilspf"
 assert DEFAULT_MODE in SPECS, (
     f"DEFAULT_MODE {DEFAULT_MODE!r} is not a live mode; mode_specs/ has "
     f"{sorted(SPECS)}")
+
+
+# The batch pickers, declared once: graph/closed_loop.py validates --picker in
+# the PARENT and core/botorch_predict.py validates it again in the picker
+# SUBPROCESS. Two literals would let the parent accept a value that dies in
+# every child. cl_min retired per ADR-0001.
+PICKER_CHOICES = ("qnehvi", "qlnei", "budget_sob", "hybrid")
+DEFAULT_PICKER = "hybrid"
 
 
 def _unknown_mode_message(source: str, value) -> str:

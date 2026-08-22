@@ -325,12 +325,12 @@ def load_mode_file(path: Path) -> "object":
                 f"METRIC into this knob's coordinate on every past row")
 
     noise = leaderboard["obs_noise"]
-    if noise is not None:
-        if len(noise) != 2 or not all(v > 0 for v in noise):
-            raise ValueError(
-                f"{where}[leaderboard]: obs_noise must be 2 positive sigmas, "
-                f"got {noise!r}")
-        noise = tuple(float(v) for v in noise)
+    if not isinstance(noise, list) or len(noise) != 2 or not all(
+            isinstance(v, (int, float)) and v > 0 for v in noise):
+        raise ValueError(
+            f"{where}[leaderboard]: obs_noise must be 2 positive sigmas, "
+            f"got {noise!r}")
+    noise = tuple(float(v) for v in noise)
 
     metrics_raw = leaderboard["metrics"]
     if not isinstance(metrics_raw, dict):
@@ -391,10 +391,10 @@ def load_mode_file(path: Path) -> "object":
     return spec
 
 
-def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, object]:
-    """Load every mode_specs/*.json. A name already in `existing` or a
-    leaderboard claimed by another mode is a hard error. Both checks live
-    HERE, not load_mode_file, so fixtures declaring live names can load."""
+def load_mode_dir(directory: Path) -> Dict[str, object]:
+    """Load every mode_specs/*.json. A leaderboard claimed by another mode is
+    a hard error, and it lives HERE, not in load_mode_file, so fixtures
+    declaring live names can load."""
     if not directory.is_dir():
         return {}
     out: Dict[str, object] = {}
@@ -406,10 +406,6 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
             raise ValueError(
                 f"{path}: mode name {spec.name!r} does not match its file name "
                 f"{path.stem!r}; mode_specs/ must stay greppable by name")
-        if spec.name in existing or spec.name in out:
-            raise ValueError(
-                f"{path}: mode name {spec.name!r} collides with an existing "
-                f"mode; JSON modes never override Python modes")
         # Two modes writing one leaderboard is silent cross-mode GP
         # contamination in BOTH directions (schemas match column-for-column).
         # Keyed on BASENAME because paths.leaderboard_live flattens, so

@@ -3,8 +3,7 @@
 
 THE production picker: graph/closed_loop.py shells this CLI every round
 (--emit-picks-json round-trip; keep argparse-compatible). Pickers: qnehvi,
-qlnei, budget_sob, hybrid — see compute_explore_picks. `michael` is
-unsupported (mixed Real+Categorical space).
+qlnei, budget_sob, hybrid — see compute_explore_picks.
 """
 from __future__ import annotations
 
@@ -28,17 +27,10 @@ torch.set_default_dtype(torch.float64)
 DEVICE = torch.device("cpu")
 
 
-# Per-mode bounds + integer-dim mask from the ModeSpec registry (ADR-0002).
-# Order matches Point.x (= build_space); lockstep ENFORCED by
-# tests/test_modes.py. Modes without a numeric box (michael) are absent.
+# Bounds + integer-dim mask come straight off the ModeSpec registry
+# (ADR-0002). Order matches Point.x (= build_space); lockstep ENFORCED by
+# tests/test_modes.py.
 import modes as _modes  # noqa: E402
-
-MODE_SPECS = {
-    name: {"lo": list(s.bounds_lo), "hi": list(s.bounds_hi),
-           "int_dims": list(s.int_dims),
-           "obs_noise": None if s.obs_noise is None else list(s.obs_noise)}
-    for name, s in _modes.SPECS.items() if s.bounds_lo is not None
-}
 
 
 def _load_history_tensor(mode: str, sob_only: bool = False):
@@ -47,15 +39,11 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
     Y is (n, 2) [sob, -log10(calo)], both maximized; sob_only=True gives
     (n, 1) [sob] and keeps rows with invalid calo (qlnei picker).
     """
-    if mode not in MODE_SPECS:
+    if mode not in _modes.SPECS:
         raise SystemExit(f"[botorch_predict] mode={mode!r} not supported; "
-                         f"choose from {sorted(MODE_SPECS)}. "
-                         "michael's Real+Categorical space needs a mixed model.")
-    spec = MODE_SPECS[mode]
-    bo_mode = bo.MODES[mode]
-    priors = bo_mode.load_priors() if hasattr(bo_mode, "load_priors") else []
-    history = bo_mode.load_history()
-    seeds = priors + history
+                         f"choose from {sorted(_modes.SPECS)}.")
+    spec = _modes.SPECS[mode]
+    seeds = bo.MODES[mode].load_history()
 
     X_rows = []
     Y_rows = []
@@ -70,28 +58,28 @@ def _load_history_tensor(mode: str, sob_only: bool = False):
                 continue  # log10 undefined (broken harvest)
             X_rows.append([float(v) for v in p.x])
             Y_rows.append([p.sob, -math.log10(p.calo)])
-    lo = torch.tensor(spec["lo"], device=DEVICE)
-    hi = torch.tensor(spec["hi"], device=DEVICE)
+    lo = torch.tensor(list(spec.bounds_lo), device=DEVICE)
+    hi = torch.tensor(list(spec.bounds_hi), device=DEVICE)
     bounds = torch.stack([lo, hi], dim=0)
 
     if X_rows:
         X = torch.tensor(X_rows, device=DEVICE)
         Y = torch.tensor(Y_rows, device=DEVICE)
-        if X.shape[1] != len(spec["lo"]):
+        if X.shape[1] != len(spec.bounds_lo):
             raise SystemExit(
                 f"[botorch_predict] mode={mode} dim mismatch: history has "
                 f"{X.shape[1]}D points but modes.SPECS[{mode!r}] declares "
-                f"{len(spec['lo'])}D bounds (knobs: "
-                f"{_modes.SPECS[mode].knob_names}). Leaderboard schema and "
+                f"{len(spec.bounds_lo)}D bounds (knobs: "
+                f"{spec.knob_names}). Leaderboard schema and "
                 f"registry disagree.")
     else:
         # Cold start: empty (0, d) tensors with correct d so downstream
         # shape-checks against `bounds` pass; caller switches to Sobol.
-        d = len(spec["lo"])
+        d = len(spec.bounds_lo)
         m = 1 if sob_only else 2
         X = torch.empty((0, d), device=DEVICE)
         Y = torch.empty((0, m), device=DEVICE)
-    return X, Y, bounds, spec["int_dims"]
+    return X, Y, bounds, list(spec.int_dims)
 
 
 def _seed(round_idx: int) -> int:
@@ -410,8 +398,8 @@ def _budget_sob_picks(model, bounds, q: int, round_idx: int, x_pending=None,
     return Xs[sel].detach()
 
 
-def compute_explore_picks(q: int = 5,
-                          mode: str = "foils",
+def compute_explore_picks(mode: str,
+                          q: int = 5,
                           round_idx: int = 0,
                           picker: str = "qnehvi",
                           x_pending: list | None = None,
@@ -439,7 +427,8 @@ def compute_explore_picks(q: int = 5,
               f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)
         cands = _sobol_cold_start(bounds, q=q, round_idx=round_idx)
         return _emit_picks(cands, int_dims)
-    model = _fit_gp(X, Y, bounds, obs_noise=MODE_SPECS[mode]["obs_noise"])
+    model = _fit_gp(X, Y, bounds,
+                    obs_noise=list(_modes.SPECS[mode].obs_noise))
     if picker == "qlnei":
         cands = _qlnei_picks(model, X, bounds, q=q, round_idx=round_idx,
                              x_pending=pend)
@@ -458,14 +447,13 @@ def compute_explore_picks(q: int = 5,
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=sorted(MODE_SPECS), default="foils",
-                    help="BO mode to refit (default foils)")
+    ap.add_argument("--mode", choices=sorted(_modes.SPECS), required=True,
+                    help="BO mode to refit")
     ap.add_argument("--q", type=int, default=5,
                     help="Batch size (default 5)")
     ap.add_argument("--round-idx", type=int, default=0,
                     help="Round index; seeds MC sampler (default 0)")
-    ap.add_argument("--picker",
-                    choices=("qnehvi", "qlnei", "budget_sob", "hybrid"),
+    ap.add_argument("--picker", choices=_modes.PICKER_CHOICES,
                     default="qnehvi",
                     help="qnehvi = multi-obj Pareto-HV (default); "
                          "qlnei = single-obj qLogNoisyEI on sob only; "

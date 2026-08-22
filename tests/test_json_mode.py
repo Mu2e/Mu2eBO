@@ -57,8 +57,6 @@ class TestJsonMode(unittest.TestCase):
         self.assertIn("stoppingTarget.radii", text)
         self.assertIn("double stoppingTarget.holeRadius = 1.0e6;", text)
 
-    def test_no_priors(self):
-        self.assertEqual(self.mode.load_priors(), [])
 
     # test_parse_geom_refuses_clearly removed 2026-08-08: JsonMode.parse_geom
     # were deleted outright -- geometry round-trip is
