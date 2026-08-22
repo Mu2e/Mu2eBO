@@ -9,15 +9,6 @@ __pycache__/
 .env
 
 # =============================================================================
-# Legacy in-repo BO work tree. Nothing can write this any more -- BO_WORK is
-# DATA_ROOT/autoresearch_bo_work and core/paths.py raises rather than falling
-# back to the checkout -- but ~741 MB of pre-2026-07 proposals and preflight
-# scratch still sit here. The rule stays only so `git status` is not drowned
-# by them; archive or remove the directory and then delete this rule.
-# =============================================================================
-bo_work/
-
-# =============================================================================
 # Driver runtime logs and scratch
 # =============================================================================
 *.log
