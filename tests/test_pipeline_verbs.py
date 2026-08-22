@@ -2,7 +2,7 @@
 list-outputs gating, submit_stage_prodtools state writes, the local
 executor (cmd_submit --local via prodtools runlocal), and the small
 free-standing helpers (_require_local_stage, stamp_local_events,
-sourced_env guards, local scale resolution, local_input_farm).
+sourced_env guards, local scale resolution, input_farm).
 No grid contact: STATE/STAGES/ROOT are patched to tmp dirs and the
 prodtools_exec (px) / subprocess boundary is faked."""
 import contextlib
@@ -394,7 +394,9 @@ class TestStageEntries(unittest.TestCase):
             geom = Path(tmp) / "autoresearch_x001_geom.txt"
             with mock.patch.object(pipeline, "GEOM_FILE", geom), \
                  mock.patch.object(pipeline, "STATE", Path(tmp)):
-                overrides = pipeline._render_fcl_overrides("mubeam")
+                overrides = pipeline._render_fcl_overrides(
+                    "mubeam", pipeline.px.load_stage_entry(
+                        "mubeam", cfg="x001", geom=geom.name))
         self.assertEqual(overrides["services.GeometryService.inputFile"],
                          "autoresearch_x001_geom.txt")
 
@@ -405,8 +407,10 @@ class TestStageEntries(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
                  mock.patch.object(pipeline, "STATE", Path(tmp)):
-                pipeline._render_fcl_overrides("mubeam")
-                second = pipeline._render_fcl_overrides("mubeam")
+                entry = lambda: pipeline.px.load_stage_entry(
+                    "mubeam", cfg="x001", geom="g.txt")
+                pipeline._render_fcl_overrides("mubeam", entry())
+                second = pipeline._render_fcl_overrides("mubeam", entry())
         self.assertEqual(second["services.GeometryService.inputFile"], "g.txt")
         raw = json.loads(
             (pipeline.px.STAGE_ENTRIES_DIR / "mubeam.json").read_text())
@@ -423,7 +427,10 @@ class TestStageEntries(unittest.TestCase):
             with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
                  mock.patch.object(pipeline, "STATE", Path(tmp)):
                 self.assertEqual(
-                    pipeline._render_fcl_overrides("mustops_ce")[key], 8000)
+                    pipeline._render_fcl_overrides(
+                        "mustops_ce", pipeline.px.load_stage_entry(
+                            "mustops_ce", cfg="x001", geom="g.txt"))[key],
+                    8000)
 
     def test_stage_extra_files_only_mubeam(self):
         # Derived from the entry's '#include' (bare basenames ship,
@@ -1232,29 +1239,57 @@ class TestSubmitStageProdtools(unittest.TestCase):
 
 
 class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
-    """cmd_submit's grid mustops_ce branch: stage_hardlink_farm is kept
-    verbatim (mocked out here -- its own behavior is untested by this
-    class), but the input_map built around it must give every staged
-    basename a count of 1 (one input file per job)."""
+    """cmd_submit's grid mustops_ce branch: input_farm's own behavior is
+    covered by TestInputFarm, so it is mocked out here. What this class
+    pins is the branch around it -- every staged basename gets a count of 1
+    (one input file per job), and an EMPTY previous-stage outputs list is
+    refused rather than farmed into a cluster with no inputs."""
+
+    def _submit(self, tmp, sources):
+        (Path(tmp) / "mubeam_outputs.txt").write_text(
+            "\n".join(sources) + ("\n" if sources else ""))
+        pipeline.cmd_submit(SimpleNamespace(stage="mustops_ce",
+                                            force=False, dry_run=False))
 
     def test_mustops_ce_input_map_values_are_all_one(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.object(pipeline, "GRID_STAGES",
-                               ("mubeam", "mustops_ce")), \
+             mock.patch.object(pipeline, "PNFS_STAGE", Path(tmp) / "pnfs"), \
              mock.patch.object(pipeline, "sourced_env", return_value={}), \
              mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
-             mock.patch.object(pipeline, "stage_hardlink_farm",
-                               return_value=Path("/pnfs/x/mustops_ce")):
+             mock.patch.object(pipeline, "input_farm") as farm:
             sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(4)]
-            (Path(tmp) / "mubeam_outputs.txt").write_text(
-                "\n".join(sources) + "\n")
-            pipeline.cmd_submit(SimpleNamespace(stage="mustops_ce",
-                                                force=False, dry_run=False))
+            farm.side_effect = lambda dest, srcs: (
+                dest, {Path(p).name: 1 for p in srcs})
+            self._submit(tmp, sources)
             _, kwargs = sub.call_args
             _, input_map = kwargs["staged_inputs"]
             self.assertEqual(set(input_map.values()), {1})
             self.assertEqual(len(input_map), 4)
+
+    def test_an_empty_previous_stage_outputs_file_is_refused(self):
+        # Regression: the local branch raised on an empty file but the grid
+        # branch farmed [] and submitted a cluster with no inputs at all.
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(pipeline, "STATE", Path(tmp)), \
+             mock.patch.object(pipeline, "PNFS_STAGE", Path(tmp) / "pnfs"), \
+             mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(pipeline, "submit_stage_prodtools") as sub:
+            with self.assertRaises(SystemExit) as cm:
+                self._submit(tmp, [])
+            self.assertIn("is empty", str(cm.exception))
+            sub.assert_not_called()
+
+    def test_a_missing_previous_stage_outputs_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(pipeline, "STATE", Path(tmp)), \
+             mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(pipeline, "submit_stage_prodtools") as sub:
+            with self.assertRaises(SystemExit) as cm:
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mustops_ce", force=False, dry_run=False))
+            self.assertIn("list-outputs", str(cm.exception))
+            sub.assert_not_called()
 
 
 class TestRequireLocalStage(unittest.TestCase):
@@ -1504,12 +1539,17 @@ class TestLocalScaleResolution(unittest.TestCase):
         self.assertEqual((njobs, events), (1, 77))
 
 
-class TestLocalInputFarm(unittest.TestCase):
-    """pipeline.local_input_farm: the local analogue of stage_hardlink_farm
-    (kept verbatim for the grid). Flat farm at ROOT/<stage>/local_inputs,
-    hard-linking a prior local stage's spread-out outputs into one dir so
-    inloc: dir:<farm> can see them. Ported verbatim from
+class TestInputFarm(unittest.TestCase):
+    """pipeline.input_farm, the ONE farm for both executors (the grid's
+    /pnfs hard-link farm and the local ROOT/<stage>/local_inputs farm were
+    the same function written twice). Flat dir, hard links, one input file
+    per job, so inloc: dir:<farm> can see them. Ported from
     tests/test_local_exec.py."""
+
+    @staticmethod
+    def _farm(root, sources):
+        return pipeline.input_farm(
+            Path(root) / "mustops_ce" / "local_inputs", sources)
 
     def test_links_n_files_flat_and_returns_the_basenames_map(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1521,8 +1561,7 @@ class TestLocalInputFarm(unittest.TestCase):
                 f.write_text("x")
                 sources.append(f)
             with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                farm_dir, input_map = pipeline.local_input_farm(
-                    "mustops_ce", sources)
+                farm_dir, input_map = self._farm(Path(tmp) / "root", sources)
             self.assertEqual(farm_dir,
                              Path(tmp) / "root" / "mustops_ce" / "local_inputs")
             self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
@@ -1540,8 +1579,7 @@ class TestLocalInputFarm(unittest.TestCase):
                 f.write_text("x")
                 sources.append(f)
             with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                _, input_map = pipeline.local_input_farm(
-                    "mustops_ce", sources)
+                _, input_map = self._farm(Path(tmp) / "root", sources)
             self.assertEqual(set(input_map.values()), {1})
             self.assertEqual(len(input_map), 5)
 
@@ -1553,8 +1591,7 @@ class TestLocalInputFarm(unittest.TestCase):
                  mock.patch.object(
                      pipeline.os, "link",
                      side_effect=OSError(errno.EXDEV, "cross-device link")):
-                farm_dir, input_map = pipeline.local_input_farm(
-                    "mustops_ce", [src])
+                farm_dir, input_map = self._farm(Path(tmp) / "root", [src])
             linked = farm_dir / "src.art"
             self.assertFalse(linked.is_symlink())
             self.assertEqual(linked.read_text(), "data")
@@ -1569,7 +1606,7 @@ class TestLocalInputFarm(unittest.TestCase):
                      pipeline.os, "link",
                      side_effect=OSError(errno.EACCES, "permission denied")):
                 with self.assertRaises(OSError):
-                    pipeline.local_input_farm("mustops_ce", [src])
+                    self._farm(Path(tmp) / "root", [src])
 
     def test_a_second_call_clears_the_prior_farm_contents(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1578,11 +1615,10 @@ class TestLocalInputFarm(unittest.TestCase):
             a = src_dir / "a.art"
             a.write_text("a")
             with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                farm_dir, _ = pipeline.local_input_farm("mustops_ce", [a])
+                farm_dir, _ = self._farm(Path(tmp) / "root", [a])
                 b = src_dir / "b.art"
                 b.write_text("b")
-                farm_dir2, input_map = pipeline.local_input_farm(
-                    "mustops_ce", [b])
+                farm_dir2, input_map = self._farm(Path(tmp) / "root", [b])
             self.assertEqual(farm_dir, farm_dir2)
             self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
                              ["b.art"])

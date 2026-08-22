@@ -90,6 +90,9 @@ def main() -> int:
         keys = [k for k in ("config_name", "preflight", "objective") if k in ev]
         snap = {k: ev[k] for k in keys}
         print(f"[run] {json.dumps(snap)}", flush=True)
+    errors = (final or {}).get("errors") or []
+    for err in errors:
+        print(f"[run] error: {err}", flush=True)
     print(f"[run] done. final keys: {sorted((final or {}).keys())}")
     return 0
 

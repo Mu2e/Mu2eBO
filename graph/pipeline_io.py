@@ -158,19 +158,11 @@ def run_harvest(config_name: str, mode: str | None = None) -> dict:
 def read_stage_status(config_name: str, stage: str) -> dict:
     """Parse state/<stage>_cluster.txt + outputs.txt into a StageStatus dict."""
     state_dir = GRID_DATA_ROOT / config_name / "state"
-    cluster_file = state_dir / f"{stage}_cluster.txt"
-    cid = cluster_file.read_text().strip() if cluster_file.exists() else None
+    cid = (state_dir / f"{stage}_cluster.txt")
+    cid = cid.read_text().strip() if cid.exists() else None
     outputs = hv.read_outputs(state_dir, stage) or []
-    target = _pipeline.stage_cfg(stage, _pipeline.MODE)["njobs"]
-    n_done = len(outputs)
-    status = "done" if (cid and outputs) else ("in_flight" if cid else "pending")
-    return {
-        "cluster_id": cid,
-        "status": status,
-        "n_done": n_done,
-        "n_failed": max(0, target - n_done),
-        "last_poll_ts": time.time(),
-    }
+    return {"status": "done" if (cid and outputs)
+                      else ("in_flight" if cid else "pending")}
 
 
 # Patterns counted per worker log. Order matters only for report column order.

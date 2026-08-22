@@ -470,7 +470,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
                                  "ok": 3, "failed": [], "unknown": []})
         expected = pex.cnf_path(pipeline.ROOT / "mubeam",
                                 pipeline._stage_desc("mubeam"),
-                                pipeline._stage_dsconf("mubeam"))
+                                pipeline.DSCONF)
         self.assertEqual(self.jobwait_call["cnf"], expected)
 
     def test_ok_meets_quorum_proceeds_silently(self):

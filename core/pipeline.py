@@ -74,11 +74,7 @@ os.environ.setdefault("AUTORESEARCH_MODE", _modes.resolve_env_mode())
 # One mode per process; a different mode is a fresh subprocess.
 MODE = _modes.resolve_env_mode()
 from paths import GRID_DATA_ROOT as DATA_ROOT  # noqa: E402
-from runtime import (  # noqa: E402
-    GRID_STAGES,
-    MUSING,
-    SETUPMU2E,
-)
+from runtime import MUSING, SETUPMU2E  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from sourced_bash import run_sourced_bash  # noqa: E402
 import harvest as hv  # noqa: E402
@@ -116,15 +112,8 @@ def _bind_config(cfg: str) -> None:
     ROOT = DATA_ROOT / cfg
     STATE = ROOT / "state"
     GEOM_FILE = ROOT / "geom" / f"autoresearch_{cfg}_geom.txt"
-    # Default = dominant musing; per-stage override: stage_cfg's dsconf_musing.
-    DSCONF = f"Run1Bak_{cfg}"
+    DSCONF = f"Run1Bak_{cfg}"  # one per config; stage_tuning cannot override it
     PNFS_STAGE = Path(f"/pnfs/mu2e/scratch/users/{USER}/autoresearch_grid/{cfg}/staged")
-
-
-def _stage_dsconf(stage: str) -> str:
-    """Per-stage dsconf: `dsconf_musing` key wins, else module DSCONF."""
-    musing = stage_cfg(stage, MODE).get("dsconf_musing")
-    return f"{musing}_{CONFIG}" if musing else DSCONF
 
 
 # No module-level STAGES literal: it shadowed stage_entries/ JSON's `events`,
@@ -132,26 +121,20 @@ def _stage_dsconf(stage: str) -> str:
 # add a second in-Python source for njobs/events/memory_mb/quorum.
 
 
-_STAGE_CFG_DEFAULT_MODE = object()
-
-
-def stage_cfg(stage: str, mode=_STAGE_CFG_DEFAULT_MODE) -> dict:
+def stage_cfg(stage: str, mode) -> dict:
     """Merged stage config: mode spec (run.jobs_per_stage, run.stage_tuning)
     OVERRIDES stage_entries/<stage>.json; nothing overrides the mode spec
     except AUTORESEARCH_ELEBEAM_NJOBS (long-standing env seam) LAST.
 
-    `mode` defaults to the process's MODE, read at CALL time. Do NOT make
-    None the default: a bare stage_cfg(stage) would return unmerged
-    njobs/events -- the metric-denominator error of
+    `mode` is REQUIRED, never defaulted: a bare stage_cfg(stage) would
+    return unmerged njobs/events -- the metric-denominator error of
     wiki/incidents/events-per-job-mid-flight-edit.md as a default argument.
-    Explicit mode=None still means "raw JSON, no mode merge" (pinned by
+    Explicit mode=None means "raw JSON, no mode merge" (pinned by
     tests/test_stages_retired.py).
 
     Reads the JSON RAW: desc_fmt's literal `{cfg}` must survive for
     _stage_desc's later .format(cfg=CONFIG).
     """
-    if mode is _STAGE_CFG_DEFAULT_MODE:
-        mode = MODE
     cfg = json.loads((px.STAGE_ENTRIES_DIR / f"{stage}.json").read_text())
     if mode:
         spec = _modes.SPECS[mode]
@@ -236,14 +219,12 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #     lower per-event flash_edep noise (only StepSim CPU + output grow).
 
 
-def _render_fcl_overrides(stage: str, entry_tmpl: dict | None = None) -> dict:
+def _render_fcl_overrides(stage: str, entry_tmpl: dict) -> dict:
     """Entry 'fcl_overrides' with the one per-call substitution applied:
     mustops_ce's MaxEventsToSkip (see the mustops_ce.json comment block
-    above). `entry_tmpl`: optional pre-loaded px.load_stage_entry() result.
+    above). `entry_tmpl` is a px.load_stage_entry() result.
     """
-    entry = entry_tmpl if entry_tmpl is not None else px.load_stage_entry(
-        stage, cfg=CONFIG, geom=GEOM_FILE.name)
-    overrides = dict(entry.get("fcl_overrides", {}))
+    overrides = dict(entry_tmpl.get("fcl_overrides", {}))
     if stage == "mustops_ce":
         overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"] = 8000
     return overrides
@@ -318,21 +299,10 @@ def _cnf_build_env(env: dict) -> dict:
             f"{TEMPLATES_ROOT}:{env.get('FHICL_FILE_PATH', '')}"}
 
 
-def run(cmd, *, env=None, check=True, capture=True):
-    """Run a shell command; print invocation; return CompletedProcess."""
-    if isinstance(cmd, list):
-        printable = shlex.join(cmd)
-    else:
-        printable = cmd
-    print(f"$ {printable}", flush=True)
-    return subprocess.run(
-        cmd,
-        shell=isinstance(cmd, str),
-        env=env,
-        check=check,
-        capture_output=capture,
-        text=True,
-    )
+def run(cmd: list) -> subprocess.CompletedProcess:
+    """Run a command; print the invocation; return the CompletedProcess."""
+    print(f"$ {shlex.join(cmd)}", flush=True)
+    return subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
 def sourced_env(extra="", *, with_muse=False) -> dict:
@@ -520,56 +490,55 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
     return cache
 
 
-def _input_stage_for(stage: str) -> str:
-    """Which stage's outputs feed `stage`. mubeam's muminusSelector makes
-    TargetStops mu--pure, so mustops_ce resamples the mubeam files directly.
-    One owner for both the grid and --local staging branches."""
-    return "mubeam"
+def _prev_stage_sources(stage: str) -> list[Path]:
+    """The previous stage's harvested output paths, refusing both the absent
+    and the EMPTY file. Empty used to be caught on the --local branch only;
+    the grid branch farmed [] and submitted a cluster with no inputs."""
+    prev = INPUT_STAGE
+    files = hv.read_outputs(STATE, prev)
+    if files is None:
+        raise SystemExit(
+            f"[{stage}] run 'list-outputs {prev}' first to populate "
+            f"{hv.outputs_path(STATE, prev).name}")
+    if not files:
+        raise SystemExit(
+            f"[{stage}] {hv.outputs_path(STATE, prev).name} is empty -- "
+            f"{prev} produced no output. Check its job log before rebuilding.")
+    return files
 
 
-def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> Path:
-    """/pnfs hard-link farm putting all input files in one dir (entry
-    input_data is basename-keyed; inloc assumes one dir). Hard links, NOT
-    symlinks: xrootd doors don't follow /pnfs symlinks, but hard links share
-    the dCache namespace entry. Returns the staged dir.
+# The one consuming stage's input. mubeam's muminusSelector makes TargetStops
+# mu--pure, so mustops_ce resamples the mubeam files directly.
+INPUT_STAGE = "mubeam"
+
+
+def input_farm(dest: Path, sources: list[Path]) -> tuple[Path, dict]:
+    """Put every input file in ONE dir (entry input_data is basename-keyed
+    and inloc assumes a single dir), and return (dir, {basename: 1}) -- one
+    input file per job.
+
+    Hard links, NOT symlinks: xrootd doors don't follow /pnfs symlinks, but
+    hard links share the dCache namespace entry. Falls back to a copy on
+    EXDEV, which only the local farm can hit (a local outstage tree and ROOT
+    can land on different filesystems); on /pnfs it never fires.
     """
-    staged_dir = PNFS_STAGE / stage
-    if staged_dir.exists():
-        for p in staged_dir.iterdir():
+    if dest.exists():
+        for p in dest.iterdir():
             p.unlink()
     else:
-        staged_dir.mkdir(parents=True, exist_ok=True)
-    for src in source_paths:
-        os.link(src, staged_dir / src.name)
-    print(f"[{stage}] hard-linked {len(source_paths)} files into {staged_dir}")
-    return staged_dir
-
-
-def local_input_farm(stage: str, sources: list[Path]) -> tuple[Path, dict]:
-    """Local analogue of stage_hardlink_farm at ROOT/<stage>/local_inputs.
-    Hard links, falling back to a copy on EXDEV (a local outstage tree and
-    ROOT can land on different filesystems). Returns
-    (farm_dir, {basename: 1}) -- one input file per job.
-    """
-    farm_dir = ROOT / stage / "local_inputs"
-    if farm_dir.exists():
-        for p in farm_dir.iterdir():
-            p.unlink()
-    else:
-        farm_dir.mkdir(parents=True, exist_ok=True)
+        dest.mkdir(parents=True, exist_ok=True)
     input_map = {}
     for src in sources:
         src = Path(src)
-        link = farm_dir / src.name
         try:
-            os.link(src, link)
+            os.link(src, dest / src.name)
         except OSError as e:
             if e.errno != errno.EXDEV:
                 raise
-            shutil.copy2(src, link)
+            shutil.copy2(src, dest / src.name)
         input_map[src.name] = 1
-    print(f"[{stage}] local-farmed {len(input_map)} file(s) into {farm_dir}")
-    return farm_dir, input_map
+    print(f"[{dest.name}] farmed {len(input_map)} file(s) into {dest}")
+    return dest, input_map
 
 
 TOKEN_REFRESH_AGE_S = 3600  # refresh the shared bearer token when >1h old
@@ -631,9 +600,7 @@ def _render_and_build_cnf(stage, cfg, entry_tmpl, *, desc, dsconf, stage_dir,
     to px.run_runlocal.
     """
     tarball = write_code_tarball(
-        stage_dir,
-        base_tarball=Path(cfg["code_tarball"]) if "code_tarball" in cfg else None,
-        extra_files=_stage_extra_files(entry_tmpl))
+        stage_dir, extra_files=_stage_extra_files(entry_tmpl))
     inloc = (f"dir:{staged_inputs[0]}" if staged_inputs
             else entry_tmpl.get("inloc"))
     entry = px.render_entry(
@@ -662,7 +629,7 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
     sha, and the jobsub id jobwait needs.
     """
     cfg = stage_cfg(stage, MODE)
-    desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
+    desc, dsconf = _stage_desc(stage), DSCONF
     stage_dir = ROOT / stage
     stage_dir.mkdir(parents=True, exist_ok=True)
     # cfg.get("events") is the ONE source for events; a stage may carry no
@@ -691,7 +658,7 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
 
 # Stages the local executor can run. The Cat-resampler stages render with
 # staged_inputs=None; mustops_ce stages the prior stage's outputs via
-# local_input_farm. A stage absent here is refused loudly rather than handed
+# input_farm. A stage absent here is refused loudly rather than handed
 # an inputless entry prodtools would accept (a job silently reading nothing).
 LOCAL_SUPPORTED_STAGES = ("mubeam", "elebeam_flash", "mustops_ce")
 
@@ -839,7 +806,7 @@ def cmd_submit(args):
         pool = (getattr(args, "local_pool", None)
                or _scale_default("AUTORESEARCH_LOCAL_POOL", DEFAULT_LOCAL_POOL))
         cfg = stage_cfg(stage, MODE)
-        desc, dsconf = _stage_desc(stage), _stage_dsconf(stage)
+        desc, dsconf = _stage_desc(stage), DSCONF
         stage_dir = ROOT / stage
         stage_dir.mkdir(parents=True, exist_ok=True)
         env = sourced_env()
@@ -848,30 +815,17 @@ def cmd_submit(args):
 
         staged_inputs = None
         if stage == "mustops_ce":
-            # Same previous-stage rule as grid staging (_input_stage_for).
+            # Same previous-stage rule as grid staging (INPUT_STAGE).
             # The prior stage must have run LOCALLY, or <prev>_outputs.txt
             # holds /pnfs paths.
-            prev_stage = _input_stage_for(stage)
-            if not local_marker(prev_stage).exists():
+            if not local_marker(INPUT_STAGE).exists():
                 raise SystemExit(
-                    f"[{stage}] consumes {prev_stage}, which has no local "
-                    f"run ({local_marker(prev_stage)} missing). Run "
-                    f"'--config {CONFIG} submit {prev_stage} --local' and "
-                    f"'list-outputs {prev_stage}' first.")
-            prev_outputs = STATE / f"{prev_stage}_outputs.txt"
-            if not prev_outputs.exists():
-                raise SystemExit(
-                    f"Run 'list-outputs {prev_stage}' first to populate "
-                    f"{prev_outputs.name}")
-            sources = [Path(p) for p in prev_outputs.read_text().splitlines()
-                      if p.strip()]
-            if not sources:
-                raise SystemExit(
-                    f"[{stage}] {prev_outputs.name} is empty -- the local "
-                    f"{prev_stage} run produced no output. Check its job "
-                    f"log before rebuilding.")
-            farm_dir, input_map = local_input_farm(stage, sources)
-            staged_inputs = (farm_dir, input_map)
+                    f"[{stage}] consumes {INPUT_STAGE}, which has no local "
+                    f"run ({local_marker(INPUT_STAGE)} missing). Run "
+                    f"'--config {CONFIG} submit {INPUT_STAGE} --local' and "
+                    f"'list-outputs {INPUT_STAGE}' first.")
+            staged_inputs = input_farm(ROOT / stage / "local_inputs",
+                                       _prev_stage_sources(stage))
         # Same render/build sequence as grid; only njobs/events differ (LOCAL
         # scale, not stage_cfg). `run` is a fixed cnf run-number.
         entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
@@ -917,16 +871,11 @@ def cmd_submit(args):
     if args.stage == "mustops_ce":
         # input_data requires basenames: hard-link the previous stage's
         # outputs into a /pnfs stage dir xrootd can resolve.
-        prev_stage = _input_stage_for(args.stage)
-        prev = STATE / f"{prev_stage}_outputs.txt"
-        if not prev.exists():
-            raise SystemExit(f"Run 'list-outputs {prev_stage}' first to populate {prev.name}")
-        sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
-        staged_dir = stage_hardlink_farm(args.stage, sources)
         # One input file per job. A >1 merge factor is unvalidated under
         # prodtools, and mu2ejobdef yielded ZERO jobs when it exceeded the
         # input count -- no stage in any mode chain merges today.
-        staged_inputs = (staged_dir, {p.name: 1 for p in sources})
+        staged_inputs = input_farm(PNFS_STAGE / args.stage,
+                                   _prev_stage_sources(args.stage))
     submit_stage_prodtools(args.stage, env, staged_inputs=staged_inputs,
                            dry_run=args.dry_run)
 
@@ -941,7 +890,7 @@ def cmd_poll(args):
     jid_file = STATE / f"{args.stage}_jobsub_id.txt"
     jobid = (jid_file.read_text().strip() if jid_file.exists()
              else (STATE / f"{args.stage}_cluster.txt").read_text().strip())
-    cnf = px.cnf_path(stage_dir, _stage_desc(args.stage), _stage_dsconf(args.stage))
+    cnf = px.cnf_path(stage_dir, _stage_desc(args.stage), DSCONF)
     px.run_jobwait(stage_dir, cnf, jobid, cfg["njobs"],
                    px.wait_json_path(STATE, args.stage), sourced_env())
     # Acceptance is autoresearch policy: a partial cluster proceeds (harvest
@@ -962,10 +911,10 @@ def cmd_poll(args):
 def cmd_list_outputs(args):
     _check_stage_config_sha(args.stage)
     # Idempotency: skip the re-glob if every listed path still resolves.
-    outputs_file = STATE / f"{args.stage}_outputs.txt"
-    if outputs_file.exists() and not getattr(args, "force", False):
-        listed = [p for p in outputs_file.read_text().splitlines() if p.strip()]
-        if listed and all(Path(p).exists() for p in listed):
+    outputs_file = hv.outputs_path(STATE, args.stage)
+    if not getattr(args, "force", False):
+        listed = hv.read_outputs(STATE, args.stage) or []
+        if listed and all(p.exists() for p in listed):
             print(f"[{args.stage}] outputs already listed ({len(listed)} files); "
                   f"skip (use --force to override)")
             return
@@ -1037,7 +986,7 @@ def _extract_trk_edep_per_pot(pileup_files, env):
     """Mean tracker StrawGasStep ionizing Edep (MeV) per event. Gallery needs
     the muse env, so shell out to a python subprocess inheriting `env`."""
     if not pileup_files:
-        return None, None, None, None
+        return None, None, None, None, None
     proc = subprocess.run(
         ["python3", "-c", _TRK_EDEP_EXTRACT_SCRIPT],
         input=json.dumps({"files": [str(p) for p in pileup_files],

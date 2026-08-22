@@ -11,11 +11,10 @@ PreflightStatus = Literal["pending", "pass", "fail_managed", "fail_init", "ambig
 
 
 class StageStatus(TypedDict, total=False):
-    cluster_id: Optional[str]
-    n_done: int
-    n_failed: int
+    # Only `status` is read (route_after_stage). cluster_id / n_done /
+    # n_failed / last_poll_ts were carried here for a checkpointer that no
+    # longer exists; pipeline.py already prints all four to the child log.
     status: Literal["pending", "in_flight", "done", "failed"]
-    last_poll_ts: Optional[float]
 
 
 class BOIterationState(TypedDict, total=False):
@@ -28,7 +27,6 @@ class BOIterationState(TypedDict, total=False):
     alpha: float
 
     x_point: List[float]
-    geom_path: Optional[str]
 
     preflight: PreflightStatus
 
