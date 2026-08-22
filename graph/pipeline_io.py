@@ -17,10 +17,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
-# read_stage_status reads njobs via pipeline.stage_cfg() -- the same function
-# pipeline.py's submit/poll/list-outputs use, not a copy that could drift
-# (wiki/incidents/events-per-job-mid-flight-edit.md). No import cycle.
-import pipeline as _pipeline  # noqa: E402
+# Imported for its IMPORT-TIME side effects only -- there is no `_pipeline.`
+# call left in this module, and the verbs below shell PIPELINE_DRIVER as a
+# subprocess. Keeping it makes the graph PARENT fail loudly at startup on an
+# unknown mode (pipeline.py:97 MUSE_BASE_TARBALL is a KeyError, see
+# wiki/incidents/foilsflash-tarball-mode-key-omission.md) instead of at the
+# first submit, hours later, inside a child.
+import pipeline as _pipeline  # noqa: E402,F401
 import prodtools_exec as _prodtools_exec  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from runtime import (  # noqa: E402

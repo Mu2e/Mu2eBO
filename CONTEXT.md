@@ -18,7 +18,7 @@ The pure-data half of a Mode (musing, grid tarball, stage chain, stage targets, 
 _Avoid_: mode config, mode table, per-mode dict
 
 **JsonMode**:
-The behavior half of a Mode (render geometry, recover x at evaluate time, read and append leaderboard rows), one driver object per ModeSpec (`core/bo_driver.py`). There is exactly one class — the `BOMode` ABC and its five Python subclasses were retired 2026-08-08.
+The behavior half of a Mode (render geometry, recover x at evaluate time, read and append leaderboard rows), one driver object per ModeSpec (`core/bo_driver.py`). There is exactly one class — the five Python subclasses were archived 2026-08-08 (`4bc54cc`) and the `BOMode` ABC itself collapsed into `JsonMode` 2026-08-19 (`55168e7`).
 
 **Eval**:
 One geometry point evaluated end-to-end; identified by its config name, which keys the state dir, grid dirs, and leaderboard row.

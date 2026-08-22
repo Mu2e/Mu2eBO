@@ -12,8 +12,10 @@ default: setup.sh (the one script most likely to grow a hardcoded fallback
 path), README.md and requirements.txt (both hand-edited to de-personalize
 them in the same change that added this guard, so they are the files most
 likely to regress), and CONTEXT.md / CLAUDE.md (agent-facing instructions,
-same risk as README.md). tools/capture_golden_geom.py is the one script
-under tools/ that isn't covered by a SCANNED directory.
+same risk as README.md). tools/ is scanned whole: since
+tools/capture_golden_geom.py was deleted it holds only run_local.sh and
+run_grid.sh, and those two ARE the launchers an operator edits -- each
+already carries a line-level pragma for the published artifact default.
 
 wiki/ and docs/ are deliberately NOT scanned: they record what actually
 happened, including who ran it, and rewriting that to hide a username would
@@ -34,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCANNED = (
-    "core", "graph", "tests", "mode_specs",
+    "core", "graph", "tests", "tools", "mode_specs",
     "setup.sh", "README.md", "requirements.txt", "CONTEXT.md", "CLAUDE.md",
 )
 
