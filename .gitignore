@@ -1,7 +1,6 @@
 # =============================================================================
-# Runtime state (LangGraph, Python, build, etc.)
+# Runtime state (Python, build, etc.)
 # =============================================================================
-graph_data/
 .venv*
 .claude/
 build/
@@ -10,18 +9,17 @@ __pycache__/
 .env
 
 # =============================================================================
-# Per-iteration BO workspaces (rendered proposals, preflight scratch)
-# Consolidated 2026-07-17 into bo_work/{proposals,preflight}/<mode>/.
+# Legacy in-repo BO work tree. Nothing can write this any more -- BO_WORK is
+# DATA_ROOT/autoresearch_bo_work and core/paths.py raises rather than falling
+# back to the checkout -- but ~741 MB of pre-2026-07 proposals and preflight
+# scratch still sit here. The rule stays only so `git status` is not drowned
+# by them; archive or remove the directory and then delete this rule.
 # =============================================================================
 bo_work/
-bo_*_preflight/
-bo_*_proposals/
 
 # =============================================================================
 # Driver runtime logs and scratch
 # =============================================================================
-loop_logs/
-gdml_dumps/
 *.log
 *.root
 *.art
@@ -34,13 +32,6 @@ docs/slides/*.out
 docs/slides/*.snm
 docs/slides/*.toc
 docs/slides/*.vrb
-# =============================================================================
-slides/*.aux
-slides/*.nav
-slides/*.out
-slides/*.snm
-slides/*.toc
-slides/*.vrb
 
 # =============================================================================
 # Editor / OS cruft

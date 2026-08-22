@@ -194,6 +194,8 @@ class TestSchemaFields(unittest.TestCase):
         # tail) were archived 2026-08-08; every surviving mode shares the
         # foilsflash-family "flash_edep" tail, so there is no longer a
         # second shape to contrast against.
+        # This full-tuple pin subsumes the positional one CALO_COL used to
+        # need: core/leaderboard.py reads metric_cols[1] directly.
         self.assertEqual(modes.SPECS["foilsflash"].metric_cols,
                          ("sob", "flash_edep", "alpha", "obj"))
 
@@ -202,12 +204,6 @@ class TestSchemaFields(unittest.TestCase):
         for name, mode in bo.MODES.items():
             self.assertEqual(mode.KNOB_NAMES, modes.SPECS[name].knob_names)
             self.assertEqual(mode.KNOB_FMTS, modes.SPECS[name].knob_fmts)
-
-    def test_calo_col_derives_from_metric_cols(self):
-        # CALO_COL (the old mode-class property) was retired with format_row/
-        # load_history_row 2026-08-08 -- core/leaderboard.py's Leaderboard
-        # reads metric_cols[1] directly, so that's the fact worth pinning.
-        self.assertEqual(modes.SPECS["foilsflash"].metric_cols[1], "flash_edep")
 
     def test_leaderboard_io_rejects_non4_metric_tail(self):
         # format_row's own 4-column-tail guard moved to

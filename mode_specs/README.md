@@ -23,12 +23,11 @@ tests need the real paths). Cloning one and missing the leaderboard line — it
 looks plausible — would append a new line's evals into a live TSV under an
 identical column schema, and the owning mode's `load_history()` would then
 parse them as its own. The loader rejects that now (leaderboard files must be
-unique across JSON specs and against the six Python modes), but the template
-is what you should copy.
+unique across specs — `core/mode_json.py` rejects a duplicate basename at
+load), but the template is what you should copy.
 
-A file whose name collides with a Python-defined mode (foils, foilsf, foilsflash,
-foilsg, prodtarget, prodtarget6d) is a hard error, not an override. So is a
-leaderboard file already claimed by another mode.
+A `"name"` that does not equal the file stem is a hard error, and so is a
+`leaderboard.file` basename another spec already claims.
 
 ## Gotchas
 
@@ -44,9 +43,6 @@ leaderboard file already claimed by another mode.
 - **A knob may not be named after a leaderboard column** (`sob`, your second
   objective, `alpha`, `obj`, `config`) — the TSV header would carry the column
   twice and history would read the metric back as a coordinate.
-- **`pot_only` is not usable from a JSON mode** unless you also declare
-  prodtarget's `grid_tarball`: `core/pipeline.py` hardcodes that stage's
-  `code_tarball` and it wins over the spec's.
 - **`musing` and `grid_tarball` are written as `${ARTIFACT}/<path>`.** The
   token expands against this operator's artifact root —
   `$AUTORESEARCH_ARTIFACT_ROOT`, or `/exp/mu2e/app/users/$USER` by default —
@@ -60,19 +56,10 @@ This directory is deliberately NOT named `modes/`, even though that would
 read more naturally next to `core/modes.py`. A top-level `modes/` directory
 is an implicit Python namespace package: from the repo root, `import modes`
 would resolve to that empty directory instead of failing loudly, and
-anything that later did `modes.SPECS` (e.g. `graph/config.py`, which puts
+anything that later did `modes.SPECS` (e.g. `core/runtime.py`, which puts
 `core/` on `sys.path` before importing `modes`) would get a confusing
 `AttributeError` far from the real cause. Before this directory existed,
 `import modes` was a loud `ModuleNotFoundError` — much easier to diagnose
 than a silently-empty package. If you're tempted to rename this back to
 `modes/` for tidiness, don't: it re-opens that collision with
 `core/modes.py`.
-
-Concretely, this bit in production: a top-level `modes/` directory makes a
-bare `import modes` from the repo root resolve as an implicit namespace
-package instead of finding `core/modes.py` — silently succeeding with an
-empty module (no `SPECS`) instead of raising `ModuleNotFoundError`. That
-silent-wrong-answer failure mode is strictly worse than the loud import
-error it replaces, because it surfaces later, elsewhere, as a confusing
-`AttributeError: module 'modes' has no attribute 'SPECS'` rather than at
-the actual point of the bad import.

@@ -21,31 +21,22 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
-import modes as _modes  # noqa: E402
 from bo_driver import MODES  # noqa: E402
 from mode_json import load_mode_file  # noqa: E402
 
 
-def has_python_renderer(mode: str) -> bool:
-    """May this mode's golden be regenerated from live code?
-
-    True only while a *Python* renderer still produces it. This is a REGISTRY
-    fact -- `ModeSpec.geom` is non-None exactly for JSON-defined modes
-    (core/modes.py) -- and must never be an attribute check:
-    `hasattr(m, "_geom_text")` is True for every mode alive, because JsonMode
-    implements `_geom_text` from the JSON geom template. The attribute form silently stopped skipping JSON modes
-    when foilsflash went JSON-only (2026-07-26), which would have let
-    tools/capture_golden_geom.py rebuild those goldens from the very spec
-    they exist to verify. Shared with that tool; pinned below by
-    test_regeneration_guard_uses_the_registry_not_an_attribute.
-    """
-    spec = _modes.SPECS.get(mode)
-    return MODES.get(mode) is not None and spec is not None and spec.geom is None
+# There are no Python renderers left, and none can return: ModeSpec.geom is
+# non-Optional and core/mode_json.py builds it unconditionally from a
+# REQUIRED `geom` key. The goldens below are therefore the sole oracle --
+# they are never regenerated, which is why tools/capture_golden_geom.py
+# (whose entire job was to decide when regeneration was safe) went away with
+# this comment's predecessor.
 
 FIXTURES = Path(__file__).parent / "fixtures" / "modes"
 # Frozen captures of the Python renderers, taken 2026-07-26 while every Python
-# mode still existed. Re-capture with tools/capture_golden_geom.py if a
-# surviving Python renderer legitimately changes.
+# mode still existed and verified equal BEFORE those modes were deleted --
+# which is what makes them trustworthy. Never regenerate them: rebuilding a
+# golden from the JSON spec turns parity into a tautology.
 GOLDEN = Path(__file__).parent / "fixtures" / "golden_geom"
 
 # Captures the FHiCL type keyword (group 1), not just the key/value (groups
@@ -134,46 +125,18 @@ class ParityMixin:
             for key in want:
                 self.assertEqual(want[key], got[key], f"{key} differs at x={x}")
 
-    def test_golden_still_matches_the_live_python_mode(self):
-        """A frozen oracle can rot: if the Python mode still exists and its
-        renderer changes, the golden must be re-captured, not silently left
-        behind. Skips once the Python mode is retired -- at which point the
-        golden IS the definition.
-
-        The skip MUST key on the registry (`capture_golden_geom
-        .has_python_renderer`), not on `hasattr(mode, "_geom_text")`: that
-        attribute is present on every mode alive, so the old form stopped
-        skipping when foilsflash went JSON-only (2026-07-26) and this test
-        quietly became a golden-vs-JSON comparison while still reporting
-        "STALE vs the live Python renderer -- re-capture it" on failure --
-        advice that would have rebuilt the golden from the spec it verifies.
-        """
-        if not has_python_renderer(self.mode_name):
-            self.skipTest(f"{self.mode_name} is JSON-defined or retired; the "
-                          "golden is the sole oracle and must not be recaptured")
-        python_mode = MODES[self.mode_name]
-        for i, x in enumerate(SAMPLE_X[self.mode_name]):
-            want = parse_assignments((GOLDEN / f"{self.mode_name}_{i}.txt").read_text())
-            live = parse_assignments(python_mode._geom_text(x))
-            self.assertEqual(want, live,
-                             f"golden {self.mode_name}_{i}.txt is STALE vs the "
-                             f"live Python renderer at x={x} -- re-capture it")
-
     def test_production_spec_still_matches_the_golden(self):
         """The PRODUCTION spec (mode_specs/<mode>.json, reached via MODES) must
         render the golden too -- not just the test fixture that
         test_same_geometry_as_python_renderer checks.
 
-        This ran only by accident until 2026-08-02: the broken hasattr guard
-        above let JSON modes fall through, so the shipped spec was being
-        compared under the name of the staleness test. The coverage is real
-        and worth keeping -- editing mode_specs/<mode>.json's geometry away
-        from the proven-equal baseline is exactly the mistake that would
-        otherwise reach the grid -- so it is now its own honest test.
+        This ran only by accident until 2026-08-02: a broken hasattr guard
+        let JSON modes fall through, so the shipped spec was being compared
+        under the name of a staleness test. The coverage is real and worth
+        keeping -- editing mode_specs/<mode>.json's geometry away from the
+        proven-equal baseline is exactly the mistake that would otherwise
+        reach the grid -- so it is now its own honest test.
         """
-        if has_python_renderer(self.mode_name):
-            self.skipTest(f"{self.mode_name} is Python-defined; it has no "
-                          "mode_specs/*.json to check")
         shipped = MODES[self.mode_name]
         for i, x in enumerate(SAMPLE_X[self.mode_name]):
             want = parse_assignments((GOLDEN / f"{self.mode_name}_{i}.txt").read_text())
@@ -183,18 +146,6 @@ class ParityMixin:
                              f"differently from golden {self.mode_name}_{i}.txt "
                              f"at x={x} -- the shipped spec drifted off the "
                              f"proven-equal baseline; do NOT re-capture")
-
-    def test_regeneration_guard_uses_the_registry_not_an_attribute(self):
-        """Pins the guard whose silent failure this whole file depends on.
-
-        `hasattr(m, "_geom_text")` cannot discriminate -- assert that it is
-        True even for a JSON mode -- so the guard must read ModeSpec.geom.
-        """
-        self.assertTrue(hasattr(MODES[self.mode_name], "_geom_text"),
-                        "every live mode has _geom_text; an attribute check "
-                        "can never mean 'has a Python renderer'")
-        is_json = _modes.SPECS[self.mode_name].geom is not None
-        self.assertEqual(has_python_renderer(self.mode_name), not is_json)
 
     def test_the_49_numbers_are_all_compared(self):
         """Guards the guard: a vector really does carry 49 entries."""

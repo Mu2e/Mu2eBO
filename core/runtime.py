@@ -23,7 +23,6 @@ SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 
 BO_DRIVER = REPO_ROOT / "core" / "bo_driver.py"
 PIPELINE_DRIVER = REPO_ROOT / "core" / "pipeline.py"
-BOTORCH_PREDICT = REPO_ROOT / "core" / "botorch_predict.py"
 # The interpreter that runs botorch_predict.py. Defaults to THIS one, so the
 # picker's torch is the torch everything else was verified against -- when
 # the launcher switched to the published cvmfs env, a repo-relative `.venv`

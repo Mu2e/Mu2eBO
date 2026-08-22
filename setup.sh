@@ -11,10 +11,11 @@
 #   ./setup.sh --venv [P]    link P (default: the site venv) as .venv
 #   ./setup.sh --venv -r     remove the .venv link
 #
-# --venv defaults to a named area and --backing does not, deliberately.
-# Borrowing a venv gives you a library stack that requirements.txt already
-# pins; borrowing a BACKING silently changes your physics results, so that
-# one stays explicit.
+# --venv defaults to a named area and --backing does not, deliberately: a
+# borrowed venv is a reproducible library stack (requirements.lock is the
+# hashed resolution; requirements.txt itself is mostly `>=` ranges), and it is
+# only ever an override on the published cvmfs env. Borrowing a BACKING
+# silently changes your physics results, so that one stays explicit.
 #
 # Deliberately does NOT activate the venv and does NOT touch PYTHONPATH:
 # the test suite depends on `PYTHONPATH=` being empty, and this script has
@@ -62,8 +63,9 @@ Roots resolve from core/paths.py:
   ARTIFACT_ROOT  $AUTORESEARCH_ARTIFACT_ROOT  or /exp/mu2e/app/users/$USER
   BACKING        the `backing` symlink, else $AUTORESEARCH_BACKING
 
---venv has a default and --backing does not: a borrowed venv gives you a
-stack requirements.txt already pins, a borrowed backing changes your results.
+--venv has a default and --backing does not: a borrowed venv is a
+reproducible stack (see requirements.lock) and only an override on the
+published cvmfs env; a borrowed backing changes your physics results.
 EOF
 }
 

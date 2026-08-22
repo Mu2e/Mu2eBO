@@ -1,6 +1,7 @@
 #!/bin/bash
-# One evaluation, no grid. The README section "Running without the grid",
-# executable. Prints the resolved roots before it runs anything.
+# One evaluation, no grid. The README's "Run one evaluation" and "Local
+# scale" sections, executable. Prints the resolved roots before it runs
+# anything.
 #
 #   tools/run_local.sh [config-name] [mode]
 #
@@ -23,7 +24,8 @@ export AUTORESEARCH_BACKING="${AUTORESEARCH_BACKING:-/exp/mu2e/app/users/oksuzia
 
 # 8 x 12500 = 1e5 events per stage: enough for a nonzero flash objective, so a
 # row actually lands. ~15 min of stages on 8 cores, ~20 min end to end. Drop to
-# 1 x 200 for a 30 s/stage plumbing check that deliberately lands no row.
+# AUTORESEARCH_LOCAL_EVENTS=200 for a ~30 s/stage plumbing check that
+# deliberately lands no row.
 export AUTORESEARCH_LOCAL=1
 export AUTORESEARCH_LOCAL_NJOBS="${AUTORESEARCH_LOCAL_NJOBS:-8}"
 export AUTORESEARCH_LOCAL_EVENTS="${AUTORESEARCH_LOCAL_EVENTS:-12500}"

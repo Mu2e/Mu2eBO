@@ -11,9 +11,12 @@ Each optimization line is a **mode** — knobs, bounds, geometry rendering, grid
 stages, and objectives in one JSON spec under `mode_specs/`:
 
 ```
-foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw   # BO lines
-ipa625 ipafix ipaovr nominal                                            # fixed A/B reference arms
+foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw
 ```
+
+`mode_specs/archive/` holds retired specs (`ipa625 ipafix ipaovr nominal`,
+the fixed A/B reference arms) as a record only — the loader globs the
+directory flat, so they are not selectable with `--mode`.
 
 ## Setup
 

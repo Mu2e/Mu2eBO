@@ -83,7 +83,7 @@ class JsonMode:
         return _modes.SPECS[self.name].geom.render(x)
 
     # --- x recovery at evaluate time (the seam cmd_evaluate calls) ---
-    def x_for_evaluate(self, config_name: str, geom_text: str):
+    def x_for_evaluate(self, config_name: str):
         """Recover x from the pending TSV (written at propose, cleared only
         after this call). An absent config is a HARD refusal: a guessed x
         would train the GP on a point that was never evaluated.
@@ -363,10 +363,9 @@ def cmd_evaluate(args):
     if not geom.exists():
         print(f"Proposal geom not found: {geom}", file=sys.stderr)
         return 1
-    x = mode.x_for_evaluate(args.config_name, geom.read_text())
-    if x is None:
-        print(f"Failed to parse {mode.name} params from {geom}", file=sys.stderr)
-        return 1
+    # Returns a list or raises; there has been no parse-failure path since
+    # the geometry round-trip went away with the Python modes.
+    x = mode.x_for_evaluate(args.config_name)
     p = Point(cfg=args.config_name, x=x, sob=float(sob), calo=float(calo))
     # Clear pending BEFORE appending: a crash in between leaves "missing
     # leaderboard row" (loud, re-runnable) rather than a silent phantom

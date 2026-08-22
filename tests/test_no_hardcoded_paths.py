@@ -36,7 +36,6 @@ ROOT = Path(__file__).resolve().parent.parent
 SCANNED = (
     "core", "graph", "tests", "mode_specs",
     "setup.sh", "README.md", "requirements.txt", "CONTEXT.md", "CLAUDE.md",
-    "tools/capture_golden_geom.py",
 )
 
 # `$` and `<` are excluded so `$USER` and `<them>` placeholders in docs and

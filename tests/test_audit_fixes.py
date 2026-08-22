@@ -3,13 +3,13 @@
 Each TestClass covers one of the fixes (Fix 1's class was deleted 2026-07-17
 with the retired cl_min picker it tested — ADR-0001):
 
-  TestModeArgChoices           — graph/closed_loop.py:514  (fail-fast on --mode typo)
-  TestStageShaCheckCallsites   — pipeline.py:583,589        (poll + list-outputs warn)
-  TestRemovePendingBeforeAppend — bo_driver.py:891 (atomic ordering)
-  TestProposeOneBuildableRetry — graph/pipeline_io.py:88   (N_crit retry in BO path)
+  TestModeArgChoices            — graph/closed_loop.py (fail-fast on --mode typo)
+  TestStageShaCheckCallsites    — core/pipeline.py (poll + list-outputs warn)
+  TestRemovePendingBeforeAppend — core/bo_driver.py (atomic ordering)
+  TestProposeOneBuildableRetry  — graph/pipeline_io.py (N_crit retry in BO path)
 
 Run from project root:
-  .venv/bin/python -m unittest tests.test_audit_fixes -v
+  PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .
 """
 import argparse
 import io
@@ -46,22 +46,10 @@ class TestModeArgChoices(unittest.TestCase):
         m = re.search(r'choices\s*=\s*sorted\(\s*_modes\.SPECS\s*\)', src)
         self.assertIsNotNone(m, "--mode choices guard missing or no longer registry-derived")
 
-    def test_argparse_rejects_typo(self):
-        # End-to-end: argparse fail-fast on unknown choice.
-        ap = argparse.ArgumentParser()
-        ap.add_argument("--mode", default="foils",
-                        choices=["foils", "foilsf", "foilsflash"])
-        with self.assertRaises(SystemExit):
-            with mock.patch.object(sys, "stderr", io.StringIO()):
-                ap.parse_args(["--mode", "foills"])  # typo
-
-    def test_argparse_accepts_valid_modes(self):
-        ap = argparse.ArgumentParser()
-        ap.add_argument("--mode", default="foils",
-                        choices=["foils", "foilsf", "foilsflash"])
-        for m in ("foils", "foilsf", "foilsflash"):
-            ns = ap.parse_args(["--mode", m])
-            self.assertEqual(ns.mode, m)
+    # test_argparse_rejects_typo / test_argparse_accepts_valid_modes removed
+    # 2026-08-22: both built a LOCAL ArgumentParser and asserted stdlib
+    # behaviour over a hardcoded choices list ("foils", "foilsf") whose modes
+    # no longer exist. No repo code was imported by either.
 
 
 # --- Fix 3: SHA-check fires on poll + list-outputs ---------------------------
