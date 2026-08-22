@@ -18,10 +18,18 @@
 #   ln -s /exp/mu2e/data/users/$USER/autoresearch_venvs/.venv .venv
 #
 # This file is the human-readable INTENT: most of the lines below are `>=`
-# ranges, so it does not pin a stack. `requirements.lock` is the pinned,
-# hashed resolution of it -- use that to reproduce a known-green venv, or to
-# hand a publisher something buildable. Rebuild the lock (recipe in its
-# header) whenever a pin here moves, and only from a green venv.
+# ranges, so it does NOT pin a stack. That is deliberate now. The pinned,
+# reproducible thing is the /cvmfs prefix `ana 2.8.0`, which is immutable and
+# versioned by construction -- a lockfile cannot improve on that, and this
+# venv is only ever an override on it.
+#
+# There WAS a requirements.lock (77 packages, 1744 hashes). It was retired
+# 2026-08-22: both jobs its header claimed are done. The pyenv publisher it
+# was written for shipped `ana 2.8.0`, and a second operator now sources
+# activate.sh and builds nothing. Keeping it meant hand-maintaining a 155 KB
+# generated file that had already drifted from this one.
+#   Need the exact stack the torch-2.13 arm of the budget_sob equivalence
+#   check ran against?   git show 99935cd:requirements.lock
 #
 langgraph>=0.2.50
 # graph/run.py + graph/closed_loop.py load_dotenv() the load-bearing .env
