@@ -39,10 +39,14 @@ server = make_server(
         "GP surrogate over the autoresearch BO leaderboards (Mu2e "
         "geometry optimization). Problems are the registered BO modes; "
         "axis 0 is sob (maximize), axis 1 is -log10 of the mode's second "
-        "objective (maximize = minimize the raw metric). suggest() runs "
-        "the production pickers; budget_sob's engine name is "
-        "constrained_max. Nothing here submits jobs or writes to "
-        "leaderboards -- pure read + compute."
+        "objective (maximize = minimize the raw metric). suggest() calls "
+        "the engine's stateless ask() directly with the seed you pass "
+        "verbatim -- same pickers and GP as the closed-loop driver, but "
+        "NOT guaranteed pick-identical to a closed-loop round (the "
+        "driver derives its seed as 42^round_idx and reads "
+        "AUTORESEARCH_HYBRID_HV_FRAC from the environment). budget_sob's "
+        "engine name is constrained_max. Nothing here submits jobs or "
+        "writes to leaderboards -- pure read + compute."
     ),
 )
 
