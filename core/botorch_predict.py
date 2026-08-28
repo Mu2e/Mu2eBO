@@ -32,6 +32,10 @@ DEVICE = torch.device("cpu")
 # tests/test_modes.py.
 import modes as _modes  # noqa: E402
 
+from paths import SURROKIT_ROOT  # noqa: E402
+sys.path.insert(0, str(SURROKIT_ROOT))
+import surrokit  # noqa: E402
+
 
 def _load_history_tensor(mode: str, sob_only: bool = False):
     """Return (X, Y, bounds, int_dims) tensors over the mode's search space.
@@ -404,47 +408,56 @@ def compute_explore_picks(mode: str,
                           picker: str = "qnehvi",
                           x_pending: list | None = None,
                           ) -> list[tuple]:
-    """Explore-pick engine: picker = qnehvi | qlnei | budget_sob | hybrid
-    (see the picker functions).
+    """Explore-pick engine: picker = qnehvi | qlnei | budget_sob | hybrid.
 
-    x_pending: optional list of x-lists for evals IN FLIGHT — acquisition
-    pickers fantasize over them (X_pending); budget_sob spreads away from
-    them; cold-start Sobol ignores them.
+    Thin glue over surrokit.ask: this side owns leaderboard loading, the
+    -log10 transform, env-tunable constants, and the 42^round_idx seed
+    convention; the engine owns the GP and the pickers.
     """
     X, Y, bounds, int_dims = _load_history_tensor(mode, sob_only=(picker == "qlnei"))
-    pend = None
     if x_pending:
-        pend = torch.tensor([[float(v) for v in row] for row in x_pending],
-                            dtype=X.dtype)
-        if pend.shape[-1] != bounds.shape[-1]:
+        pend_width = len(x_pending[0])
+        if pend_width != bounds.shape[-1]:
             raise SystemExit(
-                f"[botorch_predict] x_pending dim {pend.shape[-1]} != "
+                f"[botorch_predict] x_pending dim {pend_width} != "
                 f"search-space dim {bounds.shape[-1]} for mode={mode}")
-    # <2 points: fit_gpytorch_mll crashes or fits a degenerate posterior —
-    # fall back to Sobol.
     if X.shape[0] < 2:
         print(f"[botorch_predict] mode={mode} cold-start: history={X.shape[0]} rows "
               f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)
-        cands = _sobol_cold_start(bounds, q=q, round_idx=round_idx)
-        return _emit_picks(cands, int_dims)
-    model = _fit_gp(X, Y, bounds,
-                    obs_noise=list(_modes.SPECS[mode].obs_noise))
-    if picker == "qlnei":
-        cands = _qlnei_picks(model, X, bounds, q=q, round_idx=round_idx,
-                             x_pending=pend)
-    elif picker == "budget_sob":
-        cands = _budget_sob_picks(model, bounds, q=q, round_idx=round_idx,
-                                  x_pending=pend)
-    elif picker == "hybrid":
-        cands = _hybrid_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
-                              x_pending=pend)
-    else:
-        cands = _qnehvi_picks(model, X, Y, bounds, q=q, round_idx=round_idx,
-                              x_pending=pend)
-    return _emit_picks(cands, int_dims)
+    spec = _modes.SPECS[mode]
+    constraint = None
+    sk_picker = picker
+    if picker == "budget_sob":
+        sk_picker = "constrained_max"
+        constraint = surrokit.Constraint(
+            axis=1, min=-math.log10(DEP_FLASH_PER_POT),
+            k_sigma=BUDGET_SOB_K_SIGMA)
+    problem = surrokit.Problem(
+        bounds_lo=tuple(spec.bounds_lo), bounds_hi=tuple(spec.bounds_hi),
+        int_dims=tuple(int_dims), noise=tuple(spec.obs_noise),
+        constraint=constraint)
+    hv_frac = float(os.environ.get("AUTORESEARCH_HYBRID_HV_FRAC", "0.6"))
+    try:
+        picks = surrokit.ask(problem, X.tolist(), Y.tolist(), q=q,
+                             picker=sk_picker, seed=_seed(round_idx),
+                             pending=x_pending, hv_frac=hv_frac)
+    except surrokit.InfeasibleError as e:
+        raise SystemExit(
+            f"[botorch_predict] budget_sob: GP predicts NO point in the "
+            f"search box with flash <= {DEP_FLASH_PER_POT:.3e} MeV/POT "
+            f"({e}); refusing to submit blind picks.")
+    return [tuple(row) for row in picks]
 
 
 def main(argv=None):
+    import logging
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter("[surrokit] %(message)s"))
+    _sk = logging.getLogger("surrokit")
+    if not _sk.handlers:
+        _sk.addHandler(_h)
+        _sk.setLevel(logging.INFO)
+
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--mode", choices=sorted(_modes.SPECS), required=True,
