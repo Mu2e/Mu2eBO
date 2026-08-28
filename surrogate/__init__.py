@@ -3,9 +3,11 @@
 Plain-Python clients (plotting scripts, orchestrators) import this module;
 LLM agents reach the same functions through surrogate/mcp_server.py, a thin
 MCP adapter. First-order wrapper per the 2026-08-28 agreement with Simon
-Corrodi: no logic moves — everything delegates to core/botorch_predict.py
-(the production picker stack) so the surrogate can never drift from what
-the closed loop actually optimizes.
+Corrodi: `fit`/`predict` call the surrokit engine directly (the same
+Problem construction and train_Yvar the closed loop uses); `suggest`,
+`board_stats`, and `modes_info` still delegate to core/botorch_predict.py
+glue so the surrogate can never drift from what the closed loop actually
+optimizes.
 
 API:
     modes_info()                      -> registry snapshot (dims, bounds, ...)

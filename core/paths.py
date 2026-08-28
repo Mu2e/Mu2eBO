@@ -45,6 +45,11 @@ ARTIFACT_ROOT = _root_from_env_or_user("AUTORESEARCH_ARTIFACT_ROOT", "app")
 SURROKIT_ROOT = Path(os.environ.get("AUTORESEARCH_SURROKIT")
                      or REPO_ROOT.parent / "surrokit")
 
+# The surrokit SHA this repo was parity-validated against. The suite
+# asserts the checkout matches; bump DELIBERATELY after re-validating
+# (run a picker smoke + the surrogate tests against the new engine).
+SURROKIT_PIN_SHA = "36e5c271b47c9bc644bd15d38330b956d565090e"
+
 
 def _resolve_backing() -> Path | None:
     """A `backing` symlink in the repo root wins over the env var, so the

@@ -149,5 +149,19 @@ class TestBotorchAskSeamSmoke(unittest.TestCase):
                 self.assertTrue(in_bounds(x))
 
 
+class TestSurrokitPin(unittest.TestCase):
+    def test_checkout_matches_pin(self):
+        import subprocess
+        from paths import SURROKIT_PIN_SHA, SURROKIT_ROOT
+        if not (SURROKIT_ROOT / ".git").exists():
+            self.skipTest("surrokit checkout has no .git (deployed copy)")
+        head = subprocess.run(
+            ["git", "-C", str(SURROKIT_ROOT), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(head, SURROKIT_PIN_SHA,
+                         "surrokit checkout drifted from the validated pin; "
+                         "re-validate and bump SURROKIT_PIN_SHA deliberately")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -222,8 +222,11 @@ published `ana` release (the 2.8.0 adoption channel).
    change (list_modes -> list_problems, board_stats -> stats): .mcp.json
    consumers re-learn on next session start; no other in-repo callers.
 5. Delete the ported picker bodies from botorch_predict.py; the 685-test
-   suite and golden harness must stay green throughout; the A/B parity
-   test retires with the old code (goldens then pin engine behavior).
+   suite must stay green throughout; the A/B parity test retires with the
+   old code (drift protection after that is `core/paths.py:SURROKIT_PIN_SHA`
+   + the suite's pin test, not the golden harness — its picker section was
+   abandoned 2026-07-19, and its loader fingerprint only covers
+   `_load_history_tensor`).
 
 ## Testing
 
@@ -234,9 +237,12 @@ published `ana` release (the 2.8.0 adoption channel).
   shapes, same-process seed determinism, validation errors, k-ladder /
   InfeasibleError paths, cold start. Bit-level parity binds only in the
   autoresearch environment (ana 2.8.0: botorch 0.18.1, torch 2.5.1,
-  Python 3.12): the A/B harness
-  during extraction, the golden harness after. No pinned-version CI
-  lane.
+  Python 3.12): the A/B harness bound it during extraction; after that,
+  drift protection is `core/paths.py:SURROKIT_PIN_SHA` plus the suite's
+  pin test (`tests/test_botorch_predict.py::TestSurrokitPin`), not the
+  golden harness — its picker section was abandoned 2026-07-19, and its
+  loader fingerprint only covers `_load_history_tensor`. No pinned-version
+  CI lane.
 - autoresearch: existing 685-test suite green at every step; parity gate
   as above; `tests/test_surrogate.py` updated for the adapter shape.
 
