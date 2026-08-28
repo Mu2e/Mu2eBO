@@ -1,16 +1,16 @@
-# asktell — generic ask/tell surrogate engine (design)
+# surrokit — generic ask/tell surrogate engine (design)
 
 **Date:** 2026-08-28
 **Status:** approved (Yuri Oksuzian; scope agreed with Simon Corrodi's
 package-plus-thin-adapter direction, 2026-08-28)
-**Repo:** `github.com/oksuzian/asktell` (new; name free on PyPI as of
+**Repo:** `github.com/oksuzian/surrokit` (new; name free on PyPI as of
 2026-08-28)
 
 ## Goal
 
 Extract the generic half of `core/botorch_predict.py` — GP fit, posterior
 prediction, and the production pickers — into a standalone,
-physics-agnostic Python library (`asktell`), plus a reusable MCP server
+physics-agnostic Python library (`surrokit`), plus a reusable MCP server
 scaffold. autoresearch becomes a *client*: it keeps its leaderboards,
 ModeSpec registry, and `-log10` conventions, and feeds the engine plain
 numbers.
@@ -31,17 +31,18 @@ smaller, provable core (pure math, no per-experiment special cases).
    never learns what "flash" or "MeV/POT" means.
 3. **MCP shape A — server factory.** `make_server(adapter)` returns a
    ready MCP server; every client gets identical tool names and shapes.
-4. **Hosting:** personal GitHub (`oksuzian/asktell`), MIT license,
+4. **Hosting:** personal GitHub (`oksuzian/surrokit`), MIT license,
    pip-installable via `git+https` now, PyPI later. Transferable to an
    org without breaking clients (GitHub redirects).
 
 ## Repo layout
 
 ```
-asktell/
-├── pyproject.toml          # deps: botorch>=0.18, torch, scipy; MIT
+surrokit/
+├── pyproject.toml          # deps: botorch>=0.18, torch, scipy, numpy;
+│                           #   requires-python >=3.10; MIT
 ├── README.md               # incl. the "minimize-with-budget" recipe
-├── asktell/
+├── surrokit/
 │   ├── __init__.py         # public API: Problem, Constraint, fit, predict,
 │   │                       #   ask, InfeasibleError, __version__
 │   ├── problem.py          # Problem, Constraint dataclasses + validation
@@ -52,8 +53,8 @@ asktell/
 └── tests/                  # unittest; no autoresearch imports anywhere
 ```
 
-`mcp` is an optional dependency: importing `asktell` never requires it;
-`asktell.mcp_scaffold` raises a clear ImportError naming `pip install
+`mcp` is an optional dependency: importing `surrokit` never requires it;
+`surrokit.mcp_scaffold` raises a clear ImportError naming `pip install
 "mcp>=2.0"` when absent (it ships in the Mu2e `ana 2.8.0` env).
 
 ## Core types
@@ -102,8 +103,12 @@ predict(model, X) -> (mean, sigma)
     # posterior mean and stddev, (n, m) numpy arrays, Y-space.
 
 ask(problem, X, Y, q=5, picker="hybrid", seed=0, pending=None,
-    min_spacing=0.10, pool=16384) -> list[list[float]]
+    min_spacing=0.10, pool=16384, hv_frac=0.6) -> list[list[float]]
     # picker: qnehvi | qlnei | qnparego | hybrid | constrained_max.
+    # STATELESS: fits the GP internally on every call (today's
+    #   compute_explore_picks contract — leaderboard as it stands at
+    #   that moment). The fit cache lives only in the MCP scaffold,
+    #   never in the library.
     # seed: used VERBATIM in every RNG stream (MC sampler, Sobol
     #   draws, torch.manual_seed) — the engine derives nothing.
     #   autoresearch passes 42 ^ round_idx from its side (the xor is a
@@ -112,13 +117,24 @@ ask(problem, X, Y, q=5, picker="hybrid", seed=0, pending=None,
     # pending: list of x-rows in flight — acquisition pickers fantasize
     #   over them (X_pending); constrained_max spreads away from them.
     # n < 2 -> Sobol cold-start draw (never an error).
+    # Y-width validation (ValueError): qnehvi/qnparego/hybrid require
+    #   m >= 2; constrained_max requires problem.constraint set and
+    #   constraint.axis < m; qlnei accepts m >= 1 and uses axis 0 alone.
+    #   autoresearch keeps its sob-only load path and passes (n, 1) for
+    #   qlnei — a 2-output fit is not guaranteed bit-identical on
+    #   axis 0, and the parity gate depends on it.
     # int_dims rounded in the returned lists (today's _emit_picks).
     # min_spacing/pool apply to constrained_max only (today's
     #   SOB_CORNER_MIN_SPACING=0.10 and N=16384 as defaults).
+    # hv_frac applies to hybrid only: qnehvi share of the batch
+    #   (today's AUTORESEARCH_HYBRID_HV_FRAC env read at
+    #   botorch_predict.py:274 — a third env constant relocated to the
+    #   client side; autoresearch keeps reading the env var and passes
+    #   the value in). 0.0 = pure qnparego.
     # qnparego: today internal to hybrid (not in PICKER_CHOICES);
     #   promoted to a standalone choice here. No legacy CLI counterpart,
     #   so it is excluded from the bit-parity gate — covered transitively
-    #   by hybrid parity plus its own asktell unit tests.
+    #   by hybrid parity plus its own surrokit unit tests.
 ```
 
 `constrained_max` (today's `budget_sob`, renamed physics-neutral):
@@ -128,12 +144,17 @@ Sobol-sample `pool` points, keep those with
 k-relaxation ladder (k -> k/2 -> 0 when fewer than q candidates are
 feasible, logged at WARNING). When zero candidates are feasible even at
 k=0 it raises `InfeasibleError` — the library never calls SystemExit.
+(autoresearch glue catches `InfeasibleError` at the CLI seam and
+re-raises today's SystemExit message; `graph/pool.py:143` catches
+`(Exception, SystemExit)` uniformly, so pool behavior is unchanged
+either way.)
 
 Library discipline: no `print` (the `logging` module, logger name
-`asktell`), no `sys.exit`, no environment-variable reads. Today's
+`surrokit`), no `sys.exit`, no environment-variable reads. Today's
 env-tunable constants become explicit arguments supplied by the client
 (autoresearch keeps reading `AUTORESEARCH_FLASH_BUDGET` /
-`AUTORESEARCH_BUDGET_KSIGMA` on its side and passes the values in).
+`AUTORESEARCH_BUDGET_KSIGMA` / `AUTORESEARCH_HYBRID_HV_FRAC` on its side
+and passes the values in).
 
 ## MCP scaffold
 
@@ -146,14 +167,16 @@ class Adapter(Protocol):
         # JSON-serializable dict merged into stats output (e.g. axis
         # labels, champion row, leaderboard path).
 
-make_server(adapter, name="asktell", instructions="...") -> MCPServer
+make_server(adapter, name="surrokit", instructions="...") -> MCPServer
 ```
 
 Tools (identical for every client; structured output with typed return
 annotations — bare `dict` returns are rejected by mcp 2.0):
 - `list_problems()` — names, dims, bounds, axis count, row counts
 - `predict(problem, points)` — mean/sigma per axis per point
-- `suggest(problem, q=5, picker="hybrid", seed=0)` — ask() passthrough
+- `suggest(problem, q=5, picker="hybrid", seed=0, pending=None,
+  min_spacing=0.10, hv_frac=0.6)` — faithful ask() passthrough (pending
+  lets external clients declare their own in-flight set)
 - `stats(problem)` — row count + adapter meta
 - `refit(problem)` — cache bypass
 
@@ -164,19 +187,26 @@ auth/logging layer plugs in there without touching tools.
 
 ## autoresearch migration
 
+**Bootstrap:** Claude scaffolds the full local repo at
+`/exp/mu2e/app/users/oksuzian/surrokit` (git init, code, tests, CI,
+pyproject); the operator creates the empty GitHub repo and pushes from
+an interactive shell (Claude cannot push — no ssh-agent in Bash
+subshells). autoresearch pins the LOCAL checkout's SHA, so the GitHub
+push is off the critical path.
+
 **Install constraint:** the default interpreter (`ana 2.8.0` on cvmfs) is
 immutable — no pip install. Short-term: sibling checkout pinned to a
-commit SHA (`/exp/mu2e/app/users/oksuzian/asktell`), path exported by
-`activate.sh` (new `AUTORESEARCH_ASKTELL` seam, defaulting to the sibling
+commit SHA (`/exp/mu2e/app/users/oksuzian/surrokit`), path exported by
+`activate.sh` (new `AUTORESEARCH_SURROKIT` seam, defaulting to the sibling
 path). Long-term: publish to PyPI and request inclusion in the next
 published `ana` release (the 2.8.0 adoption channel).
 
 **Cut-over plan (summary — the implementation plan details tasks):**
-1. Create asktell repo; port `_fit_gp`, picker functions, sampling
+1. Create surrokit repo; port `_fit_gp`, picker functions, sampling
    helpers, `_emit_picks` verbatim-modulo-interface; port their tests
    from `tests/test_botorch_predict.py` onto generic fixtures.
 2. **Parity gate:** A/B harness in autoresearch runs old
-   `compute_explore_picks` vs `asktell.ask` on the golden fixtures at
+   `compute_explore_picks` vs `surrokit.ask` on the golden fixtures at
    fixed seeds for the four legacy pickers (qnehvi, qlnei, hybrid,
    budget_sob-as-constrained_max) + cold start — picks must be
    BIT-IDENTICAL before any old code is deleted. (Known hazard: the
@@ -185,9 +215,9 @@ published `ana` release (the 2.8.0 adoption channel).
    — parity runs on the small golden fixtures where it is invisible.)
 3. Rewire `core/botorch_predict.py` into glue: leaderboard -> tensors,
    `-log10` transform, `thr = -log10(budget)`, Problem construction,
-   asktell calls. CLI surface (argparse, --emit-picks-json) unchanged —
+   surrokit calls. CLI surface (argparse, --emit-picks-json) unchanged —
    graph/closed_loop.py must not notice.
-4. `surrogate/` package delegates to asktell; `surrogate/mcp_server.py`
+4. `surrogate/` package delegates to surrokit; `surrogate/mcp_server.py`
    becomes `make_server(AutoresearchAdapter())` (~15 lines). Tool names
    change (list_modes -> list_problems, board_stats -> stats): .mcp.json
    consumers re-learn on next session start; no other in-repo callers.
@@ -197,10 +227,16 @@ published `ana` release (the 2.8.0 adoption channel).
 
 ## Testing
 
-- asktell repo: self-contained unittest suite — picker behavior ports,
+- surrokit repo: self-contained unittest suite — picker behavior ports,
   Problem validation, InfeasibleError paths, cold start, seed
   determinism, scaffold tests (`skipUnless mcp`). CI: GitHub Actions,
-  pip-installed botorch (no cvmfs).
+  pip-installed botorch (no cvmfs). CI asserts BEHAVIOR, not bits —
+  shapes, same-process seed determinism, validation errors, k-ladder /
+  InfeasibleError paths, cold start. Bit-level parity binds only in the
+  autoresearch environment (ana 2.8.0: botorch 0.18.1, torch 2.5.1,
+  Python 3.12): the A/B harness
+  during extraction, the golden harness after. No pinned-version CI
+  lane.
 - autoresearch: existing 685-test suite green at every step; parity gate
   as above; `tests/test_surrogate.py` updated for the adapter shape.
 
@@ -214,8 +250,11 @@ published `ana` release (the 2.8.0 adoption channel).
 - No new pickers or GP variants during the extraction — behavior-
   preserving move first.
 
-## Open questions
+## Closed questions (grill session 2026-08-28)
 
-- PyPI publish timing (after first external user, or immediately).
-- Whether `ana 2.9.0+` inclusion request goes through Simon/Ray or the
-  pyenv publisher directly.
+- PyPI publish timing: **after the first external user.** git+https +
+  the sibling checkout cover all consumers today; the name is free and
+  squatting risk for a niche name is low.
+- `ana 2.9.0+` inclusion: **through Simon/Ray**, in the same
+  conversation as the middleware handoff (Simon holds the
+  pyenv-publisher relationship).

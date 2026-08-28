@@ -32,7 +32,17 @@ The campaign parent (`graph/pool.py::run_rolling`): keeps q Children in flight a
 _Avoid_: round, batch, wave (all retired 2026-08-19)
 
 **Picker**:
-The proposal strategy that turns leaderboard history into the next point(s) — `hybrid`, `qnehvi`, `qlnei`, `budget_sob`, declared once as `core.modes.PICKER_CHOICES` and accepted by both the parent and the picker subprocess. Runs once per replacement launch, in a subprocess, over the current In-flight set as `X_pending`.
+The proposal strategy that turns leaderboard history into the next point(s) — `hybrid`, `qnehvi`, `qlnei`, `budget_sob`, declared once as `core.modes.PICKER_CHOICES` and accepted by both the parent and the picker subprocess. Runs once per replacement launch, in a subprocess, over the current In-flight set as `X_pending`. The Engine-side name for `budget_sob` is `constrained_max`.
+
+**Engine**:
+The physics-agnostic surrogate/optimization core (`surrokit`, extracted from `core/botorch_predict.py`): GP fit, posterior predict, and the Pickers behind a `fit / predict / ask` API. Sees only numbers in math space — every Y axis maximized, axis 0 primary; never learns what "sob" or "flash" means.
+_Avoid_: asktell (rejected name), surrogate library
+
+**Problem**:
+The Engine's search-space declaration — bounds, integer dims, per-axis noise sigmas, optional budget Constraint. The client (autoresearch) builds one per Mode from its ModeSpec.
+
+**Adapter**:
+The client bridge that names Problems and serves their history (X, Y, meta) to the Engine's MCP scaffold via `make_server(adapter)`; autoresearch's Adapter wraps ModeSpec + Leaderboards.
 
 **Leaderboard**:
 The append-only per-mode TSV of completed evals; the ONLY durable source of truth for BO history. There is no checkpointer (retired 2026-08-19) and no other resume state.
