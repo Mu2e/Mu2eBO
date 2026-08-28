@@ -98,7 +98,8 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 # cl_min retired per ADR-0001 (2026-07-06, deleted 2026-07-11): the closed
 # loop must never import code outside this repo; all pickers route through
 # in-repo botorch_predict.py in the project .venv.
-PICKER_CHOICES = ("qnehvi", "qlnei", "pareto_sob", "qnparego", "hybrid")
+PICKER_CHOICES = ("qnehvi", "qlnei", "pareto_sob", "budget_sob",
+                  "qnparego", "hybrid")
 DEFAULT_PICKER = "hybrid"
 
 # ============================================================================
@@ -296,7 +297,8 @@ def _botorch_picks_subprocess(mode: str, q: int, round_idx: int, picker: str = "
 
     picker = any PICKER_CHOICES entry: "qnehvi" (multi-obj),
     "qlnei" (single-obj sob), "pareto_sob" (GP-mean sob corner),
-    "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
+    "budget_sob" (GP-mean sob corner constrained to the deployed damage
+    budget), "qnparego" (random-Chebyshev-scalarization spread), "hybrid"
     (~60% qnehvi + ~40% qnparego; recommended for new multi-objective lines).
     Rolling mode passes in-flight x_points via `pending` so replacements
     fantasize over them (X_pending) instead of re-picking a point that's
@@ -317,6 +319,9 @@ def node_predict_picks(state: RoundState) -> dict:
         not the scalarized obj the leaderboard reports.
       qlnei: single-obj qLogNoisyEI on sob only (drops the run1b_mubeam stage).
       pareto_sob: the GP-mean highest-sob frontier points.
+      budget_sob: same corner, CONSTRAINED to predicted flash <= the deployed
+        damage budget -- the deployment-facing exploit (pareto_sob's picks are
+        typically unbuildable: +50-70% damage).
       qnparego: qLogNEI over random Chebyshev scalarizations — spreads picks
         across the whole Pareto front (patrols the tails qNEHVI underprices).
       hybrid: ~60% qnehvi + ~40% qnparego in one batch — recommended default
@@ -443,7 +448,6 @@ def node_launch_children(state: RoundState) -> dict:
         x = rec["x_point"]
         log_path = Path(rec["log"])
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_fh = open(log_path, "w")
         # Per-launch unique thread_id: prevents SqliteSaver checkpoint collision
         # with prior `python -m graph.run --thread-id <name>` sessions sharing
         # the same name (e.g. manual smokes named graph001). config_name stays
@@ -465,14 +469,22 @@ def node_launch_children(state: RoundState) -> dict:
             "--x-point", ",".join(f"{v:.6f}" for v in x),
         ]
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                cwd=str(PROJECT_ROOT),
-            )
+            # The parent must drop its own copy of this handle. Popen dups the
+            # descriptor into the child, which keeps it for its whole ~3-6h
+            # run; leaving the parent's copy open leaks one fd per launched
+            # child for the lifetime of the campaign, and a rolling campaign
+            # launches hundreds. Opening inside the try also turns an
+            # unwritable log path into a recorded launch failure instead of an
+            # uncaught raise that would abandon the remaining pending children.
+            with open(log_path, "w") as log_fh:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_fh,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    cwd=str(PROJECT_ROOT),
+                )
             rec["pid"] = proc.pid
             rec["started_at"] = time.time()
             print(f"[closed_loop] launched {name} pid={proc.pid} log={log_path}", flush=True)
@@ -501,17 +513,20 @@ def node_barrier(state: RoundState) -> dict:
     broken.txt, or dead process) or STOP_FLAG appears.
 
     There is deliberately NO per-round pacing timeout. Child process liveness
-    is the wait condition: an alive `graph.run` child is always progressing
-    toward resolution (every grid stage inside it is bounded by pipeline.py's
-    poll `cap_hours`), and a dead one is marked completed-failed within two
+    is the wait condition: a dead child is marked completed-failed within two
     poll ticks. Wall-clock windows were only ever a proxy for "will this
     child resolve?" and the proxy caused two orphan-storm incidents
     (foilsg03 @240min, foilsg05 @360min — see
     wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md).
 
     barrier_max_min (default 24h) is a loud BACKSTOP for the one remaining
-    pathology — a child that is alive but hung — not round pacing. Tripping
-    it should be rare and is always worth investigating."""
+    pathology — a child that is alive but hung — not round pacing. It is
+    now the ONLY such backstop: pipeline.py's per-stage poll no longer has
+    an inner `cap_hours` of its own (prodtools' jobwait has no internal
+    timeout by design, per the prodtools-switch design spec), so an alive
+    child stuck inside a grid stage's poll is bounded solely by this
+    barrier, not by anything inside the child. Tripping it should be rare
+    and is always worth investigating."""
     poll = state.get("barrier_poll_sec", CLOSED_LOOP_BARRIER_POLL_SEC)
     max_min = state.get("barrier_max_min", CLOSED_LOOP_BARRIER_MAX_MIN)
     start = time.time()
@@ -847,6 +862,10 @@ def main() -> int:
 
     if args.dry_run:
         return _dry_run(args)
+
+    import paths as _paths
+    import modes as _modes_verify
+    _paths.verify(_modes_verify.SPECS.values())
 
     GRAPH_DATA.mkdir(parents=True, exist_ok=True)
     conn = _open_saver_conn()

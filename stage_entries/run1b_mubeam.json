@@ -1,0 +1,26 @@
+{
+ "_comment": "Rationale for these keys lives in core/pipeline.py, in the comment block immediately above _render_fcl_overrides (Task 14, lifted from Task 13's STAGE_FCL[\"run1b_mubeam\"]). Edit that comment block, not this note, when the rationale changes.",
+ "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
+ "fcl_overrides": {
+  "#include": ["Production/JobConfig/pileup/epilog_1b.fcl", "run1b_mubeam_extras.fcl"],
+  "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
+  "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
+  "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyMuBeamFlash.version.sequencer.art",
+  "outputs.FlashOutput.fileName": "dts.owner.MuBeamFlash.version.sequencer.art",
+  "outputs.IPAStopOutput.fileName": "sim.owner.IPAStops.version.sequencer.art",
+  "outputs.TargetStopOutput.fileName": "sim.owner.TargetStops.version.sequencer.art",
+  "outputs.PolyStopOutput.fileName": "sim.owner.PolyStops.version.sequencer.art",
+  "services.TFileService.fileName": "nts.owner.mubeam.version.sequencer.root",
+  "services.SeedService.baseSeed": 1,
+  "physics.filters.TargetStopPrescaleFilter.nPrescale": 10,
+  "physics.filters.PolyStopPrescaleFilter.nPrescale": 10,
+  "services.GeometryService.inputFile": "{geom}",
+  "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_DSOff.txt"
+ },
+ "resampler_name": "beamResampler",
+ "input_data": {"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
+ "inloc": "tape",
+ "outloc": {"*.art": "outstage", "*.root": "outstage"},
+ "run": 1810,
+ "events": 5000
+}

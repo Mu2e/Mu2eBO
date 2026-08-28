@@ -46,14 +46,15 @@ class TestPreflightVerdictEmit(unittest.TestCase):
             self.assertEqual(rc, 0)
 
 
-def _fake_run(write_json=None, rc=0):
+def _fake_run(write_json=None, rc=0, stderr=""):
     """subprocess.run stand-in: optionally writes the verdict JSON the way
     the driver would, then returns a completed-process shim."""
     def run(cmd, **kw):
         if write_json is not None:
             i = cmd.index("--emit-json")
             bo.write_json_atomic(Path(cmd[i + 1]), write_json)
-        return SimpleNamespace(returncode=rc, stdout="tail line\n", stderr="")
+        return SimpleNamespace(returncode=rc, stdout="tail line\n",
+                               stderr=stderr)
     return run
 
 
@@ -78,6 +79,24 @@ class TestRunPreflightReadsJson(unittest.TestCase):
             self.assertEqual(status, "ambiguous")
             self.assertIn("missing/unparseable", tail)
 
+    def test_a_crash_shows_its_stderr_not_just_ambiguous(self):
+        """The tail was built from stdout ONLY.
+
+        A preflight that dies before writing a verdict puts its traceback on
+        stderr, so the operator saw "ambiguous" three times and never the
+        cause -- a missing backing, whose PathsError names the exact fix
+        (mmackenz 2026-08-13). Third instance of this repo's swallowed-stderr
+        class, after jobsub-disk-quota and sourced-env.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            status, tail = self._call(tmp, _fake_run(
+                None, rc=1,
+                stderr="paths.PathsError: musing not found at /nope\n"
+                       "    ./setup.sh --backing /exp/mu2e/app/users/<them>"))
+            self.assertEqual(status, "ambiguous")
+            self.assertIn("PathsError", tail)
+            self.assertIn("--backing", tail)
+
     def test_stale_verdict_from_prior_run_is_not_reused(self):
         with tempfile.TemporaryDirectory() as tmp:
             stale = Path(tmp) / "cfgX" / "state" / "preflight_verdict.json"
@@ -90,8 +109,10 @@ class TestCmdEvaluateEmit(unittest.TestCase):
     def _tmp_mode(self, tmp):
         mode = bo.MODES["foilsflash"]
         patches = [
-            mock.patch.object(mode, "leaderboard",
-                              Path(tmp) / "leaderboard_bo_foilsflash.tsv"),
+            mock.patch.multiple(
+                mode,
+                leaderboard=Path(tmp) / "leaderboard_bo_foilsflash.tsv",
+                leaderboard_archive=None),
             mock.patch.object(mode, "proposal_dir", Path(tmp) / "proposals"),
         ]
         return mode, patches

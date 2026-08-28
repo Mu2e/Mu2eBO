@@ -5,12 +5,12 @@
 #
 # Python 3.11, uv-built. CPU torch wheel (+cpu local version) FIRST, then
 # the rest:
-#   uv venv --python 3.11 /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv
-#   uv pip install --python /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv/bin/python \
+#   uv venv --python 3.11 /exp/mu2e/data/users/$USER/autoresearch_venvs/.venv
+#   uv pip install --python /exp/mu2e/data/users/$USER/autoresearch_venvs/.venv/bin/python \
 #     --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu
-#   uv pip install --python /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv/bin/python \
+#   uv pip install --python /exp/mu2e/data/users/$USER/autoresearch_venvs/.venv/bin/python \
 #     -r requirements.txt
-#   ln -s /exp/mu2e/data/users/oksuzian/autoresearch_venvs/.venv .venv
+#   ln -s /exp/mu2e/data/users/$USER/autoresearch_venvs/.venv .venv
 #
 # The AUTORESEARCH_BOTORCH_VENV env seam still selects an alternate picker
 # venv for A/Bs (e.g. a future train_Yvar or botorch-0.19 arm).

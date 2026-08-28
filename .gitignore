@@ -85,3 +85,6 @@ docs/*.nav
 docs/*.out
 docs/*.snm
 docs/*.toc
+
+# subagent-driven-development scratch workspace
+.superpowers/

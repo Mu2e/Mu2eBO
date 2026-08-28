@@ -7,22 +7,26 @@ campaign. STDLIB ONLY (see core/modes.py:1-8).
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Dict, Tuple
 
-# Mirror our own package-qualification when importing the sibling module: if
+# Mirror our own package-qualification when importing sibling modules: if
 # we were loaded as `core.mode_json` (repo-root imports, __package__=="core"),
-# resolve GeomTemplate the same way; if we were loaded as bare `mode_json`
-# (bo_driver.py subprocess path, core/ alone on sys.path, __package__==""),
-# resolve it bare too. A hardcoded qualified import breaks the bare path
-# outright (no `core` package to find); a hardcoded bare import would, under
-# the qualified path, load core/geom_template.py a SECOND time under a
-# different sys.modules key -- reproducing the two-non-identical-classes bug
-# Task 4 fixed for this exact class (see core/modes.py's tail comment).
+# resolve GeomTemplate and paths the same way; if we were loaded as bare
+# `mode_json` (bo_driver.py subprocess path, core/ alone on sys.path,
+# __package__==""), resolve them bare too. A hardcoded qualified import
+# breaks the bare path outright (no `core` package to find); a hardcoded
+# bare import would, under the qualified path, load core/geom_template.py a
+# SECOND time under a different sys.modules key -- reproducing the
+# two-non-identical-classes bug Task 4 fixed for this exact class (see
+# core/modes.py's tail comment).
 if __package__:
+    from core import paths
     from core.geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                     _validate_fmt)
 else:
+    import paths
     from geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                _validate_fmt)
 
@@ -48,42 +52,14 @@ _ALLOWED_KNOB = ("name", "min", "max", "fmt")
 _STAGE_TUNING_KEYS = ("events_per_job", "memory_mb", "quorum")
 
 # Leaderboard columns a knob may NOT be named after. A collision makes
-# BOMode.format_row emit the column twice; csv.DictReader keeps the LAST, so
-# load_history_row reads the METRIC into that knob's coordinate and the GP
-# trains on garbage -- silently. `config` is the writer-side leading column
-# (format_row hardcodes it); `alpha`/`obj` are normally in leaderboard.columns
-# already but are listed here so they are rejected even if a spec renames the
-# tail. The spec's own leaderboard.columns are added on top at load.
+# core/leaderboard.py's Leaderboard.header/append emit the column twice;
+# csv.DictReader keeps the LAST, so Leaderboard.load reads the METRIC into
+# that knob's coordinate and the GP trains on garbage -- silently. `config`
+# is the writer-side leading column (Leaderboard.header hardcodes it);
+# `alpha`/`obj` are normally in leaderboard.columns already but are listed
+# here so they are rejected even if a spec renames the tail. The spec's own
+# leaderboard.columns are added on top at load.
 _RESERVED_KNOB_COLUMNS = ("config", "alpha", "obj")
-
-# The leaderboards the six PYTHON modes own, repo-relative. Frozen here
-# because this module cannot import bo_driver (bo_driver -> modes ->
-# mode_json is already a cycle) and the paths are class attributes there.
-# tests/test_mode_json.py TestLeaderboardUniqueness pins this against the
-# live classes, so a renamed Python leaderboard fails there rather than
-# silently re-opening the shared-leaderboard hole.
-PYTHON_MODE_LEADERBOARDS = {
-    "leaderboards/leaderboard_bo_foils_v2.tsv":        "foils",
-    "leaderboards/leaderboard_bo_foils_v3.tsv":        "foilsf",
-    # foilsflash removed 2026-07-26: its Python mode was retired, so
-    # mode_specs/foilsflash.json now legitimately OWNS that leaderboard and
-    # its 392 rows. This map must be pruned whenever a Python mode is retired
-    # — a stale entry locks the JSON replacement out of the very history it
-    # is meant to inherit (which is exactly how this line was found).
-    "leaderboards/leaderboard_bo_foilsg.tsv":          "foilsg",
-    "leaderboards/leaderboard_bo_prodtarget_v0.tsv":   "prodtarget",
-    "leaderboards/leaderboard_bo_prodtarget6d_v0.tsv": "prodtarget6d",
-}
-
-# core/pipeline.py hardcodes STAGES["pot_only"]["code_tarball"] to
-# prodtarget's tarball (and dsconf_musing to MDC2025aq), and the per-stage
-# code_tarball WINS over the SPECS-driven MUSE_BASE_TARBALL. A JSON mode
-# whose chain includes pot_only therefore ships prodtarget's code to the
-# grid no matter what its own software.grid_tarball says, while preflight
-# validates its OWN musing -- exactly the preflight-passes/grid-diverges
-# mechanism of the foilsflash-tarball-mode-key-omission and
-# foilsg-grid-tarball-scalar-holeradius-fallback incidents.
-_POT_ONLY_STAGE = "pot_only"
 
 
 class _DuplicateJsonKey(ValueError):
@@ -122,6 +98,34 @@ def _normalize_leaderboard_rel(rel: str, where: str) -> str:
             f"{rel!r}); it escapes the repo root and defeats the "
             f"leaderboard-uniqueness check across modes")
     return p.as_posix()
+
+
+_ARTIFACT_TOKEN = "${ARTIFACT}/"
+
+
+def _expand_artifact(value: str, field: str, where: str) -> str:
+    """Expand the one supported token, `${ARTIFACT}/`, through
+    paths.artifact() -- local artifact wins, backing fills in, a miss
+    returns the intended local path (paths.verify() is what turns a miss
+    into a failure, so spec loading stays safe in a bare environment).
+
+    A bare absolute path under someone's user area is refused: that is how
+    the tree acquired ~20 personal literals in the first place.
+    """
+    if value.startswith(_ARTIFACT_TOKEN):
+        return str(paths.artifact(value[len(_ARTIFACT_TOKEN):]))
+    if "${" in value:
+        raise ValueError(
+            f"{where}[software.{field}]: unknown variable in {value!r}. "
+            f"The only supported token is '${{ARTIFACT}}/', which resolves "
+            f"against this operator's artifact root (or the `backing` link).")
+    if re.match(r"^/exp/mu2e/(app|data)/users/[^/]+/", value):
+        raise ValueError(
+            f"{where}[software.{field}]: {value!r} hardcodes a personal user "
+            f"area, so this mode would only run for that account. Use "
+            f"'${{ARTIFACT}}/<rest-of-path>' instead; see "
+            f"docs/superpowers/specs/2026-08-11-portable-paths-design.md.")
+    return value
 
 
 def _need(d: dict, keys, where: str) -> None:
@@ -296,29 +300,6 @@ def load_mode_file(path: Path) -> "object":
             f"got {stages!r} (a bare string here silently becomes a tuple "
             f"of its characters)")
 
-    if _POT_ONLY_STAGE in stages:
-        # Lazy import for the same reason as ModeSpec above (see the header
-        # comment): resolve the ALREADY-loaded modes module, bare or
-        # `core.`-qualified. _PRODTARGET_TARBALL is the single source for
-        # this path -- tests/test_modes.py pins it == the value
-        # core/pipeline.py stamps into STAGES["pot_only"]["code_tarball"].
-        if __package__:
-            from core.modes import _PRODTARGET_TARBALL
-        else:
-            from modes import _PRODTARGET_TARBALL
-        if software.get("grid_tarball") != _PRODTARGET_TARBALL:
-            raise ValueError(
-                f"{where}[run.stages]: stage {_POT_ONLY_STAGE!r} hardcodes "
-                f"code_tarball={_PRODTARGET_TARBALL} (and "
-                f"dsconf_musing='MDC2025aq') in core/pipeline.py, and the "
-                f"per-stage code_tarball WINS over this mode's "
-                f"software.grid_tarball ({software.get('grid_tarball')!r}). "
-                f"The grid would run prodtarget's code while preflight "
-                f"validated this mode's own musing -- the silent "
-                f"preflight-passes/grid-diverges split behind the "
-                f"foilsflash-tarball and foilsg-tarball incidents. Declare "
-                f"the same grid_tarball, or use a different stage.")
-
     stage_tuning = _validate_stage_tuning(run, stages, where)
     jobs_per_stage = _validate_jobs_per_stage(run, stages, where)
     presubmit_after = _validate_presubmit_after(run, stages, where)
@@ -331,10 +312,11 @@ def load_mode_file(path: Path) -> "object":
         _need(k, _ALLOWED_KNOB, kw)
         _reject_unknown(k, _ALLOWED_KNOB, kw)
         # R1: an unvalidated fmt like "75.0" (no replacement field) writes a
-        # CONSTANT into every knob column of the leaderboard; load_history_row
-        # parses it back as a valid float, so every past eval collapses to the
-        # same point and the GP trains on garbage -- silently. Same guard
-        # geom_template.py already applies to computed geometry lines.
+        # CONSTANT into every knob column of the leaderboard; Leaderboard.load
+        # (core/leaderboard.py) parses it back as a valid float, so every past
+        # eval collapses to the same point and the GP trains on garbage --
+        # silently. Same guard geom_template.py already applies to computed
+        # geometry lines.
         _validate_fmt(k["fmt"], kw)
         # `i`/`n` are injected by the geometry renderer's per_index loop and
         # would silently shadow the knob there (see geom_template's
@@ -373,22 +355,25 @@ def load_mode_file(path: Path) -> "object":
         raise ValueError(
             f"{where}[leaderboard]: 'columns' must have exactly 4 entries "
             f"(sob-like, second-objective, alpha, obj) to match "
-            f"BOMode.format_row; got {list(columns)}")
+            f"core/leaderboard.py's Leaderboard row schema; got "
+            f"{list(columns)}")
     if columns[0] != "sob":
         raise ValueError(
             f"{where}[leaderboard]: columns[0] must be exactly 'sob', got "
-            f"{columns[0]!r}. BOMode.load_history_row (core/bo_driver.py) "
-            f"hardcodes row['sob'] when reading leaderboard history back; a "
-            f"different first-column name raises KeyError there, which "
-            f"load_history's `except (KeyError, ValueError): continue` "
-            f"swallows silently -- yielding ZERO history rows and an "
-            f"eternal BO cold-start instead of a visible error.")
+            f"{columns[0]!r}. Leaderboard.load (core/leaderboard.py) reads "
+            f"row[metric_cols[0]] into Point.sob positionally, so this isn't "
+            f"a parse-time hazard, but every leaderboard TSV across every "
+            f"mode names its first metric column 'sob' by convention -- a "
+            f"per-spec rename here would be the one leaderboard file whose "
+            f"header doesn't match, tripping up anyone diffing/grepping "
+            f"leaderboards/*.tsv by that convention.")
 
     # A knob column and a metric column share one TSV header row
-    # (BOMode.format_row writes `config` + KNOB_NAMES + metric_cols). A knob
-    # named after any of them emits that column TWICE; csv.DictReader keeps
-    # the LAST, so load_history_row reads the METRIC back into that knob's
-    # coordinate and the GP trains on garbage -- silently.
+    # (Leaderboard.header/append -- core/leaderboard.py -- writes `config` +
+    # knob_names + metric_cols). A knob named after any of them emits that
+    # column TWICE; csv.DictReader keeps the LAST, so Leaderboard.load reads
+    # the METRIC back into that knob's coordinate and the GP trains on
+    # garbage -- silently.
     reserved_cols = set(columns) | set(_RESERVED_KNOB_COLUMNS)
     for i, nm in enumerate(names):
         if nm in reserved_cols:
@@ -397,8 +382,8 @@ def load_mode_file(path: Path) -> "object":
                 f"leaderboard column (leaderboard.columns + "
                 f"{list(_RESERVED_KNOB_COLUMNS)}). The header would carry it "
                 f"twice and csv.DictReader keeps the last, so "
-                f"BOMode.load_history_row would read the METRIC into this "
-                f"knob's coordinate on every past row")
+                f"core/leaderboard.py's Leaderboard.load would read the "
+                f"METRIC into this knob's coordinate on every past row")
 
     noise = leaderboard["obs_noise"]
     if noise is not None:
@@ -442,8 +427,9 @@ def load_mode_file(path: Path) -> "object":
 
     spec = ModeSpec(
         name=doc["name"],
-        musing=software["musing"],
-        grid_tarball=software["grid_tarball"],
+        musing=_expand_artifact(software["musing"], "musing", where),
+        grid_tarball=_expand_artifact(software["grid_tarball"],
+                                      "grid_tarball", where),
         grid_stages=tuple(stages),
         harvest_verb=run["harvest"],
         stage_target_overrides=jobs_per_stage,
@@ -499,21 +485,17 @@ def load_mode_dir(directory: Path, existing: Dict[str, object]) -> Dict[str, obj
         # column, so each mode's load_history() happily parses the other's
         # rows as its own evals. The realistic path is a copy-pasted spec
         # whose leaderboard line was never edited -- it looks plausible.
-        lb = spec.leaderboard_rel
-        owner = PYTHON_MODE_LEADERBOARDS.get(lb)
-        if owner is not None:
-            raise ValueError(
-                f"{path}: leaderboard {lb!r} belongs to the Python mode "
-                f"{owner!r}. Two modes sharing one leaderboard silently "
-                f"cross-contaminate their GP history (identical column "
-                f"schema, so each parses the other's rows as its own evals). "
-                f"Give {spec.name!r} its own leaderboards/*.tsv.")
+        # Keyed on the BASENAME, not the relative path: live boards are a
+        # flat per-operator directory (paths.leaderboard_live flattens to
+        # the name), so 'a/x.tsv' and 'b/x.tsv' would become one file even
+        # though the declarations differ.
+        lb = Path(spec.leaderboard_rel).name
         if lb in seen_leaderboards:
             raise ValueError(
-                f"{path}: leaderboard {lb!r} is already declared by "
+                f"{path}: leaderboard basename {lb!r} is already declared by "
                 f"{seen_leaderboards[lb]}. Two modes sharing one leaderboard "
                 f"silently cross-contaminate their GP history; give each mode "
-                f"its own leaderboards/*.tsv.")
+                f"its own leaderboards/*.tsv with a distinct filename.")
         seen_leaderboards[lb] = path
         out[spec.name] = spec
     return out

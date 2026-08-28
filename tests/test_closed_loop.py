@@ -14,6 +14,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "graph"))
 sys.path.insert(0, str(PROJECT_ROOT / "core"))  # BO/pipeline modules (2026-07-17 reorg)
 
+# graph/closed_loop.py's own presniff_mode() only stamps AUTORESEARCH_MODE
+# when "--mode" is present in sys.argv (real launches always pass it); under
+# `-m unittest` there is no such flag, so graph/config.py's module-level
+# `_modes.SPECS[os.environ.get("AUTORESEARCH_MODE", "foils")]` would KeyError
+# at the `from config import (...)` below now that "foils" no longer exists
+# in modes.SPECS (archived 2026-08-08). setdefault so an explicitly-set env
+# (e.g. a real launch's own --mode) always wins.
+os.environ.setdefault("AUTORESEARCH_MODE", "foilsflash")
 import closed_loop as cl  # noqa: E402
 
 
@@ -380,6 +388,34 @@ class TestUniqueThreadIdPerLaunch(unittest.TestCase):
                 "fooR00_01": {"x_point": [5.0, 6.0, 7.0, 8.0], "log": str(td / "b.log"), "pid": None, "started_at": 0.0},
             },
         }
+
+    def test_parent_closes_its_copy_of_each_child_log(self):
+        """One leaked fd per child would exhaust the parent's ulimit over a
+        long rolling campaign. The child keeps its own dup; the parent must
+        not keep a second one open for hours."""
+        seen = []
+
+        def _popen(cmd, **kwargs):
+            fh = kwargs["stdout"]
+            seen.append(fh)
+            self.assertFalse(fh.closed,
+                             "child must receive an OPEN handle to write to")
+
+            class _P:
+                pid = 999
+            return _P()
+
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp), \
+                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
+                 mock.patch.object(cl.subprocess, "Popen", _popen), \
+                 mock.patch.object(cl, "_child_in_leaderboard", return_value=False):
+                cl.node_launch_children(self._state(tmp))
+        self.assertEqual(len(seen), 2, "both children should have launched")
+        for fh in seen:
+            self.assertTrue(fh.closed,
+                            "parent leaked its copy of a child log handle")
 
     def test_thread_id_unique_per_child(self):
         with tempfile.TemporaryDirectory() as td:

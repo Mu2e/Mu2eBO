@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes as _modes  # noqa: E402
-from bo_driver import MODES, FoilsMode  # noqa: E402
+from bo_driver import MODES  # noqa: E402
 from mode_json import load_mode_file  # noqa: E402
 
 
@@ -88,12 +88,13 @@ SAMPLE_X = {
         [175.5, 62.25, 0.5289, 0.0031, 0.7654, 0.1234],
         [250.0, 50.0, 1.0, 0.002, 0.95, 0.0],
     ],
-    "foils": [
-        [120.0, 130.0, 0.10, 0.20, 15.0, 40.0],
-        [50.0, 250.0, 0.01, 1.0, 0.0, 50.0],
-        [175.5, 62.25, 0.5289, 0.0131, 33.75, 4.5],
-        [250.0, 50.0, 1.0, 0.01, 50.0, 0.0],
-    ],
+    # "foils" removed 2026-08-08: FoilsMode was archived (not converted to a
+    # JSON mode -- the whole "foils" line was retired, per
+    # docs/superpowers/specs/2026-08-08-leaderboard-module-design.md), so
+    # TestFoilsParity below (which compared FoilsMode's live renderer against
+    # a would-be JSON replacement) no longer has a subject. Its frozen
+    # golden captures (fixtures/golden_geom/foils_*.txt) are left in place as
+    # a historical record of the retired Python renderer's output.
 }
 
 
@@ -104,33 +105,12 @@ class ParityMixin:
 
     @classmethod
     def setUpClass(cls):
-        # FoilsMode.BASE_HOLE_RADIUS_MM / FIXED_N_UP / FIXED_N_DOWN
-        # (core/bo_driver.py:353,357-358) are CLASS attributes evaluated
-        # from os.environ exactly once, at bo_driver import time -- which
-        # happens during unittest discover's module-import pass, well
-        # before this method ever runs. Popping the env vars here cannot
-        # un-bake a value that is already materialised on the class, so a
-        # pop/restore dance in setUpClass/tearDownClass would silently do
-        # nothing (this was tried and looked like a fix; it wasn't -- it
-        # only "passed" because the ambient shell happened not to set these).
-        # The fixtures freeze base_hole=21.5, n_up=6, n_down=6, so parity is
-        # only DEFINED while the live class is still at those same defaults.
-        # Assert that precondition loudly instead of performing a no-op
-        # cleanup that implies a guarantee it cannot provide.
-        assert FoilsMode.BASE_HOLE_RADIUS_MM == 21.5, (
-            f"FoilsMode.BASE_HOLE_RADIUS_MM == {FoilsMode.BASE_HOLE_RADIUS_MM}, "
-            "not the 21.5 the fixtures freeze. This is a class attribute "
-            "baked from AUTORESEARCH_BASE_HOLE_RADIUS_MM at bo_driver IMPORT "
-            "time, so unsetting it mid-test cannot fix this -- unset "
-            "AUTORESEARCH_BASE_HOLE_RADIUS_MM and start a fresh interpreter.")
-        assert FoilsMode.FIXED_N_UP == 6, (
-            f"FoilsMode.FIXED_N_UP == {FoilsMode.FIXED_N_UP}, not the 6 the "
-            "fixtures freeze. Baked from AUTORESEARCH_N_UP at bo_driver "
-            "IMPORT time -- unset it and start a fresh interpreter.")
-        assert FoilsMode.FIXED_N_DOWN == 6, (
-            f"FoilsMode.FIXED_N_DOWN == {FoilsMode.FIXED_N_DOWN}, not the 6 "
-            "the fixtures freeze. Baked from AUTORESEARCH_N_DOWN at "
-            "bo_driver IMPORT time -- unset it and start a fresh interpreter.")
+        # Used to also assert FoilsMode's env-driven class attributes
+        # (BASE_HOLE_RADIUS_MM/FIXED_N_UP/FIXED_N_DOWN) matched the fixtures'
+        # frozen assumptions -- moot since FoilsMode (and the "foils" line
+        # entirely) was archived 2026-08-08; no Python renderer survives to
+        # diverge from the golden captures. See TestFoilsParity's removal
+        # note by SAMPLE_X above.
         cls.spec = load_mode_file(FIXTURES / f"{cls.mode_name}.json")
 
     def test_same_geometry_as_python_renderer(self):
@@ -246,19 +226,10 @@ class TestFoilsflashParity(ParityMixin, unittest.TestCase):
     mode_name = "foilsflash"
 
 
-class TestFoilsParity(ParityMixin, unittest.TestCase):
-    mode_name = "foils"
-
-    def test_comments_describe_absolute_hole_radii_not_fractions(self):
-        """foils holes are absolute radii (extra_rIn_*, mm); only the
-        foilsf/foilsflash family parameterises them as a fraction of that
-        side's rOut. The fixture's header claimed the fraction semantics
-        (F12)."""
-        text = self.spec.geom.render(SAMPLE_X["foils"][0])
-        comments = "\n".join(ln for ln in text.splitlines()
-                             if ln.startswith("//"))
-        self.assertNotIn("fraction", comments)
-        self.assertNotIn("foilsflash", comments)
+# TestFoilsParity (mode_name="foils") removed 2026-08-08: FoilsMode was
+# archived along with the other four dormant Python-mode adapters, and
+# "foils" was never converted to a JSON mode -- the whole line was retired,
+# not migrated. See SAMPLE_X's removal note above.
 
 
 if __name__ == "__main__":

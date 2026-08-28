@@ -177,6 +177,7 @@ mock-grid branch; helical mode only.
 - Related: [bo-driver](/drivers/bo-driver.md), [preflight](/drivers/preflight.md), [bo-helical](/projects/bo-helical.md), [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [closed-loop-runner](/drivers/closed-loop-runner.md)
 - Wrapped by: [closed-loop-runner](/drivers/closed-loop-runner.md) (multi-round driver spawns q parallel `graph.run` children per round)
 - Per-stage I/O: [pipeline](/drivers/pipeline.md) (idempotent submit/poll/list-outputs/harvest)
+- Runs grid-free with `AUTORESEARCH_LOCAL=1`, inherited by children: [local-executor](/drivers/local-executor.md)
 - Regression tests: [tests](/drivers/tests.md)
 - Source files: `graph/build.py`, `graph/nodes.py`, `graph/pipeline_io.py`, `graph_app/streamlit_app.py`
 - Config: `langgraph.json`, `requirements-graph.txt`
