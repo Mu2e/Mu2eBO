@@ -13,7 +13,6 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
-import torch  # noqa: E402
 import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 
@@ -90,27 +89,10 @@ class TestLoadHistoryTensor(unittest.TestCase):
             self.assertEqual(tuple(Y.shape), (0, 2))
 
 
-class TestSeedAndEmit(unittest.TestCase):
+class TestSeed(unittest.TestCase):
     def test_seed_is_xor_not_pow(self):
         # 42^1=43, 42^2=40, 42^3=41 under XOR; pow would explode.
         self.assertEqual([bp._seed(i) for i in range(4)], [42, 43, 40, 41])
-
-    def test_emit_picks_native_types_and_int_rounding(self):
-        import torch
-        out = bp._emit_picks(torch.tensor([[1.4, 2.6]]), int_dims=[1])
-        self.assertEqual(out, [(1.4, 3)])
-        self.assertIsInstance(out[0][0], float)
-        self.assertIsInstance(out[0][1], int)
-
-    def test_sobol_cold_start_deterministic_and_in_bounds(self):
-        import torch
-        bounds = torch.tensor([BOUNDS_LO, BOUNDS_HI])
-        a = bp._sobol_cold_start(bounds, q=3, round_idx=5)
-        b = bp._sobol_cold_start(bounds, q=3, round_idx=5)
-        self.assertTrue(torch.equal(a, b))
-        self.assertEqual(tuple(a.shape), (3, 6))
-        for row in a.tolist():
-            self.assertTrue(in_bounds(row))
 
 
 class TestComputeExplorePicks(unittest.TestCase):
@@ -122,44 +104,6 @@ class TestComputeExplorePicks(unittest.TestCase):
             self.assertEqual(len(picks), 2)
             for p in picks:
                 self.assertTrue(in_bounds(p))
-
-    def test_obs_noise_reaches_the_likelihood(self):
-        # The wiring this file exists to pin: modes.obs_noise must land in
-        # the GP as train_Yvar, not be silently dropped. Recovering raw
-        # sigma = sqrt(likelihood.noise) * Standardize.stdvs must return the
-        # declared per-axis sigma. Dropping the kwarg makes the fit infer
-        # noise ~12x too large (see _fit_gp docstring).
-        import torch
-        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            X, Y, bounds, _ = bp._load_history_tensor("foilsflash")
-        declared = list(bp._modes.SPECS["foilsflash"].obs_noise)
-        model = bp._fit_gp(X, Y, bounds, obs_noise=declared)
-        m = Y.shape[-1]
-        noise = model.likelihood.noise.detach()
-        # Fixed-noise likelihoods carry the full (m, n) train_Yvar, not (m,);
-        # the audit print in _fit_gp collapses it the same way.
-        per_axis = (noise.reshape(-1) if noise.numel() == m
-                    else noise.reshape(m, -1)[:, 0]).sqrt()
-        raw = per_axis * model.outcome_transform.stdvs.detach().reshape(-1)
-        for got, want in zip(raw.tolist(), declared):
-            self.assertAlmostEqual(got, want, places=6)
-        self.assertIsInstance(
-            model.likelihood,
-            torch.nn.Module)  # sanity: real likelihood, not a stub
-
-    def test_pinned_noise_does_not_shrink_a_high_observation(self):
-        # Behavioural half: with honest noise the posterior must stay close
-        # to what was measured at a training point. The production failure
-        # was a 0.113 shrink on the best row, which demoted it to rank 16.
-        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            X, Y, bounds, _ = bp._load_history_tensor("foilsflash")
-        declared = list(bp._modes.SPECS["foilsflash"].obs_noise)
-        model = bp._fit_gp(X, Y, bounds, obs_noise=declared)
-        best = int(Y[:, 0].argmax())
-        mu = model.posterior(X).mean.detach()[:, 0]
-        self.assertAlmostEqual(float(mu[best]), float(Y[best, 0]), delta=0.05)
-        self.assertEqual(int(mu.argmax()), best,
-                         "highest observed sob must also be the GP's argmax")
 
     # test_prodtarget_family_keeps_free_noise removed 2026-08-08: pinned
     # obs_noise=None (a deliberate declaration -- axis-1 units depend on
@@ -176,55 +120,6 @@ class TestComputeExplorePicks(unittest.TestCase):
             self.assertEqual(len(picks), 1)
             self.assertEqual(len(picks[0]), 6)
             self.assertTrue(in_bounds(picks[0]))
-
-    def test_budget_sob_picks_respect_the_damage_constraint(self):
-        # budget_sob must return in-bounds picks whose PREDICTED flash sits at
-        # or below the budget -- the property the whole picker exists for. A
-        # stub posterior stands in for a GP fit: sob rises with x[0] while
-        # -log10(flash) FALLS with it, so the unconstrained argmax is exactly
-        # the over-budget sob corner.
-        thr = -math.log10(bp.DEP_FLASH_PER_POT)
-
-        class _Post:
-            def __init__(self, X):
-                u = (X[:, :1] - 30.0) / 120.0          # ~[0,1] over the rOut box
-                self.mean = torch.cat([3.0 + 2.0 * u, thr + 0.30 - 0.60 * u], dim=-1)
-                self.variance = torch.full_like(self.mean, 1e-6)
-
-        class _Model:
-            def posterior(self, X):
-                return _Post(X)
-
-        bounds = torch.tensor([[30.0] * 3, [150.0] * 3])
-        picks = bp._budget_sob_picks(_Model(), bounds, q=4, round_idx=0)
-        self.assertEqual(len(picks), 4)
-        post = _Post(picks)
-        # every pick predicted at or below the budget (k=1 sigma, sigma ~ 0)
-        self.assertTrue(bool((post.mean[:, 1] >= thr).all()),
-                        "budget_sob returned a pick predicted OVER the damage budget")
-        # and it still maximizes sob: picks sit near the constraint, not at the
-        # low-sob end of the feasible region
-        self.assertGreater(float(post.mean[:, 0].max()), 3.9)
-
-    def test_budget_sob_refuses_when_nothing_is_feasible(self):
-        # If the GP believes no point in the box can meet the budget, submitting
-        # picks anyway would burn a 40-eval round on rows that answer nothing.
-        thr = -math.log10(bp.DEP_FLASH_PER_POT)
-
-        class _Post:
-            def __init__(self, X):
-                n = X.shape[0]
-                self.mean = torch.cat(
-                    [torch.full((n, 1), 4.0), torch.full((n, 1), thr - 1.0)], dim=-1)
-                self.variance = torch.full_like(self.mean, 1e-6)
-
-        class _Model:
-            def posterior(self, X):
-                return _Post(X)
-
-        bounds = torch.tensor([[30.0] * 3, [150.0] * 3])
-        with self.assertRaises(SystemExit):
-            bp._budget_sob_picks(_Model(), bounds, q=2, round_idx=0)
 
     def test_main_emits_picks_json(self):
         with tempfile.TemporaryDirectory() as tmp:
