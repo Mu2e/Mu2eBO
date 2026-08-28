@@ -9,7 +9,7 @@ package-plus-thin-adapter direction, 2026-08-28)
 ## Goal
 
 Extract the generic half of `core/botorch_predict.py` — GP fit, posterior
-prediction, and the four production pickers — into a standalone,
+prediction, and the production pickers — into a standalone,
 physics-agnostic Python library (`asktell`), plus a reusable MCP server
 scaffold. autoresearch becomes a *client*: it keeps its leaderboards,
 ModeSpec registry, and `-log10` conventions, and feeds the engine plain
@@ -104,14 +104,21 @@ predict(model, X) -> (mean, sigma)
 ask(problem, X, Y, q=5, picker="hybrid", seed=0, pending=None,
     min_spacing=0.10, pool=16384) -> list[list[float]]
     # picker: qnehvi | qlnei | qnparego | hybrid | constrained_max.
-    # seed: replaces round_idx; drives the MC sampler and Sobol streams
-    #   exactly as round_idx does today (same derivation, generic name).
+    # seed: used VERBATIM in every RNG stream (MC sampler, Sobol
+    #   draws, torch.manual_seed) — the engine derives nothing.
+    #   autoresearch passes 42 ^ round_idx from its side (the xor is a
+    #   client convention; see botorch-predict-seed-pow-vs-xor), so all
+    #   streams stay bit-identical to today's.
     # pending: list of x-rows in flight — acquisition pickers fantasize
     #   over them (X_pending); constrained_max spreads away from them.
     # n < 2 -> Sobol cold-start draw (never an error).
     # int_dims rounded in the returned lists (today's _emit_picks).
     # min_spacing/pool apply to constrained_max only (today's
     #   SOB_CORNER_MIN_SPACING=0.10 and N=16384 as defaults).
+    # qnparego: today internal to hybrid (not in PICKER_CHOICES);
+    #   promoted to a standalone choice here. No legacy CLI counterpart,
+    #   so it is excluded from the bit-parity gate — covered transitively
+    #   by hybrid parity plus its own asktell unit tests.
 ```
 
 `constrained_max` (today's `budget_sob`, renamed physics-neutral):
@@ -170,7 +177,8 @@ published `ana` release (the 2.8.0 adoption channel).
    from `tests/test_botorch_predict.py` onto generic fixtures.
 2. **Parity gate:** A/B harness in autoresearch runs old
    `compute_explore_picks` vs `asktell.ask` on the golden fixtures at
-   fixed seeds for all four pickers + cold start — picks must be
+   fixed seeds for the four legacy pickers (qnehvi, qlnei, hybrid,
+   budget_sob-as-constrained_max) + cold start — picks must be
    BIT-IDENTICAL before any old code is deleted. (Known hazard: the
    hybrid picker's scipy ABNORMAL-retry nondeterminism at ~300-row scale
    — wiki/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md
