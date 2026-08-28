@@ -40,6 +40,11 @@ def _root_from_env_or_user(env_var: str, volume: str) -> Path:
 DATA_ROOT = _root_from_env_or_user("AUTORESEARCH_DATA_ROOT", "data")
 ARTIFACT_ROOT = _root_from_env_or_user("AUTORESEARCH_ARTIFACT_ROOT", "app")
 
+# Sibling surrokit checkout (the generic ask/tell engine). Overridable so
+# tests and other operators can point at a different checkout.
+SURROKIT_ROOT = Path(os.environ.get("AUTORESEARCH_SURROKIT")
+                     or REPO_ROOT.parent / "surrokit")
+
 
 def _resolve_backing() -> Path | None:
     """A `backing` symlink in the repo root wins over the env var, so the

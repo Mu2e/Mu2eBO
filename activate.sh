@@ -10,6 +10,9 @@
 #   AUTORESEARCH_VENV=/path/to/venv source activate.sh   # a writable venv
 #   AUTORESEARCH_PYENV="ana 2.9.0"  source activate.sh   # a different release
 #
+# AUTORESEARCH_SURROKIT: path to the surrokit engine checkout
+# (default: the repo's sibling directory ../surrokit; see core/paths.py).
+#
 # Why a published env: a personal /exp venv is one operator's directory, so a
 # second person, a cron job, or a fresh node has nothing to point at.
 # requirements.txt lists WHAT we depend on; the published prefix pins the
