@@ -49,3 +49,6 @@ scikit-learn>=1.6
 # the default ana 2.8.0 interpreter -- nothing to install there. Only a dev
 # venv that wants to run the MCP adapter needs it:
 #   uv pip install "mcp>=2.0"
+# surrokit (the ask/tell engine) is imported from the sibling checkout at
+# $AUTORESEARCH_SURROKIT (default ../surrokit) -- not pip-installed; see
+# core/paths.py and docs/superpowers/specs/2026-08-28-surrokit-engine-design.md

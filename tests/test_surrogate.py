@@ -4,6 +4,7 @@ Reuses the foilsflash fixture leaderboard from test_botorch_predict —
 bo.MODES["foilsflash"].leaderboard is repointed at a tmp TSV; live
 leaderboards are never touched. The MCP test is skipped where the `mcp`
 SDK is absent (it ships in ana 2.8.0 but not in the dev venv)."""
+import asyncio
 import sys
 import tempfile
 import unittest
@@ -95,15 +96,35 @@ class TestBoardStats(unittest.TestCase):
             self.assertAlmostEqual(s["sob_range"][0], 3.0, places=4)
 
 
-@unittest.skipUnless(HAVE_MCP, "mcp SDK not in this interpreter")
+@unittest.skipUnless(HAVE_MCP, "mcp SDK not installed")
 class TestMcpAdapter(unittest.TestCase):
-    def test_tools_registered(self):
-        import asyncio
-        from surrogate import mcp_server
-        tools = asyncio.run(mcp_server.server.list_tools())
-        names = {t.name for t in tools}
-        self.assertEqual(names, {"list_modes", "predict", "suggest",
-                                 "board_stats", "refit"})
+    def test_tool_names(self):
+        import surrogate.mcp_server as ms
+        tools = asyncio.run(ms.server.list_tools())
+        names = sorted(t.name for t in tools)
+        self.assertEqual(names, ["list_problems", "predict", "refit",
+                                 "stats", "suggest"])
+
+
+class TestAutoresearchAdapter(unittest.TestCase):
+    def test_problems_cover_all_modes(self):
+        from surrogate.adapter import AutoresearchAdapter
+        import modes as _modes
+        probs = AutoresearchAdapter().problems()
+        self.assertEqual(sorted(probs), sorted(_modes.SPECS))
+        for name, prob in probs.items():
+            spec = _modes.SPECS[name]
+            self.assertEqual(prob.dim, len(spec.knob_names))
+            self.assertEqual(prob.noise, tuple(spec.obs_noise))
+            self.assertIsNotNone(prob.constraint)
+
+    def test_history_shape_and_meta(self):
+        from surrogate.adapter import AutoresearchAdapter
+        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
+            X, Y, meta = AutoresearchAdapter().history("foilsflash")
+            self.assertEqual(len(X), len(Y))
+            self.assertEqual(len(Y[0]), 2)
+            self.assertIn("objectives", meta)
 
 
 if __name__ == "__main__":

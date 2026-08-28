@@ -27,11 +27,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
-import torch  # noqa: E402
-
 import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 import modes as _modes  # noqa: E402
+
+from paths import SURROKIT_ROOT  # noqa: E402
+sys.path.insert(0, str(SURROKIT_ROOT))
+import surrokit  # noqa: E402
 
 # mode -> (model, n_rows_at_fit). Row count is the invalidation key: the
 # leaderboard is append-only, so "same count" == "same history".
@@ -65,13 +67,13 @@ def modes_info() -> dict:
 def fit(mode: str, refresh: bool = False):
     """Fit (or return the cached) GP for `mode` on its current leaderboard.
 
-    Same fit as production: bp._load_history_tensor + bp._fit_gp with the
-    mode's pinned obs_noise (wiki/incidents/gp-free-noise-erases-champion.md).
+    Same fit as production: bp._load_history_tensor feeds surrokit.fit with
+    the mode's pinned obs_noise (wiki/incidents/gp-free-noise-erases-champion.md).
     Raises RuntimeError below 2 usable history rows — the surrogate has
     nothing to say there (the pickers fall back to Sobol; prediction cannot).
     """
     spec = _spec(mode)
-    X, Y, bounds, _ = bp._load_history_tensor(mode)
+    X, Y, _, _ = bp._load_history_tensor(mode)
     n = X.shape[0]
     cached = _FITS.get(mode)
     if cached is not None and cached[1] == n and not refresh:
@@ -79,7 +81,10 @@ def fit(mode: str, refresh: bool = False):
     if n < 2:
         raise RuntimeError(f"mode={mode}: only {n} usable history rows; "
                            "need >= 2 to fit a GP")
-    model = bp._fit_gp(X, Y, bounds, obs_noise=list(spec.obs_noise))
+    spec_prob = surrokit.Problem(
+        bounds_lo=tuple(spec.bounds_lo), bounds_hi=tuple(spec.bounds_hi),
+        int_dims=tuple(spec.int_dims), noise=tuple(spec.obs_noise))
+    model = surrokit.fit(spec_prob, X.tolist(), Y.tolist())
     _FITS[mode] = (model, n)
     return model
 
@@ -99,19 +104,14 @@ def predict(mode: str, points: list[list[float]]) -> list[dict]:
             raise ValueError(f"point {i} has {len(p)} values; mode={mode} "
                              f"needs {d} ({', '.join(spec.knob_names)})")
     model = fit(mode)
-    Xq = torch.tensor([[float(v) for v in p] for p in points],
-                      dtype=torch.float64)
-    with torch.no_grad():
-        post = model.posterior(Xq)
-        mean = post.mean
-        sig = post.variance.clamp_min(0).sqrt()
+    mean, sig = surrokit.predict(model, [[float(v) for v in p] for p in points])
     m2 = spec.metric_cols[1]
     out = []
     for i in range(len(points)):
-        lm, ls = float(mean[i, 1]), float(sig[i, 1])
+        lm, ls = float(mean[i][1]), float(sig[i][1])
         out.append({
-            "sob_mean": float(mean[i, 0]),
-            "sob_sigma": float(sig[i, 0]),
+            "sob_mean": float(mean[i][0]),
+            "sob_sigma": float(sig[i][0]),
             f"{m2}_mean": 10.0 ** (-lm),
             f"{m2}_lo": 10.0 ** (-(lm + ls)),
             f"{m2}_hi": 10.0 ** (-(lm - ls)),
