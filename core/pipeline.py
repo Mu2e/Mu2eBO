@@ -94,7 +94,8 @@ import prodtools_exec as px  # noqa: E402
 # Per-mode tarball facts live in root modes.py (ADR-0002); an unknown mode is
 # a loud KeyError at import, not a silent default tarball
 # (wiki/incidents/foilsflash-tarball-mode-key-omission.md).
-MUSE_BASE_TARBALL = Path(_modes.SPECS[MODE].grid_tarball)
+MODE_SPEC = _modes.SPECS[MODE]
+MUSE_BASE_TARBALL = Path(MODE_SPEC.grid_tarball)
 USER = os.environ["USER"]
 
 # Prodtools submission ledger (runtime writes live on /data).
@@ -169,9 +170,11 @@ def stage_cfg(stage: str, mode=_STAGE_CFG_DEFAULT_MODE) -> dict:
     return cfg
 
 
-# Every grid stage any mode can name, independent of one mode's
-# GRID_STAGES subset (cross-mode chains need them in --help's choices).
-ALL_STAGES = ("mubeam", "mustops_ce", "elebeam_flash")
+# Every grid stage any mode can name: when stage_defs is present, all
+# stages are derived from the mode spec; otherwise legacy hardcoded list.
+ALL_STAGES = (tuple(MODE_SPEC.stage_defs.keys())
+              if MODE_SPEC.stage_defs
+              else ("mubeam", "mustops_ce", "elebeam_flash"))
 
 
 def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
@@ -236,13 +239,35 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #     lower per-event flash_edep noise (only StepSim CPU + output grow).
 
 
+def _stage_entry_path(stage: str) -> str | None:
+    """Return the entry path from stage_defs, or None for legacy resolution.
+
+    Returns None for the standard `stage_entries/<stage>.json` path so that
+    the normal STAGE_ENTRIES_DIR resolution (and test patches) still works.
+    Only returns a path when stage_defs declares a non-standard location.
+    """
+    if MODE_SPEC.stage_defs:
+        sdef = MODE_SPEC.stage_defs.get(stage)
+        if sdef:
+            standard = f"stage_entries/{stage}.json"
+            if sdef.entry != standard:
+                return sdef.entry
+    return None
+
+
+def _load_stage_entry(stage: str) -> dict:
+    """Load a stage entry, using stage_defs entry path when available."""
+    return px.load_stage_entry(
+        stage, cfg=CONFIG, geom=GEOM_FILE.name,
+        entry_path=_stage_entry_path(stage))
+
+
 def _render_fcl_overrides(stage: str, entry_tmpl: dict | None = None) -> dict:
     """Entry 'fcl_overrides' with the one per-call substitution applied:
     mustops_ce's MaxEventsToSkip (see the mustops_ce.json comment block
     above). `entry_tmpl`: optional pre-loaded px.load_stage_entry() result.
     """
-    entry = entry_tmpl if entry_tmpl is not None else px.load_stage_entry(
-        stage, cfg=CONFIG, geom=GEOM_FILE.name)
+    entry = entry_tmpl if entry_tmpl is not None else _load_stage_entry(stage)
     overrides = dict(entry.get("fcl_overrides", {}))
     if stage == "mustops_ce":
         overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"] = 8000
@@ -521,10 +546,21 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
 
 
 def _input_stage_for(stage: str) -> str:
-    """Which stage's outputs feed `stage`. mubeam's muminusSelector makes
-    TargetStops mu--pure, so mustops_ce resamples the mubeam files directly.
-    One owner for both the grid and --local staging branches."""
-    return "mubeam"
+    """Which stage's outputs feed `stage`.
+
+    When the mode spec provides stage_defs with a `consumes` field, use
+    that directly. Otherwise fall back to the legacy hardcoded logic.
+    Returns "" when the stage has no input stage.
+    """
+    if MODE_SPEC.stage_defs:
+        sdef = MODE_SPEC.stage_defs.get(stage)
+        if sdef and sdef.consumes:
+            return sdef.consumes
+        return ""  # no input stage
+    # Legacy fallback: mustops_ce consumes mubeam; others are independent
+    if stage == "mustops_ce":
+        return "mubeam"
+    return ""
 
 
 def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> Path:
@@ -667,7 +703,7 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
     stage_dir.mkdir(parents=True, exist_ok=True)
     # cfg.get("events") is the ONE source for events; a stage may carry no
     # "events" key, hence the .get().
-    entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
+    entry_tmpl = _load_stage_entry(stage)
     cnf, _tarball, entry_path, _inloc = _render_and_build_cnf(
         stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf, stage_dir=stage_dir,
         env=env, njobs=cfg["njobs"], events=cfg.get("events"),
@@ -693,7 +729,10 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
 # staged_inputs=None; mustops_ce stages the prior stage's outputs via
 # local_input_farm. A stage absent here is refused loudly rather than handed
 # an inputless entry prodtools would accept (a job silently reading nothing).
-LOCAL_SUPPORTED_STAGES = ("mubeam", "elebeam_flash", "mustops_ce")
+# When stage_defs is available, all stages are local-supported.
+LOCAL_SUPPORTED_STAGES = (tuple(MODE_SPEC.stage_defs.keys())
+                          if MODE_SPEC.stage_defs
+                          else ("mubeam", "elebeam_flash", "mustops_ce"))
 
 
 def _require_local_stage(stage: str) -> None:
@@ -847,11 +886,10 @@ def cmd_submit(args):
         njobs, events = _local_scale(args, stage)
 
         staged_inputs = None
-        if stage == "mustops_ce":
-            # Same previous-stage rule as grid staging (_input_stage_for).
-            # The prior stage must have run LOCALLY, or <prev>_outputs.txt
-            # holds /pnfs paths.
-            prev_stage = _input_stage_for(stage)
+        prev_stage = _input_stage_for(stage)
+        if prev_stage:
+            # This stage consumes a prior stage's outputs. The prior stage
+            # must have run LOCALLY, or <prev>_outputs.txt holds /pnfs paths.
             if not local_marker(prev_stage).exists():
                 raise SystemExit(
                     f"[{stage}] consumes {prev_stage}, which has no local "
@@ -874,7 +912,7 @@ def cmd_submit(args):
             staged_inputs = (farm_dir, input_map)
         # Same render/build sequence as grid; only njobs/events differ (LOCAL
         # scale, not stage_cfg). `run` is a fixed cnf run-number.
-        entry_tmpl = px.load_stage_entry(stage, cfg=CONFIG, geom=GEOM_FILE.name)
+        entry_tmpl = _load_stage_entry(stage)
         cnf, tarball, _entry_path, inloc = _render_and_build_cnf(
             stage, cfg, entry_tmpl, desc=desc, dsconf=dsconf,
             stage_dir=stage_dir, env=env, njobs=njobs, events=events,
@@ -914,18 +952,15 @@ def cmd_submit(args):
         return
     env = sourced_env()
     staged_inputs = None
-    if args.stage == "mustops_ce":
-        # input_data requires basenames: hard-link the previous stage's
-        # outputs into a /pnfs stage dir xrootd can resolve.
-        prev_stage = _input_stage_for(args.stage)
+    prev_stage = _input_stage_for(args.stage)
+    if prev_stage:
+        # Consuming stages: hard-link the previous stage's outputs into a
+        # /pnfs stage dir so xrootd can resolve them.
         prev = STATE / f"{prev_stage}_outputs.txt"
         if not prev.exists():
             raise SystemExit(f"Run 'list-outputs {prev_stage}' first to populate {prev.name}")
         sources = [Path(p) for p in prev.read_text().splitlines() if p.strip()]
         staged_dir = stage_hardlink_farm(args.stage, sources)
-        # One input file per job. A >1 merge factor is unvalidated under
-        # prodtools, and mu2ejobdef yielded ZERO jobs when it exceeded the
-        # input count -- no stage in any mode chain merges today.
         staged_inputs = (staged_dir, {p.name: 1 for p in sources})
     submit_stage_prodtools(args.stage, env, staged_inputs=staged_inputs,
                            dry_run=args.dry_run)
@@ -1100,16 +1135,45 @@ def _note_degraded(sec, stage, degraded):
         degraded[stage] = sec.error
 
 
+def _cmd_harvest_generic(args):
+    """Generic harvest: run extractors from mode_specs harvest config."""
+    import extractors as ext_mod  # noqa: E402 — local import to avoid circular
+    for stage in GRID_STAGES:
+        if (STATE / f"{stage}_config_sha.txt").exists():
+            _check_stage_config_sha(stage)
+    env = sourced_env(with_muse=True)
+    harvest_dir = ROOT / "harvest"
+    harvest_dir.mkdir(parents=True, exist_ok=True)
+
+    import paths as _paths  # noqa: E402
+    fhicl_extra = str(_paths.REPO_ROOT)
+
+    fields = ext_mod.run_harvest_config(
+        MODE_SPEC.harvest_config, STATE, harvest_dir, env,
+        stage_defs=MODE_SPEC.stage_defs or {},
+        fhicl_extra_path=fhicl_extra)
+
+    summary = hv.EvalSummary.from_fields(CONFIG, fields)
+    summary.write(harvest_dir)
+    print("\n" + summary.to_json())
+
+
 def cmd_harvest(args):
     """Compute s_over_sqrt_b from the pipeline outputs.
 
-    Steps (mirrors extract_analysis_results.run_rough_run1a_sensitivity_analysis):
+    When the mode spec provides a harvest_config, dispatches to the generic
+    extractor-driven harvest. Otherwise falls back to the legacy hardcoded
+    harvest pipeline.
+
+    Legacy steps (mirrors extract_analysis_results.run_rough_run1a_sensitivity_analysis):
       1. EdepAna on mustops_ce CeEndpoint art files -> nts ROOT + 'Saw N'
       2. Count events in MuminusStopsCat -> muminus_stops
       3. ce_scale = input_corr * (muminus_stops / mubeam_sim_total) / ce_simulated_events
          ce_abs_eff = ce_seen * ce_scale
       4. rough_run1a_sensitivity.C -> parse 'S/sqrt(B) = X'
     """
+    if MODE_SPEC.harvest_config:
+        return _cmd_harvest_generic(args)
     # Check config-sha only for stages this run actually produced (chains
     # differ per mode) -- key off the stamped files, not a per-mode tuple.
     for stage in ALL_STAGES:

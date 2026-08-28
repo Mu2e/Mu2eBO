@@ -232,20 +232,26 @@ def winsorized_diagnostics(per_file: Optional[Sequence[float]], epj: int,
 
 @dataclass
 class EvalSummary:
-    """The explicit contract behind harvest/summary.json.
+    """The contract behind harvest/summary.json.
 
-    Optional fields are fail-soft secondary objectives — None means 'stage
-    absent or extraction degraded'.
+    Supports both the legacy fixed-field schema (for existing modes) and
+    a dynamic-field schema (for modes with harvest_config). The `fields`
+    dict holds all metric values; legacy fields are mirrored as direct
+    attributes for backward compatibility.
     """
     config: str
-    # primary (hard-fail) chain
-    ce_seen: int
-    muminus_stops: int
-    mubeam_sim_total: int
-    ce_simulated_events: int
-    stopping_factor: float
-    ce_abs_eff: float
-    s_over_sqrt_b: float
+    fields: dict = field(default_factory=dict)
+    degraded: dict = field(default_factory=dict)
+
+    # Legacy fixed fields — populated from `fields` when using the generic
+    # harvest path; populated directly by the legacy cmd_harvest path.
+    ce_seen: Optional[int] = None
+    muminus_stops: Optional[int] = None
+    mubeam_sim_total: Optional[int] = None
+    ce_simulated_events: Optional[int] = None
+    stopping_factor: Optional[float] = None
+    ce_abs_eff: Optional[float] = None
+    s_over_sqrt_b: Optional[float] = None
     # flash / bo-foilsflash (fail-soft)
     flash_edep_per_event: Optional[float] = None
     flash_edep_per_pot: Optional[float] = None
@@ -259,13 +265,39 @@ class EvalSummary:
     nts_path: str = ""
     edep_log: str = ""
     macro_log: str = ""
-    # degradation record: stage -> reason, for every fail-softed extraction
-    degraded: dict = field(default_factory=dict)
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), indent=2)
+        d = asdict(self)
+        # Flatten: fields values available at top level for extract_metrics
+        for k, v in d.get("fields", {}).items():
+            if k not in d or d[k] is None:
+                d[k] = v
+        return json.dumps(d, indent=2)
 
     def write(self, harvest_dir: Path) -> Path:
         out = harvest_dir / "summary.json"
         out.write_text(self.to_json())
         return out
+
+    @classmethod
+    def from_fields(cls, config: str, fields: dict) -> "EvalSummary":
+        """Build an EvalSummary from a generic fields dict.
+
+        Maps known field names to the legacy attributes for backward compat.
+        """
+        degraded = fields.pop("degraded", {})
+        legacy_kwargs = {}
+        legacy_keys = (
+            "ce_seen", "muminus_stops", "mubeam_sim_total",
+            "ce_simulated_events", "stopping_factor", "ce_abs_eff",
+            "s_over_sqrt_b", "flash_edep_per_event",
+            "flash_edep_per_pot", "flash_edep_per_pot_winsor",
+            "flash_perfile_stats", "flash_edep_total_MeV",
+            "flash_edep_events", "flash_n_input", "flash_edep_tag",
+            "nts_path", "edep_log", "macro_log",
+        )
+        for key in legacy_keys:
+            if key in fields:
+                legacy_kwargs[key] = fields[key]
+        return cls(config=config, fields=dict(fields),
+                   degraded=degraded, **legacy_kwargs)

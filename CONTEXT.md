@@ -58,8 +58,14 @@ _Avoid_: resolution, running/dead_unresolved/stale_cluster (the retired ChildTra
 **Busy name**:
 A config name the Pool refuses to launch under because an earlier process already resolved it (leaderboard row, `broken.txt`) or still has work in flight for it (`state/*_cluster.txt`, an unresolved pending-TSV row). The Pool skips to the next index and says why (`graph/pool.py::_name_busy_reason`). This is what makes a same-prefix relaunch the safe crash-recovery move.
 
+**StageDef**:
+Per-stage definition in the mode spec (`core/modes.py::StageDef`): desc_fmt, output_glob, entry path, consumes (stage topology), njobs, events_per_job. Replaces the hardcoded stage topology in pipeline.py.
+
+**HarvestConfig**:
+Declarative metric-extraction configuration in the mode spec (`core/modes.py::HarvestConfig`): a sequence of typed `HarvestExtractor` steps (mu2e_module, root_macro, gallery, event_count, histogram, script) plus derived-field expressions and summary schema. Executed by `core/extractors.py::run_harvest_config`.
+
 **Eval summary**:
-The explicit, typed product of harvest (`harvest.EvalSummary` → `harvest/summary.json`): the primary sob chain plus fail-soft secondary objectives, with a `degraded` record of every extraction that fail-softed. The leaderboard row is derived from it.
+The explicit, typed product of harvest (`harvest.EvalSummary` → `harvest/summary.json`): when a mode spec has a `HarvestConfig`, the generic extractor pipeline populates the `fields` dict dynamically; otherwise the legacy sob+flash chain populates fixed attributes. Legacy fields are mirrored for backward compatibility. The leaderboard row is derived from it.
 _Avoid_: "the summary dict" (implicit 26-key contract)
 
 **Preflight**:

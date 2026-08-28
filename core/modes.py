@@ -18,6 +18,70 @@ if TYPE_CHECKING:
     from core.geom_template import GeomTemplate
 
 
+# ---------------------------------------------------------------------------
+# Per-stage and harvest data model (ExtractAna generalization)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class StageDef:
+    """Per-stage definition: everything pipeline.py needs to submit, poll,
+    and collect outputs for one stage.  When present on a ModeSpec, replaces
+    the hardcoded stage topology in pipeline.py."""
+    name: str
+    desc_fmt: str                     # e.g. "Run1A_MuBeam_{cfg}"
+    output_glob: str                  # e.g. "sim.*.TargetStops.*.art"
+    entry: str                        # path to stage_entries JSON, repo-relative
+    consumes: Optional[str] = None    # stage whose outputs feed this one
+    consumes_filter: Optional[str] = None  # substring filter on consumed outputs
+    merge_factor: Optional[int] = None     # for merging stages (concat)
+    njobs: int = 200                  # default number of jobs
+    events_per_job: int = 5000        # default events per job
+    memory_mb: Optional[int] = None   # memory override (MB)
+    quorum: Optional[float] = None    # fraction of jobs required to proceed
+    dsconf_musing: Optional[str] = None  # per-stage dsconf override
+
+
+@dataclass(frozen=True)
+class HarvestExtractor:
+    """One metric-extraction step in the harvest pipeline."""
+    name: str
+    type: str                         # "mu2e_module", "root_macro", "gallery",
+                                      # "event_count", "histogram", "script"
+    stage: Optional[str] = None       # which stage's outputs to consume
+    # mu2e_module type
+    fcl: Optional[str] = None
+    output: Optional[str] = None
+    # root_macro type
+    script: Optional[str] = None
+    args: Optional[Tuple[str, ...]] = None
+    # gallery type
+    collection: Optional[str] = None
+    quantity: Optional[str] = None
+    tags: Optional[Tuple[str, ...]] = None
+    # histogram type
+    histogram_path: Optional[str] = None
+    bin_labels: Optional[Tuple[str, ...]] = None
+    # event_count type
+    count_filter: Optional[str] = None
+    # script type
+    command: Optional[Tuple[str, ...]] = None
+    parse_json: bool = False
+    fields: Optional[Tuple[str, ...]] = None
+    # shared parsing
+    parse_pattern: Optional[str] = None
+    parse_field: Optional[str] = None
+    parse_type: Optional[str] = None  # "int", "float"
+    fail_soft: bool = False
+
+
+@dataclass(frozen=True)
+class HarvestConfig:
+    """Declarative harvest configuration: extractors + derived fields."""
+    extractors: Tuple[HarvestExtractor, ...]
+    derived: Dict[str, str]           # field_name -> expression
+    summary_fields: Tuple[str, ...]   # ordered fields for summary.json
+
+
 @dataclass(frozen=True)
 class ModeSpec:
     """The pure-data half of a Mode (CONTEXT.md: 'ModeSpec')."""
@@ -57,6 +121,15 @@ class ModeSpec:
     metrics: Optional[Dict[str, Tuple[str, ...]]]
     leaderboard_rel: Optional[str]
 
+    # Per-stage definitions and declarative harvest (ExtractAna generalization).
+    # When stage_defs is present, every stage in grid_stages MUST have an
+    # entry; pipeline.py uses these to build stage topology dynamically.
+    # When harvest_config is present, the generic harvest orchestrator runs
+    # extractors and evaluates derived fields; when None, falls back to the
+    # legacy hardcoded cmd_harvest in pipeline.py.
+    stage_defs: Optional[Dict[str, StageDef]] = None
+    harvest_config: Optional[HarvestConfig] = None
+
     def __post_init__(self):
         if self.bounds_lo is not None and not (
                 len(self.knob_names) == len(self.knob_fmts)
@@ -71,6 +144,12 @@ class ModeSpec:
             raise ValueError(
                 f"{self.name}: obs_noise must be 2 positive sigmas "
                 f"(one per GP output axis), got {self.obs_noise!r}")
+        if self.stage_defs is not None:
+            for s in self.grid_stages:
+                if s not in self.stage_defs:
+                    raise ValueError(
+                        f"{self.name}: grid_stages includes {s!r} but "
+                        f"stage_defs has no entry for it")
 
 
 SPECS: Dict[str, ModeSpec] = {}

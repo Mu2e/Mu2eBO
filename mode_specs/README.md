@@ -30,6 +30,28 @@ A file whose name collides with a Python-defined mode (foils, foilsf, foilsflash
 foilsg, prodtarget, prodtarget6d) is a hard error, not an override. So is a
 leaderboard file already claimed by another mode.
 
+## Stage definitions and harvest config
+
+Each mode JSON can declare two additional sections:
+
+- **`run.stage_defs`** — per-stage definitions: `desc_fmt`, `output_glob`,
+  `entry` (repo-relative path to the stage_entries JSON), `consumes` (which
+  stage's outputs feed this one), plus optional `njobs`, `events_per_job`,
+  `memory_mb`, `quorum`, `merge_factor`, `dsconf_musing`. When present, every
+  stage in `run.stages` must have an entry. Pipeline.py builds stage topology
+  dynamically from these instead of using hardcoded logic.
+
+- **`harvest`** (top-level) — declarative metric extraction:
+  - `extractors`: ordered list of typed extraction steps (`mu2e_module`,
+    `root_macro`, `gallery`, `event_count`, `histogram`, `script`)
+  - `derived`: named expressions evaluated after extractors run (safe AST
+    evaluator; built-in helpers `count_files(stage)`, `events_per_job(stage)`,
+    `sqrt`, `log`, `abs`, `min`, `max`)
+  - `summary_fields`: ordered field names for the summary output
+
+When `harvest` is present, `cmd_harvest` dispatches to the generic
+`core/extractors.py` pipeline instead of the legacy hardcoded sob+flash chain.
+
 ## Gotchas
 
 - **Integer knobs still need a float format.** Write `"fmt": "{:.0f}"`, not

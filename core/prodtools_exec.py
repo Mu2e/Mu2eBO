@@ -57,15 +57,24 @@ def _substitute_placeholders(value, mapping: dict, where: str):
 
 
 def load_stage_entry(stage: str, *, cfg: str, geom: str,
-                     entries_dir=None) -> dict:
+                     entries_dir=None, entry_path=None) -> dict:
     """Load stage_entries/<stage>.json with {cfg}/{geom} substituted.
 
     Returns whatever subset of entry fields the stage's JSON declares;
     `_comment` rides along (json2jobdef ignores unknown entry keys).
-    `entries_dir` is a tests-only override.
+    `entries_dir` is a tests-only override. `entry_path` is the explicit
+    repo-relative path from stage_defs.entry; entries_dir still wins when
+    set (tests need to patch the resolution root).
     """
-    d = Path(entries_dir) if entries_dir is not None else STAGE_ENTRIES_DIR
-    path = d / f"{stage}.json"
+    if entries_dir is not None:
+        # Test override: always resolve from the patched directory.
+        d = Path(entries_dir)
+        path = d / f"{stage}.json"
+    elif entry_path is not None:
+        from paths import REPO_ROOT
+        path = REPO_ROOT / entry_path
+    else:
+        path = STAGE_ENTRIES_DIR / f"{stage}.json"
     if not path.exists():
         raise SystemExit(
             f"stage_entries: no template for stage {stage!r} at {path}")
