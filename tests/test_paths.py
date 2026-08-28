@@ -152,15 +152,8 @@ class TestEveryModuleAgreesOnTheRoot(unittest.TestCase):
     def test_core_modules_use_the_resolver(self):
         import bo_driver
         import botorch_predict
-        import harvest
-        import pipeline
         self.assertEqual(bo_driver.ROOT, paths.REPO_ROOT)
-        self.assertEqual(pipeline.AUTORESEARCH, paths.REPO_ROOT)
         self.assertEqual(botorch_predict.AUTORESEARCH, paths.REPO_ROOT)
-        # harvest anchors on the muse work area, not the repo: Run1BAna is a
-        # backing-resolved ARTIFACT (gitignored), so a fresh clone has none.
-        self.assertEqual(harvest.MUSE_WORKAREA,
-                         paths.artifact("autoresearch_muse"))
 
     def test_propose_and_preflight_scratch_is_not_in_the_repo(self):
         """Runtime OUTPUT never anchors on REPO_ROOT.

@@ -1,44 +1,15 @@
 """Unit tests for harvest.py — the Eval-summary module.
 
-Runs grid-free: extractor runners are injected fakes, state dirs are tmpdirs.
-Covers the branches that previously lived untested inside cmd_harvest
-(FP-1/FP-2 of the 2026-07-11 architecture re-survey), including the two
-incident regression: EdepAna scientific-notation counts.
+Tests the generic EvalSummary schema and utility functions.
 """
+import json as _json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import harvest  # noqa: E402
-
-
-class TestParsers(unittest.TestCase):
-    def test_edepana_plain_int(self):
-        self.assertEqual(
-            harvest.parse_edepana_saw("EdepAna summary: Saw 576070 events"),
-            576070)
-
-    def test_edepana_scientific_notation(self):
-        # incident: edepana-saw-events-scientific-notation-parse — %g output
-        # at >1M events must parse.
-        self.assertEqual(
-            harvest.parse_edepana_saw("EdepAna summary: Saw 2.70937e+06 events"),
-            2709370)
-
-    def test_edepana_missing_raises(self):
-        with self.assertRaises(ValueError):
-            harvest.parse_edepana_saw("no summary line here")
-
-    def test_s_over_sqrt_b(self):
-        out = "junk\nSignal box [103.85,105.1]: S/sqrt(B) = 3.78\ntrailer"
-        self.assertEqual(harvest.parse_s_over_sqrt_b(out), 3.78)
-
-    def test_s_over_sqrt_b_missing_raises(self):
-        with self.assertRaises(ValueError):
-            harvest.parse_s_over_sqrt_b("Signal box but no metric")
 
 
 def _write_outputs(state: Path, stage: str, names):
@@ -46,26 +17,24 @@ def _write_outputs(state: Path, stage: str, names):
         "\n".join(f"/pnfs/fake/{n}" for n in names) + "\n")
 
 
-class TestResolveMuminusInputs(unittest.TestCase):
-    def test_uses_mubeam_targetstops(self):
+class TestReadOutputs(unittest.TestCase):
+    def test_reads_non_blank_lines(self):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d)
             _write_outputs(state, "mubeam",
                            ["sim.x.TargetStops.a.art", "nts.x.mubeam.a.root"])
-            files = harvest.resolve_muminus_inputs(state)
-            self.assertEqual([f.name for f in files], ["sim.x.TargetStops.a.art"])
+            files = harvest.read_outputs(state, "mubeam")
+            self.assertEqual(len(files), 2)
 
-    def test_missing_mubeam_outputs_raises(self):
+    def test_absent_returns_none(self):
         with tempfile.TemporaryDirectory() as d:
-            with self.assertRaises(SystemExit):
-                harvest.resolve_muminus_inputs(Path(d))
+            self.assertIsNone(harvest.read_outputs(Path(d), "mubeam"))
 
-    def test_no_targetstops_match_raises(self):
+    def test_blank_returns_empty_list(self):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d)
-            _write_outputs(state, "mubeam", ["nts.x.mubeam.a.root"])
-            with self.assertRaises(SystemExit):
-                harvest.resolve_muminus_inputs(state)
+            (state / "mubeam_outputs.txt").write_text("\n\n")
+            self.assertEqual(harvest.read_outputs(state, "mubeam"), [])
 
 
 class TestEventsPerJob(unittest.TestCase):
@@ -81,202 +50,47 @@ class TestEventsPerJob(unittest.TestCase):
             self.assertEqual(harvest.events_per_job(Path(d), "mubeam", 5000), 5000)
 
 
-class TestExtractSecondaryEdep(unittest.TestCase):
-    def test_absent_stage_returns_none(self):
-        with tempfile.TemporaryDirectory() as d:
-            self.assertIsNone(harvest.extract_secondary_edep(
-                Path(d), "elebeam_flash", runner=lambda files: (0, 0, 0, "", [])))
-
-    def test_blank_outputs_records_error(self):
-        with tempfile.TemporaryDirectory() as d:
-            state = Path(d)
-            (state / "elebeam_flash_outputs.txt").write_text("\n")
-            res = harvest.extract_secondary_edep(
-                state, "elebeam_flash", runner=lambda files: (0, 0, 0, "", []))
-            self.assertIsNotNone(res.error)
-            self.assertIsNone(res.total_MeV)
-
-    def test_runner_exception_fail_softs(self):
-        with tempfile.TemporaryDirectory() as d:
-            state = Path(d)
-            _write_outputs(state, "elebeam_flash", ["a.art", "b.art"])
-
-            def boom(files):
-                raise RuntimeError("NFS RPC hang, allegedly")
-
-            res = harvest.extract_secondary_edep(state, "elebeam_flash", runner=boom)
-            self.assertIn("NFS RPC hang", res.error)
-            self.assertEqual(res.n_files, 2)
-            self.assertIsNone(res.total_MeV)
-
-    def test_success_populates_metric(self):
-        with tempfile.TemporaryDirectory() as d:
-            state = Path(d)
-            _write_outputs(state, "elebeam_flash", ["a.art", "b.art"])
-            res = harvest.extract_secondary_edep(
-                state, "elebeam_flash",
-                runner=lambda files: (0.5, 100.0, 200, "makeSGS", [40.0, 60.0]))
-            self.assertIsNone(res.error)
-            self.assertEqual(res.total_MeV, 100.0)
-            self.assertEqual(res.per_file, [40.0, 60.0])
-            self.assertEqual(res.n_files, 2)
-
-
-class TestPerPotAndWinsor(unittest.TestCase):
-    def test_per_pot_math(self):
-        val, n_input = harvest.per_pot(total_MeV=248.436, n_files=188, epj=110000)
-        self.assertEqual(n_input, 188 * 110000)
-        self.assertAlmostEqual(val, 248.436 / (188 * 110000 * harvest.POT_PER_ELECTRON))
-
-    def test_per_pot_none_on_missing(self):
-        self.assertEqual(harvest.per_pot(None, 188, 110000), (None, None))
-        self.assertEqual(harvest.per_pot(1.0, 0, 110000), (None, None))
-
-    def test_winsor_below_min_files(self):
-        self.assertEqual(harvest.winsorized_diagnostics([1.0] * 9, 110000),
-                         (None, None))
-
-    def test_winsor_clips_tail(self):
-        # 20 files: one huge outlier; winsorized mean must sit well below the
-        # plain mean, and stats must record the raw spread.
-        per_file = [1.0] * 19 + [100.0]
-        wm, stats = harvest.winsorized_diagnostics(per_file, epj=1)
-        plain = sum(per_file) / len(per_file)  # 5.95
-        # k = max(1, int(0.05*20)) = 1 → clip to [v[1], v[-2]] = [1.0, 1.0]
-        self.assertAlmostEqual(wm, 1.0 / harvest.POT_PER_ELECTRON)
-        self.assertLess(wm, plain / harvest.POT_PER_ELECTRON)
-        self.assertEqual(stats["n_files"], 20)
-        self.assertEqual(stats["max"], 100.0)
-        self.assertGreater(stats["sd_over_mean"], 1.0)
-
-    def test_winsor_matches_legacy_inline_algorithm(self):
-        # Bit-parity with the pipeline.py:1421-1436 inline math it replaces.
-        per_file = [3.1, 2.9, 3.3, 2.7, 3.0, 3.2, 2.8, 3.05, 2.95, 3.15,
-                    9.0, 0.1]
-        epj = 110000
-        v = sorted(per_file)
-        k = max(1, int(0.05 * len(v)))
-        lo, hi = v[k], v[-k - 1]
-        w = [min(max(x, lo), hi) for x in per_file]
-        legacy = (sum(w) / len(w)) / (epj * harvest.POT_PER_ELECTRON)
-        wm, _ = harvest.winsorized_diagnostics(per_file, epj=epj)
-        self.assertAlmostEqual(wm, legacy)
-
-
 class TestEvalSummarySchema(unittest.TestCase):
-    LEGACY_KEYS = {
-        "config", "ce_seen", "muminus_stops", "mubeam_sim_total",
-        "ce_simulated_events", "stopping_factor", "ce_abs_eff",
-        "s_over_sqrt_b", "flash_edep_per_event",
-        "flash_edep_per_pot", "flash_edep_per_pot_winsor",
-        "flash_perfile_stats", "flash_edep_total_MeV", "flash_edep_events",
-        "flash_n_input", "flash_edep_tag", "nts_path", "edep_log",
-        "macro_log",
-    }
+    """Test the generic EvalSummary schema."""
 
     def _minimal(self):
-        return harvest.EvalSummary(
-            config="testcfg", ce_seen=576070, muminus_stops=238912,
-            mubeam_sim_total=2800000, ce_simulated_events=1050000,
-            stopping_factor=0.0853, ce_abs_eff=5.98e-4, s_over_sqrt_b=3.78)
+        return harvest.EvalSummary.from_fields("testcfg", {
+            "ce_seen": 576070,
+            "muminus_stops": 238912,
+            "mubeam_sim_total": 2800000,
+            "ce_simulated_events": 1050000,
+            "stopping_factor": 0.0853,
+            "ce_abs_eff": 5.98e-4,
+            "s_over_sqrt_b": 3.78,
+        })
 
-    def test_all_legacy_keys_present(self):
-        # Every key the current cmd_harvest writes must survive the
-        # refactor — downstream (extract_metrics, evaluate node, humans)
-        # reads summary.json positionally by name.
-        import json as _json
-        keys = set(_json.loads(self._minimal().to_json()).keys())
-        missing = self.LEGACY_KEYS - keys
-        self.assertFalse(missing, f"legacy summary keys missing: {missing}")
+    def test_fields_flattened_to_top_level(self):
+        """Fields from the generic harvest must appear at the top level of
+        summary.json so that extract_metrics can read them by key name."""
+        data = _json.loads(self._minimal().to_json())
+        self.assertEqual(data["config"], "testcfg")
+        self.assertEqual(data["s_over_sqrt_b"], 3.78)
+        self.assertEqual(data["ce_seen"], 576070)
+        self.assertEqual(data["degraded"], {})
 
     def test_write_and_reload(self):
-        import json as _json
         with tempfile.TemporaryDirectory() as d:
             out = self._minimal().write(Path(d))
             data = _json.loads(out.read_text())
             self.assertEqual(data["config"], "testcfg")
             self.assertEqual(data["s_over_sqrt_b"], 3.78)
-            self.assertIsNone(data["flash_edep_per_pot"])
-            self.assertEqual(data["degraded"], {})
 
+    def test_from_fields_extracts_degraded(self):
+        fields = {"metric_a": 1.0, "degraded": {"flash": "no outputs"}}
+        summary = harvest.EvalSummary.from_fields("cfg", fields)
+        self.assertEqual(summary.degraded, {"flash": "no outputs"})
+        self.assertEqual(summary.fields["metric_a"], 1.0)
+        self.assertNotIn("degraded", summary.fields)
 
-class TestRunEdepana(unittest.TestCase):
-    def _runner(self, rc=0, stdout="x\nEdepAna summary: Saw 12345 events\ny"):
-        calls = []
-        def run(cmd, cwd):
-            calls.append((cmd, cwd))
-            return SimpleNamespace(returncode=rc, stdout=stdout, stderr="e")
-        run.calls = calls
-        return run
-
-    def test_success_writes_artifacts_and_parses_count(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            hd = Path(tmp)
-            runner = self._runner()
-            ce_seen, nts = harvest.run_edepana(hd, [Path("/a/f1.art"),
-                                               Path("/a/f2.art")],
-                                          runner=runner)
-            self.assertEqual(ce_seen, 12345)
-            self.assertEqual(nts, hd / "nts.ce.root")
-            self.assertEqual((hd / "ce_files.txt").read_text(),
-                             "/a/f1.art\n/a/f2.art\n")
-            wrapper = (hd / "edep_wrapper.fcl").read_text()
-            self.assertIn('#include "Run1BAna/workflows/fcl/edep.fcl"',
-                          wrapper)
-            self.assertIn('fileName: "nts.ce.root"', wrapper)
-            self.assertIn("Saw 12345 events", (hd / "edep.log").read_text())
-            cmd, cwd = runner.calls[0]
-            self.assertEqual(cmd[0], "mu2e")
-            self.assertEqual(cwd, hd)
-
-    def test_scientific_notation_count(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            runner = self._runner(
-                stdout="EdepAna summary: Saw 2.70937e+06 events")
-            ce_seen, _ = harvest.run_edepana(Path(tmp), [Path("/a/f.art")],
-                                        runner=runner)
-            self.assertEqual(ce_seen, 2709370)
-
-    def test_nonzero_rc_hard_fails_with_log_path(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(SystemExit) as cm:
-                harvest.run_edepana(Path(tmp), [Path("/a/f.art")],
-                               runner=self._runner(rc=9))
-            self.assertIn("edep.log", str(cm.exception))
-
-    def test_unparseable_count_hard_fails(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(SystemExit):
-                harvest.run_edepana(Path(tmp), [Path("/a/f.art")],
-                               runner=self._runner(stdout="no count here"))
-
-
-class TestRunSensitivityMacro(unittest.TestCase):
-    def _runner(self, rc=0,
-               stdout="Signal box [103.85,105.1]: S/sqrt(B) = 3.140"):
-        calls = []
-        def run(cmd, cwd):
-            calls.append((cmd, cwd))
-            return SimpleNamespace(returncode=rc, stdout=stdout, stderr="")
-        run.calls = calls
-        return run
-
-    def test_success_parses_and_uses_workflows_cwd(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            runner = self._runner()
-            val = harvest.run_sensitivity_macro(Path(tmp), Path("/n/nts.root"),
-                                           0.0123, runner=runner)
-            self.assertAlmostEqual(val, 3.140)
-            cmd, cwd = runner.calls[0]
-            self.assertEqual(cwd, harvest.SENSITIVITY_MACRO.parent.parent)
-            self.assertIn("/n/nts.root", cmd[-1])
-            self.assertIn("0.0123", cmd[-1])
-
-    def test_nonzero_rc_hard_fails(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(SystemExit):
-                harvest.run_sensitivity_macro(Path(tmp), Path("/n/nts.root"),
-                                         0.0123, runner=self._runner(rc=1))
+    def test_from_fields_empty_degraded_default(self):
+        summary = harvest.EvalSummary.from_fields("cfg", {"x": 42})
+        self.assertEqual(summary.degraded, {})
+        self.assertEqual(summary.fields["x"], 42)
 
 
 if __name__ == "__main__":

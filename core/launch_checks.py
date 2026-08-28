@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import harvest  # noqa: E402
+
 import modes  # noqa: E402
 import paths  # noqa: E402
 
@@ -191,8 +191,7 @@ def check_prereqs(mode: str) -> str | None:
     every job -- local ones too.
     """
     try:
-        paths.verify([modes.SPECS[mode]], extra=harvest.REQUIRED_ARTIFACTS,
-                     make_dirs=False)
+        paths.verify([modes.SPECS[mode]], make_dirs=False)
         paths.prodtools_root()
     except KeyError:
         return (f"unknown mode {mode!r} -- known modes: "

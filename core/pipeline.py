@@ -170,11 +170,8 @@ def stage_cfg(stage: str, mode=_STAGE_CFG_DEFAULT_MODE) -> dict:
     return cfg
 
 
-# Every grid stage any mode can name: when stage_defs is present, all
-# stages are derived from the mode spec; otherwise legacy hardcoded list.
-ALL_STAGES = (tuple(MODE_SPEC.stage_defs.keys())
-              if MODE_SPEC.stage_defs
-              else ("mubeam", "mustops_ce", "elebeam_flash"))
+# Every grid stage the current mode can name, derived from the mode spec.
+ALL_STAGES = tuple(MODE_SPEC.stage_defs.keys())
 
 
 def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
@@ -240,18 +237,17 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 
 
 def _stage_entry_path(stage: str) -> str | None:
-    """Return the entry path from stage_defs, or None for legacy resolution.
+    """Return the entry path from stage_defs.
 
     Returns None for the standard `stage_entries/<stage>.json` path so that
     the normal STAGE_ENTRIES_DIR resolution (and test patches) still works.
     Only returns a path when stage_defs declares a non-standard location.
     """
-    if MODE_SPEC.stage_defs:
-        sdef = MODE_SPEC.stage_defs.get(stage)
-        if sdef:
-            standard = f"stage_entries/{stage}.json"
-            if sdef.entry != standard:
-                return sdef.entry
+    sdef = MODE_SPEC.stage_defs.get(stage)
+    if sdef:
+        standard = f"stage_entries/{stage}.json"
+        if sdef.entry != standard:
+            return sdef.entry
     return None
 
 
@@ -546,20 +542,13 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
 
 
 def _input_stage_for(stage: str) -> str:
-    """Which stage's outputs feed `stage`.
+    """Which stage's outputs feed `stage`, from stage_defs.consumes.
 
-    When the mode spec provides stage_defs with a `consumes` field, use
-    that directly. Otherwise fall back to the legacy hardcoded logic.
     Returns "" when the stage has no input stage.
     """
-    if MODE_SPEC.stage_defs:
-        sdef = MODE_SPEC.stage_defs.get(stage)
-        if sdef and sdef.consumes:
-            return sdef.consumes
-        return ""  # no input stage
-    # Legacy fallback: mustops_ce consumes mubeam; others are independent
-    if stage == "mustops_ce":
-        return "mubeam"
+    sdef = MODE_SPEC.stage_defs.get(stage)
+    if sdef and sdef.consumes:
+        return sdef.consumes
     return ""
 
 
@@ -729,10 +718,8 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
 # staged_inputs=None; mustops_ce stages the prior stage's outputs via
 # local_input_farm. A stage absent here is refused loudly rather than handed
 # an inputless entry prodtools would accept (a job silently reading nothing).
-# When stage_defs is available, all stages are local-supported.
-LOCAL_SUPPORTED_STAGES = (tuple(MODE_SPEC.stage_defs.keys())
-                          if MODE_SPEC.stage_defs
-                          else ("mubeam", "elebeam_flash", "mustops_ce"))
+# All stages declared in the mode spec are local-supported.
+LOCAL_SUPPORTED_STAGES = tuple(MODE_SPEC.stage_defs.keys())
 
 
 def _require_local_stage(stage: str) -> None:
@@ -1013,131 +1000,10 @@ def cmd_list_outputs(args):
           f"unknown={wait.get('unknown', [])}) -> {outputs_file}")
 
 
-# Fraction of upstream POT surviving into the MuBeamCat resampler input;
-# converts per-simulated-event yields to per-POT.
-RUN1A_MUBEAM_INPUT_CORRECTION = hv.RUN1A_MUBEAM_INPUT_CORRECTION  # single source in harvest.py
 
-from paths import REPO_ROOT as AUTORESEARCH  # see core/paths.py
-
-# Tracker StrawGasStep ionizing-Edep extractor (foilsflash objective). Uses
-# gallery: uproot can't read StrawGasStep (wiki
-# uproot-cannot-read-steppointmc). InputTag auto-discovered from candidates.
-_TRK_EDEP_CANDIDATE_TAGS = ("compressDetStepMCs", "compressDetStepMCs:tracker",
-                            "makeSGS")
-_TRK_EDEP_EXTRACT_SCRIPT = r"""
-import json, sys
-import ROOT
-ROOT.gSystem.Load("libgallery")
-data = json.loads(sys.stdin.read())
-files, tags = data["files"], data["tags"]
-# One gallery.Event PER FILE (2026-07-10): per-file totals feed the
-# Winsorized robust flash estimate (per-job tails are 25-35% and a plain
-# mean is maximally tail-sensitive — see bo-noise-budget run-level sigma).
-# Templated gallery method MUST use the [Type] subscript idiom in PyROOT;
-# getValidHandle(<type-object>) fails template resolution (2026-06-19).
-total = 0.0; n_events = 0; used = ""; per_file = []
-for path in files:
-    fv = ROOT.vector("string")()
-    fv.push_back(path)
-    try:
-        ev = ROOT.gallery.Event(fv)
-        getH = ev.getValidHandle[ROOT.std.vector("mu2e::StrawGasStep")]
-    except Exception as e:
-        print("TRKEDEP_RESULT " + json.dumps({"error": "gallery/StrawGasStep init (%s): %s" % (path, e)})); sys.exit(0)
-    cand = list(zip(tags, [ROOT.art.InputTag(t) for t in tags]))
-    ftot = 0.0; fn = 0
-    while not ev.atEnd():
-        prod = None
-        trylist = [(used, ROOT.art.InputTag(used))] if used else cand
-        for tname, it in trylist:
-            try:
-                prod = getH(it).product(); used = tname; break
-            except Exception:
-                continue
-        if prod is not None:
-            for s in prod:
-                try:
-                    ftot += s.ionizingEdep()
-                except Exception:
-                    pass
-        fn += 1
-        ev.next()
-    per_file.append(ftot)
-    total += ftot; n_events += fn
-print("TRKEDEP_RESULT " + json.dumps({"total_edep_MeV": total, "n_events": n_events, "tag": used, "per_file": per_file}))
-"""
-
-
-def _extract_trk_edep_per_pot(pileup_files, env):
-    """Mean tracker StrawGasStep ionizing Edep (MeV) per event. Gallery needs
-    the muse env, so shell out to a python subprocess inheriting `env`."""
-    if not pileup_files:
-        return None, None, None, None
-    proc = subprocess.run(
-        ["python3", "-c", _TRK_EDEP_EXTRACT_SCRIPT],
-        input=json.dumps({"files": [str(p) for p in pileup_files],
-                          "tags": list(_TRK_EDEP_CANDIDATE_TAGS)}),
-        env=env, capture_output=True, text=True, check=True,
-    )
-    # gallery/xrootd prints to stdout AFTER our result -- don't trust the
-    # last line; find the sentinel-prefixed one.
-    marker = [ln for ln in proc.stdout.splitlines() if ln.startswith("TRKEDEP_RESULT ")]
-    if not marker:
-        raise RuntimeError(f"no TRKEDEP_RESULT line in extractor stdout; tail={proc.stdout.strip()[-200:]}")
-    result = json.loads(marker[-1][len("TRKEDEP_RESULT "):])
-    if "error" in result:
-        raise RuntimeError(result["error"])
-    total = result["total_edep_MeV"]
-    n_events = result["n_events"]
-    per_file = result.get("per_file")
-    if not n_events:
-        return None, total, n_events, result.get("tag"), per_file
-    return total / n_events, total, n_events, result.get("tag"), per_file
-
-
-
-def _events_per_job(stage: str) -> int:
-    """events_per_job actually used at submit time (stamped file, falling
-    back to stage_cfg for pre-stamp chains) -- editing the JSON between
-    submit and harvest otherwise mis-scales every derived metric
-    (wiki/incidents/events-per-job-mid-flight-edit.md).
-    """
-    return hv.events_per_job(STATE, stage, stage_cfg(stage, MODE)["events"])
-
-
-
-def _count_events_art(art_path: Path, env: dict, harvest_dir: Path) -> int:
-    """Run a tiny mu2e job that just opens art_path and reports events."""
-    fcl = harvest_dir / "count_events.fcl"
-    fcl.write_text(
-        '#include "Offline/fcl/minimalMessageService.fcl"\n'
-        "process_name: count\n"
-        "source: { module_type: RootInput }\n"
-        "services: { message: @local::default_message }\n"
-        "physics: {}\n"
-    )
-    log = harvest_dir / f"count_{art_path.stem}.log"
-    proc = subprocess.run(
-        ["mu2e", "-c", str(fcl), "-s", str(art_path), "-n", "-1"],
-        cwd=harvest_dir, env=env, capture_output=True, text=True, check=True,
-    )
-    log.write_text(proc.stdout + "\n=== STDERR ===\n" + proc.stderr)
-    m = re.search(r"TrigReport Events total =\s*(\d+)", proc.stdout)
-    if not m:
-        raise SystemExit(f"could not parse event count from {art_path} (see {log})")
-    return int(m.group(1))
-
-
-def _note_degraded(sec, stage, degraded):
-    """Record a fail-softed secondary extraction: echo + stamp degraded."""
-    if sec.error:
-        print(f"    {sec.error}")
-        degraded[stage] = sec.error
-
-
-def _cmd_harvest_generic(args):
-    """Generic harvest: run extractors from mode_specs harvest config."""
-    import extractors as ext_mod  # noqa: E402 — local import to avoid circular
+def cmd_harvest(args):
+    """Run extractors from mode_specs harvest config to compute metrics."""
+    import extractors as ext_mod  # noqa: E402
     for stage in GRID_STAGES:
         if (STATE / f"{stage}_config_sha.txt").exists():
             _check_stage_config_sha(stage)
@@ -1150,143 +1016,10 @@ def _cmd_harvest_generic(args):
 
     fields = ext_mod.run_harvest_config(
         MODE_SPEC.harvest_config, STATE, harvest_dir, env,
-        stage_defs=MODE_SPEC.stage_defs or {},
+        stage_defs=MODE_SPEC.stage_defs,
         fhicl_extra_path=fhicl_extra)
 
     summary = hv.EvalSummary.from_fields(CONFIG, fields)
-    summary.write(harvest_dir)
-    print("\n" + summary.to_json())
-
-
-def cmd_harvest(args):
-    """Compute s_over_sqrt_b from the pipeline outputs.
-
-    When the mode spec provides a harvest_config, dispatches to the generic
-    extractor-driven harvest. Otherwise falls back to the legacy hardcoded
-    harvest pipeline.
-
-    Legacy steps (mirrors extract_analysis_results.run_rough_run1a_sensitivity_analysis):
-      1. EdepAna on mustops_ce CeEndpoint art files -> nts ROOT + 'Saw N'
-      2. Count events in MuminusStopsCat -> muminus_stops
-      3. ce_scale = input_corr * (muminus_stops / mubeam_sim_total) / ce_simulated_events
-         ce_abs_eff = ce_seen * ce_scale
-      4. rough_run1a_sensitivity.C -> parse 'S/sqrt(B) = X'
-    """
-    if MODE_SPEC.harvest_config:
-        return _cmd_harvest_generic(args)
-    # Check config-sha only for stages this run actually produced (chains
-    # differ per mode) -- key off the stamped files, not a per-mode tuple.
-    for stage in ALL_STAGES:
-        if (STATE / f"{stage}_config_sha.txt").exists():
-            _check_stage_config_sha(stage)
-    env = sourced_env(with_muse=True)
-    harvest_dir = ROOT / "harvest"
-    harvest_dir.mkdir(parents=True, exist_ok=True)
-
-    ce_files = hv.read_outputs(STATE, "mustops_ce") or []
-    if not ce_files:
-        raise SystemExit("No mustops_ce outputs to harvest")
-    muminus_files = hv.resolve_muminus_inputs(STATE)
-
-    # Denominators derive from the files actually harvested, NOT configured
-    # njobs: lost jobs (OOM, held) would bias ce_abs_eff / s_over_sqrt_b
-    # high by the loss fraction. wiki/incidents/harvest-denominator-bug.md.
-    mubeam_files = hv.read_outputs(STATE, "mubeam") or []
-    mubeam_sim_total = len(mubeam_files) * _events_per_job("mubeam")
-    ce_simulated_events = len(ce_files) * _events_per_job("mustops_ce")
-
-    print(">>> Step 1: EdepAna on CeEndpoint outputs")
-    def _mu2e_runner(cmd, cwd):
-        return subprocess.run(
-            cmd, cwd=cwd,
-            env={**env, "FHICL_FILE_PATH":
-                 f"{AUTORESEARCH}:{env.get('FHICL_FILE_PATH', '')}"},
-            capture_output=True, text=True, check=False)
-    ce_seen, nts_path = hv.run_edepana(harvest_dir, ce_files,
-                                       runner=_mu2e_runner)
-    edep_log = harvest_dir / "edep.log"  # path hv.run_edepana wrote; summary needs it
-
-    print(">>> Step 2: counting events in MuminusStopsCat")
-    muminus_stops = sum(_count_events_art(f, env, harvest_dir) for f in muminus_files)
-
-    stopping_factor = muminus_stops / mubeam_sim_total
-    ce_scale = RUN1A_MUBEAM_INPUT_CORRECTION * stopping_factor / ce_simulated_events
-    ce_abs_eff = ce_seen * ce_scale
-
-    print(f"    ce_seen             = {ce_seen}")
-    print(f"    muminus_stops       = {muminus_stops}")
-    print(f"    mubeam_sim_total    = {mubeam_sim_total}")
-    print(f"    ce_simulated_events = {ce_simulated_events}")
-    print(f"    stopping_factor     = {stopping_factor:.6g}")
-    print(f"    ce_abs_eff          = {ce_abs_eff:.6g}")
-
-    print(">>> Step 4: rough_run1a_sensitivity.C")
-    def _root_runner(cmd, cwd):
-        return subprocess.run(cmd, cwd=cwd, env=env,
-                              capture_output=True, text=True, check=False)
-    s_over_sqrt_b = hv.run_sensitivity_macro(harvest_dir, nts_path,
-                                             ce_abs_eff, runner=_root_runner)
-    macro_log = harvest_dir / "rough_run1a_sensitivity.log"  # path hv wrote; summary needs it
-
-    degraded: dict = {}  # stage -> reason, for every fail-softed extraction
-    # Step 5: EARLY-FLASH StrawGasStep Edep (foilsflash 2nd objective);
-    # present only when the chain ran elebeam_flash (un-prescaled, so the
-    # total is the FULL early flash). Objective = flash_edep_per_pot = total
-    # / (n_input_electrons * POT_PER_ELECTRON); per-event mean is BLIND to
-    # rate, kept as a diagnostic. Fail-soft.
-    print(">>> Step 5: tracker StrawGasStep Edep from elebeam_flash (early) outputs")
-    flash = hv.extract_secondary_edep(
-        STATE, "elebeam_flash",
-        runner=lambda files: _extract_trk_edep_per_pot(files, env)) \
-        or hv.SecondaryEdep()
-    flash_edep_per_event = flash.per_event
-    flash_edep_total_MeV = flash.total_MeV
-    flash_edep_events = flash.n_events
-    flash_edep_tag = flash.tag
-    _note_degraded(flash, "elebeam_flash", degraded)
-    # POT denominator = landed files x stamped events_per_job x
-    # POT_PER_ELECTRON -- see events-per-job incident.
-    epj_flash = _events_per_job("elebeam_flash")
-    flash_edep_per_pot, flash_n_input = hv.per_pot(
-        flash_edep_total_MeV, flash.n_files, epj_flash)
-    # Winsorized per-POT mean + spread: run-level DIAGNOSTICS only; the
-    # leaderboard stays on the plain mean.
-    flash_edep_per_pot_winsor, flash_perfile_stats = hv.winsorized_diagnostics(
-        flash.per_file, epj_flash)
-    if flash_edep_per_event is not None:
-        print(f"    flash_edep_total_MeV  = {flash_edep_total_MeV}")
-        print(f"    flash_edep_events     = {flash_edep_events}")
-        print(f"    flash_edep_tag        = {flash_edep_tag}")
-        print(f"    flash_edep_per_event  = {flash_edep_per_event:.6g}")
-        print(f"    flash_n_input (POT/e) = {flash_n_input}")
-        print(f"    flash_edep_per_pot    = "
-              f"{flash_edep_per_pot:.6g}" if flash_edep_per_pot is not None else
-              "    flash_edep_per_pot    = (unavailable)")
-    else:
-        print("    flash_edep_per_event  = (unavailable)")
-
-    summary = hv.EvalSummary(
-        config=CONFIG,
-        ce_seen=ce_seen,
-        muminus_stops=muminus_stops,
-        mubeam_sim_total=mubeam_sim_total,
-        ce_simulated_events=ce_simulated_events,
-        stopping_factor=stopping_factor,
-        ce_abs_eff=ce_abs_eff,
-        s_over_sqrt_b=s_over_sqrt_b,
-        flash_edep_per_event=flash_edep_per_event,
-        flash_edep_per_pot=flash_edep_per_pot,
-        flash_edep_per_pot_winsor=flash_edep_per_pot_winsor,
-        flash_perfile_stats=flash_perfile_stats,
-        flash_edep_total_MeV=flash_edep_total_MeV,
-        flash_edep_events=flash_edep_events,
-        flash_n_input=flash_n_input,
-        flash_edep_tag=flash_edep_tag,
-        nts_path=str(nts_path),
-        edep_log=str(edep_log),
-        macro_log=str(macro_log),
-        degraded=degraded,
-    )
     summary.write(harvest_dir)
     print("\n" + summary.to_json())
 

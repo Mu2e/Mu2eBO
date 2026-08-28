@@ -121,14 +121,12 @@ class ModeSpec:
     metrics: Optional[Dict[str, Tuple[str, ...]]]
     leaderboard_rel: Optional[str]
 
-    # Per-stage definitions and declarative harvest (ExtractAna generalization).
-    # When stage_defs is present, every stage in grid_stages MUST have an
-    # entry; pipeline.py uses these to build stage topology dynamically.
-    # When harvest_config is present, the generic harvest orchestrator runs
-    # extractors and evaluates derived fields; when None, falls back to the
-    # legacy hardcoded cmd_harvest in pipeline.py.
-    stage_defs: Optional[Dict[str, StageDef]] = None
-    harvest_config: Optional[HarvestConfig] = None
+    # Per-stage definitions: every stage in grid_stages MUST have an entry.
+    # Pipeline.py builds stage topology dynamically from these.
+    stage_defs: Dict[str, StageDef]
+    # Declarative metric extraction: the generic harvest orchestrator runs
+    # extractors and evaluates derived-field expressions.
+    harvest_config: HarvestConfig
 
     def __post_init__(self):
         if self.bounds_lo is not None and not (
@@ -144,12 +142,11 @@ class ModeSpec:
             raise ValueError(
                 f"{self.name}: obs_noise must be 2 positive sigmas "
                 f"(one per GP output axis), got {self.obs_noise!r}")
-        if self.stage_defs is not None:
-            for s in self.grid_stages:
-                if s not in self.stage_defs:
-                    raise ValueError(
-                        f"{self.name}: grid_stages includes {s!r} but "
-                        f"stage_defs has no entry for it")
+        for s in self.grid_stages:
+            if s not in self.stage_defs:
+                raise ValueError(
+                    f"{self.name}: grid_stages includes {s!r} but "
+                    f"stage_defs has no entry for it")
 
 
 SPECS: Dict[str, ModeSpec] = {}
