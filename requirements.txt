@@ -52,6 +52,6 @@ scikit-learn>=1.6
 # surrokit (the ask/tell engine) is imported from the sibling checkout at
 # $AUTORESEARCH_SURROKIT (default ../surrokit) -- not pip-installed; see
 # core/paths.py and docs/superpowers/specs/2026-08-28-surrokit-engine-design.md
-# Parity-validated against surrokit SHA e79ad64fa74aefc01f43d5042f392a440578fb09;
+# Parity-validated against surrokit SHA 829465987853cc3fea5af69187730a79d74a6902;
 # core/paths.py:SURROKIT_PIN_SHA + tests/test_botorch_predict.py::TestSurrokitPin
 # enforce that the sibling checkout matches this pin.
