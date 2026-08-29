@@ -133,7 +133,10 @@ def compute_explore_picks(mode: str,
             k_sigma=BUDGET_SOB_K_SIGMA)
     problem = surrokit.Problem(
         bounds_lo=tuple(spec.bounds_lo), bounds_hi=tuple(spec.bounds_hi),
-        int_dims=tuple(int_dims), noise=tuple(spec.obs_noise),
+        # Slice noise where Y was sliced: sob_only (qlnei) keeps only
+        # axis 0, and the engine enforces len(noise) == Y axes.
+        int_dims=tuple(int_dims),
+        noise=tuple(spec.obs_noise)[:Y.shape[1]],
         constraint=constraint)
     hv_frac = float(os.environ.get("AUTORESEARCH_HYBRID_HV_FRAC", "0.6"))
     try:
