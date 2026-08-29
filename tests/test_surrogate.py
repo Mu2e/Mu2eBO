@@ -104,6 +104,13 @@ class TestMcpAdapter(unittest.TestCase):
         names = sorted(t.name for t in tools)
         self.assertEqual(names, ["list_problems", "predict", "refit",
                                  "stats", "suggest"])
+        # The adapter provides suggest(), so the tool speaks round_idx
+        # (production seed derivation), not a raw engine seed.
+        sg = next(t for t in tools if t.name == "suggest")
+        props = (sg.input_schema if hasattr(sg, "input_schema")
+                 else sg.inputSchema)["properties"]
+        self.assertIn("round_idx", props)
+        self.assertNotIn("seed", props)
 
 
 class TestAutoresearchAdapter(unittest.TestCase):
@@ -117,6 +124,24 @@ class TestAutoresearchAdapter(unittest.TestCase):
             self.assertEqual(prob.dim, len(spec.knob_names))
             self.assertEqual(prob.noise, tuple(spec.obs_noise))
             self.assertIsNotNone(prob.constraint)
+
+    def test_suggest_is_production_pick_path(self):
+        from surrogate.adapter import AutoresearchAdapter
+        import botorch_predict as bp
+        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
+            got = AutoresearchAdapter().suggest(
+                "foilsflash", q=2, picker="qnehvi", round_idx=1)
+            want = [list(t) for t in bp.compute_explore_picks(
+                "foilsflash", q=2, round_idx=1, picker="qnehvi")]
+            self.assertEqual(got, want)
+
+    def test_suggest_rejects_unknowns(self):
+        from surrogate.adapter import AutoresearchAdapter
+        a = AutoresearchAdapter()
+        with self.assertRaisesRegex(ValueError, "unknown problem"):
+            a.suggest("nope")
+        with self.assertRaisesRegex(ValueError, "unknown picker"):
+            a.suggest("foilsflash", picker="qnparego")
 
     def test_history_shape_and_meta(self):
         from surrogate.adapter import AutoresearchAdapter
