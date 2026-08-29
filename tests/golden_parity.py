@@ -16,7 +16,7 @@ Usage:
     can differ from the full-precision original in the last decimal
     (3.10825 vs 3.10826). Those entries pin that rounding, they do not
     report corruption.
-(b) loader fingerprint: `botorch_predict._load_history_tensor("foilsflash")`
+(b) loader fingerprint: `botorch_predict.load_history_tensor("foilsflash")`
     on the frozen leaderboard copy, hashed (sha256 of X/Y tensor bytes +
     shapes + bounds + int_dims). Exact-compare only.
     Was: fixed-seed hybrid q=2 picks — abandoned 2026-07-19, proved
@@ -142,7 +142,7 @@ def section_b():
     mode.leaderboard = FROZEN_LB
     mode.leaderboard_archive = None
     try:
-        X, Y, bounds, int_dims = bp._load_history_tensor("foilsflash")
+        X, Y, bounds, int_dims = bp.load_history_tensor("foilsflash")
     finally:
         mode.leaderboard = orig
         mode.leaderboard_archive = orig_arch

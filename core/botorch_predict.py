@@ -37,7 +37,7 @@ sys.path.insert(0, str(SURROKIT_ROOT))
 import surrokit  # noqa: E402
 
 
-def _load_history_tensor(mode: str, sob_only: bool = False):
+def load_history_tensor(mode: str, sob_only: bool = False):
     """Return (X, Y, bounds, int_dims) tensors over the mode's search space.
 
     Y is (n, 2) [sob, -log10(calo)], both maximized; sob_only=True gives
@@ -92,13 +92,39 @@ def _seed(round_idx: int) -> int:
     return 42 ^ int(round_idx)
 
 
-# The DEPLOYED stopping target's damage in MeV/POT — the deployment
-# constraint line, not a tuning knob. Env-overridable for other scenarios.
-DEP_FLASH_PER_POT = float(os.environ.get("AUTORESEARCH_FLASH_BUDGET", "6.85443e-7"))
-# budget_sob feasibility margin in posterior sigmas: k=0 constrains the MEAN
-# (~50% of picks land over budget once measured); k=1 ≈ 84% feasibility at
-# the cost of aiming slightly under the line.
-BUDGET_SOB_K_SIGMA = float(os.environ.get("AUTORESEARCH_BUDGET_KSIGMA", "1.0"))
+# Env-tunable budget knobs are read at CALL time (not import) so a
+# long-lived process (the MCP server) honors the environment it runs in.
+def flash_budget() -> float:
+    """The DEPLOYED stopping target's damage in MeV/POT — the deployment
+    constraint line, not a tuning knob. Env-overridable for other scenarios."""
+    return float(os.environ.get("AUTORESEARCH_FLASH_BUDGET", "6.85443e-7"))
+
+
+def budget_k_sigma() -> float:
+    """budget_sob feasibility margin in posterior sigmas: k=0 constrains the
+    MEAN (~50% of picks land over budget once measured); k=1 ≈ 84%
+    feasibility at the cost of aiming slightly under the line."""
+    return float(os.environ.get("AUTORESEARCH_BUDGET_KSIGMA", "1.0"))
+
+
+def build_problem(mode: str, sob_only: bool = False) -> "surrokit.Problem":
+    """The single home for surrokit.Problem assembly over a ModeSpec.
+
+    Every 2-axis problem carries the flash-budget Constraint (the engine
+    consults it only under constrained_max; fit/predict and the other
+    pickers ignore it). sob_only slices noise with Y to 1 axis and drops
+    the constraint (axis 1 does not exist there).
+    """
+    spec = _modes.SPECS[mode]
+    if sob_only:
+        noise, constraint = tuple(spec.obs_noise)[:1], None
+    else:
+        noise = tuple(spec.obs_noise)
+        constraint = surrokit.Constraint(
+            axis=1, min=-math.log10(flash_budget()), k_sigma=budget_k_sigma())
+    return surrokit.Problem(
+        bounds_lo=tuple(spec.bounds_lo), bounds_hi=tuple(spec.bounds_hi),
+        int_dims=tuple(spec.int_dims), noise=noise, constraint=constraint)
 
 
 def compute_explore_picks(mode: str,
@@ -113,7 +139,8 @@ def compute_explore_picks(mode: str,
     -log10 transform, env-tunable constants, and the 42^round_idx seed
     convention; the engine owns the GP and the pickers.
     """
-    X, Y, bounds, int_dims = _load_history_tensor(mode, sob_only=(picker == "qlnei"))
+    sob_only = (picker == "qlnei")
+    X, Y, bounds, int_dims = load_history_tensor(mode, sob_only=sob_only)
     if x_pending:
         pend_width = len(x_pending[0])
         if pend_width != bounds.shape[-1]:
@@ -123,21 +150,8 @@ def compute_explore_picks(mode: str,
     if X.shape[0] < 2:
         print(f"[botorch_predict] mode={mode} cold-start: history={X.shape[0]} rows "
               f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)
-    spec = _modes.SPECS[mode]
-    constraint = None
-    sk_picker = picker
-    if picker == "budget_sob":
-        sk_picker = "constrained_max"
-        constraint = surrokit.Constraint(
-            axis=1, min=-math.log10(DEP_FLASH_PER_POT),
-            k_sigma=BUDGET_SOB_K_SIGMA)
-    problem = surrokit.Problem(
-        bounds_lo=tuple(spec.bounds_lo), bounds_hi=tuple(spec.bounds_hi),
-        # Slice noise where Y was sliced: sob_only (qlnei) keeps only
-        # axis 0, and the engine enforces len(noise) == Y axes.
-        int_dims=tuple(int_dims),
-        noise=tuple(spec.obs_noise)[:Y.shape[1]],
-        constraint=constraint)
+    sk_picker = "constrained_max" if picker == "budget_sob" else picker
+    problem = build_problem(mode, sob_only=sob_only)
     hv_frac = float(os.environ.get("AUTORESEARCH_HYBRID_HV_FRAC", "0.6"))
     try:
         picks = surrokit.ask(problem, X.tolist(), Y.tolist(), q=q,
@@ -146,7 +160,7 @@ def compute_explore_picks(mode: str,
     except surrokit.InfeasibleError as e:
         raise SystemExit(
             f"[botorch_predict] budget_sob: GP predicts NO point in the "
-            f"search box with flash <= {DEP_FLASH_PER_POT:.3e} MeV/POT "
+            f"search box with flash <= {flash_budget():.3e} MeV/POT "
             f"({e}); refusing to submit blind picks.")
     return [tuple(row) for row in picks]
 

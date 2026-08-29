@@ -69,13 +69,14 @@ def modes_info() -> dict:
 def fit(mode: str, refresh: bool = False):
     """Fit (or return the cached) GP for `mode` on its current leaderboard.
 
-    Same fit as production: bp._load_history_tensor feeds surrokit.fit with
-    the mode's pinned obs_noise (wiki/incidents/gp-free-noise-erases-champion.md).
+    Same fit as production: bp.load_history_tensor + bp.build_problem feed
+    surrokit.fit with the mode's pinned obs_noise
+    (wiki/incidents/gp-free-noise-erases-champion.md).
     Raises RuntimeError below 2 usable history rows — the surrogate has
     nothing to say there (the pickers fall back to Sobol; prediction cannot).
     """
-    spec = _spec(mode)
-    X, Y, _, _ = bp._load_history_tensor(mode)
+    _spec(mode)
+    X, Y, _, _ = bp.load_history_tensor(mode)
     n = X.shape[0]
     cached = _FITS.get(mode)
     if cached is not None and cached[1] == n and not refresh:
@@ -83,10 +84,7 @@ def fit(mode: str, refresh: bool = False):
     if n < 2:
         raise RuntimeError(f"mode={mode}: only {n} usable history rows; "
                            "need >= 2 to fit a GP")
-    spec_prob = surrokit.Problem(
-        bounds_lo=tuple(spec.bounds_lo), bounds_hi=tuple(spec.bounds_hi),
-        int_dims=tuple(spec.int_dims), noise=tuple(spec.obs_noise))
-    model = surrokit.fit(spec_prob, X.tolist(), Y.tolist())
+    model = surrokit.fit(bp.build_problem(mode), X.tolist(), Y.tolist())
     _FITS[mode] = (model, n)
     return model
 

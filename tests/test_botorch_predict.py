@@ -53,7 +53,7 @@ def in_bounds(x):
 class TestLoadHistoryTensor(unittest.TestCase):
     def test_parses_rows_and_log_transforms_second_objective(self):
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            X, Y, bounds, int_dims = bp._load_history_tensor("foilsflash")
+            X, Y, bounds, int_dims = bp.load_history_tensor("foilsflash")
             self.assertEqual(tuple(X.shape), (10, 6))
             self.assertEqual(tuple(Y.shape), (10, 2))
             self.assertAlmostEqual(float(Y[0, 1]), -math.log10(1e-7), places=6)
@@ -66,12 +66,12 @@ class TestLoadHistoryTensor(unittest.TestCase):
             with lb.open("a") as f:
                 f.write("bad\t100.0\t100.0\t0.5\t0.5\t0.5\t0.5"
                         "\t3.0\t0.00000e+00\t100000.000\t3.0\n")
-            X, Y, _, _ = bp._load_history_tensor("foilsflash")
+            X, Y, _, _ = bp.load_history_tensor("foilsflash")
             self.assertEqual(tuple(X.shape), (10, 6))
 
     def test_sob_only_path_is_1d(self):
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            _, Y, _, _ = bp._load_history_tensor("foilsflash", sob_only=True)
+            _, Y, _, _ = bp.load_history_tensor("foilsflash", sob_only=True)
             self.assertEqual(tuple(Y.shape), (10, 1))
 
     def test_width_guard_systemexit_on_dim_mismatch(self):
@@ -79,12 +79,12 @@ class TestLoadHistoryTensor(unittest.TestCase):
         with mock.patch.object(bo.MODES["foilsflash"], "load_history",
                                return_value=wrong):
             with self.assertRaises(SystemExit):
-                bp._load_history_tensor("foilsflash")
+                bp.load_history_tensor("foilsflash")
 
     def test_cold_start_returns_empty_with_correct_width(self):
         with tempfile.TemporaryDirectory() as tmp, \
              patched_leaderboard(tmp, header_only=True):
-            X, Y, _, _ = bp._load_history_tensor("foilsflash")
+            X, Y, _, _ = bp.load_history_tensor("foilsflash")
             self.assertEqual(tuple(X.shape), (0, 6))
             self.assertEqual(tuple(Y.shape), (0, 2))
 
