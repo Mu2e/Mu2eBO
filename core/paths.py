@@ -48,7 +48,7 @@ SURROKIT_ROOT = Path(os.environ.get("AUTORESEARCH_SURROKIT")
 # The surrokit SHA this repo was parity-validated against. The suite
 # asserts the checkout matches; bump DELIBERATELY after re-validating
 # (run a picker smoke + the surrogate tests against the new engine).
-SURROKIT_PIN_SHA = "2bf81e1722b26bb5ddc6590afed8fe716acf2030"
+SURROKIT_PIN_SHA = "6db74f3b4d362157a3b70a8833e0ea2c61ace1bd"
 
 
 def _resolve_backing() -> Path | None:
