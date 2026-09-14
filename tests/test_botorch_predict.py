@@ -182,7 +182,7 @@ class TestComputeExplorePicks(unittest.TestCase):
         # or below the budget -- the property the whole picker exists for. A
         # stub posterior stands in for a GP fit: sob rises with x[0] while
         # -log10(flash) FALLS with it, so the unconstrained argmax is exactly
-        # the over-budget corner pareto_sob would have taken.
+        # the over-budget sob corner.
         thr = -math.log10(bp.DEP_FLASH_PER_POT)
 
         class _Post:

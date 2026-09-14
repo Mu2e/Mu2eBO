@@ -61,7 +61,7 @@ class TestJsonMode(unittest.TestCase):
         self.assertEqual(self.mode.load_priors(), [])
 
     # test_parse_geom_refuses_clearly removed 2026-08-08: JsonMode.parse_geom
-    # (and BOMode.parse_geom) were deleted outright -- geometry round-trip is
+    # were deleted outright -- geometry round-trip is
     # no longer part of the interface at all (not even as a NotImplementedError
     # stub), now that no Python mode needs the round-trip default. See
     # docs/superpowers/specs/2026-08-08-leaderboard-module-design.md.
@@ -78,13 +78,11 @@ class TestJsonMode(unittest.TestCase):
             (3.9, 2e-6))
 
     # -- F7: UNRESOLVED and RESOLVED-TO-ZERO are different cases ------------
-    # JsonMode used to raise KeyError when no candidate key resolved. That
-    # broke the sob-only / qlnei path the Python modes support: cmd_evaluate's
-    # deliberate `calo is None and AUTORESEARCH_NO_RUN1B == "1" -> 0.0`
-    # substitution depends on extract_metrics RETURNING None, and KeyError is
-    # not that. A JSON mode launched with --picker qlnei (which drops the calo
-    # stage BY DESIGN) failed at evaluate on every child -- zero rows after
-    # the full wall-clock.
+    # JsonMode used to raise KeyError when no candidate key resolved, so a
+    # second-objective-less summary killed every child at evaluate after the
+    # full wall-clock. Returning None instead lets cmd_evaluate refuse the
+    # row with a diagnostic rc=1 -- and keeps "unresolved" distinguishable
+    # from "resolved to a real zero", which is a different (poison) case.
     def test_extract_metrics_unresolved_second_objective_returns_none(self):
         self.assertEqual(
             self.mode.extract_metrics({"s_over_sqrt_b": 3.9}), (3.9, None))
@@ -126,7 +124,7 @@ class TestJsonMode(unittest.TestCase):
                 {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}),
             (3.9, 1e-6))
 
-    def test_extract_metrics_calo_per_pot_no_longer_a_fallback(self):
+    def test_extract_metrics_calo_per_pot_is_not_a_fallback(self):
         """Root-cause regression: the fixture's flash_edep fallback chain
         used to list calo_per_pot -- copied from the STALE comment above
         FoilsFlashMode.extract_metrics, which claims that fallback but never
@@ -220,58 +218,27 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         return list(x)
 
     # -- F7 case 1: UNRESOLVED second objective ----------------------------
-    def test_evaluate_substitutes_zero_for_an_unresolved_second_objective(self):
-        """The qlnei picker stamps AUTORESEARCH_NO_RUN1B=1 and drops the
-        run1b_mubeam stage BY DESIGN. Python modes return None there and
-        cmd_evaluate substitutes 0.0 so the row still lands; JsonMode used to
-        raise KeyError instead, so every child failed at evaluate.
+    def test_no_substitution_for_an_unresolved_second_objective(self):
+        """An absent second objective is NEVER coerced to a number.
 
-        Requires a chain that actually CONTAINS run1b_mubeam — the fixture is
-        foilsflash-shaped and has none, and for such a mode the substitution
-        is a poison row rather than a design choice (see the companion test
-        below). So this registers a run1b-bearing variant.
+        Every stage in every mode chain produces a real second objective, so
+        None means its producing stage fail-softed. Coercing it to 0.0 writes
+        a fake zero-flash row at good sob that dominates the Pareto front at
+        the next GP refit (7 poison rows landed that way 2026-07-10). The
+        retired FoilsFlashMode refused this by raising; with the last
+        substitution path gone the guarantee is now structural.
         """
-        spec = modes.SPECS[self.name]
-        variant = dataclasses.replace(
-            spec, grid_stages=("mubeam", "run1b_mubeam", "mustops_ce"))
-        with unittest.mock.patch.dict(modes.SPECS, {self.name: variant}):
-            self._propose("PROBE03")
-            summary = self._summary({"s_over_sqrt_b": 3.9})
-            with unittest.mock.patch.dict(
-                    bo_driver.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
-                rc = bo_driver.cmd_evaluate(self._args("PROBE03", summary))
-        self.assertEqual(rc, 0)
-        with self.mode.leaderboard.open() as f:
-            row = next(csv.DictReader(f, delimiter="\t"))
-        self.assertAlmostEqual(float(row["sob"]), 3.9, places=5)
-        self.assertEqual(float(row["flash_edep"]), 0.0)
-
-    def test_no_substitution_when_the_mode_never_had_a_run1b_stage(self):
-        """The substitution is justified ONLY by "qlnei removed the stage that
-        produces this metric". For a flash-shaped chain (mubeam/mustops_ce/
-        elebeam_flash — no run1b_mubeam) an absent second objective instead
-        means the elebeam stage failed fail-soft, and coercing it to 0.0
-        writes a fake zero-flash row at good sob that dominates the Pareto
-        front at the next GP refit. The retired FoilsFlashMode refused this by
-        raising; the stage-chain gate restores that guarantee generically.
-        """
-        self.assertNotIn("run1b_mubeam", modes.SPECS[self.name].grid_stages)
         self._propose("PROBE03B")
         summary = self._summary({"s_over_sqrt_b": 3.9})
-        with unittest.mock.patch.dict(
-                bo_driver.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
-            rc = bo_driver.cmd_evaluate(self._args("PROBE03B", summary))
+        rc = bo_driver.cmd_evaluate(self._args("PROBE03B", summary))
         self.assertEqual(rc, 1)
         self.assertFalse(self.mode.leaderboard.exists(),
                          "a zero-flash poison row was appended")
 
-    def test_evaluate_refuses_unresolved_second_objective_without_no_run1b(self):
+    def test_evaluate_refuses_unresolved_second_objective(self):
         self._propose("PROBE04")
         summary = self._summary({"s_over_sqrt_b": 3.9})
-        env = dict(bo_driver.os.environ)
-        env.pop("AUTORESEARCH_NO_RUN1B", None)
-        with unittest.mock.patch.dict(bo_driver.os.environ, env, clear=True):
-            rc = bo_driver.cmd_evaluate(self._args("PROBE04", summary))
+        rc = bo_driver.cmd_evaluate(self._args("PROBE04", summary))
         self.assertEqual(rc, 1)
         self.assertFalse(self.mode.leaderboard.exists())
 
@@ -280,16 +247,13 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         """The zero-refusal guard must NOT weaken: a second objective that
         RESOLVES to 0.0 from a real summary key is a fake row that dominates
         the entire Pareto front at the next GP refit (7 poison rows landed
-        this way 2026-07-10). Distinct from 'unresolved' above -- and it is
-        refused even under AUTORESEARCH_NO_RUN1B=1, because the key WAS
+        this way 2026-07-10). Distinct from 'unresolved' above: the key WAS
         there."""
         self._propose("PROBE05")
         summary = self._summary(
             {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 0.0})
-        with unittest.mock.patch.dict(
-                bo_driver.os.environ, {"AUTORESEARCH_NO_RUN1B": "1"}):
-            with self.assertRaises(SystemExit) as cm:
-                bo_driver.cmd_evaluate(self._args("PROBE05", summary))
+        with self.assertRaises(SystemExit) as cm:
+            bo_driver.cmd_evaluate(self._args("PROBE05", summary))
         self.assertIn("flash_edep_per_pot", str(cm.exception))
         self.assertFalse(self.mode.leaderboard.exists())
 

@@ -1,19 +1,19 @@
 {
-  "config": "foilsflash18R05_00",
+  "config": "foilspfbpz07R00_08",
   "evaluate": {
     "rc": 0,
-    "obj": "+1.979",
-    "appended_line": "foilsflash18R05_00\t250.0000\t190.9655\t0.925581\t0.656932\t0.9500\t0.7166\t2.04000\t6.09158e-07\t100000.000\t1.97908",
+    "obj": "+3.982",
+    "appended_line": "foilspfbpz07R00_08\t51.3062\t120.6312\t56.0054\t0.079773\t0.060886\t0.040028\t0.1549\t0.3108\t0.7060\t117.0122\t4.05000\t6.84181e-07\t100000.000\t3.98158",
     "json": {
-      "config": "foilsflash18R05_00",
-      "obj": 1.9790841941753061,
-      "sob": 2.04,
-      "calo_or_flash": 6.0915805824694e-07,
+      "config": "foilspfbpz07R00_08",
+      "obj": 3.981581856605731,
+      "sob": 4.05,
+      "calo_or_flash": 6.841814339426869e-07,
       "row_appended": true
     }
   },
   "preflight": {
     "rc": 0,
-    "verdict_line": "[preflight/foilsflash] PASS  init=True; no geom-fail signature and no managed-volume overlap."
+    "verdict_line": "[preflight/foilspfbpz] PASS  init=True; no geom-fail signature and zero surface-check overlaps."
   }
 }

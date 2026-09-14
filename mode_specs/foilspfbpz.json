@@ -13,7 +13,6 @@
       "digi",
       "reco"
     ],
-    "harvest": "harvest",
     "jobs_per_stage": {
       "mubeam": 15,
       "mustops_ce": 15,
@@ -129,7 +128,6 @@
   "preflight": {
     "dumps_gdml": true,
     "verifies_foil_gdml": true,
-    "preserves_gdml": false,
     "checks_managed_overlap": true,
     "require_zero_overlaps": true
   },

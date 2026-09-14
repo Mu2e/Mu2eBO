@@ -63,6 +63,11 @@ slides/*.vrb
 locks/
 # =============================================================================
 *.lock
+# ...but requirements.lock is a source artifact, not a runtime lock. Without
+# this exception it is silently untracked -- `git status` stays clean and the
+# one file a second operator (or a pyenv publisher) needs to rebuild the stack
+# never leaves this machine.
+!requirements.lock
 
 # =============================================================================
 # CVMFS / external sub-repos (vendored with their own .git)

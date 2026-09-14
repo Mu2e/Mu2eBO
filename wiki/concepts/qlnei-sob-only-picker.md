@@ -83,7 +83,7 @@ Alternative closed-loop picker that drops the multi-objective Pareto-HV machiner
 
 
 ## Cross-links
-- Related: [bo-foils](/projects/bo-foils.md), [scalarized-objective](/concepts/scalarized-objective.md), [bo-noise-budget](/concepts/bo-noise-budget.md), [batch-bo](/concepts/batch-bo.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [botorch-predict-seed-pow-vs-xor](/incidents/botorch-predict-seed-pow-vs-xor.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
+- Related: [bo-foils](/projects/bo-foils.md), [scalarized-objective](/concepts/scalarized-objective.md), [bo-noise-budget](/concepts/bo-noise-budget.md), [batch-bo](/concepts/batch-bo.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [botorch-predict-seed-pow-vs-xor](/incidents/botorch-predict-seed-pow-vs-xor.md), [pareto-sob-picker](/concepts/pareto-sob-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [budget-sob-picker](/concepts/budget-sob-picker.md)
 - Source files: `botorch_predict.py:_qlnei_picks`, `botorch_predict.py:_load_history_tensor`, `graph/closed_loop.py:_presniff_picker`, `graph/closed_loop.py:_qnehvi_picks_subprocess`, `graph/config.py:55-56` (AUTORESEARCH_NO_RUN1B gate)
 - Driver: [closed-loop-runner](/drivers/closed-loop-runner.md)
 

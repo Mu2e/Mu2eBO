@@ -1,8 +1,7 @@
 """Render a Mu2e geometry overlay from a declarative JSON description.
 
 Used by JSON-defined modes (core/mode_json.py). STDLIB ONLY — core/modes.py
-imports this and must stay importable from any venv (see core/modes.py:1-8),
-so no numpy even where bo_driver.py uses it.
+imports this and must stay importable from any venv.
 """
 from __future__ import annotations
 
@@ -12,9 +11,8 @@ import string
 from typing import Any, Dict, Iterable, List, Set
 
 _ALLOWED_FUNCS = {"min": min, "max": max, "abs": abs, "sqrt": math.sqrt}
-# ast.Pow is excluded: large exponents hang Python (e.g. 99999999 ** 99999999),
-# and negative base + fractional exp returns complex (e.g. (-2.0)**0.5 → complex).
-# Profiles write i*i instead; roots use sqrt(). No formula needs **.
+# ast.Pow excluded: huge exponents hang Python, negative base + fractional
+# exp goes complex; write i*i, use sqrt().
 _ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod)
 _ALLOWED_UNARYOPS = (ast.UAdd, ast.USub)
 
@@ -25,15 +23,11 @@ class ExprError(ValueError):
 
 def compile_expr(src: str, allowed_names: Set[str], where: str,
                  profiles: Set[str] = frozenset()) -> ast.Expression:
-    """Parse `src` and verify every construct is permitted.
+    """Parse `src` and verify every construct is permitted (raises ExprError).
 
-    `where` is a human locator (file + geometry key) included in every error.
-    `profiles` is the set of names that may be SUBSCRIPTED (declared profiles
-    are lists; every other known name is a float). It defaults to empty so a
-    caller that forgets it fails closed — `a[c]` on a scalar used to compile
-    fine and die at render with a bare "TypeError: 'float' object is not
-    subscriptable", carrying no file or key locator at all.
-    Raises ExprError; never evaluates.
+    `where` is a human locator in every error. `profiles` = names that may be
+    SUBSCRIPTED; defaults empty so a caller that forgets it fails closed
+    (scalar subscripts used to compile fine and die at render, locator-less).
     """
     try:
         tree = ast.parse(src, mode="eval")
@@ -74,10 +68,6 @@ def _verify(node: ast.AST, allowed: Set[str], src: str, where: str,
             _verify(arg, allowed, src, where, profiles)
         return
     if isinstance(node, ast.Subscript):
-        # profile indexing: rOut[i]. ONLY a declared profile is a list; every
-        # other known name evaluates to a float, so subscripting it raises
-        # "'float' object is not subscriptable" at RENDER time with no
-        # locator. Rejected here instead (spec section 8).
         if not isinstance(node.value, ast.Name) or node.value.id not in profiles:
             target = getattr(node.value, "id", type(node.value).__name__)
             raise ExprError(
@@ -100,17 +90,12 @@ def eval_expr(compiled: ast.Expression, env: Dict[str, Any]) -> float:
 def lagrange_profile(control: Iterable[float], count: int,
                      clip: tuple | None) -> List[float]:
     """Lagrange quadratic through (c0, c1, c2) at u = 0, 0.5, 1, sampled at
-    `count` uniform points in [0, 1].
+    `count` uniform points in [0, 1]; pure-Python mirror of
+    ProdTargetMode._profile (this module is stdlib-only).
 
-    Mirrors ProdTargetMode._profile (core/bo_driver.py:913-920) in pure Python
-    because this module must stay stdlib-only. Control points are in physical
-    units, so bounds mean what they say -- unlike raw polynomial coefficients,
-    where c1 = -2 would drive a radius negative.
-
-    `clip` is (lo, hi) and is required by the schema for exactly one reason:
-    a quadratic through in-range control points can still overshoot between
-    them -- (50, 250, 250) reaches ~275 near i=36. Clipping projects the value
-    instead of discarding the eval (same choice as ProdTargetMode._expand).
+    `clip` (lo, hi) is required because a quadratic through in-range control
+    points can still overshoot between them — (50, 250, 250) reaches ~275
+    near i=36; clipping projects instead of discarding the eval.
     """
     control = list(control)
     if len(control) != 3:
@@ -131,17 +116,10 @@ _SCALAR_TYPES = ("bool", "int", "double", "string")
 _VECTOR_TYPES = ("vector<double>", "vector<string>")
 _VALID_TYPES = _SCALAR_TYPES + _VECTOR_TYPES
 
-# A line dict picks exactly ONE of these "content" keys to say how its value
-# is produced; the rest of _LINE_ALLOWED_KEYS ("key"/"type"/"fmt") are shared
-# metadata. Two content keys together (e.g. 'value' + 'expr') used to render
-# the first one silently and drop the second with no error (X2 in the
-# json-configurable-modes final review).
-# `i` (element index) and `n` (element count) are written into the scope by
-# _render_line's per_index loop, AFTER the knob/const/derived/profile env --
-# so anything declared under either name is silently shadowed there and the
-# vector renders from the loop variable instead. Verified: knob i=99 rendered
-# { 0.0, 1.0, 2.0 }, const n=6 rendered { 3.0, 3.0, 3.0 }. `n` is a plausible
-# author choice (the shipped fixtures use n_up/n_dn). Rejected at load.
+# A line dict picks exactly ONE content key ("key"/"type"/"fmt" are shared
+# metadata); two together used to render the first and silently drop the second.
+# `i`/`n` are injected by the per_index loop AFTER the env, silently shadowing
+# any knob/const/derived/profile of the same name — rejected at load.
 _RESERVED_ELEMENTWISE_NAMES = ("i", "n")
 
 _LINE_KIND_KEYS = ("raw", "value", "expr", "segments", "per_index")
@@ -152,22 +130,16 @@ _PER_INDEX_ALLOWED_KEYS = ("count", "expr")
 
 
 def _validate_comment_names(text: str, available_names: Set[str], where: str) -> None:
-    """Extract and validate placeholder names in a format string.
-
-    Raises ExprError if any placeholder name is unknown or if the format string
-    is malformed.
-    """
+    """Validate placeholder names in a comment format string (raises ExprError)."""
     field_names = set()
     try:
         formatter = string.Formatter()
         for _, field_name, _, _ in formatter.parse(text):
-            if field_name is not None:  # None means literal text with no placeholder
-                # field_name can be like "a" or "a.x[0]" — we only care about the root
+            if field_name is not None:
                 root_name = field_name.split('.')[0].split('[')[0]
-                if root_name:  # empty after split means something like ".x"
+                if root_name:
                     field_names.add(root_name)
     except ValueError as exc:
-        # Malformed format string (e.g., unmatched brace)
         raise ExprError(f"{where}: malformed comment format string: {exc}") from None
 
     for name in field_names:
@@ -200,8 +172,7 @@ def _reject_reserved_name(name: str, category: str, where: str) -> None:
 
 
 def _reject_unknown_keys(d: dict, allowed: Iterable[str], where: str) -> None:
-    """Fail loud on a typo'd or unrecognized key instead of silently no-oping
-    it (e.g. a misspelled schema key parsed by nothing, doing nothing)."""
+    """Fail loud on a typo'd key instead of silently no-oping it."""
     unknown = set(d) - set(allowed)
     if unknown:
         raise ValueError(
@@ -210,12 +181,9 @@ def _reject_unknown_keys(d: dict, allowed: Iterable[str], where: str) -> None:
 
 
 def _validate_fmt(fmt: Any, where: str) -> None:
-    """A computed line's 'fmt' must (a) exist, (b) contain a replacement
-    field, and (c) actually be able to format a float. Checked at load so a
-    format string like "75.0" (no field -- every element renders as the same
-    constant, the knob goes inert with no error) or "{:.4q}" (malformed --
-    would only fail the first time render() runs) is caught here instead.
-    """
+    """'fmt' must exist, contain a replacement field, and format a float —
+    checked at load, not first render (a field-less fmt silently makes the
+    knob inert)."""
     if not fmt:
         raise ValueError(f"{where}: computed line needs a 'fmt'")
     if not isinstance(fmt, str):
@@ -290,8 +258,6 @@ class GeomTemplate:
             if isinstance(v, bool) or not isinstance(v, (int, float)):
                 raise ValueError(f"{where}: const {k!r} must be a number, got {v!r}")
 
-        # Check for namespace collisions: each name may appear in only one category
-        # (knobs, consts, derived, or profiles).
         knob_set = set(knob_names)
         const_set = set(consts)
         collision = knob_set & const_set
@@ -299,8 +265,7 @@ class GeomTemplate:
             raise ValueError(
                 f"{where}: name(s) {sorted(collision)} defined in both knobs and consts")
 
-        # derived may reference knobs and consts, NOT other derived values --
-        # acyclic by construction, so there is no ordering rule to get wrong.
+        # derived may reference knobs and consts only — acyclic by construction.
         base_names = knob_set | const_set
         derived = {}
         derived_set = set()
@@ -354,17 +319,13 @@ class GeomTemplate:
             profiles_set.add(name)
 
         elementwise_names = scalar_names | profiles_set | {"i", "n"}
-        # For comment validation, the available names include everything except i/n
-        # (which are only valid in per_index, not in comments)
+        # comments may not use i/n (per_index only)
         comment_names = knob_set | const_set | derived_set | profiles_set
 
         lines = []
-        # Two lines emitting the same geometry key is silently last-wins in
-        # G4: GeometryService.hh defaults allowReplacement=true /
-        # messageOnReplacement=false and SimpleConfig.cc replaces with no
-        # message. Editing the first of a duplicated pair then leaves the
-        # stale one winning -- the silent-wrong-geometry class that tainted
-        # 62 foilsg rows. Rejected here, naming BOTH line indices.
+        # Duplicate geometry keys are silently last-wins in G4 (SimpleConfig
+        # allowReplacement=true, no message) — the silent-wrong-geometry class
+        # that tainted 62 foilsg rows. Rejected, naming BOTH line indices.
         seen_keys: Dict[str, int] = {}
         for idx, raw_line in enumerate(d.get("lines") or []):
             lw = f"{where}[lines[{idx}]]"
@@ -408,10 +369,6 @@ class GeomTemplate:
             if not isinstance(comment_text, str):
                 raise ValueError(
                     f"{where}: 'comment' must be a string, got {comment_text!r}")
-            # _render_line prefixes only the FIRST line with '// ', so an
-            # embedded newline turns the remainder into a live geometry
-            # assignment: {"comment": "note\ndouble stoppingTarget.holeRadius
-            # = 21.5;"} renders a real key.
             _reject_embedded_newline(comment_text, "comment", where)
             _validate_comment_names(comment_text, comment_names, where)
             return {"kind": "comment", "text": comment_text}
@@ -436,9 +393,8 @@ class GeomTemplate:
         if "raw" in ln:
             if not isinstance(ln["raw"], str):
                 raise ValueError(f"{where}: 'raw' must be a string")
-            # 'raw' is deliberately a passthrough for literals the JSON number
-            # grammar loses (the 1.0e6 poison pill), but it is still ONE
-            # value on ONE line -- a newline in it appends extra geometry.
+            # 'raw' passes literals the JSON number grammar loses (the 1.0e6
+            # poison pill); still ONE value on ONE line.
             _reject_embedded_newline(ln["raw"], "raw", where)
             return {"kind": "raw", "key": key, "type": type_, "text": ln["raw"]}
         if "value" in ln:
@@ -472,7 +428,6 @@ class GeomTemplate:
                 if "expr" in seg:
                     compiled = compile_expr(seg["expr"], scalar_names, sw)
                 elif "value" in seg:
-                    # Validate the value with the same discipline as _literal
                     val = seg["value"]
                     if isinstance(val, bool):
                         raise ValueError(f"{sw}: segment value must be a number, not a bool")

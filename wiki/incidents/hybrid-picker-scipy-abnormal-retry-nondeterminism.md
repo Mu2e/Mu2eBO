@@ -1,10 +1,10 @@
 ---
 type: incident
 title: Hybrid picker (qnehvi+qnparego) non-reproducible at production leaderboard scale
-description: torch.manual_seed(_seed(round_idx)) is set inside the picker, AFTER an unseeded _fit_gp; on a ~300-row leaderboard scipy's L-BFGS-B hits ABNORMAL termination and retries draw extra RNG, so re-running the same seed/inputs gives materially different picks
+description: torch.manual_seed(_seed(round_idx)) is set inside the picker, AFTER an unseeded _fit_gp; scipy's L-BFGS-B hits ABNORMAL termination and retries draw extra RNG, so re-running the same seed/inputs gives different picks — at 20 rows as well as ~300, and for bare qnehvi not just hybrid; only budget_sob is reproducible
 status: open
-status_note: found 2026-07-19 building tests/golden_parity.py Task 4; golden (b) redesigned as a tensor fingerprint and committed (eeb8cb6) — only the underlying picker nondeterminism remains open, no production fix applied
-timestamp: '2026-07-19'
+status_note: found 2026-07-19 building tests/golden_parity.py Task 4; golden (b) redesigned as a tensor fingerprint and committed (eeb8cb6) — only the underlying picker nondeterminism remains open, no production fix applied; scope widened 2026-08-18 (fires at 20 rows, qnehvi affected too, budget_sob is the clean probe)
+timestamp: '2026-08-18'
 ---
 
 # Hybrid picker (qnehvi+qnparego) non-reproducible at production leaderboard scale
@@ -25,6 +25,30 @@ float-epsilon different, but up to ~0.6 off in a 0-1 normalized knob
 dimension. This surfaced building `tests/golden_parity.py` (Task 4, golden
 section (b)); capture vs. immediate re-check printed `MISMATCH`, not the
 brief's anticipated `WARN (allclose)`.
+
+## Broader than recorded: it fires at 20 rows, and `qnehvi` is affected too (2026-08-18)
+
+The claim above that reproducibility "holds on small fixtures (10 rows)" and
+"breaks down at production scale" is **too narrow**. Measured while evaluating
+the pyenv `ana_v2.8.0` candidate
+([mu2e-cvmfs-python-envs](/external/mu2e-cvmfs-python-envs.md)):
+
+- Two back-to-back identical invocations in the **same** venv
+  (`--q 4 --round-idx 1 --picker qnehvi`) produce different picks on
+  `foilspfbw` (**20 rows**) and `foilspf2k` (**35 rows**), not just at ~300.
+- It is **not hybrid-specific**: bare `--picker qnehvi` diverges the same way.
+  `hybrid` is simply the picker the original investigation happened to use.
+- Divergence size is 3rd-to-4th significant figure per knob
+  (e.g. `0.09752104805818834` → `0.09741496630357956`), i.e. smaller than the
+  ~0.6 seen at 300 rows but present at every scale tested.
+- `--picker budget_sob` is **fully reproducible** at every scale — it does no
+  acquisition optimization, so it never reaches the scipy retry branch. It is
+  the only picker usable as a cross-environment or cross-version equivalence
+  probe.
+
+Practical consequence: any A/B that compares picker output across a code,
+torch, or environment change **must** use `budget_sob`, or it will measure
+this nondeterminism instead of the change under test.
 
 ## Key facts
 

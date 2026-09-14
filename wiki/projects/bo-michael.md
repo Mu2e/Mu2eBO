@@ -5,7 +5,7 @@ description: (**code retired 2026-07-12**) 4D BO maximizing `S/√B − α·calo
   over TSdA + holeRadius + COL5; `MichaelMode` deleted, leaderboard frozen
 status: superseded
 status_note: '`MichaelMode` class DELETED from code 2026-07-12 (was the last non-holeRadii
-  Categorical-COL5 mode; superseded by [[bo-foils]] family long before). Leaderboard
+  Categorical-COL5 mode; superseded by [bo-foils](/projects/bo-foils.md) family long before). Leaderboard
   TSVs remain on disk as frozen artifacts; the mode is no longer in `MODES`/`modes.SPECS`
   and `--mode michael` is rejected.'
 timestamp: '2026-07-12'

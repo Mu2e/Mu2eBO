@@ -4,9 +4,11 @@ title: muse-backing-pattern — build a patched Offline subset against a Musing
 description: build patched Offline subset against a Musing; how the helical-plug
   lib is produced
 status: active
-timestamp: '2026-06-07'
-updated_note: added muse 4.17.0 source citations for CVMFS-link preservation + empty-repos
-  behavior + grid-side setup.sh contract
+timestamp: '2026-08-18'
+updated_note: rewrote the Run1BAna section — it still claimed the local build had failed
+  and that we borrow mmackenz's lib, both false since 2026-06-26; documented multi-repo
+  work areas as the extra-module mechanism, the one-target build, and the diverged
+  second clone that feeds the harvest fcl/macro
 ---
 
 # muse-backing-pattern — build a patched Offline subset against a Musing
@@ -18,10 +20,74 @@ inheriting everything else from a published Musing on CVMFS. Used to ship the
 helical-plug `libmu2e_Mu2eG4.so` patch via `Code.tar.bz2` without needing
 mmackenz's tree or new CVMFS publication.
 
-## Canonical recipe (mgit + muse tarball)
+## PREFERRED recipe: tag-pinned partial checkout (2026-07-28)
 
-This is the wiki-blessed path. Use it instead of the rsync-everything variant
-below.
+Use this when the backing is a **published tag** (all our Musings are). It is
+the mu2ewiki "Partial checkout with backing build" flow with `mgit init`
+replaced by a tag clone. Measured on Run1Bap/p101: **2 libs, 26 s, 178 MB**,
+vs 535 libs / 11 min / 3.8 GB for the full-tree build — and identical
+surface-check output. Frozen at
+`/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/rebuild.sh`.
+
+```bash
+D=$WORK/Offline_<tag>_partial
+SRC=/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v13_32_10/Offline  # backing's Offline
+mkdir -p $D && cd $D
+
+# 1. Source AT THE BACKING'S TAG. `-c safe.directory` is transient: CVMFS is
+#    cvmfs-owned, so a plain clone dies "detected dubious ownership".
+git -c safe.directory='*' clone -q $SRC Offline
+
+# 2. mgit's ONLY real output is this file (see mg_add: it appends one line and
+#    re-reads the tree). Write it directly.
+cd Offline
+git config core.sparsecheckout true
+printf "/.muse\n/.gitignore\n/GeometryService\n" > .git/info/sparse-checkout
+git read-tree --reset -u HEAD
+cd ..
+
+patch -p1 -d Offline < /path/to/local.patch
+
+export SPACK_USER_CACHE_PATH=/tmp/spack_cache_$USER
+source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh >/tmp/s.log 2>&1
+muse backing SimJob Run1Bap
+muse setup >/tmp/m.log 2>&1     # derives p101 by itself -- NO -q needed
+muse build -j 12
+```
+
+### Why NOT `mgit init` when the backing is a tag
+
+`mg_init` **never consults the backing** — grep the function: 0 occurrences of
+"backing" (vs 10 in `mg_status`). It unconditionally runs
+`git checkout --no-track -b mgit_init_branch mu2e/main`, i.e. Offline main HEAD.
+Concretely, 2026-07-28: main HEAD `.muse` says `ENVSET p103`, Run1Bap ships only
+`al9-{prof,debug}-e29-p101` → `muse setup` stops with *"backing build area
+missing required build"*. Forcing `-q p101` past it is worse: your one local
+package is then compiled from newer source than the ~500 libs around it (ABI
+drift, no error). This is the same failure as the p094-vs-p095 loss of
+2026-05-17 with new numbers.
+
+It is structural, not a bug: `MUSE_BACKING` is set by `muse setup`, which runs
+**after** mgit — which is also why `mgit status` refuses to run before setup.
+mgit is built for developing against Offline *head*; we are pinned to a tag.
+
+### Is a one-package build ABI-safe?
+
+Ask at **file** granularity, not package. The backing ships
+`build/<stub>/Offline/gen/txt/deps.txt` (what `mgit status` reads); for
+GeometryService it lists **36 dependent packages** — but that is
+package-granularity and over-approximates. The binding check for the holeRadii
+patch: `StoppingTargetMaker.hh` (whose class gains a `std::vector<double>`
+member) is included by exactly ONE file in all of Offline —
+`GeometryService/src/GeometryService.cc`, in its own package. Nothing else can
+observe the layout change. Confirmed at runtime, not just by argument: the
+patch's `holeRadii vector active (n=49)` canary fires under the partial build,
+which stock `GeometryService` cannot print.
+
+## Alternate recipe: mgit + muse tarball (develop-against-head only)
+
+Valid when you are tracking Offline **main** and your backing is near head.
+Superseded by the tag-pinned recipe above whenever the backing is a tag.
 
 ```bash
 # 1. Pick a build root.
@@ -133,35 +199,82 @@ muse build -j 8 >/tmp/build.log 2>&1
 - Used by: [pipeline](/drivers/pipeline.md) (`write_code_tarball` ships `Code/lib/libmu2e_Mu2eG4.so`
   + `LD_PRELOAD` in `setup.sh`)
 - Motivating bug: [calo-constant-across-helical](/incidents/calo-constant-across-helical.md)
+- Extra-module fallout: [mmackenz-edepana-lib-qualifier-bump](/incidents/mmackenz-edepana-lib-qualifier-bump.md)
+  (the borrow path dying is why we build Run1BAna in our own work area)
 - Project: [bo-helical](/projects/bo-helical.md)
+- Source files: `core/pipeline.py:402` (`mmlib` prepend), `core/harvest.py:64-66`
+  (`EDEP_FCL`, `SENSITIVITY_MACRO` — the second, diverged clone)
 - Source patch: `/exp/mu2e/app/users/oksuzian/Offline_helical/helical-plug.patch`
 - Build dir: `/exp/mu2e/app/users/oksuzian/Offline_helical/build/al9-prof-e29-p094/Offline/lib/`
 - Mu2e wiki: https://mu2ewiki.fnal.gov/wiki/GitHubWorkflow#Developer_Workflow
 
-## Out-of-scope: Run1BAna (EdepAna)
+## Extra repos alongside Offline: Run1BAna (EdepAna)
 
-The harvest step calls a `mu2e` job that loads `EdepAna_module`, which lives
-in mmackenz's personal `Run1BAna` repo (`github.com/michaelmackenzie/Run1BAna`,
-**not** in the Mu2e org, **not** in Offline, **not** in Run1Bak). Building it
-under the same `autoresearch_muse/` tree was attempted 2026-05-17 and failed:
+A muse work area holds **several repos side by side in `MUSE_REPOS`**, all
+built against one backing — the mechanism is not Offline-specific, so importing
+an outside module needs no new machinery. `autoresearch_muse/` uses it today:
+
+```
+autoresearch_muse/
+├── backing -> /cvmfs/.../Musings/SimJob/Run1Bak
+├── Offline/          # patched subset (holeRadii, helical plug)
+├── Run1BAna/         # the extra-module repo, a sibling of Offline
+└── build/al9-prof-e29-p094/{Offline,Run1BAna}/lib/
+```
+
+`EdepAna_module` lives in mmackenz's personal `Run1BAna`
+(`github.com/michaelmackenzie/Run1BAna` — **not** the Mu2e org, **not**
+Offline, **not** Run1Bak; verified against `Offline/v13_12_10` at full depth
+2026-08-18: zero `EdepAna` matches, the only `Edep`-named file being the
+unrelated `MCDataProducts/inc/CaloEDepMC.hh`). The harvest step loads it via a
+`CET_PLUGIN_PATH` + `LD_LIBRARY_PATH` prepend in
+`pipeline.py:sourced_env(with_muse=True)`.
+
+### Build it here — but ONE TARGET, never the package
+
+**Superseded 2026-06-26:** this section previously said a local build had been
+attempted and failed, and that the fix was to borrow mmackenz's prebuilt lib.
+That borrow path is **dead** — he bumped p094→p101 and deleted the directory we
+pointed at, taking every foils/ipa harvest down with it
+([mmackenz-edepana-lib-qualifier-bump](/incidents/mmackenz-edepana-lib-qualifier-bump.md)).
+We build it ourselves now, and it compiles clean:
+
+```bash
+cd /exp/mu2e/app/users/oksuzian/autoresearch_muse
+muse setup -q p094
+muse build -j4 build/al9-prof-e29-p094/Run1BAna/lib/librun1bana_workflows_EdepAna_module.so
+```
+
+**The explicit lib target is the whole trick.** Run1BAna HEAD has drifted past
+the backing, so a package-level or bare `muse build` still fails — on OTHER
+sub-packages, never on EdepAna:
 
 - `Run1BAna/evtana/inc/Run1BEvtAna.hh` includes `EventNtuple/inc/HitCount.hh`
   — that repo isn't checked out.
 - `Run1BAna/modules/src/CalLineFinder_module.cc:421` references
-  `mu2e::CosmicTrackSeed::_caloCluster`, a member that exists in Run1BAna HEAD
-  but **not** in `v13_12_10`'s `CosmicTrackSeed`. Run1BAna HEAD's ABI has
-  drifted past the backing.
+  `mu2e::CosmicTrackSeed::_caloCluster`, absent from `v13_12_10`.
 
-Since the harvest is local-only (not a grid step), the cheap fix is to
-prepend mmackenz's prebuilt lib dir
-(`/exp/mu2e/app/users/mmackenz/run1b/build/al9-prof-e29-p094/Run1BAna/lib`)
-to `CET_PLUGIN_PATH` + `LD_LIBRARY_PATH` in `pipeline.py:sourced_env(with_muse=True)`.
-The mmackenz lib was built against the same `Run1Bak` / v13_12_10 backing
-with the same envset, so ABI matches by construction.
+`EdepAna_module.cc` itself has **no** `EventNtuple` dependency — only Offline
+(`RecoDataProducts/CaloCluster`, `MCDataProducts/{PrimaryParticle,CaloShowerStep,
+StepPointMC}`, `Mu2eUtilities/StopWatch`), art and ROOT, all present in the
+backing. Naming the `.so` makes scons stop short of the broken siblings. Raw
+`scons` fails with "No SConstruct" — it MUST go through `muse build`.
 
-To rebuild Run1BAna locally we would need: (a) check out an older Run1BAna
-tag whose ABI matches `v13_12_10`, (b) also check out `EventNtuple`, (c)
-muse build. Not worth doing unless the borrow path stops working.
+**Not a grid concern:** EdepAna runs only in the local harvest, never in a grid
+stage, so `Code.tar.bz2` never carries it and no tarball rebuild follows a
+Run1BAna change. If a future stage did need it on the worker, this same work
+area is what `muse tarball` would ship.
+
+### Known gap: the fcl + macro come from a SECOND, diverged clone
+
+The build tree above supplies only the `.so`. `edep.fcl` and
+`rough_run1a_sensitivity.C` are read at harvest time from a **different,
+untracked clone** at `autoresearch/Run1BAna/` (gitignored, `.gitignore:72`),
+wired in at `harvest.py:64-66`. The two clones have already diverged (disjoint
+`config_*` dirs as of 2026-08-18), so nothing prevents the module and the FHiCL
+that configures it from being different vintages. Either checkout can also move
+under us: neither is pinned to a SHA. Fixing this means one pinned checkout
+feeding both the build and the harvest.
 
 ## Backing-only tarball (no source overlay, no build)
 

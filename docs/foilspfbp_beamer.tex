@@ -11,10 +11,10 @@
 \setbeamercolor{title}{fg=white}
 
 \title[Shape at Deployed Pitch]{A Stopping Target Optimized at the \emph{Deployed} Foil Pitch}
-\subtitle{9D shape search, foil spacing fixed to the baseline design}
+\subtitle{9D shape search + a pitch-profile axis, inside the deployed envelope}
 \author{Y.\ Oksuzian}
 \institute[Mu2e autoresearch]{Mu2e --- autoresearch / closed-loop Bayesian optimization}
-\date{2026-08-06}
+\date{2026-08-10}
 
 \begin{document}
 
@@ -25,27 +25,32 @@
 % ------------------------------------------------------------------ result
 \begin{frame}{Result in one slide}
 \begin{block}{}
-Hold the foil-to-foil \textbf{gap at the deployed 22.2\,mm} --- so the support and
-frame engineering carry over --- and let Bayesian optimization choose everything else.
-The result beats the deployed target by \textbf{$+32\%$ S/$\sqrt{B}$} \emph{and} beats the
-6D champion on \textbf{both} objectives at once: $+4.9\%$ significance at
-\textbf{$-19\%$ detector damage}.
+Hold the stopping target inside the \textbf{deployed envelope} (extent
+$48\times22.222$\,mm) and let Bayesian optimization choose everything else.
+At the \emph{deployed damage budget} the best design gives
+\textbf{$+23\%$ S/$\sqrt{B}$} (4.00 vs 3.26); with no damage cost at all,
+\textbf{$+19\%$ at $-13\%$ damage}. Unconstrained, the significance record is
+\textbf{4.41} ($+35\%$) at $+60\%$ damage --- and still rising.
 \end{block}
 \vspace{0.4em}
 \begin{itemize}
-  \item \textbf{83 evaluations} (13 transplanted seeds $+$ 70 new), \textbf{zero failures};
-        a fourth campaign is running, so the front is still moving.
-  \item \textbf{Record} \texttt{foilspfbp03R03\_00}: \textbf{4.30} at
-        8.37$\times10^{-7}$ --- vs.\ the deployed target's 3.26 at 6.85$\times10^{-7}$,
-        i.e.\ \textbf{$+32\%$ S/$\sqrt{B}$ for $+22\%$ damage}.
-  \item It \textbf{strictly dominates} the previous record (\texttt{bp01R00\_03},
-        4.29 at 1.23$\times10^{-6}$): same significance, \textbf{32\% less damage},
-        a completely different shape.
-  \item \textbf{And damage need not be paid at all}: \texttt{bp04R00\_02} reaches
-        \textbf{$+19\%$ S/$\sqrt{B}$ at $-13\%$ damage} --- strictly better than the
-        deployed target on \emph{both} axes. \textbf{24 of 83} designs do this.
-  \item Damage frontier spans \textbf{22$\times$}, floor 5.6$\times10^{-8}$ MeV/POT,
-        \textbf{28 Pareto points}.
+  \item \textbf{297 evaluations} (13 transplanted seeds $+$ 284 new) across ten
+        campaigns --- shape, widened box, pitch profile, and two max-S/$\sqrt{B}$
+        exploit rounds --- \textbf{zero failures}. Search \textbf{closed for
+        deployment}; the exploit rounds map the unconstrained ceiling.
+  \item \textbf{Deployment answer} \texttt{bp04R00\_09}: \textbf{4.00} at
+        6.37$\times10^{-7}$ --- the most significance available \emph{within} the
+        deployed target's damage (three campaigns confirmed nothing beats it there).
+  \item \textbf{No-cost option} \texttt{bp04R00\_02}: \textbf{$+19\%$ S/$\sqrt{B}$ at
+        $-13\%$ damage} --- strictly better than the deployed target on \emph{both}
+        axes. \textbf{42 of 297} designs do this.
+  \item \textbf{Record} \texttt{foilspfbpz05R01\_00}: \textbf{4.41} at
+        1.10$\times10^{-6}$ --- $+35\%$ S/$\sqrt{B}$ for $+60\%$ damage. The exploit
+        record trajectory 4.33 $\rightarrow$ 4.37 $\rightarrow$ \textbf{4.41}
+        ($\sim$5$\sigma$ steps at the replicate-measured $\sigma_{\rm sob}=0.006$)
+        had \emph{not} flattened at stop.
+  \item Damage frontier spans \textbf{23$\times$}, floor 5.6$\times10^{-8}$ MeV/POT,
+        \textbf{41 measured Pareto points}.
 \end{itemize}
 \vspace{0.2em}
 \footnotesize
@@ -55,9 +60,11 @@ zero-overlap preflight).
 
 % ------------------------------------------------------------------ what we vary
 \begin{frame}{What we optimize --- and what we deliberately do not}
-\textbf{9-D shape at fixed pitch}: 49 foils generated from $K{=}3$ quadratic control points
-for outer radius, half-thickness and hole fraction. \textbf{Extent is pinned} at
-$48\times22.222 = \mathbf{1066.7}$~mm --- the deployed foil spacing.
+\textbf{9-D shape at fixed pitch} (later $+1$): 49 foils generated from $K{=}3$ quadratic
+control points for outer radius, half-thickness and hole fraction. \textbf{Extent is
+pinned} at $48\times22.222 = \mathbf{1066.7}$~mm --- the deployed foil spacing. Late
+campaigns widened the \texttt{rOut} box to 30--150 and added \texttt{zmid}
+(a linearly-varying foil pitch; $\texttt{zmid}=0$ $=$ uniform).
 \vspace{0.7em}
 \begin{columns}[T]
 \begin{column}{0.46\textwidth}
@@ -66,9 +73,10 @@ $48\times22.222 = \mathbf{1066.7}$~mm --- the deployed foil spacing.
 \toprule
 knob & range & \\
 \midrule
-\texttt{rOut\_\{0,1,2\}} & 50--120 & mm \\
+\texttt{rOut\_\{0,1,2\}} & 50--120 ($\to$ 30--150) & mm \\
 \texttt{hT\_\{0,1,2\}}   & 0.01--0.15 & mm \\
 \texttt{f\_\{0,1,2\}}    & 0--0.95 & hole fraction \\
+\texttt{zmid} (late)     & $-150$--$+150$ & mm \\
 \midrule
 \texttt{extent} & \textbf{1066.7} & \textbf{fixed} \\
 \bottomrule
@@ -97,19 +105,19 @@ search on shape, inside an envelope the hardware already supports.
 % ------------------------------------------------------------------ landscape
 \begin{frame}{The landscape}
 \begin{center}
-\includegraphics[height=0.66\textheight]{foilspfbp_perpot_cloud.png}
+\includegraphics[height=0.66\textheight]{foilspfbpz_perpot_cloud.png}
 \end{center}
 \footnotesize
-83 evaluations, GP cloud over the 9D shape box. Gold star $=$ deployed default; green
-diamond $=$ the 6D foilsflash champion geometry re-measured on this stack; \textbf{white
-triangle} $=$ the record, sitting \emph{to the right of and below} the green diamond ---
-better on both axes; magenta star $=$ the lowest-damage point still beating the deployed
-target.
-Colour $=$ mid-stack hole fraction, the dominant knob (corr $\mathbf{-0.81}$).
+All \textbf{297} evaluations; GP density cloud over the full 10D box (background). The
+white line is the \textbf{measured} Pareto front (41 points) --- not a GP prediction.
+Dashed line $=$ the deployed damage budget: magenta star $=$ best design \emph{inside}
+it (4.00); \textbf{white triangle} $=$ the unconstrained record (4.41, $+60\%$ damage);
+gold star $=$ deployed default; green diamond $=$ 6D foilsflash champion re-measured.
+Colour $=$ mid-stack hole fraction, the dominant knob (corr $\mathbf{-0.88}$).
 \end{frame}
 
 % ------------------------------------------------------------------ anatomy
-\begin{frame}{Anatomy of the record}
+\begin{frame}{Anatomy of the top-S/$\sqrt{B}$ designs}
 \begin{columns}
 \begin{column}{0.52\textwidth}
 \includegraphics[width=\textwidth]{foilspfbp_bestsob_sketch.png}
@@ -120,9 +128,9 @@ Colour $=$ mid-stack hole fraction, the dominant knob (corr $\mathbf{-0.81}$).
 \toprule
 design & S/$\sqrt{B}$ & damage \\
 \midrule
-\texttt{bp03R03\_00} (record)   & \textbf{4.30} & \textbf{0.84} \\
-\texttt{bp01R00\_03} (old rec.) & 4.29 & 1.23 \\
-\texttt{bp02R03\_00}            & 4.09 & 0.79 \\
+\texttt{bpz05R01\_00} (record)  & \textbf{4.41} & 1.10 \\
+\texttt{bpz04R11\_00}           & 4.37 & 1.04 \\
+\texttt{bp03R03\_00} (sketched) & 4.30 & \textbf{0.84} \\
 \texttt{bp02R08\_00}            & 4.05 & \textbf{0.73} \\
 6D champion $x$ (re-meas.)      & 4.10 & 1.04 \\
 deployed default                & 3.26 & 0.69 \\
@@ -133,13 +141,91 @@ deployed default                & 3.26 & 0.69 \\
 {\scriptsize damage in $10^{-6}$ MeV/POT, all on the Run1Bap stack}
 \vspace{0.5em}
 \begin{itemize}\footnotesize
-  \item \textbf{Grows outward, stays nearly solid.} \texttt{rOut} $50 / 111 / 120$\,mm
-        with holes almost shut ($f = 0 / 0.17 / 0.19$) --- the reverse of the old record,
-        which shrank downstream to \texttt{rOut} 50 and opened an upstream hole.
-  \item Thickness ramps $20 \rightarrow 111 \rightarrow 198$\,µm: thin where the beam is
-        still intact, thick where it is spent.
-  \item Growth is \textbf{symmetric} about the shared centre $z_0 = 5871$: $\pm133$\,mm
-        beyond the deployed span, dashed $=$ deployed envelope.
+  \item \emph{Sketch: \texttt{bp03R03\_00}.} \textbf{Grows outward, stays nearly
+        solid.} \texttt{rOut} $50 / 111 / 120$\,mm with holes almost shut
+        ($f = 0 / 0.17 / 0.19$); thickness ramps $20 \rightarrow 198$\,µm ---
+        thin where the beam is intact, thick where it is spent.
+  \item \textbf{The record family} (next slide): \textbf{4.37}
+        (\texttt{bpz04R11\_00}) is a wide funnel-bore stack at \emph{uniform}
+        pitch, entirely inside the original 9D box; \textbf{4.41}
+        (\texttt{bpz05R01\_00}) is a \emph{near-solid} barrel at ramped pitch.
+        Both found only by the dedicated exploit rounds --- the hypervolume
+        picker never tried either.
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ------------------------------------------------------ best-sob record design
+\begin{frame}{The best-S/$\sqrt{B}$ target design}
+\begin{columns}
+\begin{column}{0.52\textwidth}
+\includegraphics[width=\textwidth]{foilspfbpz05_bestsob_sketch.png}
+\end{column}
+\begin{column}{0.46\textwidth}
+\small
+\begin{tabular}{lcc}
+\toprule
+design & S/$\sqrt{B}$ & damage \\
+\midrule
+\texttt{bpz05R01\_00} (record) & \textbf{4.41} & 1.10 \\
+deployed default               & 3.26 & \textbf{0.69} \\
+\midrule
+\emph{difference}              & \textbf{$+35\%$} & $+60\%$ \\
+\bottomrule
+\end{tabular}
+\vspace{0.4em}
+
+{\scriptsize damage in $10^{-6}$ MeV/POT, Run1Bap stack}
+\vspace{0.5em}
+\begin{itemize}\footnotesize
+  \item \textbf{Nearly solid.} Bore radius $\le 5$\,mm everywhere
+        ($f = 0.01/0.05/0.01$) --- no funnel, no hole: all stopping mass kept.
+  \item \textbf{A gentle barrel, heavy throughout}: \texttt{rOut}
+        $80 \rightarrow 110 \rightarrow 95$\,mm; thickness $92/132/122$\,µm ---
+        not the thin-to-thick ramp of the other top designs.
+  \item \textbf{Pitch ramped}: $\texttt{zmid} = +83$\,mm --- foils sparse
+        upstream, packed downstream (visible in the sketch).
+  \item A \textbf{different family} from the 4.37 funnel (next slide): the ridge
+        top is degenerate --- two dissimilar shapes within $1\%$ in S/$\sqrt{B}$.
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ------------------------------------------------ previous record (funnel family)
+\begin{frame}{The 4.37 family --- a funnel bore at uniform pitch}
+\begin{columns}
+\begin{column}{0.52\textwidth}
+\includegraphics[width=\textwidth]{foilspfbpz_bestsob_sketch.png}
+\end{column}
+\begin{column}{0.46\textwidth}
+\small
+\begin{tabular}{lcc}
+\toprule
+design & S/$\sqrt{B}$ & damage \\
+\midrule
+\texttt{bpz04R11\_00} (prev.\ record) & \textbf{4.37} & 1.04 \\
+deployed default               & 3.26 & \textbf{0.69} \\
+\midrule
+\emph{difference}              & \textbf{$+34\%$} & $+52\%$ \\
+\bottomrule
+\end{tabular}
+\vspace{0.4em}
+
+{\scriptsize damage in $10^{-6}$ MeV/POT, Run1Bap stack}
+\vspace{0.5em}
+\begin{itemize}\footnotesize
+  \item \textbf{A wide barrel with a funnel bore.} \texttt{rOut} starts wide and
+        stays wide ($112 \rightarrow 113 \rightarrow 87$\,mm) while the hole
+        \textbf{closes along the beam}: bore radius $44 \rightarrow 16 \rightarrow
+        9$\,mm --- open where the beam enters, nearly solid where it is spent.
+  \item Thickness ramps $26 \rightarrow 129 \rightarrow 246$\,µm --- the same
+        thin-where-intact / thick-where-spent law as every top design.
+  \item \textbf{Essentially uniform pitch}: $\texttt{zmid} = +7.7$\,mm of the
+        $\pm150$ allowed --- the pitch knob contributed nothing here.
+  \item Siblings \texttt{R08\_00}/\texttt{R14\_01} independently confirm 4.37.
+        A ceiling map, not a deployment candidate.
 \end{itemize}
 \end{column}
 \end{columns}
@@ -236,12 +322,14 @@ deployed default (37 foils) & 3.26 & --- & 0.69 & --- & 63 & 22.0\% \\
                                   & $\mathbf{-13\%}$ & 216 & \textbf{1.5\%} \\
 \texttt{bp02R08\_00}              & 4.05 & $+24\%$ & 0.73 & $+6\%$ & 213 & 3.1\% \\
 \texttt{bp02R03\_00}              & 4.09 & $+25\%$ & 0.79 & $+15\%$ & 166 & 9.2\% \\
-\texttt{bp03R03\_00} (record)     & \textbf{4.30} & $\mathbf{+32\%}$ & 0.84 & $+22\%$ & 206 & 9.6\% \\
-\texttt{bp01R00\_03} (old record) & 4.29 & $+32\%$ & 1.23 & $+79\%$ & 153 & 22.0\% \\
+\texttt{bp03R03\_00}              & \textbf{4.30} & $\mathbf{+32\%}$ & 0.84 & $+22\%$ & 206 & 9.6\% \\
+\texttt{bp01R00\_03}              & 4.29 & $+32\%$ & 1.23 & $+79\%$ & 153 & 22.0\% \\
 \bottomrule
 \end{tabular}
 
-{\tiny damage in $10^{-6}$ MeV/POT; all measured on the Run1Bap stack; rows ordered by damage}
+{\tiny damage in $10^{-6}$ MeV/POT; all measured on the Run1Bap stack; rows ordered by damage.
+Table and correlations computed on the 83-eval fixed-pitch (bp) set; the later 174 evals
+(box, pitch, exploit) leave the placement-not-mass conclusion unchanged.}
 \end{center}
 \vspace{0.3em}
 \begin{columns}[T]
@@ -293,15 +381,18 @@ shape at 1066--1100\,mm & S/$\sqrt{B}$ & hole profile $f$ \\
 \midrule
 transplanted 2000\,mm champion (\texttt{SCANA1100}) & 4.16 & 0.43 / 0.12 / \textbf{0.86} \\
 optimized at this pitch (\texttt{bp01R00\_03})      & 4.29 & 0.43 / 0 / \textbf{0} \\
-\textbf{record} (\texttt{bp03R03\_00})              & \textbf{4.30} & \textbf{0 / 0.17 / 0.19} \\
+optimized at this pitch (\texttt{bp03R03\_00})      & 4.30 & \textbf{0 / 0.17 / 0.19} \\
+exploit record (\texttt{bpz04R11\_00}, uniform pitch) & 4.37 & 0.39 / \textbf{0.14 / 0.10} \\
+\textbf{record} (\texttt{bpz05R01\_00})             & \textbf{4.41} & \textbf{0.01 / 0.05 / 0.01} \\
 \bottomrule
 \end{tabular}
 \end{center}
 \vspace{0.6em}
 \begin{itemize}
-  \item $+3.4\%$ ($\sim$5.6$\sigma$ at $\sigma_{\rm sob}=0.6\%$) purely from re-optimizing the
-        shape at fixed length. \textbf{Two independent optima found here both shut the
-        downstream hole} the 2000\,mm champion opens wide.
+  \item $+6\%$ ($\gg$5$\sigma$ even at a conservative $\sigma_{\rm sob}=0.6\%$) purely
+        from re-optimizing the shape at fixed length. \textbf{Four independent optima
+        found here all shut (or nearly shut) the downstream hole} the 2000\,mm champion
+        opens wide.
   \item \textbf{Mechanism}: at tight spacing a conversion electron re-crosses more neighbouring
         foils on its way out, so exit-path self-absorption dominates and \emph{open holes stop
         paying}. At 42\,mm pitch the same optimizer opens them wide.
@@ -311,33 +402,49 @@ optimized at this pitch (\texttt{bp01R00\_03})      & 4.29 & 0.43 / 0 / \textbf{
 \end{itemize}
 \end{frame}
 
-% ------------------------------------------------------------------ saturation
-\begin{frame}{How fast it converges --- and when to stop}
+% ------------------------------------------------------------------ what we tried
+\begin{frame}{What we tried --- four parameterizations, one stopping rule}
 \small
 \begin{center}
 \footnotesize
-\begin{tabular}{@{}lccl@{}}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}llccc@{}}
 \toprule
-campaign & evals & best S/$\sqrt{B}$ & outcome \\
+campaign & axis opened & evals & best S/$\sqrt{B}$ & best \emph{inside} budget \\
 \midrule
-\texttt{foilspfbp01} & 20 & 3.56 $\rightarrow$ \textbf{4.29} & winner arrived in \textbf{wave 0} \\
-\texttt{foilspfbp02} & 20 & 4.29 $\rightarrow$ 4.29 & \textbf{0 of 20} beat it; 7 front points \\
-\texttt{foilspfbp03} & 20 & 4.29 $\rightarrow$ \textbf{4.30} & sob \emph{tie} ($0.4\sigma$) at
-                                                               \textbf{$-32\%$ damage} \\
+\texttt{bp01--04}  & 9D shape at the deployed pitch          & 80    & 4.33 & \textbf{4.00} (\texttt{bp04R00\_09}) \\
+\texttt{bw01}      & bore/width knobs, \texttt{rOut} $\le$ 150 (cold start) & 20 & 3.79 & 3.79 \\
+\texttt{bpx01}     & \texttt{rOut} box $50$--$120 \rightarrow 30$--$150$    & 40 & 4.31 & 3.74 \\
+\texttt{bpz01,03}  & $+$ \texttt{zmid}: non-uniform foil pitch              & 80 & 4.25 & 3.90 \\
+\texttt{bpz04}     & max-S/$\sqrt{B}$ \emph{exploit} (\texttt{pareto\_sob} picker) & 40 & 4.37 & --- (0/40 in budget) \\
+\texttt{bpz05}     & exploit, round 2                                       & 40 & \textbf{4.41} & --- (0/40 in budget) \\
 \bottomrule
 \end{tabular}
+
+{\tiny budget $=$ deployed damage, $6.85\times10^{-7}$ MeV/POT. \texttt{bpx}/\texttt{bpz}
+warm-start on all prior rows, so their column shows what the \emph{new} axis added ---
+none displaced the incumbent 4.00. 317 evaluations total, incl.\ 13 transplanted seeds.}
 \end{center}
-\vspace{0.7em}
-\begin{itemize}
-  \item \textbf{The S/$\sqrt{B}$ ceiling is saturated}: 4.29 $\rightarrow$ 4.30 across 74
-        evaluations. Three campaigns of acquisition bought $0.4\sigma$ on that axis.
-  \item \textbf{But the front is not.} \texttt{bp03} found the same significance at
-        \textbf{32\% less damage} and knocked the old record off the front entirely.
-        A repeat campaign never raises the ceiling --- it can still displace the
-        champion \emph{by domination}.
-  \item Practical rule: stop when the front stops moving, \textbf{not} when the scalar
-        record stops moving. Every jump on the sob axis itself came from changing the
-        box (extent ceiling, then pitch), never from grinding the same one.
+\vspace{0.4em}
+\begin{itemize}\footnotesize
+  \item \textbf{Stopping rule, fixed before each launch}: clear S/$\sqrt{B} = 4.00$
+        \emph{inside} the deployed damage budget, or the axis closes.
+  \item \textbf{Shape} stalled at exactly 4.00 (\texttt{bp04}). \textbf{Box}: the front
+        pressed the 120\,mm \texttt{rOut} wall, but opening it to 150 (\texttt{bpx},
+        one variable changed) did not move best-at-budget --- the wall was not binding.
+        (\texttt{bw} had moved ceiling \emph{and} parameterization together: negative but
+        unattributable, hence the one-variable retry.) \textbf{Spacing}
+        (\texttt{bpz}, first non-uniform-pitch search) did not clear it either.
+        \textbf{Deployment verdict: 4.00, search closed 2026-08-08.}
+  \item \textbf{The ceiling is budget-shaped, not box-shaped}: just past the line the
+        front continues smoothly --- \textbf{4.10 at $+1\%$} damage, 4.30 at $+22\%$,
+        \textbf{4.41} at $+60\%$. More significance is on sale whenever more damage is
+        acceptable.
+  \item \textbf{The scalar "ceiling" was picker-relative}: after hypervolume acquisition
+        saturated at 4.33, two exploit rounds (submit the GP's top-predicted-sob points)
+        averaged \textbf{4.29 then 4.32 over their picks} and drove the record
+        4.33 $\rightarrow$ 4.37 $\rightarrow$ \textbf{4.41} ($\sim$5$\sigma$ steps) ---
+        still climbing when stopped. Critical path is full-sim validation, not more BO.
 \end{itemize}
 \end{frame}
 
@@ -345,18 +452,15 @@ campaign & evals & best S/$\sqrt{B}$ & outcome \\
 \begin{frame}{Conclusion \& next steps}
 \small
 \begin{itemize}
-  \item A target optimized \textbf{at the deployed foil pitch} gives $+32\%$ S/$\sqrt{B}$
-        over the deployed design, inside an envelope the existing support structure was
-        built for.
-  \vspace{0.4em}
-  \item \textbf{No trade needed at the top any more.} The record beats the 6D champion on
-        \emph{both} objectives ($+4.9\%$ S/$\sqrt{B}$, $-19\%$ damage). Against the
-        \emph{deployed} target it is $+32\%$ S/$\sqrt{B}$ for $+22\%$ damage.
+  \item A target optimized \textbf{inside the deployed envelope} gives
+        $+23\%$ S/$\sqrt{B}$ \emph{at the deployed damage budget} (4.00 vs 3.26), and at
+        least \textbf{$+35\%$ (4.41)} if $+60\%$ damage is acceptable --- an envelope the
+        existing support structure was built for.
   \vspace{0.4em}
   \item \textbf{A no-cost option exists.} \texttt{bp04R00\_02}: $+19\%$ S/$\sqrt{B}$ at
         $\mathbf{-13\%}$ damage --- strictly better than the deployed target on both
         objectives, at the deployed foil pitch. This is the point to take to full
-        simulation first.
+        simulation first. (42 of 297 designs beat the deployed target on both axes.)
   \vspace{0.4em}
   \item \textbf{Needed --- prove it with full simulation.} Every number here is a fast score
         (S/$\sqrt{B}$ and damage extracted without full reconstruction). The best configs must
@@ -369,8 +473,12 @@ campaign & evals & best S/$\sqrt{B}$ & outcome \\
   \vspace{0.4em}
   \item \textbf{Design lever, transferable}: damage tracks \emph{core} aluminium
         ($\rho = +0.84$), not total ($+0.57$) --- keep the mass, move it off the axis.
-        \textbf{Search closed}: \texttt{foilspfbp} at 93 evals; a wider-box successor
-        (\texttt{foilspfbw}, 20 evals) did not improve on it at the deployed damage budget.
+  \vspace{0.4em}
+  \item \textbf{Search closed for deployment} (317 evals: shape, widened box, pitch
+        profile all stall at 4.00 in budget). The unconstrained ceiling is
+        \textbf{$\ge$4.41 and still rising} ($+0.04$ per exploit round); its top is
+        degenerate --- a near-solid barrel at ramped pitch (4.41) and a funnel bore
+        at uniform pitch (4.37) sit within $1\%$ of each other.
 \end{itemize}
 \end{frame}
 

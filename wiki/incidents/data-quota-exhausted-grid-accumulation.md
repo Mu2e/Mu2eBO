@@ -6,11 +6,14 @@ description: /exp/mu2e/data/users/oksuzian 2TB CephFS quota filled by autoresear
   (2.04TB, Code.tar.bz2 accumulation) → Errno 122 EDQUOT at propose_one geom-copy;
   killed ipa02 4/5 children; diagnose with getfattr not df; 2026-06-19
 status: resolved
-status_note: '2026-06-20 (deleted 1474 completed-config dirs → freed 1.88 TB: /data
-  2148 GB → 269 GB = 12%); campaigns relaunched fresh'
-timestamp: '2026-07-01'
-updated_note: 're-measured: Code.tar.bz2+cnf.tar=579GB/63%, harvest only 1.1GB,
-  outputs already on /pnfs → delete not reroute'
+status_note: '2026-07-24 structurally: code tarball + cnf jobdef rerouted to dCache
+  scratch (LRU-purged), so /exp cost falls ~2.7 GB/eval → ~10 MB/eval and needs no
+  pruning; earlier 2026-06-20 recovery deleted 1474 config dirs (freed 1.88 TB)'
+timestamp: '2026-07-24'
+updated_note: 'REVERSAL: the 2026-07-01 "reroute-to-/pnfs is moot, delete instead"
+  conclusion was wrong (it conflated /pnfs/mu2e/tape with the disk-only LRU
+  /pnfs/mu2e/scratch); reroute implemented + dry-run verified. Also found the
+  687.5 GB / 1271 orphaned unpacked Code/ trees the tar-only census had missed.'
 ---
 
 # /data 2TB CephFS quota exhausted by autoresearch_grid accumulation → Errno 122
@@ -67,15 +70,25 @@ ipa02 lost 4/5 R0 children; foilsf20 + pt6d11 were next.
   /app quota was NOT cleaned during the first 2026-06-20 /data recovery.
   **RESOLVED 2026-06-20:** deleted `muse_101323` + `muse_080224` → /app 85.7→55.8
   GB (99.8%→65%, 30 GB free).
-- **Reroute-to-/pnfs does NOT apply; deletion is the only lever (measured 2026-07-01, foilsflash04 era).**
-  Re-measured at 913 GB / 335 configs: **`Code.tar.bz2` + `cnf.*.tar` = 579 GB (63%, 1836 files)**, the
-  rest work-tree cruft; **`harvest/` (summary.json + nts.ce.root) is only 1.1 GB total** — the sole science
-  we keep. **The grid `.art` OUTPUTS already live on `/pnfs/mu2e/scratch/.../outstage/`** (default_location
-  `disk`), NOT on /data — confirmed from `state/<stage>_outputs.txt`. So "move data to /pnfs scratch" is moot:
-  the physics is already there; what's on /data is regenerable build cruft that should be DELETED, not moved
-  (/pnfs is tape-backed dCache — a bad target for build tars anyway). **Cleanup must target BOTH `Code.tar.bz2`
-  AND `cnf.*.tar`** (the cnf job-def tar embeds the code again — co-equal size; the earlier recipe named only
-  Code.tar.bz2).
+- **~~Reroute-to-/pnfs does NOT apply; deletion is the only lever~~ — REFUTED 2026-07-24, reroute DONE.**
+  The 2026-07-01 measurement stands (**`Code.tar.bz2` + `cnf.*.tar` = 579 GB / 63% of 913 GB**; `harvest/`
+  only 1.1 GB; grid `.art` outputs already on `/pnfs/.../outstage/`). The *conclusion* was wrong, on one
+  bad premise: **"/pnfs is tape-backed dCache — a bad target for build tars"** conflates
+  `/pnfs/mu2e/tape` with **`/pnfs/mu2e/scratch`, which is disk-only and LRU-purged, never tape-backed.**
+  Measured facts that overturn it:
+  - **Scratch retention ≈ 5-8 weeks** (sampled our own outstage: content intact at 36 d, partial at 2 mo)
+    vs a cluster lifetime of **<24 h** — so "LRU could evict a live jobdef" is not a real failure mode.
+  - **dCache accepts sequential writes at 415 MB/s** and refuses only random-access writes
+    (`seek`+`write` → `PermissionError: EPERM`).
+  - **`mu2ejobdef` writes exactly that pattern**: `sysopen(O_CREAT|O_EXCL|O_WRONLY)` + one
+    `Archive::Tar->write` (it *deliberately* avoids `tar --append`, which "produces corrupt tarballs" —
+    its own comment). It also has a first-class **`--outdir`** flag (default `.`).
+  - `mu2ejobfcl`/`mu2ejobsub` resolve `--jobdef` through `mu2egrid::find_file` → `abs_path()`, so an
+    absolute `/pnfs` path works from any cwd.
+  **Both blobs now write to `/pnfs/mu2e/scratch/users/$USER/autoresearch_grid/<cfg>/`** and age out on
+  their own — ~2.7 GB/eval that no longer touches the quota and needs no pruning hook. Verified by a real
+  `submit --dry-run` (tarball → scratch, `mu2ejobdef --outdir` → scratch, `mu2ejobfcl` readback OK).
+  Caveat that keeps the *unpack* tree local: dCache is bad at many-small-files, and `Code/` is ~1000 of them.
 - **Blast radius:** with 3 concurrent campaigns, the quota fills faster and ALL
   of them fail their next /data write simultaneously. Children crash in the
   graph `propose` node; the closed-loop barrier then reports them
@@ -98,9 +111,21 @@ ipa02 lost 4/5 R0 children; foilsf20 + pt6d11 were next.
   call — Code.tar.bz2-only would have freed ~3× less. Then killed the 3 stuck
   campaigns (SIGTERM) and relaunched fresh (new prefixes + fresh decoupled
   checkpoint dirs, since post-SIGTERM WALs may be dirty — [sqlite-wal-corrupt-after-kill](/incidents/sqlite-wal-corrupt-after-kill.md)).
-- **Prevention TODO:** a post-harvest hook that deletes a config's
-  `*/Code.tar.bz2` once its leaderboard row lands would bound autoresearch_grid
-  growth; right now nothing prunes it.
+- **Prevention — DONE 2026-07-24, and no hook was needed.** Rather than pruning,
+  the two big blobs were rerouted to dCache scratch (see the REFUTED bullet
+  above), where LRU purges them. `core/pipeline.py` `_bind_config` now binds
+  `PNFS_ROOT`; `write_code_tarball` streams bzip2 straight there and
+  `submit_stage` passes `mu2ejobdef --outdir`. Steady-state /exp cost per eval
+  drops from **~2.7 GB to ~10 MB** (geom + state + harvest only).
+- **Second leak, distinct and already fixed: 1271 orphaned unpacked `Code/` trees
+  = 687.5 GB / 3.58M files (found 2026-07-24).** `write_code_tarball` extracted
+  `Code/` into the stage dir, repacked, and never removed the tree; the
+  `rmtree` at the START of the function only cleaned it on a *repeat* call to the
+  same stage. Fixed at `core/pipeline.py:545` (`shutil.rmtree(code_dir,
+  ignore_errors=True)`) on 2026-07-10, which the mtimes confirm — **no orphan tree
+  is newer than 2026-07-10 07:27**. What remained was pure pre-fix debris.
+  This is why the 2026-07-01 tarball census (579 GB) didn't add up to the 1.16 TB
+  actually on disk: **it counted `*.tar*` files and missed the unpacked trees.**
 
 ## Cross-links
 - Related: [jobsub-disk-quota-stderr-swallowed](/incidents/jobsub-disk-quota-stderr-swallowed.md) (same Errno 122 but at the

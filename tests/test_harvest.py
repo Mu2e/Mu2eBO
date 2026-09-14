@@ -3,8 +3,7 @@
 Runs grid-free: extractor runners are injected fakes, state dirs are tmpdirs.
 Covers the branches that previously lived untested inside cmd_harvest
 (FP-1/FP-2 of the 2026-07-11 architecture re-survey), including the two
-incident regressions: EdepAna scientific-notation counts and the
-concat-vs-mubeam mu⁻-stop input resolution that biased ff11R00_07.
+incident regression: EdepAna scientific-notation counts.
 """
 import sys
 import tempfile
@@ -42,71 +41,24 @@ class TestParsers(unittest.TestCase):
             harvest.parse_s_over_sqrt_b("Signal box but no metric")
 
 
-class TestStageChainStamp(unittest.TestCase):
-    def test_round_trip(self):
-        with tempfile.TemporaryDirectory() as d:
-            state = Path(d)
-            harvest.stamp_stage_chain(state, ["mubeam", "mustops_ce", "elebeam_flash"])
-            self.assertEqual(harvest.stamped_stage_chain(state),
-                             ["mubeam", "mustops_ce", "elebeam_flash"])
-
-    def test_legacy_returns_none(self):
-        with tempfile.TemporaryDirectory() as d:
-            self.assertIsNone(harvest.stamped_stage_chain(Path(d)))
-
-
 def _write_outputs(state: Path, stage: str, names):
     (state / f"{stage}_outputs.txt").write_text(
         "\n".join(f"/pnfs/fake/{n}" for n in names) + "\n")
 
 
 class TestResolveMuminusInputs(unittest.TestCase):
-    def test_stamped_concat_chain_uses_concat(self):
+    def test_uses_mubeam_targetstops(self):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d)
-            harvest.stamp_stage_chain(state, ["mubeam", "concat", "mustops_ce"])
-            _write_outputs(state, "concat",
-                           ["sim.x.MuminusStopsCat.a.art", "sim.x.MuplusStopsCat.a.art"])
-            files, source = harvest.resolve_muminus_inputs(state)
-            self.assertEqual(source, "concat")
-            self.assertEqual([f.name for f in files], ["sim.x.MuminusStopsCat.a.art"])
-
-    def test_stamped_concatless_chain_uses_mubeam(self):
-        with tempfile.TemporaryDirectory() as d:
-            state = Path(d)
-            harvest.stamp_stage_chain(state, ["mubeam", "mustops_ce", "elebeam_flash"])
             _write_outputs(state, "mubeam",
                            ["sim.x.TargetStops.a.art", "nts.x.mubeam.a.root"])
-            files, source = harvest.resolve_muminus_inputs(state)
-            self.assertEqual(source, "mubeam")
+            files = harvest.resolve_muminus_inputs(state)
             self.assertEqual([f.name for f in files], ["sim.x.TargetStops.a.art"])
 
-    def test_legacy_presence_concat_wins_over_env(self):
-        # ff11R00_07 lesson: existing concat outputs are the truth for this
-        # config regardless of the current process env / mode chain.
+    def test_missing_mubeam_outputs_raises(self):
         with tempfile.TemporaryDirectory() as d:
-            state = Path(d)
-            _write_outputs(state, "concat", ["sim.x.MuminusStopsCat.a.art"])
-            _write_outputs(state, "mubeam", ["sim.x.TargetStops.a.art"])
-            files, source = harvest.resolve_muminus_inputs(state)
-            self.assertEqual(source, "concat")
-
-    def test_legacy_no_concat_falls_back_to_mubeam(self):
-        with tempfile.TemporaryDirectory() as d:
-            state = Path(d)
-            _write_outputs(state, "mubeam", ["sim.x.TargetStops.a.art"])
-            files, source = harvest.resolve_muminus_inputs(state)
-            self.assertEqual(source, "mubeam")
-
-    def test_blank_concat_outputs_is_hard_error_not_absence(self):
-        # stage-out-lag face: a single blank line must NOT be read as
-        # "concat absent" (that would silently switch the denominator source).
-        with tempfile.TemporaryDirectory() as d:
-            state = Path(d)
-            harvest.stamp_stage_chain(state, ["mubeam", "concat", "mustops_ce"])
-            (state / "concat_outputs.txt").write_text("\n")
             with self.assertRaises(SystemExit):
-                harvest.resolve_muminus_inputs(state)
+                harvest.resolve_muminus_inputs(Path(d))
 
     def test_no_targetstops_match_raises(self):
         with tempfile.TemporaryDirectory() as d:
@@ -218,16 +170,15 @@ class TestEvalSummarySchema(unittest.TestCase):
         "s_over_sqrt_b", "flash_edep_per_event",
         "flash_edep_per_pot", "flash_edep_per_pot_winsor",
         "flash_perfile_stats", "flash_edep_total_MeV", "flash_edep_events",
-        "flash_n_input", "flash_edep_tag", "calo_per_pot", "calo_total",
-        "calo_files_seen", "nts_path", "edep_log", "macro_log",
+        "flash_n_input", "flash_edep_tag", "nts_path", "edep_log",
+        "macro_log",
     }
 
     def _minimal(self):
         return harvest.EvalSummary(
             config="testcfg", ce_seen=576070, muminus_stops=238912,
             mubeam_sim_total=2800000, ce_simulated_events=1050000,
-            stopping_factor=0.0853, ce_abs_eff=5.98e-4, s_over_sqrt_b=3.78,
-            muminus_source="concat")
+            stopping_factor=0.0853, ce_abs_eff=5.98e-4, s_over_sqrt_b=3.78)
 
     def test_all_legacy_keys_present(self):
         # Every key the current cmd_harvest writes must survive the
@@ -246,7 +197,6 @@ class TestEvalSummarySchema(unittest.TestCase):
             self.assertEqual(data["config"], "testcfg")
             self.assertEqual(data["s_over_sqrt_b"], 3.78)
             self.assertIsNone(data["flash_edep_per_pot"])
-            self.assertEqual(data["muminus_source"], "concat")
             self.assertEqual(data["degraded"], {})
 
 

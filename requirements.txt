@@ -12,6 +12,12 @@
 #     -r requirements.txt
 #   ln -s /exp/mu2e/data/users/$USER/autoresearch_venvs/.venv .venv
 #
+# This file is the human-readable INTENT: 7 of the 12 lines below are `>=`
+# ranges, so it does not pin a stack. `requirements.lock` is the pinned,
+# hashed resolution of it -- use that to reproduce a known-green venv, or to
+# hand a publisher something buildable. Rebuild the lock (recipe in its
+# header) whenever a pin here moves, and only from a green venv.
+#
 # The AUTORESEARCH_BOTORCH_VENV env seam still selects an alternate picker
 # venv for A/Bs (e.g. a future train_Yvar or botorch-0.19 arm).
 langgraph>=0.2.50

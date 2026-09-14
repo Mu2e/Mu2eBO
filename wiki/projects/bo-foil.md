@@ -3,7 +3,7 @@ type: project
 title: bo-foil — original 7D foil-stack BO
 description: original 7D BO over foil-stack geometry; superseded by bo-michael
 status: superseded
-status_note: by [[bo-michael]]; driver removed 2026-05-21
+status_note: by [bo-michael](/projects/bo-michael.md); driver removed 2026-05-21
 timestamp: '2026-05-21'
 ---
 

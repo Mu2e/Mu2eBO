@@ -6,7 +6,7 @@ description: '`tests/` regression suite (12 files, 211 tests; test_wal_multiwrit
   .venv/bin/python -m unittest discover -s tests -v`; golden parity harness
   (manual, not in discover): `PYTHONPATH= .venv/bin/python tests/golden_parity.py check`'
 status: active
-timestamp: '2026-07-20'
+timestamp: '2026-08-02'
 updated_note: 'slimming round: ChildTracker full-cut + harvest seams + B0
   batch added STALE_CLUSTER/launch-failed/harvest/lockstep coverage;
   196 → 211 tests'
@@ -28,6 +28,58 @@ tests: ChildTracker `STALE_CLUSTER` + launch-failed coverage, harvest.py
 Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
 
 ## Key facts
+- **Suite size (measured 2026-08-02): 18 `test_*.py`, 432 tests (2 skipped
+  by design), 11.7 s.**
+  The per-file breakdown further down is a 2026-07-20 snapshot (12 files /
+  211) and has NOT been re-audited — trust these two numbers over it.
+- **`tools/capture_golden_geom.py`'s skip guard was BROKEN and would have
+  destroyed the oracle it protects (found + fixed 2026-08-02).** The tool
+  re-captures the frozen geometry goldens
+  (`tests/fixtures/golden_geom/<mode>_<i>.txt`) that
+  `test_json_mode_parity.py` compares JSON-defined modes against, and it is
+  supposed to REFUSE any mode with no Python renderer — regenerating those
+  from the JSON spec would compare the spec to itself. It detected "has a
+  Python renderer" with `hasattr(mode, "_geom_text")`, which is **True for
+  every mode alive**: `BOMode` declares `_geom_text` abstract and `JsonMode`
+  implements it from the JSON `geom` template. So after foilsflash went
+  JSON-only (2026-07-26) the tool reported `0 mode(s) skipped` and a plain
+  run would have rewritten all four foilsflash goldens from the spec,
+  silently turning that half of the parity test into a tautology. Fixed to
+  key on the registry fact `ModeSpec.geom is not None` (non-None ⇔
+  JSON-defined, per core/modes.py) — an attribute check can never express
+  "no Python renderer" while the ABC declares the method.
+- **`--check` also reported false DRIFT** (same fix): it diffed raw text
+  while the parity test compares `parse_assignments()`, which drops
+  comments and normalizes whitespace. All 4 foilsflash goldens were
+  semantically identical to the current render (which is why the suite was
+  green) yet `--check` exited 1, making it useless as a gate. It now
+  compares the way the test does and reports cosmetic-only differences
+  separately. Post-fix: `SKIP foilsflash`, `0 drifted, 0 cosmetic`, exit 0.
+- **The identical broken guard was ALSO live in the suite**, at
+  `test_json_mode_parity.py::test_golden_still_matches_the_live_python_mode`
+  — it reported `ok` for foilsflash instead of `skipped`, so for a
+  JSON-only mode it was comparing golden-vs-JSON while its failure message
+  still read *"STALE vs the live Python renderer — re-capture it"*: advice
+  that, followed, would have destroyed the oracle via the (then also
+  broken) tool. Fixed 2026-08-02 by hoisting `has_python_renderer(mode)`
+  into `test_json_mode_parity.py` (it owns `GOLDEN`/`SAMPLE_X`/
+  `parse_assignments`; the tool imports it, keeping one tool→test
+  dependency instead of a cycle) and keying both on it. Skips are now
+  symmetric and correct: `foils` runs the staleness test, `foilsflash`
+  runs the production-spec test.
+- **Two tests added with that fix (428 → 432):**
+  `test_production_spec_still_matches_the_golden` makes the coverage the
+  broken guard had been providing *by accident* explicit and honest — it
+  checks the SHIPPED `mode_specs/<mode>.json` (via `MODES`) against the
+  golden, where the sibling `test_same_geometry_as_python_renderer` only
+  checks the `tests/fixtures/modes/` copy; editing the production spec's
+  geometry off the proven-equal baseline is the mistake that would
+  otherwise reach the grid. And
+  `test_regeneration_guard_uses_the_registry_not_an_attribute` pins the
+  guard itself, asserting `hasattr(m, "_geom_text")` is True even for a
+  JSON mode — i.e. that an attribute check can never mean "has a Python
+  renderer". Nothing had pinned that invariant, which is why it could
+  break in silence for a week.
 - **Venv & invocation:** `PYTHONPATH= .venv/bin/python -m unittest discover
   -s tests -v` (single project venv since the 2026-07-18 consolidation —
   it carries langgraph AND botorch, so there is no wrong venv anymore).

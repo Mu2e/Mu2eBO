@@ -7,7 +7,7 @@ description: 'delete/keep map EXECUTED through 2026-07-18 (Tier 1 batch + ipa +
   Run1BAna); venv pair consolidated to one .venv 2026-07-18; Tier-2 botorch_predict.py
   test-gap verification note SUPERSEDED 2026-07-19 (unit tests landed)'
 status: active
-timestamp: '2026-07-19'
+timestamp: '2026-08-02'
 ---
 
 # Simplification audit 2026-07 — verified delete/keep map
@@ -222,6 +222,49 @@ Remaining mechanical batch executed after the reorg week. **Done today:**
   (196-test main suite); see
   `docs/superpowers/specs/2026-07-18-tests-schema-protocol-design.md` and
   [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md).
+
+## Key facts — dead-code re-sweep (2026-08-02, post json-modes)
+
+Mechanical AST re-sweep of `core/`+`graph/`+`tools/` (every top-level
+symbol, every `ModeSpec`/dataclass field, cross-referenced against a
+274-file corpus). **The July audit holds: ZERO dead functions, ZERO dead
+classes, ZERO production symbols whose only callers are tests.** All 6
+pipeline stages and all 6 template dirs are reachable from some mode's
+`grid_stages`. Only sediment was left:
+
+- **EXECUTED** (suite 428 green + graph-build smoke): dead `field` import
+  and dead `_RUN1BAK` constant (`core/modes.py` — no mode has used the
+  stock Run1Bak musing since the foils family moved to `_HELICAL_LOCAL`);
+  dead `StageName` Literal (`graph/state.py` — `BOIterationState.stages`
+  is `Dict[str, StageStatus]`, the alias never had a consumer); unused
+  `BOTORCH_PREDICT` import (`graph/closed_loop.py`); unused `shutil` /
+  `re` test imports. Plus `_DRY_RUN_KNOB_LABELS` (11 L) deleted in favour
+  of `ModeSpec.knob_names` — the hand-maintained copy covered 5 of 11
+  modes, so **every JSON mode's `--dry-run` printed bare `x0..xN`**, and
+  its surviving labels had drifted from the leaderboard column names.
+- **`ModeSpec.preflight_fcl` is WRITE-ONLY dead data — the only field of
+  the 24 with no production reader.** The `PREFLIGHT_FCL_TEMPLATE`
+  else-branch it selected was deleted 2026-07-17; the field survived the
+  deletion. It is worse than clutter: a JSON spec may still declare
+  `"preflight": {"fcl": "preflight"}`, pass validation, and silently get
+  surfacecheck. Removal is a **schema change** (mode_json validator + 7
+  tracked + 4 untracked `mode_specs/*.json` + fixtures + 3 test
+  assertions) — deferred from the 2026-08-02 sweep because
+  `_reject_unknown` is strict: any window where the validator and a spec
+  file disagree crashes the next `propose`/`evaluate`/`preflight` of
+  every in-flight child. Do it between campaigns, in one commit.
+- **`EvalSummary.trk_edep_{per_pot,total_MeV,events,tag}` are dead**, and
+  the 2026-07-18 rationale for keeping them ("archived summary.json
+  back-compat") is **refuted**: `EvalSummary` is serialize-only
+  (`asdict` → `to_json`, `harvest.py:371`), there is no deserializer, so
+  no archived file is ever parsed back into it. Nothing writes them
+  (retired with ipa), nothing reads them repo-wide or in the off-repo
+  plotters (the 3 `trk_edep`-matching `mmackenz_table_plots` scripts read
+  the frozen ipa leaderboard, not summary.json) — they only emit four
+  permanent `null` keys per harvest. Deferred with the above: removal
+  narrows `test_harvest.py:LEGACY_KEYS` (a deliberate refactor contract)
+  and would make one campaign's summary.json files differ in shape
+  mid-flight. `_extract_trk_edep_per_pot` STAYS (flash harvest reuses it).
 
 ## Key facts — root .py / .tsv reorganization (2026-07-17)
 

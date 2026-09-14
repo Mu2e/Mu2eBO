@@ -1,0 +1,17 @@
+{
+ "_comment": "Rationale for these keys lives in core/pipeline.py, in the comment block immediately above _render_fcl_overrides. desc_fmt/output_glob/njobs are per-stage orchestration constants -- desc_fmt is the json2jobdef description format, output_glob is the file pattern this stage emits, njobs is the default grid job count (mode specs may override via run.jobs_per_stage; see core/pipeline.py stage_cfg()). No 'input_data'/'resampler_name': reco reads the prior stage's (digi) art files directly, staged dynamically by cmd_submit's stage_hardlink_farm -- same mechanism as mustops_ce, not a resampler.",
+ "desc_fmt": "Reco_{cfg}",
+ "output_glob": "mcs.*.CeEndpointOnSpill-reco.*.art",
+ "njobs": 1,
+ "fcl": "Production/JobConfig/recoMC/OnSpill.fcl",
+ "fcl_overrides": {
+  "services.DbService.purpose": "Sim_best",
+  "services.DbService.version": "v1_1",
+  "outputs.LoopHelixOutput.fileName": "mcs.owner.CeEndpointOnSpill-reco.version.sequencer.art"
+ },
+ "inloc": "disk",
+ "outloc": {"*.art": "outstage", "*.root": "outstage"},
+ "run": 1901,
+ "memory": 2000,
+ "events": 5000
+}

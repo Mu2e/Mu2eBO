@@ -2,7 +2,7 @@
 type: project
 title: BO Foils Grouped (foilsg)
 description: 12D BO over a 49-foil stack in 4 z-groups (12-13-12-12), each group
-  shares (rOut, hT, f); REPLACES deployed 37-foil base; wired 2026-06-09 after [[bo-foils]]
+  shares (rOut, hT, f); REPLACES deployed 37-foil base; wired 2026-06-09 after [bo-foils](/projects/bo-foils.md)
   saturated at sob≈3.89-3.90
 status: active
 timestamp: '2026-07-17'

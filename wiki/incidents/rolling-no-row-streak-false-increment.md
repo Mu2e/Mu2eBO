@@ -62,7 +62,7 @@ window could abort a perfectly healthy campaign.
   new code, which is desirable.
 
 ## Cross-links
-- Related: [closed-loop-runner](/drivers/closed-loop-runner.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md) (the
+- Related: [touched-leaderboard-headerless-history-loss](/incidents/touched-leaderboard-headerless-history-loss.md) (perfect impostor of this bug -- discriminate by calling `load_history()` directly), [closed-loop-runner](/drivers/closed-loop-runner.md), [foilsx04-all-preflight-ambiguous](/incidents/foilsx04-all-preflight-ambiguous.md) (the
   original zero-rows shape this guard generalizes),
   [closed-loop-barrier-timeout-zero-rows-falsepos](/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md) (sibling false-positive in
   the barrier-mode guard)

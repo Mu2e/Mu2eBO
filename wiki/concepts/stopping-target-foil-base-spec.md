@@ -5,7 +5,7 @@ description: deployed 37 foils at rOut=75, halfThickness=0.0528 mm (≈105.6 µm
   — not the "100 µm" design spec); holeRadius is a SINGLE SCALAR (StoppingTargetMaker.cc:41
   getDouble), not per-foil
 status: active
-timestamp: '2026-06-01'
+timestamp: '2026-08-02'
 ---
 
 # Stopping-Target Foil Base Spec
@@ -52,6 +52,16 @@ overrides (e.g. [bo-foils](/projects/bo-foils.md) adds extras around this base) 
   legacy grid workers running the old tarball silently fall back to the
   scalar and rebuild the deployed-baseline base correctly (extras still
   wrong, but base is right). Patch at `/tmp/holeRadii-vector.patch`.
+
+- **`stoppingTarget.z0InMu2e` is the stack CENTER, not the first foil**
+  (`StoppingTargetMaker.cc:146-148`: `length = (nfoils-1)*deltaZ; zclosest =
+  z0InMu2e - length/2`). A stack with a different span (e.g. foilspf's
+  `extent` knob) therefore grows **symmetrically**, ±(extent−800)/2 each
+  side of the shared center 5871. Independent cross-check: foilspf's IPA
+  compensation `ipa_dist = 625 − (extent−800)/2` subtracts HALF the extent
+  change — only consistent with centered growth. (2026-08-02: the first
+  foilspf sketch figure wrongly anchored deployed + profile stacks at the
+  same first foil; regenerated.)
 
 - **Vector keys that ARE per-foil** (`StoppingTargetMaker.cc:40, 50`,
   `getVectorDouble`): `stoppingTarget.radii`, `stoppingTarget.halfThicknesses`.
