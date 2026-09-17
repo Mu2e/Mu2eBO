@@ -803,6 +803,13 @@ DEFAULT_LOCAL_POOL = 4
 def _local_scale(args, stage: str) -> tuple:
     """(njobs, events) for one stage: flag, else env seam, else the default.
     THE resolver for local scale; called from submit --local's branch."""
+    if stage in ("digi", "reco"):
+        return (
+            _resolve_scale(getattr(args, "local_njobs", None),
+                           _scale_default("AUTORESEARCH_LOCAL_NJOBS", 1),
+                           stage),
+            None,
+        )
     return (
         _resolve_scale(getattr(args, "local_njobs", None),
                        _scale_default("AUTORESEARCH_LOCAL_NJOBS", 1),
@@ -897,7 +904,8 @@ def cmd_submit(args):
         # real ClusterId. The cluster file just needs a parseable int ("1").
         local_marker(stage).write_text("1\n")
         (STATE / f"{stage}_cluster.txt").write_text("1\n")
-        stamp_local_events(stage, events)
+        if events is not None:
+            stamp_local_events(stage, events)
         # Local jobs resample inputs over xrootd like grid workers -> need a
         # live bearer token. No _submit_lock: no condor_vault_storer here.
         _maybe_refresh_token(stage)

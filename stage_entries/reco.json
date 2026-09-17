@@ -11,7 +11,5 @@
  },
  "inloc": "disk",
  "outloc": {"*.art": "outstage", "*.root": "outstage"},
- "run": 1901,
- "memory": 2000,
- "events": 5000
+ "memory": 2000
 }

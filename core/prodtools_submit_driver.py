@@ -45,6 +45,7 @@ def main():
     # json2jobdef's alone. Extra keys (fcl_overrides, ...) ride along;
     # submit_entry reads only jobdesc accessors.
     entry.setdefault("tarball", Path(args.cnf).name)
+    entry.setdefault("prodtools_dir", args.prodtools)
     entry.setdefault("outputs", [
         {"dataset": pattern, "location": location}
         for pattern, location in entry.get("outloc", {}).items()])

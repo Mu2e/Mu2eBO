@@ -15,6 +15,7 @@ that wants to warn rather than die can.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -206,10 +207,16 @@ def stage_width(mode: str) -> str:
     """The per-stage grid width read from the mode spec rather than restated,
     so the launch banner cannot drift from what actually gets submitted."""
     spec = modes.SPECS[mode]
-    return ", ".join(
-        f"{s} {spec.stage_target_overrides.get(s, '?')}x"
-        f"{spec.stage_tuning.get(s, {}).get('events_per_job', '?')}"
-        for s in spec.grid_stages)
+    entries = paths.REPO_ROOT / "stage_entries"
+    widths = []
+    for stage in spec.grid_stages:
+        cfg = json.loads((entries / f"{stage}.json").read_text())
+        jobs = spec.stage_target_overrides.get(stage, cfg["njobs"])
+        events = spec.stage_tuning.get(stage, {}).get(
+            "events_per_job", cfg.get("events"))
+        width = f"{jobs}x{events}" if events is not None else f"{jobs}xinput"
+        widths.append(f"{stage} {width}")
+    return ", ".join(widths)
 
 
 

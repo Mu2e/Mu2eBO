@@ -86,7 +86,7 @@ class TestRenderEntry(unittest.TestCase):
             **self._base(
                 events=5000, run=1800,
                 resampler_name="beamResampler",
-                input_data={"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
+                input_data={"sim.mu2e.MuBeamCat.MDC2025ae.art": 1},
                 inloc="tape"))
         self.assertEqual(e["desc"], "Run1A_MuBeam_t001")
         self.assertEqual(e["dsconf"], "Run1Bak_t001")

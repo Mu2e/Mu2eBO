@@ -246,7 +246,9 @@ def run_runlocal(stage_dir, cnf, njobs, wait_json, env, *, code_tarball,
     workdir = Path(stage_dir) / "local"
     workdir.mkdir(parents=True, exist_ok=True)
     _invalidate_stale_code_tree(workdir, Path(code_tarball))
-    cmd = [str(prodtools_root() / "bin" / "runlocal"),
+    # prodtools' wrapper switches to Python 3.12, whose gfal2 binding is broken here.
+    runlocal_python = os.environ.get("AUTORESEARCH_RUNLOCAL_PYTHON", "/usr/bin/python3")
+    cmd = [runlocal_python, str(prodtools_root() / "utils" / "runlocal.py"),
            "--jobdef", str(cnf), "--first", "0", "--num", str(njobs),
            "-j", str(pool), "--workdir", str(workdir),
            "--code", str(code_tarball), "--json", str(wait_json)]

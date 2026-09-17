@@ -3,7 +3,7 @@
  "desc_fmt": "Digi_{cfg}",
  "output_glob": "dig.*.CeEndpointOnSpill.*.art",
  "njobs": 1,
- "fcl": "Production/JobConfig/digitization/OnSpill.fcl",
+ "fcl": "Production/JobConfig/digitize/OnSpill.fcl",
  "fcl_overrides": {
   "services.DbService.purpose": "Sim_best",
   "services.DbService.version": "v1_1",
@@ -12,7 +12,5 @@
  },
  "inloc": "disk",
  "outloc": {"*.art": "outstage", "*.root": "outstage"},
- "run": 1900,
- "memory": 2000,
- "events": 5000
+ "memory": 2000
 }

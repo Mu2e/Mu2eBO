@@ -5,7 +5,7 @@
  "njobs": 200,
  "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
  "fcl_overrides": {
-  "#include": ["Production/JobConfig/pileup/epilog_1b.fcl", "sim_kept_products_extras.fcl", "mubeam_targetstop_path.fcl"],
+  "#include": ["Production/JobConfig/pileup/epilog.fcl", "sim_kept_products_extras.fcl", "mubeam_targetstop_path.fcl"],
   "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
   "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
   "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyMuBeamFlash.version.sequencer.art",
@@ -23,9 +23,9 @@
   "physics.filters.muminusSelector.PrintLevel": 0
  },
  "resampler_name": "beamResampler",
- "input_data": {"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
+ "input_data": {"sim.mu2e.MuBeamCat.MDC2025ae.art": 1},
  "inloc": "tape",
  "outloc": {"*.art": "outstage", "*.root": "outstage"},
- "run": 1800,
+ "run": 1430,
  "events": 5000
 }

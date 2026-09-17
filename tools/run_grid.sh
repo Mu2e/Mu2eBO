@@ -46,5 +46,5 @@ PYTHONPATH= "$AUTORESEARCH_PYTHON" core/launch_checks.py \
 
 echo "run_grid: config=$CONFIG mode=$MODE  (grid; expect 3-6 h)"
 
-exec "$AUTORESEARCH_PYTHON" -m graph.run --mode "$MODE" \
+exec env PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.run --mode "$MODE" \
     --config-name "$CONFIG" --thread-id "$CONFIG"
