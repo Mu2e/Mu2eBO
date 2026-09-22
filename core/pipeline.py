@@ -171,8 +171,9 @@ def stage_cfg(stage: str, mode=_STAGE_CFG_DEFAULT_MODE) -> dict:
 
 # Every grid stage any mode can name, independent of one mode's
 # GRID_STAGES subset (cross-mode chains need them in --help's choices).
-ALL_STAGES = ("mubeam", "mustops_ce", "elebeam_flash")
-
+# digi/reco added alongside the pipeline's digi/reco integration: both are
+# input-consuming, geometry-independent stages (stage_entries/{digi,reco}.json).
+ALL_STAGES = ("mubeam", "mustops_ce", "elebeam_flash", "digi", "reco")
 
 def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
     """Extras FCLs to ship in the code tarball, derived from
@@ -520,11 +521,16 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
     return cache
 
 
+# mubeam's muminusSelector makes TargetStops mu--pure, so mustops_ce resamples
+# the mubeam files directly; digi/reco each consume the immediately preceding
+# stage's art output.
+_INPUT_STAGE_FOR = {"mustops_ce": "mubeam", "digi": "mustops_ce", "reco": "digi"}
+
+
 def _input_stage_for(stage: str) -> str:
-    """Which stage's outputs feed `stage`. mubeam's muminusSelector makes
-    TargetStops mu--pure, so mustops_ce resamples the mubeam files directly.
-    One owner for both the grid and --local staging branches."""
-    return "mubeam"
+    """Which stage's outputs feed `stage`. One owner for both the grid and
+    --local staging branches."""
+    return _INPUT_STAGE_FOR[stage]
 
 
 def stage_hardlink_farm(stage: str, source_paths: list[Path]) -> Path:
@@ -690,10 +696,10 @@ def submit_stage_prodtools(stage, env, *, staged_inputs=None,
 
 
 # Stages the local executor can run. The Cat-resampler stages render with
-# staged_inputs=None; mustops_ce stages the prior stage's outputs via
+# staged_inputs=None; mustops_ce/digi/reco stage the prior stage's outputs via
 # local_input_farm. A stage absent here is refused loudly rather than handed
 # an inputless entry prodtools would accept (a job silently reading nothing).
-LOCAL_SUPPORTED_STAGES = ("mubeam", "elebeam_flash", "mustops_ce")
+LOCAL_SUPPORTED_STAGES = ("mubeam", "elebeam_flash", "mustops_ce", "digi", "reco")
 
 
 def _require_local_stage(stage: str) -> None:
@@ -797,6 +803,13 @@ DEFAULT_LOCAL_POOL = 4
 def _local_scale(args, stage: str) -> tuple:
     """(njobs, events) for one stage: flag, else env seam, else the default.
     THE resolver for local scale; called from submit --local's branch."""
+    if stage in ("digi", "reco"):
+        return (
+            _resolve_scale(getattr(args, "local_njobs", None),
+                           _scale_default("AUTORESEARCH_LOCAL_NJOBS", 1),
+                           stage),
+            None,
+        )
     return (
         _resolve_scale(getattr(args, "local_njobs", None),
                        _scale_default("AUTORESEARCH_LOCAL_NJOBS", 1),
@@ -847,7 +860,7 @@ def cmd_submit(args):
         njobs, events = _local_scale(args, stage)
 
         staged_inputs = None
-        if stage == "mustops_ce":
+        if stage in ("mustops_ce", "digi", "reco"):
             # Same previous-stage rule as grid staging (_input_stage_for).
             # The prior stage must have run LOCALLY, or <prev>_outputs.txt
             # holds /pnfs paths.
@@ -891,7 +904,8 @@ def cmd_submit(args):
         # real ClusterId. The cluster file just needs a parseable int ("1").
         local_marker(stage).write_text("1\n")
         (STATE / f"{stage}_cluster.txt").write_text("1\n")
-        stamp_local_events(stage, events)
+        if events is not None:
+            stamp_local_events(stage, events)
         # Local jobs resample inputs over xrootd like grid workers -> need a
         # live bearer token. No _submit_lock: no condor_vault_storer here.
         _maybe_refresh_token(stage)
@@ -914,7 +928,7 @@ def cmd_submit(args):
         return
     env = sourced_env()
     staged_inputs = None
-    if args.stage == "mustops_ce":
+    if args.stage in ("mustops_ce", "digi", "reco"):
         # input_data requires basenames: hard-link the previous stage's
         # outputs into a /pnfs stage dir xrootd can resolve.
         prev_stage = _input_stage_for(args.stage)

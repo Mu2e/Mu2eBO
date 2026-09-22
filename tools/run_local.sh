@@ -47,5 +47,5 @@ PYTHONPATH= "$AUTORESEARCH_PYTHON" core/launch_checks.py \
 echo "run_local: config=$CONFIG mode=$MODE" \
      "scale=${AUTORESEARCH_LOCAL_NJOBS}x${AUTORESEARCH_LOCAL_EVENTS}"
 
-exec "$AUTORESEARCH_PYTHON" -m graph.run --mode "$MODE" \
+exec env PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.run --mode "$MODE" \
     --config-name "$CONFIG" --thread-id "$CONFIG"

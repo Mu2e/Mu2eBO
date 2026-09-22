@@ -354,14 +354,14 @@ class TestStageEntries(unittest.TestCase):
         # per-stage transcription table -- see task-13-report.md).
         expect = {
             "mubeam": {"resampler_name": "beamResampler",
-                      "input_data": {"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
-                      "inloc": "tape", "run": 1800, "events": 5000},
+                      "input_data": {"sim.mu2e.MuBeamCat.MDC2025ae.art": 1},
+                      "inloc": "tape", "run": 1430, "events": 5000},
             "mustops_ce": {"resampler_name": "TargetStopResampler",
-                          "inloc": "disk", "run": 1801, "memory": 3000,
+                          "inloc": "disk", "run": 1431, "memory": 3000,
                           "events": 2500},
             "elebeam_flash": {"resampler_name": "beamResampler",
-                              "input_data": {"sim.mu2e.EleBeamCat.Run1Baa.art": 1},
-                              "inloc": "tape", "run": 1803, "memory": 3000,
+                              "input_data": {"sim.mu2e.EleBeamCat.MDC2025ae.art": 1},
+                              "inloc": "tape", "run": 1433, "memory": 3000,
                               "events": 2500},
         }
         for stage, fields in expect.items():
@@ -712,10 +712,10 @@ class TestSubmitStageProdtools(unittest.TestCase):
             # it's the static stage_entries/mubeam.json default.
             self.assertEqual(entry["events"],
                              pipeline.stage_cfg("mubeam", pipeline.MODE)["events"])
-            self.assertEqual(entry["run"], 1800)
+            self.assertEqual(entry["run"], 1430)
             self.assertEqual(entry["resampler_name"], "beamResampler")
             self.assertEqual(
-                entry["input_data"], {"sim.mu2e.MuBeamCat.Run1Baa.art": 1})
+                entry["input_data"], {"sim.mu2e.MuBeamCat.MDC2025ae.art": 1})
             self.assertEqual(entry["inloc"], "tape")
 
             # fcl_overrides: '#include' is FIRST (write_fcl_template dict

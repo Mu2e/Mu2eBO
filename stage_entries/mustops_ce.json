@@ -15,7 +15,7 @@
  "resampler_name": "TargetStopResampler",
  "inloc": "disk",
  "outloc": {"*.art": "outstage", "*.root": "outstage"},
- "run": 1801,
+ "run": 1431,
  "memory": 3000,
  "events": 2500
 }

@@ -9,7 +9,9 @@
     "stages": [
       "mubeam",
       "mustops_ce",
-      "elebeam_flash"
+      "elebeam_flash",
+      "digi",
+      "reco"
     ],
     "jobs_per_stage": {
       "mubeam": 15,

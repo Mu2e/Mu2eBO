@@ -1,0 +1,11 @@
+#include "Production/JobConfig/digitization/OnSpill.fcl"
+
+# Digitization stage - reads simulated art files from mustops_ce.
+# No G4, so no geometry dependency.
+# source.fileNames is filled by mu2ejobdef --inputs.
+
+services.DbService.purpose: "Sim_best"
+services.DbService.version: "v1_1"
+services.SeedService.baseSeed: 1
+
+outputs.Output.fileName: "dig.owner.CeEndpointOnSpill.version.sequencer.art"
