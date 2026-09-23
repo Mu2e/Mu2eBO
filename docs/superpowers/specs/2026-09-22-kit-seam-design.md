@@ -26,9 +26,11 @@ The effort is split into four specs, each with its own plan:
    (github.com/michaelmackenzie/analysis-mcp-server); needs its owner.
    Our sob and flash definitions must be ported as anakit analyses, not
    swapped for `approx_ce_sensitivity`, whose defaults differ.
-3. **Study spec and generic graph** — `studies/<name>/study.toml` plus an
-   optional `render.py` hook, a graph generated from the study, the first
-   G4beamline study through beamkit. Decides where `preflight` and
+3. **Study spec and generic graph** — `studies/<name>/study.toml`, a graph
+   generated from the study, the first G4beamline study through beamkit.
+   Offline geometry studies need no per-study Python: `core/geom_template.py`
+   already renders knobs into a geometry overlay from formulas held as data
+   (foilspf included); G4beamline knobs go straight to beamkit `params`. Decides where `preflight` and
    `scan_logs` live.
 4. **Orchestrator MCP server** — autoresearch publishes `start_campaign`,
    `campaign_status`, `leaderboard`, `suggest`, `predict` using the HEP-KE
