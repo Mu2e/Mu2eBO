@@ -1,768 +1,163 @@
 {
   "foilsflash": {
-    "bounds_hi": [
-      250.0,
-      250.0,
-      1.0,
-      1.0,
-      0.95,
-      0.95
-    ],
-    "bounds_lo": [
-      50.0,
-      50.0,
-      0.002,
-      0.002,
-      0.0,
-      0.0
-    ],
+    "bounds_hi": [250.0, 250.0, 1.0, 1.0, 0.95, 0.95],
+    "bounds_lo": [50.0, 50.0, 0.002, 0.002, 0.0, 0.0],
     "checks_managed_overlap": true,
     "dumps_gdml": true,
-    "geom_sha": {
-      "lo": "50384883d47f09d1cd449a5bfa1d44d5a93483cd15c3d9b597bb195130ae524e",
-      "mid": "db387e514d15d2ca6ef54c851ff5d661a0de7ed6de7d7765d39b07d0aec37dc1",
-      "q30": "8e71712cdc7e37d00b150356903468984b6a34c329cee02605a27b83e6407eb2"
-    },
-    "grid_stages": [
-      "mubeam",
-      "mustops_ce",
-      "elebeam_flash"
-    ],
+    "geom_sha": {"lo": "50384883d47f09d1cd449a5bfa1d44d5a93483cd15c3d9b597bb195130ae524e", "mid": "db387e514d15d2ca6ef54c851ff5d661a0de7ed6de7d7765d39b07d0aec37dc1", "q30": "8e71712cdc7e37d00b150356903468984b6a34c329cee02605a27b83e6407eb2"},
+    "grid_stages": ["mubeam", "mustops_ce", "elebeam_flash"],
     "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
-    "knob_fmts": [
-      "{:.4f}",
-      "{:.4f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.4f}",
-      "{:.4f}"
-    ],
-    "knob_names": [
-      "extra_rOut_up",
-      "extra_rOut_dn",
-      "extra_halfThickness_up",
-      "extra_halfThickness_dn",
-      "extra_f_up",
-      "extra_f_dn"
-    ],
+    "knob_fmts": ["{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}"],
+    "knob_names": ["extra_rOut_up", "extra_rOut_dn", "extra_halfThickness_up", "extra_halfThickness_dn", "extra_f_up", "extra_f_dn"],
     "leaderboard_rel": "leaderboards/leaderboard_bo_foilsflash.tsv",
-    "metric_cols": [
-      "sob",
-      "flash_edep",
-      "alpha",
-      "obj"
-    ],
-    "metrics": {
-      "flash_edep": [
-        "flash_edep_per_pot",
-        "flash_edep_per_event"
-      ],
-      "sob": [
-        "s_over_sqrt_b"
-      ]
-    },
+    "metric_cols": ["sob", "flash_edep", "alpha", "obj"],
+    "metrics": {"flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"], "sob": ["s_over_sqrt_b"]},
     "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilsflash",
-    "obs_noise": [
-      0.006,
-      0.01
-    ],
-    "presubmit_after": {
-      "mubeam": [
-        "elebeam_flash"
-      ]
-    },
+    "obs_noise": [0.006, 0.01],
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
     "require_zero_overlaps": true,
-    "stage_target_overrides": {
-      "elebeam_flash": 100,
-      "mubeam": 15,
-      "mustops_ce": 15
-    },
-    "stage_tuning": {
-      "elebeam_flash": {
-        "events_per_job": 110000,
-        "memory_mb": 2000
-      },
-      "mubeam": {
-        "events_per_job": 200000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      },
-      "mustops_ce": {
-        "events_per_job": 75000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      }
-    },
+    "stage_target_overrides": {"elebeam_flash": 100, "mubeam": 15, "mustops_ce": 15},
+    "stage_tuning": {"elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}, "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}, "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
     "verifies_foil_gdml": true
   },
   "foilspf": {
-    "bounds_hi": [
-      120.0,
-      120.0,
-      120.0,
-      0.15,
-      0.15,
-      0.15,
-      0.95,
-      0.95,
-      0.95,
-      2000.0
-    ],
-    "bounds_lo": [
-      50.0,
-      50.0,
-      50.0,
-      0.01,
-      0.01,
-      0.01,
-      0.0,
-      0.0,
-      0.0,
-      400.0
-    ],
+    "bounds_hi": [120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 2000.0],
+    "bounds_lo": [50.0, 50.0, 50.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0, 400.0],
     "checks_managed_overlap": true,
     "dumps_gdml": true,
-    "geom_sha": {
-      "lo": "250e51ac383f02ef3702205cc5cafd21b788e30b0699822fb0890941fc1e566f",
-      "mid": "f992db94ec6dc81cc0bfa0f2b0fbbd22e2378ad32a1a051684a8acb3a0ff2708",
-      "q30": "d7a9033aa2d68fe0b5ecc344aba644e5ab1ee766f8422d78e07243a1ade96789"
-    },
-    "grid_stages": [
-      "mubeam",
-      "mustops_ce",
-      "elebeam_flash"
-    ],
+    "geom_sha": {"lo": "250e51ac383f02ef3702205cc5cafd21b788e30b0699822fb0890941fc1e566f", "mid": "f992db94ec6dc81cc0bfa0f2b0fbbd22e2378ad32a1a051684a8acb3a0ff2708", "q30": "d7a9033aa2d68fe0b5ecc344aba644e5ab1ee766f8422d78e07243a1ade96789"},
+    "grid_stages": ["mubeam", "mustops_ce", "elebeam_flash"],
     "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
-    "knob_fmts": [
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}"
-    ],
-    "knob_names": [
-      "rOut_0",
-      "rOut_1",
-      "rOut_2",
-      "hT_0",
-      "hT_1",
-      "hT_2",
-      "f_0",
-      "f_1",
-      "f_2",
-      "extent"
-    ],
+    "knob_fmts": ["{:.4f}", "{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}", "{:.4f}", "{:.4f}"],
+    "knob_names": ["rOut_0", "rOut_1", "rOut_2", "hT_0", "hT_1", "hT_2", "f_0", "f_1", "f_2", "extent"],
     "leaderboard_rel": "leaderboards/leaderboard_bo_foilspf.tsv",
-    "metric_cols": [
-      "sob",
-      "flash_edep",
-      "alpha",
-      "obj"
-    ],
-    "metrics": {
-      "flash_edep": [
-        "flash_edep_per_pot",
-        "flash_edep_per_event"
-      ],
-      "sob": [
-        "s_over_sqrt_b"
-      ]
-    },
+    "metric_cols": ["sob", "flash_edep", "alpha", "obj"],
+    "metrics": {"flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"], "sob": ["s_over_sqrt_b"]},
     "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspf",
-    "obs_noise": [
-      0.006,
-      0.01
-    ],
-    "presubmit_after": {
-      "mubeam": [
-        "elebeam_flash"
-      ]
-    },
+    "obs_noise": [0.006, 0.01],
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
     "require_zero_overlaps": true,
-    "stage_target_overrides": {
-      "elebeam_flash": 100,
-      "mubeam": 15,
-      "mustops_ce": 15
-    },
-    "stage_tuning": {
-      "elebeam_flash": {
-        "events_per_job": 110000,
-        "memory_mb": 2000
-      },
-      "mubeam": {
-        "events_per_job": 200000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      },
-      "mustops_ce": {
-        "events_per_job": 75000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      }
-    },
+    "stage_target_overrides": {"elebeam_flash": 100, "mubeam": 15, "mustops_ce": 15},
+    "stage_tuning": {"elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}, "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}, "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
     "verifies_foil_gdml": true
   },
   "foilspf2k": {
-    "bounds_hi": [
-      120.0,
-      120.0,
-      120.0,
-      0.15,
-      0.15,
-      0.15,
-      0.95,
-      0.95,
-      0.95
-    ],
-    "bounds_lo": [
-      50.0,
-      50.0,
-      50.0,
-      0.01,
-      0.01,
-      0.01,
-      0.0,
-      0.0,
-      0.0
-    ],
+    "bounds_hi": [120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95],
+    "bounds_lo": [50.0, 50.0, 50.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0],
     "checks_managed_overlap": true,
     "dumps_gdml": true,
-    "geom_sha": {
-      "lo": "9617e4c67c060a0652e207d86fec0788363936cbbf6dcce04a38f018554138b6",
-      "mid": "2ade9f09104a186d3f41b878d13ac707ff7d1b685723879248c166950dd71188",
-      "q30": "4461c5468a655ed2f726393f0d7e298ddb85386d806950de004fe9ad7533f6bf"
-    },
-    "grid_stages": [
-      "mubeam",
-      "mustops_ce",
-      "elebeam_flash"
-    ],
+    "geom_sha": {"lo": "9617e4c67c060a0652e207d86fec0788363936cbbf6dcce04a38f018554138b6", "mid": "2ade9f09104a186d3f41b878d13ac707ff7d1b685723879248c166950dd71188", "q30": "4461c5468a655ed2f726393f0d7e298ddb85386d806950de004fe9ad7533f6bf"},
+    "grid_stages": ["mubeam", "mustops_ce", "elebeam_flash"],
     "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
-    "knob_fmts": [
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}"
-    ],
-    "knob_names": [
-      "rOut_0",
-      "rOut_1",
-      "rOut_2",
-      "hT_0",
-      "hT_1",
-      "hT_2",
-      "f_0",
-      "f_1",
-      "f_2"
-    ],
+    "knob_fmts": ["{:.4f}", "{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}", "{:.4f}"],
+    "knob_names": ["rOut_0", "rOut_1", "rOut_2", "hT_0", "hT_1", "hT_2", "f_0", "f_1", "f_2"],
     "leaderboard_rel": "leaderboards/leaderboard_bo_foilspf2k.tsv",
-    "metric_cols": [
-      "sob",
-      "flash_edep",
-      "alpha",
-      "obj"
-    ],
-    "metrics": {
-      "flash_edep": [
-        "flash_edep_per_pot",
-        "flash_edep_per_event"
-      ],
-      "sob": [
-        "s_over_sqrt_b"
-      ]
-    },
+    "metric_cols": ["sob", "flash_edep", "alpha", "obj"],
+    "metrics": {"flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"], "sob": ["s_over_sqrt_b"]},
     "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspf2k",
-    "obs_noise": [
-      0.006,
-      0.01
-    ],
-    "presubmit_after": {
-      "mubeam": [
-        "elebeam_flash"
-      ]
-    },
+    "obs_noise": [0.006, 0.01],
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
     "require_zero_overlaps": true,
-    "stage_target_overrides": {
-      "elebeam_flash": 100,
-      "mubeam": 15,
-      "mustops_ce": 15
-    },
-    "stage_tuning": {
-      "elebeam_flash": {
-        "events_per_job": 110000,
-        "memory_mb": 2000
-      },
-      "mubeam": {
-        "events_per_job": 200000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      },
-      "mustops_ce": {
-        "events_per_job": 75000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      }
-    },
+    "stage_target_overrides": {"elebeam_flash": 100, "mubeam": 15, "mustops_ce": 15},
+    "stage_tuning": {"elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}, "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}, "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
     "verifies_foil_gdml": true
   },
   "foilspfbp": {
-    "bounds_hi": [
-      120.0,
-      120.0,
-      120.0,
-      0.15,
-      0.15,
-      0.15,
-      0.95,
-      0.95,
-      0.95
-    ],
-    "bounds_lo": [
-      50.0,
-      50.0,
-      50.0,
-      0.01,
-      0.01,
-      0.01,
-      0.0,
-      0.0,
-      0.0
-    ],
+    "bounds_hi": [120.0, 120.0, 120.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95],
+    "bounds_lo": [50.0, 50.0, 50.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0],
     "checks_managed_overlap": true,
     "dumps_gdml": true,
-    "geom_sha": {
-      "lo": "0a441b87ea5e94d3e22fe9c88ff4d97e9125614a09ec06fdae51daaa5d8aee32",
-      "mid": "c799335dc31273315725402d3d751caf66b33d8f13682d7b22ad5b447c76f4f4",
-      "q30": "21f91c0b2aacff93c850b067c4770b28d2cc04d0a6fc6c94be7daedd0d115d72"
-    },
-    "grid_stages": [
-      "mubeam",
-      "mustops_ce",
-      "elebeam_flash"
-    ],
+    "geom_sha": {"lo": "0a441b87ea5e94d3e22fe9c88ff4d97e9125614a09ec06fdae51daaa5d8aee32", "mid": "c799335dc31273315725402d3d751caf66b33d8f13682d7b22ad5b447c76f4f4", "q30": "21f91c0b2aacff93c850b067c4770b28d2cc04d0a6fc6c94be7daedd0d115d72"},
+    "grid_stages": ["mubeam", "mustops_ce", "elebeam_flash"],
     "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
-    "knob_fmts": [
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}"
-    ],
-    "knob_names": [
-      "rOut_0",
-      "rOut_1",
-      "rOut_2",
-      "hT_0",
-      "hT_1",
-      "hT_2",
-      "f_0",
-      "f_1",
-      "f_2"
-    ],
+    "knob_fmts": ["{:.4f}", "{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}", "{:.4f}"],
+    "knob_names": ["rOut_0", "rOut_1", "rOut_2", "hT_0", "hT_1", "hT_2", "f_0", "f_1", "f_2"],
     "leaderboard_rel": "leaderboards/leaderboard_bo_foilspfbp.tsv",
-    "metric_cols": [
-      "sob",
-      "flash_edep",
-      "alpha",
-      "obj"
-    ],
-    "metrics": {
-      "flash_edep": [
-        "flash_edep_per_pot",
-        "flash_edep_per_event"
-      ],
-      "sob": [
-        "s_over_sqrt_b"
-      ]
-    },
+    "metric_cols": ["sob", "flash_edep", "alpha", "obj"],
+    "metrics": {"flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"], "sob": ["s_over_sqrt_b"]},
     "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspfbp",
-    "obs_noise": [
-      0.006,
-      0.01
-    ],
-    "presubmit_after": {
-      "mubeam": [
-        "elebeam_flash"
-      ]
-    },
+    "obs_noise": [0.006, 0.01],
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
     "require_zero_overlaps": true,
-    "stage_target_overrides": {
-      "elebeam_flash": 100,
-      "mubeam": 15,
-      "mustops_ce": 15
-    },
-    "stage_tuning": {
-      "elebeam_flash": {
-        "events_per_job": 110000,
-        "memory_mb": 2000
-      },
-      "mubeam": {
-        "events_per_job": 200000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      },
-      "mustops_ce": {
-        "events_per_job": 75000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      }
-    },
+    "stage_target_overrides": {"elebeam_flash": 100, "mubeam": 15, "mustops_ce": 15},
+    "stage_tuning": {"elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}, "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}, "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
     "verifies_foil_gdml": true
   },
   "foilspfbpx": {
-    "bounds_hi": [
-      150.0,
-      150.0,
-      150.0,
-      0.15,
-      0.15,
-      0.15,
-      0.95,
-      0.95,
-      0.95
-    ],
-    "bounds_lo": [
-      30.0,
-      30.0,
-      30.0,
-      0.01,
-      0.01,
-      0.01,
-      0.0,
-      0.0,
-      0.0
-    ],
+    "bounds_hi": [150.0, 150.0, 150.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95],
+    "bounds_lo": [30.0, 30.0, 30.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0],
     "checks_managed_overlap": true,
     "dumps_gdml": true,
-    "geom_sha": {
-      "lo": "9641cc91cfb404697653d67a6ca9ed1166abd38f7e7e2dcd1abcb831cf373fb7",
-      "mid": "6bba7ef1c755ea3990145fa6d1e3b87560f2d2116db949c378a963817a264177",
-      "q30": "044da65f69a55312b858118aab8828ecb9cade826432739636bdfbdd953cbc90"
-    },
-    "grid_stages": [
-      "mubeam",
-      "mustops_ce",
-      "elebeam_flash"
-    ],
+    "geom_sha": {"lo": "9641cc91cfb404697653d67a6ca9ed1166abd38f7e7e2dcd1abcb831cf373fb7", "mid": "6bba7ef1c755ea3990145fa6d1e3b87560f2d2116db949c378a963817a264177", "q30": "044da65f69a55312b858118aab8828ecb9cade826432739636bdfbdd953cbc90"},
+    "grid_stages": ["mubeam", "mustops_ce", "elebeam_flash"],
     "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
-    "knob_fmts": [
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}"
-    ],
-    "knob_names": [
-      "rOut_0",
-      "rOut_1",
-      "rOut_2",
-      "hT_0",
-      "hT_1",
-      "hT_2",
-      "f_0",
-      "f_1",
-      "f_2"
-    ],
+    "knob_fmts": ["{:.4f}", "{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}", "{:.4f}"],
+    "knob_names": ["rOut_0", "rOut_1", "rOut_2", "hT_0", "hT_1", "hT_2", "f_0", "f_1", "f_2"],
     "leaderboard_rel": "leaderboards/leaderboard_bo_foilspfbpx.tsv",
-    "metric_cols": [
-      "sob",
-      "flash_edep",
-      "alpha",
-      "obj"
-    ],
-    "metrics": {
-      "flash_edep": [
-        "flash_edep_per_pot",
-        "flash_edep_per_event"
-      ],
-      "sob": [
-        "s_over_sqrt_b"
-      ]
-    },
+    "metric_cols": ["sob", "flash_edep", "alpha", "obj"],
+    "metrics": {"flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"], "sob": ["s_over_sqrt_b"]},
     "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspfbpx",
-    "obs_noise": [
-      0.006,
-      0.01
-    ],
-    "presubmit_after": {
-      "mubeam": [
-        "elebeam_flash"
-      ]
-    },
+    "obs_noise": [0.006, 0.01],
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
     "require_zero_overlaps": true,
-    "stage_target_overrides": {
-      "elebeam_flash": 100,
-      "mubeam": 15,
-      "mustops_ce": 15
-    },
-    "stage_tuning": {
-      "elebeam_flash": {
-        "events_per_job": 110000,
-        "memory_mb": 2000
-      },
-      "mubeam": {
-        "events_per_job": 200000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      },
-      "mustops_ce": {
-        "events_per_job": 75000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      }
-    },
+    "stage_target_overrides": {"elebeam_flash": 100, "mubeam": 15, "mustops_ce": 15},
+    "stage_tuning": {"elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}, "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}, "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
     "verifies_foil_gdml": true
   },
   "foilspfbpz": {
-    "bounds_hi": [
-      150.0,
-      150.0,
-      150.0,
-      0.15,
-      0.15,
-      0.15,
-      0.95,
-      0.95,
-      0.95,
-      150.0
-    ],
-    "bounds_lo": [
-      30.0,
-      30.0,
-      30.0,
-      0.01,
-      0.01,
-      0.01,
-      0.0,
-      0.0,
-      0.0,
-      -150.0
-    ],
+    "bounds_hi": [150.0, 150.0, 150.0, 0.15, 0.15, 0.15, 0.95, 0.95, 0.95, 150.0],
+    "bounds_lo": [30.0, 30.0, 30.0, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0, -150.0],
     "checks_managed_overlap": true,
     "dumps_gdml": true,
-    "geom_sha": {
-      "lo": "62f194e4ab0d2082972a9d4804e0dd911af1d6ff6952f5609bfd712fae134230",
-      "mid": "c1323877b4f0ae9b746aa4f6ef69b25e22d2ddd581c5a35fb5eb794287b11538",
-      "q30": "6843937f53e52a8a2e801192bccdb617a5f38dbc3250458b3503e6ab912b2a73"
-    },
-    "grid_stages": [
-      "mubeam",
-      "mustops_ce",
-      "elebeam_flash"
-    ],
+    "geom_sha": {"lo": "62f194e4ab0d2082972a9d4804e0dd911af1d6ff6952f5609bfd712fae134230", "mid": "c1323877b4f0ae9b746aa4f6ef69b25e22d2ddd581c5a35fb5eb794287b11538", "q30": "6843937f53e52a8a2e801192bccdb617a5f38dbc3250458b3503e6ab912b2a73"},
+    "grid_stages": ["mubeam", "mustops_ce", "elebeam_flash"],
     "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
-    "knob_fmts": [
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}"
-    ],
-    "knob_names": [
-      "rOut_0",
-      "rOut_1",
-      "rOut_2",
-      "hT_0",
-      "hT_1",
-      "hT_2",
-      "f_0",
-      "f_1",
-      "f_2",
-      "zmid"
-    ],
+    "knob_fmts": ["{:.4f}", "{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.6f}", "{:.4f}", "{:.4f}", "{:.4f}", "{:.4f}"],
+    "knob_names": ["rOut_0", "rOut_1", "rOut_2", "hT_0", "hT_1", "hT_2", "f_0", "f_1", "f_2", "zmid"],
     "leaderboard_rel": "leaderboards/leaderboard_bo_foilspfbpz.tsv",
-    "metric_cols": [
-      "sob",
-      "flash_edep",
-      "alpha",
-      "obj"
-    ],
-    "metrics": {
-      "flash_edep": [
-        "flash_edep_per_pot",
-        "flash_edep_per_event"
-      ],
-      "sob": [
-        "s_over_sqrt_b"
-      ]
-    },
+    "metric_cols": ["sob", "flash_edep", "alpha", "obj"],
+    "metrics": {"flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"], "sob": ["s_over_sqrt_b"]},
     "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspfbpz",
-    "obs_noise": [
-      0.006,
-      0.01
-    ],
-    "presubmit_after": {
-      "mubeam": [
-        "elebeam_flash"
-      ]
-    },
+    "obs_noise": [0.006, 0.01],
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
     "require_zero_overlaps": true,
-    "stage_target_overrides": {
-      "elebeam_flash": 100,
-      "mubeam": 15,
-      "mustops_ce": 15
-    },
-    "stage_tuning": {
-      "elebeam_flash": {
-        "events_per_job": 110000,
-        "memory_mb": 2000
-      },
-      "mubeam": {
-        "events_per_job": 200000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      },
-      "mustops_ce": {
-        "events_per_job": 75000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      }
-    },
+    "stage_target_overrides": {"elebeam_flash": 100, "mubeam": 15, "mustops_ce": 15},
+    "stage_tuning": {"elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}, "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}, "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
     "verifies_foil_gdml": true
   },
   "foilspfbw": {
-    "bounds_hi": [
-      90.0,
-      90.0,
-      90.0,
-      60.0,
-      60.0,
-      60.0,
-      0.15,
-      0.15,
-      0.15
-    ],
-    "bounds_lo": [
-      0.0,
-      0.0,
-      0.0,
-      10.0,
-      10.0,
-      10.0,
-      0.01,
-      0.01,
-      0.01
-    ],
+    "bounds_hi": [90.0, 90.0, 90.0, 60.0, 60.0, 60.0, 0.15, 0.15, 0.15],
+    "bounds_lo": [0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 0.01, 0.01, 0.01],
     "checks_managed_overlap": true,
     "dumps_gdml": true,
-    "geom_sha": {
-      "lo": "613a47db4680038051fda6baa116875955477e4e09c9b51b343b3de1fb9ce7a4",
-      "mid": "df4c2c5f452ae20b9da6103bfa47213a4b1f7e3383fdcc4c0e396bc4b983de68",
-      "q30": "55ba13c4b7f80e9d077dc7fb1d60805f5ad1869009fd5edd72c2d65991244e22"
-    },
-    "grid_stages": [
-      "mubeam",
-      "mustops_ce",
-      "elebeam_flash"
-    ],
+    "geom_sha": {"lo": "613a47db4680038051fda6baa116875955477e4e09c9b51b343b3de1fb9ce7a4", "mid": "df4c2c5f452ae20b9da6103bfa47213a4b1f7e3383fdcc4c0e396bc4b983de68", "q30": "55ba13c4b7f80e9d077dc7fb1d60805f5ad1869009fd5edd72c2d65991244e22"},
+    "grid_stages": ["mubeam", "mustops_ce", "elebeam_flash"],
     "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
-    "knob_fmts": [
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.4f}",
-      "{:.6f}",
-      "{:.6f}",
-      "{:.6f}"
-    ],
-    "knob_names": [
-      "bore_0",
-      "bore_1",
-      "bore_2",
-      "w_0",
-      "w_1",
-      "w_2",
-      "hT_0",
-      "hT_1",
-      "hT_2"
-    ],
+    "knob_fmts": ["{:.4f}", "{:.4f}", "{:.4f}", "{:.4f}", "{:.4f}", "{:.4f}", "{:.6f}", "{:.6f}", "{:.6f}"],
+    "knob_names": ["bore_0", "bore_1", "bore_2", "w_0", "w_1", "w_2", "hT_0", "hT_1", "hT_2"],
     "leaderboard_rel": "leaderboards/leaderboard_bo_foilspfbw.tsv",
-    "metric_cols": [
-      "sob",
-      "flash_edep",
-      "alpha",
-      "obj"
-    ],
-    "metrics": {
-      "flash_edep": [
-        "flash_edep_per_pot",
-        "flash_edep_per_event"
-      ],
-      "sob": [
-        "s_over_sqrt_b"
-      ]
-    },
+    "metric_cols": ["sob", "flash_edep", "alpha", "obj"],
+    "metrics": {"flash_edep": ["flash_edep_per_pot", "flash_edep_per_event"], "sob": ["s_over_sqrt_b"]},
     "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspfbw",
-    "obs_noise": [
-      0.006,
-      0.01
-    ],
-    "presubmit_after": {
-      "mubeam": [
-        "elebeam_flash"
-      ]
-    },
+    "obs_noise": [0.006, 0.01],
+    "presubmit_after": {"mubeam": ["elebeam_flash"]},
     "require_zero_overlaps": true,
-    "stage_target_overrides": {
-      "elebeam_flash": 100,
-      "mubeam": 15,
-      "mustops_ce": 15
-    },
-    "stage_tuning": {
-      "elebeam_flash": {
-        "events_per_job": 110000,
-        "memory_mb": 2000
-      },
-      "mubeam": {
-        "events_per_job": 200000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      },
-      "mustops_ce": {
-        "events_per_job": 75000,
-        "memory_mb": 2000,
-        "quorum": 0.8
-      }
-    },
+    "stage_target_overrides": {"elebeam_flash": 100, "mubeam": 15, "mustops_ce": 15},
+    "stage_tuning": {"elebeam_flash": {"events_per_job": 110000, "memory_mb": 2000}, "mubeam": {"events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}, "mustops_ce": {"events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
     "verifies_foil_gdml": true
   }
 }

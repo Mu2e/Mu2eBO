@@ -10,6 +10,7 @@ mode because no live board exists yet, and section (a) reported MISMATCH with
 
 These tests fail on that shape rather than letting it read as a diff.
 """
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -64,6 +65,14 @@ class TestSectionAPinsSomething(unittest.TestCase):
             for n, (lb, arch) in saved.items():
                 bo.MODES[n].leaderboard = lb
                 bo.MODES[n].leaderboard_archive = arch
+
+
+class TestGoldenDLayout(unittest.TestCase):
+    def test_the_committed_golden_is_in_the_capture_writers_layout(self):
+        """One line per field: a re-capture must rewrite only the lines of
+        fields that changed, never the whole file's layout."""
+        text = gp.D_BASE.read_text()
+        self.assertEqual(gp._dump_one_line_per_field(json.loads(text)), text)
 
 
 if __name__ == "__main__":

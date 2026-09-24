@@ -2,8 +2,8 @@
 """Golden parity harness (manually run; NOT part of unittest discover).
 
 Usage:
-    PYTHONPATH= .venv/bin/python tests/golden_parity.py capture [a b c d e]
-    PYTHONPATH= .venv/bin/python tests/golden_parity.py check   [a b c d e]
+    PYTHONPATH= "$AUTORESEARCH_PYTHON" tests/golden_parity.py capture [a b c d e]
+    PYTHONPATH= "$AUTORESEARCH_PYTHON" tests/golden_parity.py check   [a b c d e]
 
 (a) per-mode leaderboard round-trip: parse -> core/leaderboard.py's
     Leaderboard formatter over BOTH boards the archive/live split created
@@ -33,7 +33,9 @@ Usage:
 (d) spec dump: every live ModeSpec field (all but `geom`) plus sha256 of
     `geom.render()` at 3 sample points per mode. Pins the schema-2
     conversion target: the Phase-A pipeline view must rebuild today's
-    ModeSpec exactly.
+    ModeSpec exactly. Stored one line per field; the data is still the
+    pre-Phase-A capture, and check applies the one declared change
+    (_drop_per_event_fallback) to the baseline, never to the file.
 (e) ask-input fingerprint: sha256 of the exact arguments compute_explore_
     picks hands to surrokit.ask, per picker (budget_sob/qnehvi/qlnei), on
     the frozen foilsflash board. Pick OUTPUTS are not bit-reproducible run
@@ -42,6 +44,7 @@ Usage:
 Never writes to leaderboards/ — evaluate replays into a tmp copy.
 """
 import contextlib
+import functools
 import hashlib
 import io
 import json
@@ -378,81 +381,80 @@ def section_c():
     return result
 
 
+def _dump_one_line_per_field(cur):
+    """Golden d's layout: one line per ModeSpec field, so a diff of the
+    baseline names the field that moved. Parses to the same JSON."""
+    blocks = []
+    for mode, rec in sorted(cur.items()):
+        fields = ",\n".join(f"    {json.dumps(k)}: {json.dumps(v, sort_keys=True)}"
+                            for k, v in sorted(rec.items()))
+        blocks.append(f"  {json.dumps(mode)}: {{\n{fields}\n  }}")
+    return "{\n" + ",\n".join(blocks) + "\n}\n"
+
+
+def _freeze_foilsflash_board():
+    if not FROZEN_LB.exists():
+        shutil.copyfile(
+            ROOT / "leaderboards" / "leaderboard_bo_foilsflash.tsv", FROZEN_LB)
+
+
+def _drop_per_event_fallback(base):
+    """Intended Phase-A change (spec, "Changed on purpose"): the flash
+    objective no longer falls back to flash_edep_per_event."""
+    for rec in base.values():
+        flash = rec["metrics"].get(rec["metric_cols"][1])
+        if flash and flash[1:] == ["flash_edep_per_event"]:
+            rec["metrics"][rec["metric_cols"][1]] = flash[:1]
+
+
+_dump = functools.partial(json.dumps, indent=2)
+# key: (label, compute, baseline, capture writer, capture pre-hook,
+#       check-time baseline adjustment)
+SECTIONS = {
+    "a": ("round-trip parity", section_a, A_BASE, _dump, None, None),
+    "b": ("history tensor fingerprint", section_b, B_BASE, _dump,
+          _freeze_foilsflash_board, None),
+    "c": ("seam replay parity", section_c, C_BASE, _dump, None, None),
+    "d": ("parity", section_d, D_BASE, _dump_one_line_per_field, None,
+          _drop_per_event_fallback),
+    "e": ("parity", section_e, E_BASE,
+          functools.partial(_dump, sort_keys=True), None, None),
+}
+
+
+def _print_diff(base, cur):
+    """Each differing top-level key; inside a dict, each differing field."""
+    for k in sorted(set(base) | set(cur)):
+        b, c = base.get(k), cur.get(k)
+        pairs = ([(f"{k}.{f}", b.get(f), c.get(f)) for f in sorted(set(b) | set(c))]
+                 if isinstance(b, dict) and isinstance(c, dict) else [(k, b, c)])
+        for name, bv, cv in pairs:
+            if bv != cv:
+                print(f"    {name}: baseline={json.dumps(bv)}\n"
+                      f"    {'':{len(name)}}  current ={json.dumps(cv)}")
+
+
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else "check"
-    sections = sys.argv[2:] or ["a", "b", "c", "d", "e"]
+    sections = sys.argv[2:] or list(SECTIONS)
     GOLDENS.mkdir(exist_ok=True)
     fails = 0
-    if "a" in sections:
-        cur = section_a()
-        if action == "capture":
-            A_BASE.write_text(json.dumps(cur, indent=2))
-            print(f"[a] captured -> {A_BASE}")
-        else:
-            base = json.loads(A_BASE.read_text())
-            ok = cur == base
-            print(f"[a] round-trip parity: {'OK' if ok else 'MISMATCH'}")
-            if not ok:
-                for k in base:
-                    if base[k] != cur.get(k):
-                        print(f"    mode {k}: baseline={base[k]}\n"
-                              f"             current ={cur.get(k)}")
-                fails += 1
-    if "b" in sections:
-        if action == "capture":
-            if not FROZEN_LB.exists():
-                shutil.copyfile(
-                    ROOT / "leaderboards" / "leaderboard_bo_foilsflash.tsv",
-                    FROZEN_LB)
-            B_BASE.write_text(json.dumps(section_b(), indent=2))
-            print(f"[b] captured -> {B_BASE}")
-        else:
-            base, cur = json.loads(B_BASE.read_text()), section_b()
-            ok = cur == base
-            print(f"[b] history tensor fingerprint: {'OK' if ok else 'MISMATCH'}")
-            if not ok:
-                for k in base:
-                    if base[k] != cur.get(k):
-                        print(f"    {k}: baseline={base[k]}\n"
-                              f"          current ={cur.get(k)}")
-                fails += 1
-    if "c" in sections:
-        cur = section_c()
-        if action == "capture":
-            C_BASE.write_text(json.dumps(cur, indent=2))
-            print(f"[c] captured -> {C_BASE}")
-        else:
-            base = json.loads(C_BASE.read_text())
-            ok = cur == base
-            print(f"[c] seam replay parity: {'OK' if ok else 'MISMATCH'}")
-            if not ok:
-                print(f"    baseline={json.dumps(base, indent=2)}\n"
-                      f"    current ={json.dumps(cur, indent=2)}")
-                fails += 1
-    for key, fn, base_path in (("d", section_d, D_BASE),
-                               ("e", section_e, E_BASE)):
+    for key, (label, fn, base_path, dump, pre_capture, adjust) in SECTIONS.items():
         if key not in sections:
             continue
-        cur = fn()
         if action == "capture":
-            base_path.write_text(json.dumps(cur, indent=2, sort_keys=True))
+            if pre_capture:
+                pre_capture()
+            base_path.write_text(dump(fn()))
             print(f"[{key}] captured -> {base_path}")
             continue
-        base = json.loads(base_path.read_text())
-        if key == "d":
-            # Intended Phase-A change (spec, "Changed on purpose"): the flash
-            # objective no longer falls back to flash_edep_per_event.
-            for rec in base.values():
-                flash = rec["metrics"].get(rec["metric_cols"][1])
-                if flash and flash[1:] == ["flash_edep_per_event"]:
-                    rec["metrics"][rec["metric_cols"][1]] = flash[:1]
+        cur, base = fn(), json.loads(base_path.read_text())
+        if adjust:
+            adjust(base)
         ok = cur == base
-        print(f"[{key}] parity: {'OK' if ok else 'MISMATCH'}")
+        print(f"[{key}] {label}: {'OK' if ok else 'MISMATCH'}")
         if not ok:
-            for k in sorted(set(base) | set(cur)):
-                if base.get(k) != cur.get(k):
-                    print(f"    {k}: baseline={json.dumps(base.get(k))[:400]}\n"
-                          f"         current ={json.dumps(cur.get(k))[:400]}")
+            _print_diff(base, cur)
             fails += 1
     sys.exit(1 if fails else 0)
 
