@@ -203,7 +203,7 @@ def _roundtrip_file(path, lb):
                          x=[float(row[c]) for c in lb.knob_names],
                          y={v: float(row[v]) for v in lb.value_names})
             alpha = float(row.get("alpha", bo.DEFAULT_ALPHA))
-            line = lb._format_line(p, {"alpha": alpha})
+            line = lb.format_line(p, {"alpha": alpha})
         except (KeyError, ValueError):
             skipped += 1
             continue

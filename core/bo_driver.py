@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Bayesian Optimization driver for Mu2e geometry searches.
 
-Modes are JSON-defined (mode_specs/<name>.json, schema in
-mode_specs/README.md; bounds/facts in modes.SPECS, the registry of record).
+Modes are schema-2 study files (mode_specs/<name>.json; format in
+docs/superpowers/specs/2026-09-23-generic-study-design.md, how-to in
+mode_specs/README.md), loaded by core/study.py into modes.STUDIES.
 
 Subcommands:
   propose   : propose next candidate(s), render geom override file(s)
@@ -147,6 +148,12 @@ class JsonMode:
 
     def load_history(self) -> list[Point]:
         return self.leaderboard_io().load()
+
+    def format_history_row(self, p: Point, context: dict) -> str:
+        """The exact line append_history would write, touching no file.
+        Raises whatever append would before writing (a missing context
+        value, a failing extra-column expression)."""
+        return self.leaderboard_io().format_line(p, context)
 
     def append_history(self, p: Point, context: dict):
         self.leaderboard_io().append(p, context)
@@ -312,9 +319,23 @@ def _cmd_propose_locked(args, mode, names):
     return 0
 
 
+# Where each leaderboard.context name gets its value at evaluate time. A
+# study naming a context value with no entry here is refused before
+# evaluate touches anything.
+_CONTEXT_SOURCES = {"alpha": lambda args: args.alpha}
+
+
 def cmd_evaluate(args):
     mode = MODES[args.mode]
     study = _modes.STUDIES[mode.name]
+    unsourced = [c for c in study.context if c not in _CONTEXT_SOURCES]
+    if unsourced:
+        raise SystemExit(
+            f"[{mode.name}] leaderboard.context names {unsourced}, which the "
+            f"evaluate CLI has no value for (it supplies "
+            f"{sorted(_CONTEXT_SOURCES)}); refusing before touching the "
+            f"pending row or the leaderboard ({study.path}).")
+    context = {c: _CONTEXT_SOURCES[c](args) for c in study.context}
     summary = json.loads(Path(args.summary).read_text())
     values = mode.extract_metrics(summary)
     # A missing value is NEVER coerced to a number: a fake zero row dominates
@@ -339,11 +360,23 @@ def cmd_evaluate(args):
         return 1
     x = mode.x_for_evaluate(args.config_name)
     p = Point(cfg=args.config_name, x=x, y=values)
+    # Format the row BEFORE clearing pending: the pending row is the ONLY
+    # record of x, so anything the formatter can raise (a missing context
+    # value, an extra-column expression failing on these values) must fire
+    # while that record still exists.
+    try:
+        mode.format_history_row(p, context)
+    except Exception as e:
+        raise SystemExit(
+            f"[{mode.name}] cannot format the leaderboard row for "
+            f"{p.cfg!r}: {e!r}. The pending row (the only record of x) is "
+            f"kept; fix the study's extra_columns/context ({study.path}) "
+            f"and re-run evaluate.") from e
     # Clear pending BEFORE appending: a crash in between leaves "missing
     # leaderboard row" (loud, re-runnable) rather than a silent phantom
     # pending row that trips propose_one's collision guard.
     removed = mode.remove_pending(args.config_name)
-    mode.append_history(p, {"alpha": args.alpha})
+    mode.append_history(p, context)
     primary = study.objectives[0].name
     if getattr(args, "emit_json", None):
         write_json_atomic(Path(args.emit_json), {

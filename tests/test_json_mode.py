@@ -279,6 +279,93 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         self.assertIn("flash_edep_per_pot", str(cm.exception))
         self.assertFalse(self.mode.leaderboard.exists())
 
+    # -- M1: the pending row is the ONLY record of x ------------------------
+    def _register_variant(self, mutate):
+        """Register a variant of FIXTURE (mutated JSON, own name and board)
+        exactly like setUp does, and return its JsonMode."""
+        doc = json.loads(FIXTURE.read_text())
+        mutate(doc)
+        name = "evalvariant" + uuid.uuid4().hex[:8]
+        doc["name"] = name
+        doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{name}.tsv"
+        path = self.tmp / f"{name}.json"
+        path.write_text(json.dumps(doc))
+        modes.STUDIES[name] = load_study_file(path)
+        self.addCleanup(modes.STUDIES.pop, name, None)
+        modes.SPECS[name] = load_mode_file(path)
+        self.addCleanup(modes.SPECS.pop, name, None)
+        mode = JsonMode(name)
+        mode.leaderboard = self.tmp / f"leaderboard_bo_{name}.tsv"
+        mode.leaderboard_archive = None
+        mode.proposal_dir = self.tmp / "proposals"
+        bo_driver.MODES[name] = mode
+        self.addCleanup(bo_driver.MODES.pop, name, None)
+        return mode
+
+    def _variant_args(self, mode, cfg, summary):
+        return argparse.Namespace(mode=mode.name, summary=str(summary),
+                                  config_name=cfg, alpha=1.0e5,
+                                  emit_json=None)
+
+    def test_a_failing_extra_column_keeps_the_pending_row(self):
+        """An extra-column expression that fails on this row's values (here
+        a division by zero) must fail evaluate while the pending row -- the
+        only record of x -- still exists. It used to be cleared first, and
+        the append then raised: a finished eval's x was gone."""
+        def zero_div(doc):
+            obj = next(c for c in doc["extra_columns"] if c["name"] == "obj")
+            obj["expr"] = "sob / (flash_edep - flash_edep)"
+        mode = self._register_variant(zero_div)
+        x = [120.0, 130.0, 0.1, 0.2, 0.3, 0.4]
+        mode.render_proposal("FMT01", x)
+        mode.append_pending("FMT01", x, 1.0e5)
+        summary = self._summary(
+            {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
+
+        with self.assertRaises(SystemExit) as cm:
+            bo_driver.cmd_evaluate(self._variant_args(mode, "FMT01", summary))
+
+        msg = str(cm.exception)
+        self.assertIn("FMT01", msg)
+        self.assertIn("ZeroDivisionError", msg)
+        self.assertIn("pending row", msg)
+        self.assertEqual(mode.load_pending(), [("FMT01", x)])
+        self.assertFalse(mode.leaderboard.exists(),
+                         "a failed format must not append anything")
+
+    def test_an_unsourced_context_name_is_refused_before_anything(self):
+        """leaderboard.context names a value the evaluate CLI cannot
+        supply: refused up front, pending row and board untouched (it used
+        to be hardcoded {"alpha": ...} and the append then raised)."""
+        mode = self._register_variant(
+            lambda doc: doc["leaderboard"]["context"].append("beta"))
+        x = [120.0, 130.0, 0.1, 0.2, 0.3, 0.4]
+        mode.render_proposal("CTX01", x)
+        mode.append_pending("CTX01", x, 1.0e5)
+        summary = self._summary(
+            {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
+
+        with self.assertRaises(SystemExit) as cm:
+            bo_driver.cmd_evaluate(self._variant_args(mode, "CTX01", summary))
+
+        msg = str(cm.exception)
+        self.assertIn("'beta'", msg)
+        self.assertIn("leaderboard.context", msg)
+        self.assertEqual(mode.load_pending(), [("CTX01", x)])
+        self.assertFalse(mode.leaderboard.exists())
+
+    def test_the_row_context_comes_from_the_study(self):
+        """The alpha column is the CLI --alpha, routed through the study's
+        leaderboard.context (not a hardcoded dict)."""
+        self._propose("CTX02")
+        summary = self._summary(
+            {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
+        rc = bo_driver.cmd_evaluate(self._args("CTX02", summary, alpha=2.5e4))
+        self.assertEqual(rc, 0)
+        with self.mode.leaderboard.open() as f:
+            row = next(csv.DictReader(f, delimiter="\t"))
+        self.assertAlmostEqual(float(row["alpha"]), 2.5e4, places=3)
+
     def test_evaluate_without_a_pending_row_fails_loudly(self):
         """The x is recovered from the pending TSV; if the config is not
         there (evaluate re-run after a successful one already cleared it),

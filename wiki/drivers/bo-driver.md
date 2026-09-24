@@ -24,24 +24,34 @@ independently runnable. Born 2026-04 as the dedicated driver for
 after the michael mode was retired (2026-07-12).
 
 ## Key facts
-- **Phase A of the generic-study design, complete 2026-09-24
-  ([open-knowledge-format](/external/open-knowledge-format.md)-adjacent
-  refactor; see the spec at
-  `docs/superpowers/specs/2026-09-23-generic-study-design.md`): schema-2
-  study files under `mode_specs/` are the ONLY spec format** (the old
+- **Phase A of the generic-study design, complete 2026-09-24 (see the
+  spec at `docs/superpowers/specs/2026-09-23-generic-study-design.md`):
+  schema-2 study files under `mode_specs/` are the ONLY spec format** (the old
   JSON-loader/`mode_json.py` path was deleted in an earlier task of the same
   refactor), loaded once into `modes.STUDIES` (`core/study.py`); `modes.SPECS`
   is now built FROM `STUDIES` (`core/study_compat.py:modespec_from_study`,
   a compat bridge slated for deletion in Phase C). `JsonMode.extract_metrics`
-  (`core/bo_driver.py:166`) resolves every study objective and extra-metric
+  (`core/bo_driver.py:JsonMode.extract_metrics`) resolves every study objective and extra-metric
   BY NAME, one `summary.get(item.key)` per item, with **no fallback between
   keys** (a per-POT and a per-event metric are different quantities, never
   silently substituted — see
   [no-run1b-substitution-poisons-flash-modes](/incidents/no-run1b-substitution-poisons-flash-modes.md)
   for the shape of bug this guards against). `cmd_evaluate`
-  (`core/bo_driver.py:315`) writes `evaluate_result.json` with `primary`
+  (`core/bo_driver.py:cmd_evaluate`) writes `evaluate_result.json` with `primary`
   (the study's first objective's value) and `objectives` (a `{name: value}`
   dict over every study objective) — replacing an earlier 2-tuple shape.
+- **`cmd_evaluate` never loses a finished eval's x (fix wave 2026-09-24).**
+  The pending row is the ONLY record of x, and it is cleared just before the
+  append. So `cmd_evaluate` (1) builds the row's context from
+  `study.leaderboard.context` through `_CONTEXT_SOURCES` (today only
+  `alpha` -> `--alpha`), refusing with `SystemExit` before touching
+  anything if the study names a context value the CLI cannot supply; and
+  (2) formats the row first (`JsonMode.format_history_row` ->
+  `Leaderboard.format_line`, which evaluates every extra column), turning
+  any formatter failure (e.g. a divide-by-zero in an extra-column `expr`)
+  into a `SystemExit` while the pending row is still intact. Only then does
+  it clear pending and append. Pinned by
+  `tests/test_json_mode.py::TestJsonModeEvaluateEndToEnd`.
 - **Path:** `core/bo_driver.py` (renamed 2026-07-17 from
   `autoresearch_bo_michael.py`; git history is under the old name pre-rename)
 - **Live-verb map (2026-07-12 survey):** only `preflight` and `evaluate` have

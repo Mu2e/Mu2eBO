@@ -180,7 +180,10 @@ class Leaderboard:
         live = [p for p in self._load_one(self.path) if p.cfg not in seen]
         return archive + live
 
-    def _format_line(self, p: Point, context: dict) -> str:
+    def format_line(self, p: Point, context: dict) -> str:
+        """The exact line append() writes. Public so a caller holding the
+        only record of a row's x can validate the row before discarding
+        that record."""
         missing = [c for c in self.context_names if c not in context]
         if missing:
             raise LeaderboardError(
@@ -194,7 +197,7 @@ class Leaderboard:
         return "\t".join([p.cfg, *knobs, *values, *extras]) + "\n"
 
     def append(self, p: Point, context: dict) -> None:
-        line = self._format_line(p, context)
+        line = self.format_line(p, context)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with _flock_ex(self.path):
             if not self.path.exists():
