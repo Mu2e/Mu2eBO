@@ -8,6 +8,7 @@ import json
 import math
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -15,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
+import study as st  # noqa: E402
 
 HEADER = ("config\textra_rOut_up\textra_rOut_dn\textra_halfThickness_up"
           "\textra_halfThickness_dn\textra_f_up\textra_f_dn"
@@ -69,9 +71,9 @@ class TestLoadHistoryTensor(unittest.TestCase):
             X, Y, _, _ = bp.load_history_tensor("foilsflash")
             self.assertEqual(tuple(X.shape), (10, 6))
 
-    def test_sob_only_path_is_1d(self):
+    def test_primary_only_path_is_1d(self):
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            _, Y, _, _ = bp.load_history_tensor("foilsflash", sob_only=True)
+            _, Y, _, _ = bp.load_history_tensor("foilsflash", primary_only=True)
             self.assertEqual(tuple(Y.shape), (10, 1))
 
     def test_width_guard_systemexit_on_dim_mismatch(self):
@@ -88,6 +90,62 @@ class TestLoadHistoryTensor(unittest.TestCase):
             X, Y, _, _ = bp.load_history_tensor("foilsflash")
             self.assertEqual(tuple(X.shape), (0, 6))
             self.assertEqual(tuple(Y.shape), (0, 2))
+
+
+def _obj(direction, transform):
+    return st.Objective("m", "s.m", direction, transform, 0.1, "{:.3f}")
+
+
+class TestAxisValue(unittest.TestCase):
+    def test_max_none(self):
+        self.assertEqual(bp.axis_value(_obj("max", "none"), 3.0), 3.0)
+
+    def test_min_none(self):
+        self.assertEqual(bp.axis_value(_obj("min", "none"), 3.0), -3.0)
+
+    def test_min_log10(self):
+        self.assertAlmostEqual(bp.axis_value(_obj("min", "log10"), 1e-6), 6.0)
+
+    def test_max_log10(self):
+        self.assertAlmostEqual(bp.axis_value(_obj("max", "log10"), 100.0), 2.0)
+
+    def test_undefined(self):
+        self.assertIsNone(bp.axis_value(_obj("min", "log10"), 0.0))
+        self.assertIsNone(bp.axis_value(_obj("max", "none"), float("nan")))
+        self.assertIsNone(bp.axis_value(_obj("max", "none"), None))
+
+
+class TestThreeObjectiveProblem(unittest.TestCase):
+    """A synthetic 3-objective study builds a 3-axis Problem, fits, and
+    picks (spec Phase A acceptance)."""
+
+    def test_three_axes(self):
+        objs = (st.Objective("y1", "s.a", "max", "none", 0.01, "{:.4f}"),
+                st.Objective("y2", "s.b", "min", "log10", 0.02, "{:.4e}"),
+                st.Objective("y3", "s.c", "min", "none", 0.03, "{:.4f}"))
+        fake = types.SimpleNamespace(
+            objectives=objs,
+            constraints=(st.StudyConstraint("y2", "max", 1e-3, 1.0),),
+            bounds_lo=(0.0, 0.0), bounds_hi=(1.0, 1.0), int_dims=())
+        prob = bp._problem_from(fake, primary_only=False)
+        self.assertEqual(prob.noise, (0.01, 0.02, 0.03))
+        self.assertEqual(prob.constraint.axis, 1)
+        self.assertAlmostEqual(prob.constraint.min, 3.0)
+        X = [[0.1 * i, 0.05 * i] for i in range(8)]
+        Y = [[x0, -math.log10(1e-4 + x1), -x0 * x1] for x0, x1 in X]
+        picks = bp.surrokit.ask(prob, X, Y, q=2, picker="qnehvi", seed=42)
+        self.assertEqual(len(picks), 2)
+
+    def test_primary_only_drops_other_axes_and_their_constraint(self):
+        objs = (st.Objective("y1", "s.a", "max", "none", 0.01, "{:.4f}"),
+                st.Objective("y2", "s.b", "min", "log10", 0.02, "{:.4e}"))
+        fake = types.SimpleNamespace(
+            objectives=objs,
+            constraints=(st.StudyConstraint("y2", "max", 1e-3, 1.0),),
+            bounds_lo=(0.0,), bounds_hi=(1.0,), int_dims=())
+        prob = bp._problem_from(fake, primary_only=True)
+        self.assertEqual(prob.noise, (0.01,))
+        self.assertIsNone(prob.constraint)
 
 
 class TestSeed(unittest.TestCase):

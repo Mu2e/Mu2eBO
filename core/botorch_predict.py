@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BoTorch pickers for any pure-numeric mode (bounds from modes.SPECS).
+"""BoTorch pickers for any study (objectives, transforms and the constraint from modes.STUDIES).
 
 THE production picker: graph/closed_loop.py shells this CLI every round
 (--emit-picks-json round-trip; keep argparse-compatible). Pickers: qnehvi,
@@ -37,54 +37,55 @@ sys.path.insert(0, str(SURROKIT_ROOT))
 import surrokit  # noqa: E402
 
 
-def load_history_tensor(mode: str, sob_only: bool = False):
-    """Return (X, Y, bounds, int_dims) tensors over the mode's search space.
-
-    Y is (n, 2) [sob, -log10(calo)], both maximized; sob_only=True gives
-    (n, 1) [sob] and keeps rows with invalid calo (qlnei picker).
+def axis_value(obj, v):
+    """Raw metric -> the maximized surrogate axis (surrokit's math space),
+    or None when it is undefined (missing, non-finite, or <= 0 under log10).
     """
-    if mode not in _modes.SPECS:
+    if v is None or not math.isfinite(v):
+        return None
+    if obj.transform == "log10":
+        if v <= 0:
+            return None
+        v = math.log10(v)
+    return v if obj.direction == "max" else -v
+
+
+def _objectives(study, primary_only):
+    return study.objectives[:1] if primary_only else study.objectives
+
+
+def load_history_tensor(mode: str, primary_only: bool = False):
+    """(X, Y, bounds, int_dims) over the study's search space. Y has one
+    maximized column per objective (primary_only: the first objective only);
+    a row with any undefined axis value is left out."""
+    if mode not in _modes.STUDIES:
         raise SystemExit(f"[botorch_predict] mode={mode!r} not supported; "
-                         f"choose from {sorted(_modes.SPECS)}.")
-    spec = _modes.SPECS[mode]
-    seeds = bo.MODES[mode].load_history()
-
-    X_rows = []
-    Y_rows = []
-    sob_col, calo_col = spec.metric_cols[0], spec.metric_cols[1]
-    for p in seeds:
-        if sob_only:
-            if p.y[sob_col] is None or not math.isfinite(p.y[sob_col]):
-                continue
-            X_rows.append([float(v) for v in p.x])
-            Y_rows.append([p.y[sob_col]])
-        else:
-            if p.y[calo_col] <= 0:
-                continue  # log10 undefined (broken harvest)
-            X_rows.append([float(v) for v in p.x])
-            Y_rows.append([p.y[sob_col], -math.log10(p.y[calo_col])])
-    lo = torch.tensor(list(spec.bounds_lo), device=DEVICE)
-    hi = torch.tensor(list(spec.bounds_hi), device=DEVICE)
+                         f"choose from {sorted(_modes.STUDIES)}.")
+    study = _modes.STUDIES[mode]
+    objs = _objectives(study, primary_only)
+    X_rows, Y_rows = [], []
+    for p in bo.MODES[mode].load_history():
+        ys = [axis_value(o, p.y.get(o.name)) for o in objs]
+        if any(y is None for y in ys):
+            continue
+        X_rows.append([float(v) for v in p.x])
+        Y_rows.append(ys)
+    lo = torch.tensor(list(study.bounds_lo), device=DEVICE)
+    hi = torch.tensor(list(study.bounds_hi), device=DEVICE)
     bounds = torch.stack([lo, hi], dim=0)
-
+    d = len(study.bounds_lo)
     if X_rows:
         X = torch.tensor(X_rows, device=DEVICE)
         Y = torch.tensor(Y_rows, device=DEVICE)
-        if X.shape[1] != len(spec.bounds_lo):
+        if X.shape[1] != d:
             raise SystemExit(
                 f"[botorch_predict] mode={mode} dim mismatch: history has "
-                f"{X.shape[1]}D points but modes.SPECS[{mode!r}] declares "
-                f"{len(spec.bounds_lo)}D bounds (knobs: "
-                f"{spec.knob_names}). Leaderboard schema and "
-                f"registry disagree.")
+                f"{X.shape[1]}D points but the study declares {d} knobs "
+                f"({study.knob_names}).")
     else:
-        # Cold start: empty (0, d) tensors with correct d so downstream
-        # shape-checks against `bounds` pass; caller switches to Sobol.
-        d = len(spec.bounds_lo)
-        m = 1 if sob_only else 2
         X = torch.empty((0, d), device=DEVICE)
-        Y = torch.empty((0, m), device=DEVICE)
-    return X, Y, bounds, list(spec.int_dims)
+        Y = torch.empty((0, len(objs)), device=DEVICE)
+    return X, Y, bounds, list(study.int_dims)
 
 
 def _seed(round_idx: int) -> int:
@@ -93,39 +94,27 @@ def _seed(round_idx: int) -> int:
     return 42 ^ int(round_idx)
 
 
-# Env-tunable budget knobs are read at CALL time (not import) so a
-# long-lived process (the MCP server) honors the environment it runs in.
-def flash_budget() -> float:
-    """The DEPLOYED stopping target's damage in MeV/POT — the deployment
-    constraint line, not a tuning knob. Env-overridable for other scenarios."""
-    return float(os.environ.get("AUTORESEARCH_FLASH_BUDGET", "6.85443e-7"))
-
-
-def budget_k_sigma() -> float:
-    """budget_sob feasibility margin in posterior sigmas: k=0 constrains the
-    MEAN (~50% of picks land over budget once measured); k=1 ≈ 84%
-    feasibility at the cost of aiming slightly under the line."""
-    return float(os.environ.get("AUTORESEARCH_BUDGET_KSIGMA", "1.0"))
-
-
-def build_problem(mode: str, sob_only: bool = False) -> "surrokit.Problem":
-    """The single home for surrokit.Problem assembly over a ModeSpec.
-
-    Every 2-axis problem carries the flash-budget Constraint (the engine
-    consults it only under constrained_max; fit/predict and the other
-    pickers ignore it). sob_only slices noise with Y to 1 axis and drops
-    the constraint (axis 1 does not exist there).
-    """
-    spec = _modes.SPECS[mode]
-    if sob_only:
-        noise, constraint = tuple(spec.obs_noise)[:1], None
-    else:
-        noise = tuple(spec.obs_noise)
+def _problem_from(study, primary_only: bool) -> "surrokit.Problem":
+    objs = _objectives(study, primary_only)
+    constraint = None
+    for c in study.constraints:
+        axes = [i for i, o in enumerate(objs) if o.name == c.name]
+        if not axes:
+            continue    # constrained objective not in this problem
+        i = axes[0]
+        # The loader fixed the bound's side so the transformed bound is a
+        # LOWER bound on the maximized axis (surrokit: mean - k*sigma >= min).
         constraint = surrokit.Constraint(
-            axis=1, min=-math.log10(flash_budget()), k_sigma=budget_k_sigma())
+            axis=i, min=axis_value(objs[i], c.value), k_sigma=c.k_sigma)
     return surrokit.Problem(
-        bounds_lo=tuple(spec.bounds_lo), bounds_hi=tuple(spec.bounds_hi),
-        int_dims=tuple(spec.int_dims), noise=noise, constraint=constraint)
+        bounds_lo=tuple(study.bounds_lo), bounds_hi=tuple(study.bounds_hi),
+        int_dims=tuple(study.int_dims),
+        noise=tuple(o.noise for o in objs), constraint=constraint)
+
+
+def build_problem(mode: str, primary_only: bool = False) -> "surrokit.Problem":
+    """The single home for surrokit.Problem assembly over a study."""
+    return _problem_from(_modes.STUDIES[mode], primary_only)
 
 
 def compute_explore_picks(mode: str,
@@ -140,8 +129,8 @@ def compute_explore_picks(mode: str,
     -log10 transform, env-tunable constants, and the 42^round_idx seed
     convention; the engine owns the GP and the pickers.
     """
-    sob_only = (picker == "qlnei")
-    X, Y, bounds, int_dims = load_history_tensor(mode, sob_only=sob_only)
+    primary_only = (picker == "qlnei")
+    X, Y, bounds, int_dims = load_history_tensor(mode, primary_only=primary_only)
     if x_pending:
         pend_width = len(x_pending[0])
         if pend_width != bounds.shape[-1]:
@@ -151,18 +140,24 @@ def compute_explore_picks(mode: str,
     if X.shape[0] < 2:
         print(f"[botorch_predict] mode={mode} cold-start: history={X.shape[0]} rows "
               f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)
+    study = _modes.STUDIES[mode]
+    if picker == "budget_sob" and not study.constraints:
+        raise SystemExit(f"[botorch_predict] picker budget_sob needs a "
+                         f"constraint, and study {mode!r} declares none")
     sk_picker = "constrained_max" if picker == "budget_sob" else picker
-    problem = build_problem(mode, sob_only=sob_only)
+    problem = build_problem(mode, primary_only=primary_only)
     hv_frac = float(os.environ.get("AUTORESEARCH_HYBRID_HV_FRAC", "0.6"))
     try:
         picks = surrokit.ask(problem, X.tolist(), Y.tolist(), q=q,
                              picker=sk_picker, seed=_seed(round_idx),
                              pending=x_pending, hv_frac=hv_frac)
     except surrokit.InfeasibleError as e:
+        c = study.constraints[0]
+        op = "<=" if c.bound == "max" else ">="
         raise SystemExit(
             f"[botorch_predict] budget_sob: GP predicts NO point in the "
-            f"search box with flash <= {flash_budget():.3e} MeV/POT "
-            f"({e}); refusing to submit blind picks.")
+            f"search box with {c.name} {op} {c.value:.3e} ({e}); refusing "
+            f"to submit blind picks.")
     return [tuple(row) for row in picks]
 
 
