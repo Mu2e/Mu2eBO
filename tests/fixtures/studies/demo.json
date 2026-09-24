@@ -1,62 +1,49 @@
 {
-  "schema": 2,
-  "name": "demo",
-  "note": "schema-2 test fixture shaped like the foilspf family",
-  "knobs": [
-    {"name": "a", "type": "real", "min": 1.0, "max": 3.0, "unit": "mm", "fmt": "{:.4f}"},
-    {"name": "b", "type": "real", "min": 0.0, "max": 1.0, "unit": "", "fmt": "{:.4f}"}
-  ],
-  "derive": {
-    "consts": {"n_el": 5, "z0": 100.0},
-    "exprs": {"ab": "a * b"},
-    "profiles": {"a_p": {"kind": "lagrange", "count": "n_el",
-                         "control": ["a", "ab", "a"], "clip": [0.0, 10.0]}}
-  },
-  "geom": {
-    "writer": "offline_simpleconfig",
-    "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
-    "lines": [
-      {"key": "demo.z0", "type": "double", "expr": "z0", "fmt": "{:.4f}"},
-      {"key": "demo.ab", "type": "double", "expr": "ab", "fmt": "{:.6f}"},
-      {"key": "demo.radii", "type": "vector<double>", "fmt": "{:.4f}",
-       "per_index": {"count": "n_el", "expr": "a_p[i]"}}
-    ]
-  },
-  "kits": {
-    "prodtools": {"code_tarball": "${ARTIFACT}/demo/Code_demo.tar.bz2"},
-    "offline_preflight": {"musing": "${ARTIFACT}/demo/setup_local.sh",
-                          "dumps_gdml": true, "verifies_foil_gdml": true,
-                          "checks_managed_overlap": true,
-                          "require_zero_overlaps": true}
-  },
-  "preflight": {"kit": "offline_preflight", "params": {}, "files": ["geom"]},
-  "evaluate": [
-    {"step": "mubeam", "kit": "prodtools", "entry": "mubeam", "files": ["geom"],
-     "files_from": [], "params": {},
-     "fixed": {"njobs": 15, "events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}},
-    {"step": "mustops_ce", "kit": "prodtools", "entry": "mustops_ce", "files": ["geom"],
-     "files_from": ["mubeam"], "params": {},
-     "fixed": {"njobs": 15, "events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
-    {"step": "elebeam_flash", "kit": "prodtools", "entry": "elebeam_flash", "files": ["geom"],
-     "files_from": [], "params": {},
-     "fixed": {"njobs": 100, "events_per_job": 110000, "memory_mb": 2000}},
-    {"step": "sob", "kit": "ce_sensitivity", "entry": null, "files": [],
-     "files_from": ["mubeam", "mustops_ce"], "params": {}, "fixed": {}},
-    {"step": "flash", "kit": "flash_edep_per_pot", "entry": null, "files": [],
-     "files_from": ["elebeam_flash"], "params": {}, "fixed": {}}
-  ],
-  "objectives": [
-    {"name": "sob", "metric": "sob.s_over_sqrt_b", "direction": "max",
-     "transform": "none", "noise": 0.006, "fmt": "{:.5f}"},
-    {"name": "flash_edep", "metric": "flash.flash_edep_per_pot", "direction": "min",
-     "transform": "log10", "noise": 0.01, "fmt": "{:.5e}"}
-  ],
-  "constraints": [{"name": "flash_edep", "max": 6.85443e-7, "k_sigma": 1.0}],
-  "extra_metrics": [],
-  "extra_columns": [
-    {"name": "alpha", "expr": "alpha", "fmt": "{:.3f}"},
-    {"name": "obj", "expr": "sob - alpha * flash_edep", "fmt": "{:.5f}"}
-  ],
-  "leaderboard": {"file": "leaderboards/leaderboard_demo_study.tsv",
-                  "layout": "v1", "context": ["alpha"]}
+ "schema": 2,
+ "name": "demo",
+ "note": "schema-2 test fixture shaped like the foilspf family",
+ "knobs": [
+  {"name": "a", "type": "real", "min": 1.0, "max": 3.0, "unit": "mm", "fmt": "{:.4f}"},
+  {"name": "b", "type": "real", "min": 0.0, "max": 1.0, "unit": "", "fmt": "{:.4f}"}
+ ],
+ "derive": {
+  "consts": {"n_el": 5, "z0": 100.0},
+  "exprs": {"ab": "a * b"},
+  "profiles": {
+   "a_p": {"kind": "lagrange", "count": "n_el", "control": ["a", "ab", "a"], "clip": [0.0, 10.0]}
+  }
+ },
+ "geom": {
+  "writer": "offline_simpleconfig", "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+  "lines": [
+   {"key": "demo.z0", "type": "double", "expr": "z0", "fmt": "{:.4f}"},
+   {"key": "demo.ab", "type": "double", "expr": "ab", "fmt": "{:.6f}"},
+   {"key": "demo.radii", "type": "vector<double>", "fmt": "{:.4f}", "per_index": {"count": "n_el", "expr": "a_p[i]"}}
+  ]
+ },
+ "kits": {
+  "prodtools": {"code_tarball": "${ARTIFACT}/demo/Code_demo.tar.bz2"},
+  "offline_preflight": {"musing": "${ARTIFACT}/demo/setup_local.sh", "dumps_gdml": true, "verifies_foil_gdml": true, "checks_managed_overlap": true, "require_zero_overlaps": true}
+ },
+ "preflight": {"kit": "offline_preflight", "params": {}, "files": ["geom"]},
+ "evaluate": [
+  {"step": "mubeam", "kit": "prodtools", "entry": "mubeam", "files": ["geom"], "files_from": [], "params": {}, "fixed": {"njobs": 15, "events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}},
+  {"step": "mustops_ce", "kit": "prodtools", "entry": "mustops_ce", "files": ["geom"], "files_from": ["mubeam"], "params": {}, "fixed": {"njobs": 15, "events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
+  {"step": "elebeam_flash", "kit": "prodtools", "entry": "elebeam_flash", "files": ["geom"], "files_from": [], "params": {}, "fixed": {"njobs": 100, "events_per_job": 110000, "memory_mb": 2000}},
+  {"step": "sob", "kit": "ce_sensitivity", "entry": null, "files": [], "files_from": ["mubeam", "mustops_ce"], "params": {}, "fixed": {}},
+  {"step": "flash", "kit": "flash_edep_per_pot", "entry": null, "files": [], "files_from": ["elebeam_flash"], "params": {}, "fixed": {}}
+ ],
+ "objectives": [
+  {"name": "sob", "metric": "sob.s_over_sqrt_b", "direction": "max", "transform": "none", "noise": 0.006, "fmt": "{:.5f}"},
+  {"name": "flash_edep", "metric": "flash.flash_edep_per_pot", "direction": "min", "transform": "log10", "noise": 0.01, "fmt": "{:.5e}"}
+ ],
+ "constraints": [
+  {"name": "flash_edep", "max": 6.85443e-07, "k_sigma": 1.0}
+ ],
+ "extra_metrics": [],
+ "extra_columns": [
+  {"name": "alpha", "expr": "alpha", "fmt": "{:.3f}"},
+  {"name": "obj", "expr": "sob - alpha * flash_edep", "fmt": "{:.5f}"}
+ ],
+ "leaderboard": {"file": "leaderboards/leaderboard_demo_study.tsv", "layout": "v1", "context": ["alpha"]}
 }

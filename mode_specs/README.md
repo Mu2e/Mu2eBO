@@ -23,6 +23,10 @@ leaderboard) and change:
 Every key is required and unknown keys are rejected, so a typo fails at
 import, never hours into a campaign.
 
+Keep the shipped files' layout: one knob, profile, geom line, kit, step,
+objective or column per line. Only the parsed JSON matters (`spec_sha`
+hashes it), so the layout is for readable diffs.
+
 **Never start from `tests/fixtures/modes/foils.json` or `foilsflash.json`.**
 Those fixtures reproduce real lines and declare real leaderboards on
 purpose. `foilsflash.json` names the live foilsflash board, so a renamed
@@ -53,14 +57,7 @@ trains on the retired line's history. Copy `template.json` instead.
 
 ## Why not `modes/`?
 
-This directory is deliberately NOT named `modes/`, even though that would
-read more naturally next to `core/modes.py`. A top-level `modes/` directory
-is an implicit Python namespace package: from the repo root, `import modes`
-would resolve to that empty directory instead of failing loudly, and
-anything that later did `modes.SPECS` (e.g. `graph/nodes.py:13`, which puts
-`core/` on `sys.path` before importing `modes`) would get a confusing
-`AttributeError` far from the real cause. Before this directory existed,
-`import modes` was a loud `ModuleNotFoundError` — much easier to diagnose
-than a silently-empty package. If you're tempted to rename this back to
-`modes/` for tidiness, don't: it re-opens that collision with
-`core/modes.py`.
+A top-level `modes/` directory would be an implicit namespace package: from
+the repo root, `import modes` would resolve to it instead of `core/modes.py`,
+and `modes.SPECS` would fail with an `AttributeError` far from the cause.
+Don't rename it.
