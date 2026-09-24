@@ -76,6 +76,12 @@ class TestConvertShape(unittest.TestCase):
         with self.assertRaises(ValueError):
             cv.convert(doc)
 
+    def test_refuses_unexpected_presubmit_after(self):
+        doc = json.loads((ROOT / "mode_specs" / "foilspf.json").read_text())
+        doc["run"]["presubmit_after"] = {"mubeam": ["mustops_ce"]}
+        with self.assertRaisesRegex(ValueError, "presubmit_after"):
+            cv.convert(doc)
+
 
 if __name__ == "__main__":
     unittest.main()

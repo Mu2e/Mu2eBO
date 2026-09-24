@@ -42,12 +42,18 @@ def convert(doc: dict) -> dict:
     geom = {"writer": "offline_simpleconfig", "base": g["base"],
             "lines": g["lines"]}
 
-    presubmitted = set()
-    for targets in (run.get("presubmit_after") or {}).values():
-        presubmitted.update(targets)
+    first = run["stages"][0]
+    presubmit_after = run.get("presubmit_after") or {}
+    if presubmit_after not in ({}, {first: ["elebeam_flash"]}):
+        raise ValueError(
+            f"{doc['name']}: presubmit_after {presubmit_after!r} does not "
+            f"match the schema-2 conversion this converter hardcodes; the "
+            f"only shapes it supports are {{}} (no presubmit) or "
+            f"{{{first!r}: ['elebeam_flash']}} (the foilspf/foilsflash "
+            f"chain's mubeam-presubmits-elebeam_flash rule)")
+
     jobs = run.get("jobs_per_stage") or {}
     tuning = run.get("stage_tuning") or {}
-    first = run["stages"][0]
     steps = []
     for stage in run["stages"]:
         fixed = {}
