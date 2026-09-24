@@ -90,15 +90,53 @@ def _sample_points(spec):
             "q30": [a + 0.3 * (b - a) for a, b in zip(lo, hi)]}
 
 
+def _portable_artifact_path(value: str, mode_name: str, field: str) -> str:
+    """musing/grid_tarball on a live ModeSpec are already-resolved absolute
+    paths (core/mode_json.py's `${ARTIFACT}/` expansion through
+    paths.artifact()), so they carry THIS operator's ARTIFACT_ROOT (or
+    BACKING) baked in -- exactly the personal-path shape
+    tests/test_no_hardcoded_paths.py exists to catch, and it caught it here
+    (commit 90accbc, fix round 1). Undo the expansion for the golden: strip
+    whichever root actually produced the path and put back the
+    `${ARTIFACT}/<rel>` token the spec JSON uses, so the baseline is
+    portable across operators (each has a different ARTIFACT_ROOT) and
+    never stores a real username. No silent fallback: a value matching
+    neither root is a loud ValueError naming the mode and field, never a
+    kept raw path.
+    """
+    p = Path(value)
+    for root in (paths.ARTIFACT_ROOT, paths.BACKING):
+        if root is None:
+            continue
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            continue
+        return f"${{ARTIFACT}}/{rel.as_posix()}"
+    raise ValueError(
+        f"section_d: mode {mode_name!r} field {field!r} = {value!r} matches "
+        f"neither ARTIFACT_ROOT ({paths.ARTIFACT_ROOT}) nor BACKING "
+        f"({paths.BACKING}) -- cannot portabilize this path for the golden. "
+        f"Refusing to record it raw.")
+
+
 def section_d():
     """Every live ModeSpec, field by field, plus sha256 of geom.render at 3
     points. Pins the schema-2 conversion: the Phase-A pipeline view must
-    rebuild today's ModeSpec exactly."""
+    rebuild today's ModeSpec exactly.
+
+    `musing`/`grid_tarball` are recorded in their portable `${ARTIFACT}/<rel>`
+    token form (see _portable_artifact_path) rather than the resolved
+    absolute path, which would bake this operator's personal ARTIFACT_ROOT
+    into a committed golden.
+    """
     import modes
     out = {}
     for name in sorted(modes.SPECS):
         spec = modes.SPECS[name]
         rec = {f: _jsonable(getattr(spec, f)) for f in _SPEC_FIELDS}
+        for field in ("musing", "grid_tarball"):
+            rec[field] = _portable_artifact_path(rec[field], name, field)
         rec["geom_sha"] = {
             k: hashlib.sha256(spec.geom.render(x).encode()).hexdigest()
             for k, x in _sample_points(spec).items()}

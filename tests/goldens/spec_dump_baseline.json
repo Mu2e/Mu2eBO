@@ -28,7 +28,7 @@
       "mustops_ce",
       "elebeam_flash"
     ],
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
     "knob_fmts": [
       "{:.4f}",
@@ -62,7 +62,7 @@
         "s_over_sqrt_b"
       ]
     },
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilsflash",
     "obs_noise": [
       0.006,
@@ -134,7 +134,7 @@
       "mustops_ce",
       "elebeam_flash"
     ],
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
     "knob_fmts": [
       "{:.4f}",
@@ -176,7 +176,7 @@
         "s_over_sqrt_b"
       ]
     },
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspf",
     "obs_noise": [
       0.006,
@@ -246,7 +246,7 @@
       "mustops_ce",
       "elebeam_flash"
     ],
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
     "knob_fmts": [
       "{:.4f}",
@@ -286,7 +286,7 @@
         "s_over_sqrt_b"
       ]
     },
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspf2k",
     "obs_noise": [
       0.006,
@@ -356,7 +356,7 @@
       "mustops_ce",
       "elebeam_flash"
     ],
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
     "knob_fmts": [
       "{:.4f}",
@@ -396,7 +396,7 @@
         "s_over_sqrt_b"
       ]
     },
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspfbp",
     "obs_noise": [
       0.006,
@@ -466,7 +466,7 @@
       "mustops_ce",
       "elebeam_flash"
     ],
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
     "knob_fmts": [
       "{:.4f}",
@@ -506,7 +506,7 @@
         "s_over_sqrt_b"
       ]
     },
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspfbpx",
     "obs_noise": [
       0.006,
@@ -578,7 +578,7 @@
       "mustops_ce",
       "elebeam_flash"
     ],
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
     "knob_fmts": [
       "{:.4f}",
@@ -620,7 +620,7 @@
         "s_over_sqrt_b"
       ]
     },
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspfbpz",
     "obs_noise": [
       0.006,
@@ -690,7 +690,7 @@
       "mustops_ce",
       "elebeam_flash"
     ],
-    "grid_tarball": "/exp/mu2e/app/users/oksuzian/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
+    "grid_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
     "int_dims": [],
     "knob_fmts": [
       "{:.4f}",
@@ -730,7 +730,7 @@
         "s_over_sqrt_b"
       ]
     },
-    "musing": "/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh",
+    "musing": "${ARTIFACT}/Offline_run1bap_partial/setup_local.sh",
     "name": "foilspfbw",
     "obs_noise": [
       0.006,
