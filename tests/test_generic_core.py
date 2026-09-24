@@ -14,8 +14,13 @@ EXEMPT_UNTIL_PHASE_C = ["core/study_compat.py"]
 USAGE = ["core/botorch_predict.py", "core/bo_driver.py",
          "surrogate/adapter.py", "graph/pipeline_io.py",
          "core/kit_registry.py"]
+# Attribute reads (`.sob`), the retired ModeSpec/env symbols, and quoted
+# physics-name reads (`y["sob"]`, `values['flash_edep']`). The quoted form
+# needs the closing quote right after the name, so the plugin kit name
+# "flash_edep_per_pot" is not a hit.
 USAGE_RX = re.compile(r"\.sob\b|\.calo\b|\bmetric_cols\b|flash_budget|"
-                      r"budget_k_sigma|calo_or_flash|\bsob_only\b")
+                      r"budget_k_sigma|calo_or_flash|\bsob_only\b|"
+                      r"[\"'](sob|calo|flash_edep|s_over_sqrt_b)[\"']")
 
 
 class TestGenericCore(unittest.TestCase):
@@ -26,6 +31,17 @@ class TestGenericCore(unittest.TestCase):
             hits = [ln for ln in text.splitlines() if rx.search(ln)]
             with self.subTest(file=rel):
                 self.assertEqual(hits, [])
+
+    def test_usage_regex_catches_the_forms_it_claims(self):
+        for hit in ('y["sob"]', "y['sob']", 'p.y["calo"]',
+                    'values["flash_edep"]', "summary['s_over_sqrt_b']",
+                    "spec.sob", "metric_cols[1]"):
+            with self.subTest(hit=hit):
+                self.assertTrue(USAGE_RX.search(hit), hit)
+        for miss in ('KitDecl("flash_edep_per_pot", ...)', "o.name",
+                     'values[o.name]', "sobriety"):
+            with self.subTest(miss=miss):
+                self.assertFalse(USAGE_RX.search(miss), miss)
 
     def test_usage_files_read_objectives_by_study_name(self):
         for rel in USAGE:
