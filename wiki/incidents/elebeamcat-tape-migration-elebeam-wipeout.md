@@ -4,12 +4,14 @@ title: EleBeamCat persistent→tape migration wipes out a whole elebeam round
 description: 'EleBeamCat Run1Baa moved persistent→tape mid-campaign (2026-07-09):
   all foilsflash10 elebeam jobs FileOpenError → blank outputs.txt → fail-soft flash=None
   → 0 rows despite valid sob; basename filelists mean fresh `submit --force` auto-resolves
-  via SAM; MuBeamCat still on persistent (WATCH — **FIRED 2026-07-13**, fixed 6906cb8)'
+  via SAM; MuBeamCat still on persistent (WATCH — **FIRED 2026-07-13**, fixed 6906cb8);
+  since the prodtools switch workers resolve inputs through SAM, so a migration is
+  followed automatically and the pre-submit probe was retired (b1e3531)'
 status: resolved
-status_note: '(MuBeamCat recurrence fixed 6906cb8 + verified: foilsflash16 mubeam
-  cluster 70879403 submitted clean on tape URLs 2026-07-13)'
-timestamp: '2026-07-17'
-updated_note: recovery-recipe lock path updated after pending/ merged into leaderboards/
+status_note: '(migration class closed by the prodtools switch: workers resolve every input
+  through SAM at job start; the pre-submit probe was retired in b1e3531, 2026-08-16)'
+timestamp: '2026-09-24'
+updated_note: why the input probe could be retired -- prodtools resolves inputs through SAM on the worker
 ---
 
 # EleBeamCat persistent→tape migration wipes out a whole elebeam round
@@ -28,6 +30,17 @@ flash extraction returned None → `evaluate` zero-rowed all 8 as
 needs resubmission.
 
 ## Key facts
+- **Since the prodtools switch (b1e3531, 2026-08-16) a migration is followed
+  automatically, so the pre-submit probe `_probe_input_urls` was retired.**
+  prodtools `FileResolver.locate` (`utils/file_resolver.py`, v3.2.0) resolves
+  every input through SAM on the worker at job start; the entry's `inloc`
+  (`"tape"` in `stage_entries/mubeam.json` and `elebeam_flash.json`) is only a
+  PREFERENCE, and it falls back to the first location SAM reports. The failure
+  below needed persistent URLs baked in at submit, which no longer happens.
+  Still uncaught before submit: a file SAM cannot locate at all (retired or
+  deleted), which fails every job with `Could not locate file`, and a slow
+  tape recall. Neither has happened. The facts below that call the probe live
+  describe the pre-switch code.
 - **WATCH FIRED 2026-07-13: MuBeamCat Run1Baa migrated persistent→tape too**
   (file gone from `/pnfs/mu2e/persistent/datasets/phy-sim/sim/mu2e/MuBeamCat/
   Run1Baa/...`, present at the `/pnfs/mu2e/tape/...` counterpart). Killed

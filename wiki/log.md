@@ -6,6 +6,12 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-24
+- **updated** why the pre-submit input probe (`_probe_input_urls`) could be
+  retired in the prodtools switch (b1e3531): prodtools resolves every input
+  through SAM on the worker and treats `inloc` as a preference, so a
+  tape migration is followed automatically; only a file SAM cannot locate
+  is still uncaught before submit —
+  [elebeamcat-tape-migration-elebeam-wipeout](/incidents/elebeamcat-tape-migration-elebeam-wipeout.md)
 - **updated** PR #34 (`generic-study-phase-a`) **simplification pass**,
   three stages, no behavior change intended. Stage 1, runtime (−143/+49):
   `graph/pipeline_io.py` drops its dead side-effect `import pipeline`
