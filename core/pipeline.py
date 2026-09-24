@@ -232,13 +232,12 @@ def _render_fcl_overrides(stage: str, entry_tmpl: dict) -> dict:
 
 # Flash-line stage tuning (mode_specs/<mode>.json, each evaluate step's
 # "fixed", applied by stage_cfg): mubeam 200k ev / 2000 MB / quorum 0.8,
-# mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 / default.
-# WHY: sizes ~30-min
-# payloads (measured per-event: mubeam 9.1 ms, mustops_ce 24.1 ms,
-# elebeam_flash 16.6 ms) so the payload dominates the ~44-s muse/setup
-# overhead (~80% grid efficiency vs ~15-30%). With njobs=100: σ(sob)~0.09%,
-# σ(flash) ~3.8x tighter (~59k flash events; flash is the binding noise
-# channel). Stamped-at-submit
+# mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 / default. WHY:
+# sizes ~30-min payloads (measured per-event: mubeam 9.1 ms, mustops_ce
+# 24.1 ms, elebeam_flash 16.6 ms) so the payload dominates the ~44-s
+# muse/setup overhead (~80% grid efficiency vs ~15-30%). With njobs=100:
+# σ(sob)~0.09%, σ(flash) ~3.8x tighter (~59k flash events; flash is the
+# binding noise channel). Stamped-at-submit
 # (wiki/incidents/events-per-job-mid-flight-edit.md): safe for a FRESH
 # campaign, NOT mid-flight edits. See wiki/concepts/bo-noise-budget.md.
 

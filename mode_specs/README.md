@@ -2,7 +2,8 @@
 
 One file per study: `mode_specs/<name>.json`, where `<name>` equals the
 `"name"` field. Every file here, plus every `*.json` in the directories on
-`$AUTORESEARCH_STUDY_PATH` (colon-separated), is loaded at import by
+`$AUTORESEARCH_STUDY_PATH` (colon-separated, each entry an ABSOLUTE path;
+a relative entry is a load error), is loaded at import by
 `core/study.py`. `archive/` holds retired specs in the old format and is
 not loaded.
 
@@ -21,6 +22,15 @@ leaderboard) and change:
 
 Every key is required and unknown keys are rejected, so a typo fails at
 import, never hours into a campaign.
+
+**Never start from `tests/fixtures/modes/foils.json` or `foilsflash.json`.**
+Those fixtures reproduce real lines and declare real leaderboards on
+purpose. `foilsflash.json` names the live foilsflash board, so a renamed
+copy is at least refused (leaderboard basenames must be unique across
+studies). `foils.json` is worse: it names the committed, retired
+`leaderboards/leaderboard_bo_foils_v2.tsv`, which no live study claims, so
+a renamed copy that keeps that line loads cleanly and its GP silently
+trains on the retired line's history. Copy `template.json` instead.
 
 ## Gotchas
 

@@ -6,6 +6,33 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-24
+- **updated** Phase A **final-review fix wave** (branch
+  `generic-study-phase-a`; suite 712 -> **735** OK, goldens `a b d e` OK,
+  none recaptured). (1) The removed `AUTORESEARCH_FLASH_BUDGET` /
+  `AUTORESEARCH_BUDGET_KSIGMA` env vars are now FATAL when set
+  (`SystemExit` from `core/botorch_predict.py:build_problem`, which both
+  `compute_explore_picks` and the MCP adapter take), not silently ignored;
+  every live study keeps `k_sigma: 1.0` (main's no-env behavior; whether
+  foilspfbpz should run at the foilspfbpz07 value 0.5 is an open operator
+  decision). The corner-round recipe is now an in-place, committed,
+  reverted edit of the study's `constraints[0]`; the old "copy to a new
+  name + board" advice was wrong (empty board = Sobol cold start, and
+  sharing the parent's board is refused by the basename guard). (2)
+  `cmd_evaluate` builds its context from `study.context` and formats the
+  row BEFORE clearing the pending row, so a failing extra-column
+  expression can no longer lose a finished eval's x. (3) Loader: `params`
+  values must be strings, NaN/Infinity are refused for every number, and
+  `AUTORESEARCH_STUDY_PATH` entries must be absolute. (4) Restored tests
+  for per-level unknown/missing keys, `${ARTIFACT}` == `paths.artifact()`,
+  and STUDY_PATH wiring (the wiring test no longer writes into the real
+  `mode_specs/`). (5) MCP `stats` nests the champion's values under
+  `best.values`. (6) The gate also catches quoted reads like `y["sob"]`.
+  (7) Spec's `${ARTIFACT}` rule scoped to `kits.*` settings (`geom.base` is
+  not expanded) — [budget-sob-picker](/concepts/budget-sob-picker.md),
+  [pareto-sob-picker](/concepts/pareto-sob-picker.md),
+  [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md),
+  [bo-driver](/drivers/bo-driver.md), [surrogate](/drivers/surrogate.md),
+  [tests](/drivers/tests.md)
 - **Phase A of the generic-study refactor (all 9 tasks) COMPLETE.** Schema-2
   study files under `mode_specs/` are now the ONLY spec format (the old
   `core/mode_json.py` JSON loader is deleted); `modes.STUDIES` (built by
@@ -25,8 +52,11 @@ superseded, linted.
   gone (a missing key is a loud refuse, never a silent substitution). New
   gate `tests/test_generic_core.py` gets this INTO the suite permanently:
   it fails if `core/study.py`/`core/leaderboard.py` name `sob`/`calo`/
-  `flash` at all, or if the 5 usage-site files read an objective by a
-  hardcoded physics string. Golden parity (`a b d e`) and the full suite
+  `flash` at all, or if a line in the 5 usage-site files matches a regex
+  for an attribute read (`.sob`/`.calo`) or a retired ModeSpec/env symbol
+  (`metric_cols`, `flash_budget`, `calo_or_flash`, ...). (As first landed
+  it did NOT catch a quoted read such as `y["sob"]`; the fix wave below
+  added that. It is a line regex, not a semantic check.) Golden parity (`a b d e`) and the full suite
   (712 tests, up from 710 -- 2 new tests in `tests/test_generic_core.py`)
   are unchanged/green —
   [surrogate](/drivers/surrogate.md), [bo-driver](/drivers/bo-driver.md),
@@ -44,7 +74,9 @@ superseded, linted.
   carries `k_sigma: 1.0` (the old code default) and the same deployed-target
   `max: 6.85443e-07` line. foilspfbpz07 (2026-08-10) ran at `k=0.5` via the
   now-removed env override; reproducing that today means a study copy on
-  `$AUTORESEARCH_STUDY_PATH` with `k_sigma: 0.5`
+  `$AUTORESEARCH_STUDY_PATH` with `k_sigma: 0.5` (RETRACTED by the fix
+  wave above: a copy gets an empty board, i.e. a Sobol round; edit the
+  study's `k_sigma` in place for the round instead)
 
 ## 2026-09-23
 - created **generic study design** (`docs/superpowers/specs/2026-09-23-generic-study-design.md`, commit `4d8d1b3`): a new study = one schema-2 JSON (knobs, `derive` with lagrange profiles lifted out of `geom`, steps with `files_from` edges, N objectives, ≤1 constraint); kits reached through a `submit`/`status`/`results` evaluator contract (one adapter per kit family; native kits need zero code); NO legacy engine — foilspf moves onto it (prodtools adapter MCP-only after prodtools P1 code-tarball entries + P2 `run_local`), NO grid-job recoveries (quorum on ok jobs; beamkit adapter never calls `make_recoveries`). Found while designing: a stage is hard-coded across ~190 lines today (retiring `mustops_pileup` in `b369eda`), and `mustops_ce`'s `MaxEventsToSkip=8000` lives only in `core/pipeline.py:228` (its JSON template says 100720)

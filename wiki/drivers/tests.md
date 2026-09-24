@@ -1,7 +1,7 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (31 files, 676 tests), no grid contact;
+description: '`tests/` regression suite (34 files, 735 tests), no grid contact;
   `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .`;
   golden parity harness (manual, not in discover): `PYTHONPATH=
   "$AUTORESEARCH_PYTHON" tests/golden_parity.py check`'
@@ -38,6 +38,16 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   test files between 2026-09-22 and today (not re-audited file-by-file
   here), and this task added `tests/test_generic_core.py` (2 tests, the
   gate that generic code never names physics quantities).
+  **Superseded again (measured 2026-09-24, Phase A final fix wave): 34
+  `test_*.py`, 735 tests (1 skipped), ~85 s.** +23: per-level
+  unknown/missing-key table, `${ARTIFACT}` == `paths.artifact()` pins,
+  loader edge cases (non-finite numbers, non-string params, relative
+  `AUTORESEARCH_STUDY_PATH`) in `tests/test_study.py`; the
+  removed-env-var tripwire (`tests/test_botorch_predict.py`,
+  `tests/test_surrogate.py`); evaluate keeps the pending row on a format
+  failure (`tests/test_json_mode.py`); the STUDY_PATH wiring test, which
+  replaced the only test that wrote into the real `mode_specs/`
+  (`tests/test_modes.py`); a regex self-test in the gate.
 - **`tools/capture_golden_geom.py` was DELETED 2026-08-22** (slim-down
   audit). Everything below about its skip guard is history, not a live
   recipe: the guard could no longer return True for any mode, so the tool

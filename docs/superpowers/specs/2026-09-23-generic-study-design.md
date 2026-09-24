@@ -152,7 +152,7 @@ All decided by the operator on 2026-09-23.
 **General:**
 - **Every key is required and unknown keys are rejected** (ADR-0002). Empty is written explicitly as `null`, `{}` or `[]`. Validation happens at load, and every error names the file, the field and the rule.
 - **`name`** matches the file stem.
-- **Only `${ARTIFACT}/` is supported** (for example `${ARTIFACT}/geom/base.txt`). It resolves through `core/paths.py`'s `artifact()`: the local root first, falling back to the Muse backing if the local root has no such file. Any other `${...}` token is a load error, and a bare personal-user-area path (`/exp/mu2e/(app|data)/users/<name>/...`) is refused too — it would only run for that one account.
+- **String values in `kits.<kit>` settings may start with `${ARTIFACT}/`, and that is the only token** (for example `"code_tarball": "${ARTIFACT}/autoresearch_muse/Code_helical_holeradii.tar.bz2"`). It resolves through `core/paths.py`'s `artifact()`: the local root first, falling back to the Muse backing if the local root has no such file. In a `kits` setting, any other `${...}` token is a load error, and a bare personal-user-area path (`/exp/mu2e/(app|data)/users/<name>/...`) is refused too — it would only run for that one account. These rules apply to `kits` settings only. **`geom.base` is not expanded:** it is a repo-relative path on the Mu2e search path (for example `Offline/Mu2eG4/geom/geom_run1_a.txt`), handed to the geometry writer exactly as written, which emits it verbatim in the `#include` line.
 
 **`knobs`:**
 - names are unique; `type` is `real` or `int`; `min < max`;
@@ -202,7 +202,7 @@ All decided by the operator on 2026-09-23.
 - `layout` is `"v1"` (config, knobs, objectives, extra metrics, extra columns: today's boards) or `"v2"` (the same plus `handles`, `spec_sha` and `time`). `"v2"` arrives with Phase B.
 - `context` lists runtime values the caller must supply when a row is written, for example `["alpha"]`, which today's CLI passes as `--alpha`. A missing context value is an error at write time.
 
-**Environment overrides are gone.** `AUTORESEARCH_FLASH_BUDGET` and `AUTORESEARCH_BUDGET_KSIGMA` are removed, and the study file is the only source of the constraint.
+**Environment overrides are gone.** `AUTORESEARCH_FLASH_BUDGET` and `AUTORESEARCH_BUDGET_KSIGMA` are removed, and the study file is the only source of the constraint. Setting either one is a loud error (`SystemExit` from `core/botorch_predict.py:build_problem`, naming `constraints[0].max` or `constraints[0].k_sigma`), so a stale export can never be silently ignored.
 
 ### Stage templates
 
