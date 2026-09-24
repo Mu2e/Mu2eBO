@@ -17,8 +17,9 @@ import json
 import shutil
 import sys
 import tempfile
+import contextlib
+import io
 import unittest
-import unittest.mock
 import uuid
 from pathlib import Path
 
@@ -29,7 +30,7 @@ from bo_driver import JsonMode  # noqa: E402
 from study_compat import load_modespec as load_mode_file  # noqa: E402
 from study import load_study_file  # noqa: E402
 
-FIXTURE = Path(__file__).resolve().parent.parent / "mode_specs" / "foilsflash.json"
+LIVE_SPEC = Path(__file__).resolve().parent.parent / "mode_specs" / "foilsflash.json"
 
 
 class TestJsonMode(unittest.TestCase):
@@ -41,12 +42,12 @@ class TestJsonMode(unittest.TestCase):
         # tearDownClass is SKIPPED by unittest when setUpClass raises, which
         # would leak "demoflash" into the process-global modes.SPECS for the
         # rest of `unittest discover`.
-        cls.spec = dataclasses.replace(load_mode_file(FIXTURE), name="demoflash")
+        cls.spec = dataclasses.replace(load_mode_file(LIVE_SPEC), name="demoflash")
         modes.SPECS["demoflash"] = cls.spec
         cls.addClassCleanup(modes.SPECS.pop, "demoflash", None)
         # extract_metrics reads _modes.STUDIES (Task 8: objectives/
         # extra_metrics come from the Study, not the ModeSpec).
-        cls.study = dataclasses.replace(load_study_file(FIXTURE), name="demoflash")
+        cls.study = dataclasses.replace(load_study_file(LIVE_SPEC), name="demoflash")
         modes.STUDIES["demoflash"] = cls.study
         cls.addClassCleanup(modes.STUDIES.pop, "demoflash", None)
         cls.mode = JsonMode("demoflash")
@@ -64,95 +65,41 @@ class TestJsonMode(unittest.TestCase):
         self.assertIn("stoppingTarget.radii", text)
         self.assertIn("double stoppingTarget.holeRadius = 1.0e6;", text)
 
-
-    # test_parse_geom_refuses_clearly removed 2026-08-08: JsonMode.parse_geom
-    # were deleted outright -- geometry round-trip is
-    # no longer part of the interface at all (not even as a NotImplementedError
-    # stub), now that no Python mode needs the round-trip default. See
-    # docs/superpowers/specs/2026-08-08-leaderboard-module-design.md.
-
-    def test_extract_metrics_values_by_name(self):
-        """Task 8: extract_metrics returns {objective/extra-metric name:
-        value}, read by the study's Objective.key -- no positional tuple, no
-        per-mode metric_cols indexing."""
-        self.assertEqual(
-            self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}),
-            {"sob": 3.9, "flash_edep": 1e-6})
-
-    def test_extract_metrics_has_no_per_event_fallback(self):
-        """Intended Phase-A change (generic-study spec, "Changed on
-        purpose"): a schema-2 objective names ONE metric, so the flash column
-        no longer falls back to flash_edep_per_event when flash_edep_per_pot
-        is missing. A per-event-only summary leaves the column unresolved
-        (None -> cmd_evaluate refuses the row, rc=1) instead of landing a
-        per-event value in a per-POT column."""
-        out = self.mode.extract_metrics(
-            {"s_over_sqrt_b": 3.9, "flash_edep_per_event": 2e-6})
-        self.assertEqual(out["sob"], 3.9)
-        self.assertIsNone(out["flash_edep"])
-
-    # -- F7: UNRESOLVED and RESOLVED-TO-ZERO are different cases ------------
-    # A second-objective-less summary used to kill every child at evaluate
-    # after the full wall-clock (raising in extract_metrics). Returning None
-    # instead lets cmd_evaluate refuse the row with a diagnostic rc=1 -- and
-    # keeps "unresolved" distinguishable from "resolved to a real zero",
-    # which is a different (poison) case handled in cmd_evaluate.
-    def test_extract_metrics_unresolved_second_objective_returns_none(self):
-        self.assertEqual(
-            self.mode.extract_metrics({"s_over_sqrt_b": 3.9}),
-            {"sob": 3.9, "flash_edep": None})
-
-    def test_extract_metrics_null_second_objective_returns_none(self):
-        self.assertEqual(
-            self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": None,
-                 "flash_edep_per_event": None}),
-            {"sob": 3.9, "flash_edep": None})
-
-    def test_extract_metrics_missing_sob_returns_none(self):
-        """Task 8: extract_metrics is a pure by-name lookup now -- a missing
-        objective value is None like any other key, never a raise.
-        cmd_evaluate is the seam that turns a None into a refusal (rc=1);
-        it used to be extract_metrics raising KeyError for column 0 only."""
-        out = self.mode.extract_metrics({"flash_edep_per_pot": 1e-6})
-        self.assertIsNone(out["sob"])
-        self.assertEqual(out["flash_edep"], 1e-6)
-
-    # -- The second objective must never silently collapse to a poison zero
-    # row (mirrors the retired FoilsFlashMode.extract_metrics's SystemExit
-    # guard). Task 8 moved this check out of extract_metrics (now a pure
-    # lookup) and into cmd_evaluate's log10-transform check; the end-to-end
-    # refusal is exercised by
-    # TestJsonModeEvaluateEndToEnd.test_evaluate_still_refuses_a_second_objective_that_resolves_to_zero
-    # below. Here we just confirm extract_metrics passes the raw value
-    # through unrefused.
-    def test_extract_metrics_zero_and_negative_pass_through(self):
-        self.assertEqual(
-            self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 0.0}
-            )["flash_edep"], 0.0)
-        self.assertEqual(
-            self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": -1e-6}
-            )["flash_edep"], -1e-6)
-
-    def test_extract_metrics_valid_second_metric_passes(self):
-        self.assertEqual(
-            self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}),
-            {"sob": 3.9, "flash_edep": 1e-6})
-
-    def test_extract_metrics_calo_per_pot_is_not_a_fallback(self):
-        """Root-cause regression: the fixture's flash_edep fallback chain
-        used to list calo_per_pot -- copied from the STALE comment above
-        FoilsFlashMode.extract_metrics, which claims that fallback but never
-        implements it. A calo-only summary must NOT put calo in the flash
-        column (it reports the column as unresolved -- None)."""
-        out = self.mode.extract_metrics(
-            {"s_over_sqrt_b": 3.9, "calo_per_pot": 1.2e-6})
-        self.assertEqual(out["sob"], 3.9)
-        self.assertIsNone(out["flash_edep"])
+    def test_extract_metrics_reads_each_value_by_its_study_key(self):
+        """extract_metrics is `summary.get(key)` per study objective/extra
+        metric: {name: value or None}. No fallback between keys, never a
+        raise, never a refusal: cmd_evaluate is the seam that refuses a None
+        (rc=1) or a zero/negative log10 value (SystemExit) -- see
+        TestJsonModeEvaluateEndToEnd."""
+        ok = {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}
+        rows = [
+            (ok, {"sob": 3.9, "flash_edep": 1e-6}),
+            # Intended Phase-A change ("Changed on purpose"): an objective
+            # names ONE metric, so a per-event-only summary leaves the
+            # per-POT column unresolved instead of landing a per-event value.
+            ({"s_over_sqrt_b": 3.9, "flash_edep_per_event": 2e-6},
+             {"sob": 3.9, "flash_edep": None}),
+            # Nor is calo_per_pot a fallback (the old fixture's chain once
+            # listed it, copied from a stale comment).
+            ({"s_over_sqrt_b": 3.9, "calo_per_pot": 1.2e-6},
+             {"sob": 3.9, "flash_edep": None}),
+            # F7, UNRESOLVED (absent or null): None, not a raise -- raising
+            # here killed every child at evaluate after the full wall-clock.
+            ({"s_over_sqrt_b": 3.9}, {"sob": 3.9, "flash_edep": None}),
+            ({"s_over_sqrt_b": 3.9, "flash_edep_per_pot": None,
+              "flash_edep_per_event": None},
+             {"sob": 3.9, "flash_edep": None}),
+            # The primary is looked up the same way: None, not a KeyError.
+            ({"flash_edep_per_pot": 1e-6}, {"sob": None, "flash_edep": 1e-6}),
+            # F7, RESOLVED-TO-ZERO (or negative) passes through; the
+            # poison-row refusal is cmd_evaluate's log10 check.
+            ({**ok, "flash_edep_per_pot": 0.0}, {"sob": 3.9, "flash_edep": 0.0}),
+            ({**ok, "flash_edep_per_pot": -1e-6},
+             {"sob": 3.9, "flash_edep": -1e-6}),
+        ]
+        for summary, want in rows:
+            with self.subTest(summary=summary):
+                self.assertEqual(self.mode.extract_metrics(summary), want)
 
 
 class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
@@ -171,42 +118,56 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="jsonmode_eval_"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        # Unique name: the probe is registered into the process-global
-        # modes.STUDIES / modes.SPECS / bo_driver.MODES, and
-        # tests/test_modes.py asserts the SPECS and MODES keysets are equal
-        # -- so every registration is undone by addCleanup even if this
-        # setUp raises partway through. STUDIES is where leaderboard_io()
-        # takes the row shape from.
-        self.name = "evalprobe" + uuid.uuid4().hex[:8]
-        study = dataclasses.replace(load_study_file(FIXTURE), name=self.name)
-        modes.STUDIES[self.name] = study
-        self.addCleanup(modes.STUDIES.pop, self.name, None)
-        spec = dataclasses.replace(load_mode_file(FIXTURE), name=self.name)
-        modes.SPECS[self.name] = spec
-        self.addCleanup(modes.SPECS.pop, self.name, None)
-        mode = JsonMode(self.name)
+        self.mode = self._register_variant(lambda doc: None)
+
+    def _register_variant(self, mutate):
+        """Register a copy of the live foilsflash spec (mutated JSON, own
+        name and scratch board) and return its JsonMode.
+
+        Unique name: the probe is registered into the process-global
+        modes.STUDIES / modes.SPECS / bo_driver.MODES, and
+        tests/test_modes.py asserts the SPECS and MODES keysets are equal
+        -- so every registration is undone by addCleanup even if this
+        raises partway through. STUDIES is where leaderboard_io() takes the
+        row shape from."""
+        doc = json.loads(LIVE_SPEC.read_text())
+        mutate(doc)
+        name = "evalvariant" + uuid.uuid4().hex[:8]
+        doc["name"] = name
+        doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{name}.tsv"
+        path = self.tmp / f"{name}.json"
+        path.write_text(json.dumps(doc))
+        modes.STUDIES[name] = load_study_file(path)
+        self.addCleanup(modes.STUDIES.pop, name, None)
+        modes.SPECS[name] = load_mode_file(path)
+        self.addCleanup(modes.SPECS.pop, name, None)
+        mode = JsonMode(name)
         # Never touch a real leaderboard under leaderboards/.
-        mode.leaderboard = self.tmp / f"leaderboard_bo_{self.name}.tsv"
+        mode.leaderboard = self.tmp / f"leaderboard_bo_{name}.tsv"
         mode.leaderboard_archive = None
         mode.proposal_dir = self.tmp / "proposals"
-        bo_driver.MODES[self.name] = mode
-        self.addCleanup(bo_driver.MODES.pop, self.name, None)
-        self.mode = mode
+        bo_driver.MODES[name] = mode
+        self.addCleanup(bo_driver.MODES.pop, name, None)
+        return mode
 
-    def _args(self, config_name, summary_path, alpha=1.0e5, emit_json=None):
+    def _args(self, config_name, summary_path, alpha=1.0e5, mode=None):
         return argparse.Namespace(
-            mode=self.name, summary=str(summary_path),
-            config_name=config_name, alpha=alpha, emit_json=emit_json)
+            mode=(mode or self.mode).name, summary=str(summary_path),
+            config_name=config_name, alpha=alpha, emit_json=None)
 
     def _summary(self, payload) -> Path:
         p = self.tmp / "summary.json"
         p.write_text(json.dumps(payload))
         return p
 
+    def _propose(self, cfg, x=(120.0, 130.0, 0.1, 0.2, 0.3, 0.4), mode=None):
+        """What propose leaves for evaluate: the pending row, the ONLY
+        record of x. evaluate reads no geometry."""
+        (mode or self.mode).append_pending(cfg, list(x), 1.0e5)
+        return list(x)
+
     def test_evaluate_appends_a_leaderboard_row(self):
-        x = [120.0, 130.0, 0.1, 0.2, 0.3, 0.4]
-        self.mode.render_proposal("PROBE01", x)
-        self.mode.append_pending("PROBE01", x, 1.0e5)
+        x = self._propose("PROBE01")
         summary = self._summary(
             {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
 
@@ -234,11 +195,6 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         # Pending is cleared exactly as for a Python mode.
         self.assertEqual(self.mode.load_pending(), [])
 
-    def _propose(self, cfg, x=(120.0, 130.0, 0.1, 0.2, 0.3, 0.4)):
-        self.mode.render_proposal(cfg, list(x))
-        self.mode.append_pending(cfg, list(x), 1.0e5)
-        return list(x)
-
     # -- F7 case 1: UNRESOLVED second objective ----------------------------
     def test_no_substitution_for_an_unresolved_second_objective(self):
         """An absent second objective is NEVER coerced to a number.
@@ -248,21 +204,20 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         a fake zero-flash row at good sob that dominates the Pareto front at
         the next GP refit (7 poison rows landed that way 2026-07-10). The
         retired FoilsFlashMode refused this by raising; with the last
-        substitution path gone the guarantee is now structural.
+        substitution path gone the guarantee is now structural. The printed
+        refusal names the missing objective (rc=1 alone would also fit an
+        unrelated failure).
         """
         self._propose("PROBE03B")
         summary = self._summary({"s_over_sqrt_b": 3.9})
-        rc = bo_driver.cmd_evaluate(self._args("PROBE03B", summary))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = bo_driver.cmd_evaluate(self._args("PROBE03B", summary))
         self.assertEqual(rc, 1)
+        self.assertIn("refusing", buf.getvalue())
+        self.assertIn("flash_edep", buf.getvalue())
         self.assertFalse(self.mode.leaderboard.exists(),
                          "a zero-flash poison row was appended")
-
-    def test_evaluate_refuses_unresolved_second_objective(self):
-        self._propose("PROBE04")
-        summary = self._summary({"s_over_sqrt_b": 3.9})
-        rc = bo_driver.cmd_evaluate(self._args("PROBE04", summary))
-        self.assertEqual(rc, 1)
-        self.assertFalse(self.mode.leaderboard.exists())
 
     # -- F7 case 2: RESOLVED-TO-ZERO must still be refused -----------------
     def test_evaluate_still_refuses_a_second_objective_that_resolves_to_zero(self):
@@ -277,36 +232,10 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             bo_driver.cmd_evaluate(self._args("PROBE05", summary))
         self.assertIn("flash_edep_per_pot", str(cm.exception))
+        self.assertIn("log10", str(cm.exception))
         self.assertFalse(self.mode.leaderboard.exists())
 
     # -- M1: the pending row is the ONLY record of x ------------------------
-    def _register_variant(self, mutate):
-        """Register a variant of FIXTURE (mutated JSON, own name and board)
-        exactly like setUp does, and return its JsonMode."""
-        doc = json.loads(FIXTURE.read_text())
-        mutate(doc)
-        name = "evalvariant" + uuid.uuid4().hex[:8]
-        doc["name"] = name
-        doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{name}.tsv"
-        path = self.tmp / f"{name}.json"
-        path.write_text(json.dumps(doc))
-        modes.STUDIES[name] = load_study_file(path)
-        self.addCleanup(modes.STUDIES.pop, name, None)
-        modes.SPECS[name] = load_mode_file(path)
-        self.addCleanup(modes.SPECS.pop, name, None)
-        mode = JsonMode(name)
-        mode.leaderboard = self.tmp / f"leaderboard_bo_{name}.tsv"
-        mode.leaderboard_archive = None
-        mode.proposal_dir = self.tmp / "proposals"
-        bo_driver.MODES[name] = mode
-        self.addCleanup(bo_driver.MODES.pop, name, None)
-        return mode
-
-    def _variant_args(self, mode, cfg, summary):
-        return argparse.Namespace(mode=mode.name, summary=str(summary),
-                                  config_name=cfg, alpha=1.0e5,
-                                  emit_json=None)
-
     def test_a_failing_extra_column_keeps_the_pending_row(self):
         """An extra-column expression that fails on this row's values (here
         a division by zero) must fail evaluate while the pending row -- the
@@ -316,14 +245,12 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
             obj = next(c for c in doc["extra_columns"] if c["name"] == "obj")
             obj["expr"] = "sob / (flash_edep - flash_edep)"
         mode = self._register_variant(zero_div)
-        x = [120.0, 130.0, 0.1, 0.2, 0.3, 0.4]
-        mode.render_proposal("FMT01", x)
-        mode.append_pending("FMT01", x, 1.0e5)
+        x = self._propose("FMT01", mode=mode)
         summary = self._summary(
             {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
 
         with self.assertRaises(SystemExit) as cm:
-            bo_driver.cmd_evaluate(self._variant_args(mode, "FMT01", summary))
+            bo_driver.cmd_evaluate(self._args("FMT01", summary, mode=mode))
 
         msg = str(cm.exception)
         self.assertIn("FMT01", msg)
@@ -333,20 +260,19 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         self.assertFalse(mode.leaderboard.exists(),
                          "a failed format must not append anything")
 
-    def test_an_unsourced_context_name_is_refused_before_anything(self):
+    def test_an_unsourced_context_name_keeps_the_pending_row(self):
         """leaderboard.context names a value the evaluate CLI cannot
-        supply: refused up front, pending row and board untouched (it used
-        to be hardcoded {"alpha": ...} and the append then raised)."""
+        supply: the row is formatted before pending is cleared, so the
+        refusal leaves the pending row and the board untouched (it used to
+        be hardcoded {"alpha": ...} and the append then raised)."""
         mode = self._register_variant(
             lambda doc: doc["leaderboard"]["context"].append("beta"))
-        x = [120.0, 130.0, 0.1, 0.2, 0.3, 0.4]
-        mode.render_proposal("CTX01", x)
-        mode.append_pending("CTX01", x, 1.0e5)
+        x = self._propose("CTX01", mode=mode)
         summary = self._summary(
             {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
 
         with self.assertRaises(SystemExit) as cm:
-            bo_driver.cmd_evaluate(self._variant_args(mode, "CTX01", summary))
+            bo_driver.cmd_evaluate(self._args("CTX01", summary, mode=mode))
 
         msg = str(cm.exception)
         self.assertIn("'beta'", msg)
@@ -371,8 +297,6 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         there (evaluate re-run after a successful one already cleared it),
         refuse with a message naming the pending file and the config --
         never a guessed or partial x."""
-        x = [120.0, 130.0, 0.1, 0.2, 0.3, 0.4]
-        self.mode.render_proposal("PROBE02", x)   # geom exists, pending does not
         summary = self._summary(
             {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1.5e-6})
 
