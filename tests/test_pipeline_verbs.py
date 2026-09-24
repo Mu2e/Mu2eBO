@@ -183,10 +183,11 @@ class TestStageTuning(unittest.TestCase):
 class TestStageTuningModuleLevelWiring(unittest.TestCase):
     """End-to-end, real subprocess: hand-register a throwaway ModeSpec
     carrying a non-empty stage_tuning directly into a fresh
-    subprocess's `modes.SPECS` (bypassing mode_specs/ directory discovery
-    entirely -- core/modes.py's MODES_DIR is a hardcoded path, not
-    overridable via env, and the real mode_specs/ directory must stay
-    clean), then imports core/pipeline.py under that mode and calls
+    subprocess's `modes.SPECS` (bypassing directory discovery entirely --
+    core/modes.py's MODES_DIR is fixed, $AUTORESEARCH_STUDY_PATH only ADDS
+    directories and has its own wiring test in tests/test_modes.py
+    TestModeSpecsDirectoryWiring, and the real mode_specs/ directory is
+    never written by tests), then imports core/pipeline.py under that mode and calls
     pipeline.stage_cfg() -- the ONE place stage_tuning is read now (Task 6;
     was the module-level `_apply_stage_tuning(STAGES, ...)` mutation at
     import). If stage_cfg() ever stops reading spec.stage_tuning, this

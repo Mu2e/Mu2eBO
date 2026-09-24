@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 import uuid
 from pathlib import Path
@@ -196,8 +197,9 @@ class TestSchemaFields(unittest.TestCase):
         # tail) were archived 2026-08-08; every surviving mode shares the
         # foilsflash-family "flash_edep" tail, so there is no longer a
         # second shape to contrast against.
-        # This full-tuple pin subsumes the positional one CALO_COL used to
-        # need: core/leaderboard.py reads metric_cols[1] directly.
+        # metric_cols is the study_compat view's column tail; the
+        # leaderboard itself reads its columns by name from the Study
+        # (core/leaderboard.py Leaderboard.for_study), not from here.
         self.assertEqual(modes.SPECS["foilsflash"].metric_cols,
                          ("sob", "flash_edep", "alpha", "obj"))
 
@@ -260,58 +262,83 @@ class TestSubprocessImport(unittest.TestCase):
 
 
 class TestModeSpecsDirectoryWiring(unittest.TestCase):
-    """F8: the two lines that ARE the json-modes feature had zero coverage.
+    """F8: the lines that ARE the study-directory feature had zero coverage.
 
-    Deleting either `SPECS.update(load_mode_dir(MODES_DIR))` at the
-    tail of core/modes.py or the `MODES[_name] = JsonMode(_name)` loop in
-    core/bo_driver.py left the whole suite green -- verified by mutation,
-    twice. Every other test registers its spec by hand into modes.SPECS and
-    so deliberately bypasses the real mode_specs/ directory; nothing
-    exercised "drop a JSON file in mode_specs/, get a runnable mode".
+    Deleting the `STUDIES = load_study_dirs(MODES_DIR, ...)` /
+    `SPECS.update(...)` tail of core/modes.py, or the
+    `MODES[_name] = JsonMode(_name)` loop in core/bo_driver.py, used to leave
+    the whole suite green -- verified by mutation, twice. Every other test
+    registers its study by hand into modes.STUDIES/SPECS and so bypasses
+    directory discovery.
 
-    This test does exactly that, in a fresh subprocess (core/modes.py's
-    MODES_DIR is a hardcoded path resolved at import, not overridable), and
-    checks all three links of the chain: the spec is discovered, a JsonMode
-    is registered under that name in the driver, and it renders geometry.
+    Neither test here writes into the real mode_specs/ (a concurrently
+    importing campaign child would load a probe dropped there). The primary
+    directory is proven by comparing a fresh process's registry to the
+    files in mode_specs/; "drop a study file in a directory, get a runnable
+    mode" is proven through $AUTORESEARCH_STUDY_PATH with a temp directory,
+    checking all three links of the chain: the study is discovered into
+    STUDIES and SPECS, a JsonMode is registered under that name in the
+    driver, and it renders geometry.
     """
 
-    def test_a_json_file_in_mode_specs_becomes_a_runnable_mode(self):
-        root = Path(__file__).resolve().parent.parent
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def _fresh_process(self, script, study_path=None):
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        env.pop("AUTORESEARCH_STUDY_PATH", None)
+        if study_path is not None:
+            env["AUTORESEARCH_STUDY_PATH"] = study_path
+        r = subprocess.run([sys.executable, "-c", script], cwd=str(self.ROOT),
+                           capture_output=True, text=True, env=env,
+                           timeout=180)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_the_primary_directory_is_the_repo_mode_specs(self):
+        self.assertEqual(modes.MODES_DIR, self.ROOT / "mode_specs")
+        script = (
+            "import json, sys\n"
+            "sys.path.insert(0, 'core')\n"
+            "import modes\n"
+            "print(json.dumps([str(modes.MODES_DIR), sorted(modes.STUDIES), "
+            "sorted(modes.SPECS)]))\n"
+        )
+        modes_dir, studies, specs = json.loads(
+            self._fresh_process(script).splitlines()[-1])
+        want = sorted(p.stem for p in (self.ROOT / "mode_specs").glob("*.json"))
+        self.assertEqual(Path(modes_dir), self.ROOT / "mode_specs")
+        self.assertEqual(studies, want)
+        self.assertEqual(specs, want)
+
+    def test_a_study_on_the_study_path_becomes_a_runnable_mode(self):
         name = "wiringprobe" + uuid.uuid4().hex[:8]
-        doc = json.loads(
-            (Path(__file__).parent / "fixtures" / "modes" / "foils.json").read_text())
+        doc = json.loads((Path(__file__).parent / "fixtures" / "modes"
+                          / "template.json").read_text())
         doc["name"] = name
-        # Its own leaderboard: the loader now rejects a spec that claims one
-        # already owned by another mode (F4).
+        # Its own leaderboard basename: the loader rejects a study that
+        # claims one already owned by another study.
         doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{name}.tsv"
-
-        target = root / "mode_specs" / f"{name}.json"
-        # addCleanup (not a trailing unlink): mode_specs/ is the REAL
-        # directory the production loader reads, and it must be left exactly
-        # as found even if an assertion below fails.
-        self.addCleanup(target.unlink, True)   # missing_ok=True
-        target.write_text(json.dumps(doc))
-
         script = (
             "import sys\n"
             "sys.path.insert(0, 'core')\n"
             "import modes, bo_driver\n"
             f"n = {name!r}\n"
+            "print('STUDY_DISCOVERED', n in modes.STUDIES)\n"
             "print('SPEC_DISCOVERED', n in modes.SPECS)\n"
             "m = bo_driver.MODES.get(n)\n"
             "print('DRIVER_CLASS', type(m).__name__)\n"
             "print('GEOM_RENDERS', bool(m) and 'stoppingTarget.radii' in "
-            "m._geom_text([120.0, 130.0, 0.1, 0.2, 15.0, 40.0]))\n"
+            "m._geom_text([120.0, 130.0, 0.1, 0.2]))\n"
         )
-        env = dict(os.environ)
-        env.pop("PYTHONPATH", None)
-        r = subprocess.run([sys.executable, "-c", script], cwd=str(root),
-                           capture_output=True, text=True, env=env, timeout=180)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.splitlines(),
-                         ["SPEC_DISCOVERED True",
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / f"{name}.json").write_text(json.dumps(doc))
+            out = self._fresh_process(script, study_path=str(Path(td).resolve()))
+        self.assertEqual(out.splitlines(),
+                         ["STUDY_DISCOVERED True",
+                          "SPEC_DISCOVERED True",
                           "DRIVER_CLASS JsonMode",
-                          "GEOM_RENDERS True"], r.stdout)
+                          "GEOM_RENDERS True"], out)
 
     # Specs deliberately shipped in the real mode_specs/ directory. Every file
     # here is loaded by EVERY process that imports modes, so the point of the
@@ -332,20 +359,15 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
         fails loudly, and `assertEqual` against a named set preserves that
         while a laxer check would not.
 
-        `wiringprobe*.json` is excluded deliberately. The test above stages
-        one into this same real directory, and a SECOND suite process running
-        concurrently (observed in this environment) would otherwise see the
-        other run's in-flight probe and fail here for no reason. Within one
-        serial `unittest discover` that cannot happen -- the probe's
-        addCleanup fires before this test runs -- but the exclusion costs
-        nothing and only blinds this check to a committed file that is
-        already self-evidently a test artifact by name.
+        No test writes into this directory any more (the wiring tests above
+        use a temp dir on $AUTORESEARCH_STUDY_PATH), so the old
+        `wiringprobe*.json` exclusion is gone: any stray file fails here.
 
         `archive/` is excluded deliberately: it holds retired one-shot A/B
         specs whose leaderboards are still readable (see Task 5)."""
         root = Path(__file__).resolve().parent.parent
         stray = sorted(p.name for p in (root / "mode_specs").iterdir()
-                       if not p.name.startswith("wiringprobe") and p.name != "archive")
+                       if p.name != "archive")
         self.assertEqual(stray, sorted({"README.md"} | self.SHIPPED_SPECS))
 
     def test_every_shipped_spec_is_a_registered_json_mode(self):
