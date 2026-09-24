@@ -1242,11 +1242,12 @@ class TestSubmitStageProdtools(unittest.TestCase):
 
 
 class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
-    """cmd_submit's grid mustops_ce branch: input_farm's own behavior is
-    covered by TestInputFarm, so it is mocked out here. What this class
-    pins is the branch around it -- every staged basename gets a count of 1
-    (one input file per job), and an EMPTY previous-stage outputs list is
-    refused rather than farmed into a cluster with no inputs."""
+    """cmd_submit's grid mustops_ce branch: input_farm's own behavior
+    (including one input file per job) is covered by TestInputFarm, so it
+    is mocked out here. What this class pins is the branch around it --
+    every previous-stage output is farmed and the farm's map reaches the
+    submit, and an EMPTY previous-stage outputs list is refused rather
+    than farmed into a cluster with no inputs."""
 
     def _submit(self, tmp, sources):
         (Path(tmp) / "mubeam_outputs.txt").write_text(
@@ -1254,7 +1255,7 @@ class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
         pipeline.cmd_submit(SimpleNamespace(stage="mustops_ce",
                                             force=False, dry_run=False))
 
-    def test_mustops_ce_input_map_values_are_all_one(self):
+    def test_every_previous_stage_output_reaches_the_submit(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
              mock.patch.object(pipeline, "PNFS_STAGE", Path(tmp) / "pnfs"), \
@@ -1267,7 +1268,6 @@ class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
             self._submit(tmp, sources)
             _, kwargs = sub.call_args
             _, input_map = kwargs["staged_inputs"]
-            self.assertEqual(set(input_map.values()), {1})
             self.assertEqual(len(input_map), 4)
 
     def test_an_empty_previous_stage_outputs_file_is_refused(self):
@@ -1564,8 +1564,7 @@ class TestInputFarm(unittest.TestCase):
                 f = src_dir / f"sim.x.TargetStops.{i}.art"
                 f.write_text("x")
                 sources.append(f)
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                farm_dir, input_map = self._farm(Path(tmp) / "root", sources)
+            farm_dir, input_map = self._farm(Path(tmp) / "root", sources)
             self.assertEqual(farm_dir,
                              Path(tmp) / "root" / "mustops_ce" / "local_inputs")
             self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
@@ -1582,8 +1581,7 @@ class TestInputFarm(unittest.TestCase):
                 f = src_dir / f"sim.x.TargetStops.{i}.art"
                 f.write_text("x")
                 sources.append(f)
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                _, input_map = self._farm(Path(tmp) / "root", sources)
+            _, input_map = self._farm(Path(tmp) / "root", sources)
             self.assertEqual(set(input_map.values()), {1})
             self.assertEqual(len(input_map), 5)
 
@@ -1606,10 +1604,9 @@ class TestInputFarm(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src.art"
             src.write_text("data")
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.object(
-                     pipeline.os, "link",
-                     side_effect=OSError(errno.EXDEV, "cross-device link")):
+            with mock.patch.object(
+                    pipeline.os, "link",
+                    side_effect=OSError(errno.EXDEV, "cross-device link")):
                 farm_dir, input_map = self._farm(Path(tmp) / "root", [src])
             linked = farm_dir / "src.art"
             self.assertFalse(linked.is_symlink())
@@ -1620,10 +1617,9 @@ class TestInputFarm(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src.art"
             src.write_text("data")
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.object(
-                     pipeline.os, "link",
-                     side_effect=OSError(errno.EACCES, "permission denied")):
+            with mock.patch.object(
+                    pipeline.os, "link",
+                    side_effect=OSError(errno.EACCES, "permission denied")):
                 with self.assertRaises(OSError):
                     self._farm(Path(tmp) / "root", [src])
 
@@ -1633,11 +1629,10 @@ class TestInputFarm(unittest.TestCase):
             src_dir.mkdir()
             a = src_dir / "a.art"
             a.write_text("a")
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                farm_dir, _ = self._farm(Path(tmp) / "root", [a])
-                b = src_dir / "b.art"
-                b.write_text("b")
-                farm_dir2, input_map = self._farm(Path(tmp) / "root", [b])
+            farm_dir, _ = self._farm(Path(tmp) / "root", [a])
+            b = src_dir / "b.art"
+            b.write_text("b")
+            farm_dir2, input_map = self._farm(Path(tmp) / "root", [b])
             self.assertEqual(farm_dir, farm_dir2)
             self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
                              ["b.art"])

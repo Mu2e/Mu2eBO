@@ -94,15 +94,6 @@ class TestProfile(unittest.TestCase):
         self.assertAlmostEqual(vals[2], 20.0)
         self.assertAlmostEqual(vals[-1], 30.0)
 
-    # test_matches_prodtarget_profile removed 2026-08-08: was a byte-for-byte
-    # parity check of lagrange_profile against ProdTargetMode._profile, the
-    # numpy original it replaced. ProdTargetMode was archived along with the
-    # other four dormant Python-mode adapters (no JSON successor -- the
-    # "prodtarget" line was retired outright), so the reference
-    # implementation no longer exists to compare against. lagrange_profile
-    # itself stays live (foilspf's K=3 control-point profiles) and remains
-    # covered by the other tests in this class.
-
     def test_overshoot_is_real_without_clip(self):
         """(50,250,250) exceeds 250 -- this is why clip is mandatory."""
         vals = lagrange_profile((50.0, 250.0, 250.0), 49, None)

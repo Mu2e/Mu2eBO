@@ -335,10 +335,6 @@ class TestWaitContract(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 pex.read_wait(Path(td), "mubeam")
 
-    # test_contract_core_keys_shared removed 2026-08-22: it called no pex.
-    # symbol, asserting key-subsets over _WAIT_GRID and _WAIT_LOCAL -- two
-    # literals written 40 lines above it in this same file.
-
 
 class TestListOutputsFromWait(unittest.TestCase):
     """Pipeline-level: cmd_list_outputs reads state/<stage>_wait.json via

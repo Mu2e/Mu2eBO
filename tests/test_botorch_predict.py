@@ -98,37 +98,44 @@ def _obj(direction, transform):
 
 
 class TestAxisValue(unittest.TestCase):
-    def test_max_none(self):
-        self.assertEqual(bp.axis_value(_obj("max", "none"), 3.0), 3.0)
-
-    def test_min_none(self):
-        self.assertEqual(bp.axis_value(_obj("min", "none"), 3.0), -3.0)
-
-    def test_min_log10(self):
-        self.assertAlmostEqual(bp.axis_value(_obj("min", "log10"), 1e-6), 6.0)
-
-    def test_max_log10(self):
-        self.assertAlmostEqual(bp.axis_value(_obj("max", "log10"), 100.0), 2.0)
-
-    def test_undefined(self):
-        self.assertIsNone(bp.axis_value(_obj("min", "log10"), 0.0))
-        self.assertIsNone(bp.axis_value(_obj("max", "none"), float("nan")))
-        self.assertIsNone(bp.axis_value(_obj("max", "none"), None))
+    def test_axis_value(self):
+        # (direction, transform, value, GP axis value; None = undefined)
+        rows = [("max", "none", 3.0, 3.0),
+                ("min", "none", 3.0, -3.0),
+                ("min", "log10", 1e-6, 6.0),
+                ("max", "log10", 100.0, 2.0),
+                ("min", "log10", 0.0, None),
+                ("max", "none", float("nan"), None),
+                ("max", "none", None, None)]
+        for direction, transform, value, want in rows:
+            with self.subTest(direction=direction, transform=transform,
+                              value=value):
+                got = bp.axis_value(_obj(direction, transform), value)
+                if want is None:
+                    self.assertIsNone(got)
+                else:
+                    self.assertAlmostEqual(got, want)
 
 
 class TestThreeObjectiveProblem(unittest.TestCase):
     """A synthetic 3-objective study builds a 3-axis Problem, fits, and
     picks (spec Phase A acceptance)."""
 
-    def test_three_axes(self):
+    @staticmethod
+    def _study(n_objectives, n_knobs):
+        """The first n of y1 max/none, y2 min/log10, y3 min/none (noise
+        0.01/0.02/0.03), plus a y2 <= 1e-3 constraint at k_sigma=1."""
         objs = (st.Objective("y1", "s.a", "max", "none", 0.01, "{:.4f}"),
                 st.Objective("y2", "s.b", "min", "log10", 0.02, "{:.4e}"),
                 st.Objective("y3", "s.c", "min", "none", 0.03, "{:.4f}"))
-        fake = types.SimpleNamespace(
-            objectives=objs,
+        return types.SimpleNamespace(
+            objectives=objs[:n_objectives],
             constraints=(st.StudyConstraint("y2", "max", 1e-3, 1.0),),
-            bounds_lo=(0.0, 0.0), bounds_hi=(1.0, 1.0), int_dims=())
-        prob = bp._problem_from(fake, primary_only=False)
+            bounds_lo=(0.0,) * n_knobs, bounds_hi=(1.0,) * n_knobs,
+            int_dims=())
+
+    def test_three_axes(self):
+        prob = bp._problem_from(self._study(3, 2), primary_only=False)
         self.assertEqual(prob.noise, (0.01, 0.02, 0.03))
         self.assertEqual(prob.constraint.axis, 1)
         self.assertAlmostEqual(prob.constraint.min, 3.0)
@@ -138,13 +145,7 @@ class TestThreeObjectiveProblem(unittest.TestCase):
         self.assertEqual(len(picks), 2)
 
     def test_primary_only_drops_other_axes_and_their_constraint(self):
-        objs = (st.Objective("y1", "s.a", "max", "none", 0.01, "{:.4f}"),
-                st.Objective("y2", "s.b", "min", "log10", 0.02, "{:.4e}"))
-        fake = types.SimpleNamespace(
-            objectives=objs,
-            constraints=(st.StudyConstraint("y2", "max", 1e-3, 1.0),),
-            bounds_lo=(0.0,), bounds_hi=(1.0,), int_dims=())
-        prob = bp._problem_from(fake, primary_only=True)
+        prob = bp._problem_from(self._study(2, 1), primary_only=True)
         self.assertEqual(prob.noise, (0.01,))
         self.assertIsNone(prob.constraint)
 
@@ -164,13 +165,6 @@ class TestComputeExplorePicks(unittest.TestCase):
             self.assertEqual(len(picks), 2)
             for p in picks:
                 self.assertTrue(in_bounds(p))
-
-    # test_prodtarget_family_keeps_free_noise removed 2026-08-08: pinned
-    # obs_noise=None (a deliberate declaration -- axis-1 units depend on
-    # which fallback fired) for the ProdTarget family specifically. Both
-    # "prodtarget" and "prodtarget6d" were archived (Python-mode adapters
-    # deleted; no JSON replacement), and no surviving mode declares
-    # obs_noise=None -- there is nothing left to pin this fact against.
 
     def test_real_gp_qnehvi_pick_on_fixture(self):
         # The one real GP fit in the suite (CPU, ~seconds on 10 rows).

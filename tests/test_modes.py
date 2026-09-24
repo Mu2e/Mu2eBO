@@ -18,20 +18,6 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes  # noqa: E402
 
-# The Python-mode names -- frozen here, deliberately NOT derived from
-# modes.SPECS. Dropping a real mode_specs/*.json file in (the entire
-# point of the json-modes branch) adds a SPECS entry; tests that assert
-# facts about "the Python modes" must key off this frozen set, not "every key
-# in SPECS", or they break the moment the feature they exist to enable is
-# first used. See I6 in the json-configurable-modes final review.
-# Empty since 2026-08-08: the last five Python-mode adapters (foils, foilsf,
-# foilsg, prodtarget, prodtarget6d) were archived that day -- see
-# docs/superpowers/specs/2026-08-08-leaderboard-module-design.md. Every mode
-# is JSON-defined now (JsonMode); test_python_mode_names_matches_the_live_registry
-# below derives the truth from the registry so a stale name cannot linger
-# unnoticed if a Python mode adapter is ever reintroduced.
-PYTHON_MODE_NAMES = frozenset()
-
 
 class TestRegistryCompleteness(unittest.TestCase):
     def test_keys_match_driver_modes(self):
@@ -43,18 +29,12 @@ class TestRegistryCompleteness(unittest.TestCase):
         for name, spec in modes.SPECS.items():
             self.assertEqual(spec.name, name)
 
-    def test_python_mode_names_matches_the_live_registry(self):
-        """PYTHON_MODE_NAMES drives which modes are asserted to carry no JSON
-        fields. Derive the truth from the registry rather than trusting the
-        hand-maintained set: when foilsflash was retired to JSON (2026-07-26)
-        a stale entry here turned into a confusing failure in a test that was
-        not about retirement at all."""
+    def test_every_mode_is_a_json_mode(self):
+        """No Python-mode adapter survives (the last five were archived
+        2026-08-08): every driver mode is the generic JsonMode."""
         import bo_driver as bo
-        live = {n for n, m in bo.MODES.items()
-                if not isinstance(m, bo.JsonMode)}
-        self.assertEqual(set(PYTHON_MODE_NAMES), live,
-                         "PYTHON_MODE_NAMES is stale: a mode was retired to "
-                         "JSON (or added) without updating this set")
+        for name, mode in bo.MODES.items():
+            self.assertIsInstance(mode, bo.JsonMode, name)
 
     def test_every_fact_populated(self):
         for name, spec in modes.SPECS.items():
@@ -127,12 +107,6 @@ class TestBoundsLockstep(unittest.TestCase):
             for got, want in zip(back.x, x0):
                 self.assertAlmostEqual(float(got), float(want), places=3, msg=name)
 
-    # test_prodtarget_tarball_matches_stage_config removed 2026-08-08:
-    # modes._PRODTARGET_TARBALL and pipeline.STAGES["pot_only"] (the two
-    # facts it pinned in lockstep) were both deleted along with the
-    # harvest-pot-only verb and the ProdTarget family that was their only
-    # consumer.
-
 
 class TestSpotFacts(unittest.TestCase):
     """Load-bearing values pinned individually — the ones with incident
@@ -168,14 +142,6 @@ class TestSpotFacts(unittest.TestCase):
         # foilsflash is the sole surviving anchor.)
         self.assertIn("holeradii", modes.SPECS["foilsflash"].grid_tarball)
 
-    # test_prodtarget6d_banner_drift_retired removed 2026-08-08: pinned
-    # `modes.SPECS["prodtarget6d"].checks_managed_overlap` as a regression
-    # guard against the old hand-listed preflight-mode-tuple omission bug.
-    # prodtarget6d itself was archived (Python-mode adapter deleted, no JSON
-    # replacement); nothing named "prodtarget6d" is left to omit from a
-    # tuple that no longer exists either (checks_managed_overlap is a
-    # per-ModeSpec field, not a hand-listed mode-name tuple).
-
 
 class TestSchemaFields(unittest.TestCase):
     def test_metric_cols_spot_pins(self):
@@ -195,22 +161,8 @@ class TestSchemaFields(unittest.TestCase):
             self.assertEqual(mode.KNOB_NAMES, modes.SPECS[name].knob_names)
             self.assertEqual(mode.KNOB_FMTS, modes.SPECS[name].knob_fmts)
 
-    # test_leaderboard_io_rejects_non4_metric_tail removed 2026-09-24
-    # (generic-study Task 6): a study's leaderboard columns are no longer a
-    # fixed four-column tail, so there is no length to reject. Column-name
-    # collisions are refused at study load
-    # (tests/test_study.py::TestKnobs::test_knob_name_collides_with_column)
-    # and the study-derived header/format is pinned by
-    # tests/test_leaderboard.py::TestGenericRows.
-
 
 class TestGeomField(unittest.TestCase):
-    # test_python_modes_declare_the_json_fields_as_none removed 2026-08-08:
-    # asserted geom/metrics/leaderboard_rel are None and stage_tuning={} for
-    # every name in PYTHON_MODE_NAMES. That set is now permanently empty (no
-    # Python-mode adapters survive), so the loop body could never execute --
-    # a vacuously-passing test is worse than no test.
-
     def test_the_new_fields_are_required_not_defaulted(self):
         """A missing fact must be a TypeError, never a silent default."""
         import dataclasses
@@ -223,28 +175,6 @@ class TestGeomField(unittest.TestCase):
                           f"{field} must not have a default_factory")
         with self.assertRaises(TypeError):
             modes.ModeSpec(name="x")  # type: ignore[call-arg]
-
-
-class TestSubprocessImport(unittest.TestCase):
-    def test_imports_with_only_core_on_syspath(self):
-        """Verify modes imports cleanly with only core/ on sys.path
-        (the production path when bo_driver is invoked as a subprocess).
-        TYPE_CHECKING guard ensures this works despite GeomTemplate annotation.
-        """
-        import subprocess
-        core = Path(__file__).resolve().parent.parent / "core"
-        # Was: counted the six frozen Python-mode names against modes.SPECS
-        # (all archived 2026-08-08). "foilsflash" is the stable, long-lived
-        # JSON mode (mode_specs/foilsflash.json) -- a fixed anchor to check
-        # instead, unlike the shipped-specs set as a whole (IPA A/B clones
-        # and similar throwaway modes come and go, see
-        # TestModeSpecsDirectoryWiring.SHIPPED_SPECS).
-        script = "import modes; print('foilsflash' in modes.SPECS)"
-        r = subprocess.run([sys.executable, "-c", script],
-                           cwd=str(core), capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, f"import failed: {r.stderr}")
-        self.assertEqual(r.stdout.strip(), "True",
-                         "modes.SPECS must expose the foilsflash JSON spec")
 
 
 class TestModeSpecsDirectoryWiring(unittest.TestCase):
@@ -269,29 +199,33 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
 
     ROOT = Path(__file__).resolve().parent.parent
 
-    def _fresh_process(self, script, study_path=None):
+    def _fresh_process(self, script, study_path=None, cwd=None):
         env = dict(os.environ)
         env.pop("PYTHONPATH", None)
         env.pop("AUTORESEARCH_STUDY_PATH", None)
         if study_path is not None:
             env["AUTORESEARCH_STUDY_PATH"] = study_path
-        r = subprocess.run([sys.executable, "-c", script], cwd=str(self.ROOT),
+        r = subprocess.run([sys.executable, "-c", script],
+                           cwd=str(cwd or self.ROOT),
                            capture_output=True, text=True, env=env,
                            timeout=180)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout
 
     def test_the_primary_directory_is_the_repo_mode_specs(self):
+        """Run from core/ with PYTHONPATH popped, so core/ is the only
+        project directory on sys.path: the production path when bo_driver
+        runs as a subprocess (the TYPE_CHECKING guard on the GeomTemplate
+        annotation is what lets modes import there)."""
         self.assertEqual(modes.MODES_DIR, self.ROOT / "mode_specs")
         script = (
-            "import json, sys\n"
-            "sys.path.insert(0, 'core')\n"
+            "import json\n"
             "import modes\n"
             "print(json.dumps([str(modes.MODES_DIR), sorted(modes.STUDIES), "
             "sorted(modes.SPECS)]))\n"
         )
         modes_dir, studies, specs = json.loads(
-            self._fresh_process(script).splitlines()[-1])
+            self._fresh_process(script, cwd=self.ROOT / "core").splitlines()[-1])
         want = sorted(p.stem for p in (self.ROOT / "mode_specs").glob("*.json"))
         self.assertEqual(Path(modes_dir), self.ROOT / "mode_specs")
         self.assertEqual(studies, want)
@@ -356,25 +290,15 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
                        if p.name != "archive")
         self.assertEqual(stray, sorted({"README.md"} | self.SHIPPED_SPECS))
 
-    def test_every_shipped_spec_is_a_registered_json_mode(self):
-        """A file in mode_specs/ that never became a live mode means the
-        loader silently skipped it."""
-        import bo_driver as bo
-        for fname in self.SHIPPED_SPECS:
-            name = fname[:-len(".json")]
-            self.assertIn(name, modes.SPECS, f"{fname} did not reach SPECS")
-            self.assertIsInstance(bo.MODES[name], bo.JsonMode)
-
 
 class TestCopyPasteTemplate(unittest.TestCase):
     """F4 (second half), ported from the old spec loader's test module
-    (deleted with the schema-2 switch):
-    mode_specs/README.md once advertised tests/fixtures/modes/foilsflash.json
-    as the thing to copy -- and that file declares the LIVE foilsflash
-    leaderboard. Copy it, miss the leaderboard line (it looks plausible) and
-    the new line appends into a live TSV. The loader rejects a shared
-    leaderboard outright, but what the README hands an author must not be a
-    live-leaderboard file in the first place.
+    (deleted with the schema-2 switch): mode_specs/README.md once advertised
+    a copy of the live foilsflash spec as the thing to copy. Copy it, miss
+    the leaderboard line (it looks plausible) and the new line appends into
+    a live TSV. The loader rejects a shared leaderboard outright, but what
+    the README hands an author must not be a live-leaderboard file in the
+    first place.
     """
 
     ROOT = Path(__file__).resolve().parent.parent
@@ -432,35 +356,17 @@ class TestSingleModeSpecClass(unittest.TestCase):
     trips these too: both pull in `core.geom_template`, and
     study_compat.modespec_from_study imports `core.modes` when called.
     """
-    def test_qualified_modes_module_is_not_loaded(self):
-        self.assertNotIn(
-            "core.modes", sys.modules,
-            "core.modes is loaded alongside bare `modes`, which creates two "
-            "non-identical ModeSpec classes. Some test module is importing "
-            "`from core import modes` -- switch it to the sys.path.insert + "
-            "bare `import modes` convention used by tests/test_modes.py.")
-
-    def test_qualified_geom_template_module_is_not_loaded(self):
-        self.assertNotIn(
-            "core.geom_template", sys.modules,
-            "core.geom_template is loaded alongside bare `geom_template`, "
-            "which creates two non-identical GeomTemplate/ExprError classes. "
-            "Some test module is importing `from core.geom_template import "
-            "...` -- switch it to the sys.path.insert + bare `import "
-            "geom_template` convention used by tests/test_geom_template.py.")
-
-    def test_qualified_bo_driver_module_is_not_loaded(self):
-        self.assertNotIn(
-            "core.bo_driver", sys.modules,
-            "core.bo_driver is loaded alongside bare `bo_driver`, which "
-            "creates two non-identical MODES/ModeSpec-consuming classes. "
-            "Some test module is importing `from core.bo_driver import "
-            "...` -- switch it to the sys.path.insert + bare `import "
-            "bo_driver` convention used by tests/test_json_mode.py.")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_no_qualified_core_module_is_loaded(self):
+        for bare in ("modes", "geom_template", "bo_driver"):
+            with self.subTest(module=bare):
+                self.assertNotIn(
+                    f"core.{bare}", sys.modules,
+                    f"core.{bare} is loaded alongside bare `{bare}`, which "
+                    f"creates two non-identical copies of its classes. Some "
+                    f"test module imports `from core import {bare}` (or "
+                    f"`from core.{bare} import ...`) -- switch it to the "
+                    f"sys.path.insert + bare `import {bare}` convention used "
+                    f"by tests/test_modes.py.")
 
 
 class TestModeStamping(unittest.TestCase):
@@ -923,3 +829,7 @@ class TestModeStamping(unittest.TestCase):
             text = (self.ROOT / rel).read_text()
             self.assertIn("assert_mode_stamped(args.mode)", text,
                           f"{rel}: no loud startup mode assertion")
+
+
+if __name__ == "__main__":
+    unittest.main()

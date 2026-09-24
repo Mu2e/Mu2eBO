@@ -5,10 +5,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # Files that are generic end to end: no physics names at all.
+# core/study_compat.py is deliberately in neither list: it builds
+# metric_cols and names the harvest plugins by design -- it is the
+# schema-1-compat bridge and is deleted in Phase C.
 STRICT = ["core/study.py", "core/leaderboard.py"]
-# core/study_compat.py builds metric_cols and names the harvest plugins by
-# design -- it is the schema-1-compat bridge and is deleted in Phase C.
-EXEMPT_UNTIL_PHASE_C = ["core/study_compat.py"]
 # Files that still host Mu2e code paths (preflight, picker names like
 # budget_sob) but must not read objectives by physics name.
 USAGE = ["core/botorch_predict.py", "core/bo_driver.py",

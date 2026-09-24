@@ -46,11 +46,6 @@ class TestModeArgChoices(unittest.TestCase):
         m = re.search(r'choices\s*=\s*sorted\(\s*_modes\.SPECS\s*\)', src)
         self.assertIsNotNone(m, "--mode choices guard missing or no longer registry-derived")
 
-    # test_argparse_rejects_typo / test_argparse_accepts_valid_modes removed
-    # 2026-08-22: both built a LOCAL ArgumentParser and asserted stdlib
-    # behaviour over a hardcoded choices list ("foils", "foilsf") whose modes
-    # no longer exist. No repo code was imported by either.
-
 
 # --- Fix 3: SHA-check fires on poll + list-outputs ---------------------------
 

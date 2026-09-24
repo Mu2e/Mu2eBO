@@ -23,46 +23,6 @@ import study as st  # noqa: E402
 _DEMO = Path(__file__).parent / "fixtures" / "studies" / "demo.json"
 
 
-class TestGenericRows(unittest.TestCase):
-    def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.tmp = Path(self._td.name)
-        self.study = st.load_study_file(_DEMO)
-        self.lb = lbm.Leaderboard.for_study(
-            self.study, path=self.tmp / "board.tsv", archive_path=None)
-
-    def tearDown(self):
-        self._td.cleanup()
-
-    def test_header_from_study(self):
-        self.assertEqual(self.lb.header(),
-                         "config\ta\tb\tsob\tflash_edep\talpha\tobj\n")
-
-    def test_append_formats_like_today(self):
-        p = lbm.Point(cfg="c1", x=[2.0, 0.5], y={"sob": 3.88, "flash_edep": 5.95893e-07})
-        self.lb.append(p, {"alpha": 1.0e5})
-        line = (self.tmp / "board.tsv").read_text().splitlines()[1]
-        self.assertEqual(line, "c1\t2.0000\t0.5000\t3.88000\t5.95893e-07"
-                               "\t100000.000\t3.82041")
-
-    def test_missing_context_is_an_error(self):
-        p = lbm.Point(cfg="c1", x=[2.0, 0.5], y={"sob": 1.0, "flash_edep": 1e-6})
-        with self.assertRaises(lbm.LeaderboardError):
-            self.lb.append(p, {})
-
-    def test_load_round_trip(self):
-        self.lb.append(lbm.Point("c1", [2.0, 0.5], {"sob": 3.0, "flash_edep": 1e-6}),
-                       {"alpha": 1e5})
-        [p] = self.lb.load()
-        self.assertEqual(p.cfg, "c1")
-        self.assertEqual(p.y, {"sob": 3.0, "flash_edep": 1e-6})
-
-    def test_headerless_board_refused(self):
-        (self.tmp / "board.tsv").write_text("c1\t2\t0.5\t3\t1e-6\t1e5\t2.9\n")
-        with self.assertRaises(lbm.SchemaMismatch):
-            self.lb.load()
-
-
 class TestByteIdenticalOnARealBoard(unittest.TestCase):
     """Appending to a copy of a real board adds exactly the line today's
     writer would have produced."""
@@ -94,15 +54,11 @@ def demo_lb(path: Path, archive_path: Path | None = None) -> Leaderboard:
                                  archive_path=archive_path)
 
 
-def make_lb(tmp: Path) -> Leaderboard:
-    return demo_lb(tmp / "leaderboard_bo_test.tsv")
-
-
 class TestHistory(unittest.TestCase):
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
         self.tmp = Path(self._td.name)
-        self.lb = make_lb(self.tmp)
+        self.lb = demo_lb(self.tmp / "leaderboard_bo_test.tsv")
 
     def tearDown(self):
         self._td.cleanup()
@@ -123,8 +79,26 @@ class TestHistory(unittest.TestCase):
         [got] = self.lb.load()
         self.assertEqual(got.cfg, "t01")
         self.assertEqual(got.x, [1.5, 2.5])
+        self.assertEqual(set(got.y), {"sob", "flash_edep"})
         self.assertAlmostEqual(got.y["sob"], 3.14159, places=5)
         self.assertAlmostEqual(got.y["flash_edep"], 6.85e-7, places=12)
+
+    def test_append_formats_like_today(self):
+        p = Point(cfg="c1", x=[2.0, 0.5], y={"sob": 3.88, "flash_edep": 5.95893e-07})
+        self.lb.append(p, {"alpha": 1.0e5})
+        line = self.lb.path.read_text().splitlines()[1]
+        self.assertEqual(line, "c1\t2.0000\t0.5000\t3.88000\t5.95893e-07"
+                               "\t100000.000\t3.82041")
+
+    def test_missing_context_is_an_error(self):
+        p = Point(cfg="c1", x=[2.0, 0.5], y={"sob": 1.0, "flash_edep": 1e-6})
+        with self.assertRaises(lbm.LeaderboardError):
+            self.lb.append(p, {})
+
+    def test_headerless_board_refused(self):
+        self.lb.path.write_text("c1\t2\t0.5\t3\t1e-6\t1e5\t2.9\n")
+        with self.assertRaises(SchemaMismatch):
+            self.lb.load()
 
     def test_touched_file_is_loud_not_empty(self):
         # touched-leaderboard-headerless-history-loss: a 0-byte existing file
@@ -182,7 +156,7 @@ class TestPending(unittest.TestCase):
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
         self.tmp = Path(self._td.name)
-        self.lb = make_lb(self.tmp)
+        self.lb = demo_lb(self.tmp / "leaderboard_bo_test.tsv")
 
     def tearDown(self):
         self._td.cleanup()
@@ -244,7 +218,7 @@ class TestPendingPruneCmd(unittest.TestCase):
         import bo_driver as bo
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            lb = make_lb(tmp)
+            lb = demo_lb(tmp / "leaderboard_bo_test.tsv")
             lb.pending_add("old01", [1.0, 2.0], alpha=1.0)
             mode = next(iter(bo.MODES.values()))
             with unittest.mock.patch.object(
