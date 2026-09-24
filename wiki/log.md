@@ -6,6 +6,14 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-24
+- **updated** `core/study.py` now refuses a step whose output nothing uses
+  (no `files_from`, objective or extra metric names it; the `sophie` digi/reco
+  case), and the generic-study design took three more points from
+  M. MacKenzie's workflow plan: a `run_steps` scheduler node (LangGraph's
+  superstep barrier would make `mustops_ce` wait for `elebeam_flash`), a v2
+  `measure_sha` that stops a board mixing measurements, and Phase C preflight
+  from the grid's code tarball; suite 704 —
+  [tests](/drivers/tests.md)
 - **updated** why the pre-submit input probe (`_probe_input_urls`) could be
   retired in the prodtools switch (b1e3531): prodtools resolves every input
   through SAM on the worker and treats `inloc` as a preference, so a

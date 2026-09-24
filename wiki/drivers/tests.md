@@ -1,7 +1,7 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (33 files, 702 tests), no grid contact;
+description: '`tests/` regression suite (33 files, 704 tests), no grid contact;
   `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .`;
   golden parity harness (manual, not in discover): `PYTHONPATH=
   "$AUTORESEARCH_PYTHON" tests/golden_parity.py check`'
@@ -18,7 +18,7 @@ updated_note: 'PR #34 simplification pass, stage 3: suite 726 -> 702;
 
 ## Summary
 Regression tests for the Python drivers in this project. **33 `test_*.py`
-files, 702 tests** (2026-09-24), run under `$AUTORESEARCH_PYTHON` with no grid contact
+files, 704 tests** (2026-09-24), run under `$AUTORESEARCH_PYTHON` with no grid contact
 (all mocks/tempdirs) — plus `tests/golden_parity.py`, a manually-run byte/
 tensor-parity harness (not picked up by `unittest discover`, same convention
 as `tests/golden_parity.py`). Added 2026-05-29 alongside the
@@ -57,8 +57,9 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   replaced the only test that wrote into the real `mode_specs/`
   (`tests/test_modes.py`); a regex self-test in the gate.
   **Current (measured 2026-09-24, PR #34 simplification pass): 33
-  `test_*.py`, 702 tests (1 skipped), ~95 s.** Stages 1-2 took 735 -> 726;
-  stage 3 took 726 -> 702 by merging duplicates and deleting checks
+  `test_*.py`, 704 tests (1 skipped), ~95 s.** Stages 1-2 took 735 -> 726;
+  stage 3 took 726 -> 702 by merging duplicates and deleting checks; the
+  unused-step rule (d95f034) added 2 -> 704
   that other tests already imply, keeping each distinct assertion:
   `extract_metrics` is one subTest table
   (`tests/test_json_mode.py`), `TestAxisValue` and
