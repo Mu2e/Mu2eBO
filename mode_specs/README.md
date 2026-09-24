@@ -13,8 +13,8 @@ The format, field rules and examples are in
 
 ## Starting a new study
 
-Copy `tests/fixtures/modes/template.json` (it points at a non-live
-leaderboard) and change:
+Copy `tests/fixtures/modes/template.json`, not a shipped spec: it points
+at a non-live leaderboard. Then change:
 
 1. `"name"`: must equal the file stem.
 2. `"leaderboard": {"file": ...}`: a path no other study uses.
@@ -26,15 +26,6 @@ import, never hours into a campaign.
 Keep the shipped files' layout: one knob, profile, geom line, kit, step,
 objective or column per line. Only the parsed JSON matters (`spec_sha`
 hashes it), so the layout is for readable diffs.
-
-**Never start from `tests/fixtures/modes/foils.json` or `foilsflash.json`.**
-Those fixtures reproduce real lines and declare real leaderboards on
-purpose. `foilsflash.json` names the live foilsflash board, so a renamed
-copy is at least refused (leaderboard basenames must be unique across
-studies). `foils.json` is worse: it names the committed, retired
-`leaderboards/leaderboard_bo_foils_v2.tsv`, which no live study claims, so
-a renamed copy that keeps that line loads cleanly and its GP silently
-trains on the retired line's history. Copy `template.json` instead.
 
 ## Gotchas
 

@@ -62,19 +62,6 @@ class TestRegistryCompleteness(unittest.TestCase):
             self.assertTrue(spec.grid_tarball.endswith(".tar.bz2"), name)
             self.assertGreater(len(spec.grid_stages), 0, name)
 
-    def test_obs_noise_declared_per_family(self):
-        # The foils/flash family has replicate-measured sigma and MUST pin
-        # it (free MLL noise ranked the best-ever eval 16th of 324).
-        # "foils"/"foilsf"/"foilsg" (the original Python-mode family) and
-        # the ProdTarget family (which declared obs_noise=None EXPLICITLY,
-        # since its GP axis 1 is a raw negated value whose units depend on
-        # which fallback fired) were both archived 2026-08-08; foilsflash is
-        # the sole surviving anchor of this pin.
-        noise = modes.SPECS["foilsflash"].obs_noise
-        self.assertIsNotNone(noise)
-        self.assertEqual(len(noise), 2)
-        self.assertTrue(all(v > 0 for v in noise))
-
 
 class TestBoundsLockstep(unittest.TestCase):
     def test_build_space_matches_spec(self):
@@ -162,6 +149,17 @@ class TestSpotFacts(unittest.TestCase):
     def test_foilsflash_presubmit_overlap(self):
         self.assertEqual(modes.SPECS["foilsflash"].presubmit_after,
                          {"mubeam": ("elebeam_flash",)})
+
+    def test_foilsflash_obs_noise_is_the_replicate_measured_sigma(self):
+        # Free MLL noise ranked the best-ever eval 16th of 324
+        # (wiki/incidents/gp-free-noise-erases-champion.md).
+        self.assertEqual(modes.SPECS["foilsflash"].obs_noise, (0.006, 0.010))
+
+    def test_foilsflash_run_configuration(self):
+        spec = modes.SPECS["foilsflash"]
+        self.assertEqual(spec.grid_stages,
+                         ("mubeam", "mustops_ce", "elebeam_flash"))
+        self.assertEqual(spec.metrics["sob"], ("s_over_sqrt_b",))
 
     def test_foils_family_needs_holeradii_tarball(self):
         # (ipa — the last non-holeradii CE/calo mode — retired 2026-07-18;

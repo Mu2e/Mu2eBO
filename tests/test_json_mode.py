@@ -29,7 +29,7 @@ from bo_driver import JsonMode  # noqa: E402
 from study_compat import load_modespec as load_mode_file  # noqa: E402
 from study import load_study_file  # noqa: E402
 
-FIXTURE = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
+FIXTURE = Path(__file__).resolve().parent.parent / "mode_specs" / "foilsflash.json"
 
 
 class TestJsonMode(unittest.TestCase):
@@ -384,34 +384,6 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         self.assertIn(str(self.mode.pending_path()), msg)
         self.assertFalse(self.mode.leaderboard.exists(),
                          "refused evaluate must not append anything")
-
-
-class TestLoadFixture(unittest.TestCase):
-    """Ported from the old spec loader's test module (deleted with the
-    schema-2 switch). tests/fixtures/modes/foilsflash.json is what the tests
-    above (and the geometry-parity and stage-tuning tests) drive in place of
-    the live spec, so its facts must equal the live mode_specs/foilsflash.json
-    -- otherwise those tests prove things about a stale copy."""
-
-    def test_fixture_loads_into_a_modespec(self):
-        spec = load_mode_file(FIXTURE)
-        self.assertEqual(spec.name, "foilsflash")
-        self.assertIsNotNone(spec.geom)
-        self.assertEqual(spec.grid_stages,
-                         ("mubeam", "mustops_ce", "elebeam_flash"))
-        self.assertEqual(spec.metric_cols, ("sob", "flash_edep", "alpha", "obj"))
-        self.assertEqual(spec.obs_noise, (0.006, 0.010))
-        self.assertEqual(spec.metrics["sob"], ("s_over_sqrt_b",))
-
-    def test_fixture_matches_the_python_spec(self):
-        """The fixture is the acceptance target: its facts must equal the live spec."""
-        spec, live = load_mode_file(FIXTURE), modes.SPECS["foilsflash"]
-        for field in ("musing", "grid_tarball", "grid_stages",
-                      "stage_target_overrides", "presubmit_after", "bounds_lo",
-                      "bounds_hi", "knob_names", "knob_fmts", "metric_cols",
-                      "obs_noise", "dumps_gdml",
-                      "verifies_foil_gdml", "checks_managed_overlap"):
-            self.assertEqual(getattr(spec, field), getattr(live, field), field)
 
 
 if __name__ == "__main__":

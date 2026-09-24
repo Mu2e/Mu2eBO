@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "template",
- "note": "COPY-PASTE TEMPLATE for a new JSON-defined optimization line. Copy to mode_specs/<yourline>.json, then change: (1) name -- it must equal the file stem, (2) leaderboard.file -- it must be a path NO other mode uses (the loader rejects a collision, including against the six Python modes), (3) the knobs and the geometry. Deliberately NOT pointed at a live leaderboard. tests/fixtures/modes/foils.json and foilsflash.json are the reference fixtures that reproduce live lines byte-for-byte; they declare LIVE leaderboards to prove parity and must not be used as the starting point.",
+ "note": "COPY-PASTE TEMPLATE for a new JSON-defined optimization line. Copy to mode_specs/<yourline>.json, then change: (1) name -- it must equal the file stem, (2) leaderboard.file -- it must be a path NO other mode uses (the loader rejects a collision), (3) the knobs and the geometry. Deliberately NOT pointed at a live leaderboard, unlike every shipped spec in mode_specs/.",
  "knobs": [
   {"name": "extra_rOut_up", "type": "real", "min": 50.0, "max": 250.0, "unit": "", "fmt": "{:.4f}"},
   {"name": "extra_rOut_dn", "type": "real", "min": 50.0, "max": 250.0, "unit": "", "fmt": "{:.4f}"},

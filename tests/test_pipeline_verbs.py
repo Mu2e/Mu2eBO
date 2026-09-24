@@ -159,13 +159,12 @@ class TestStageTuning(unittest.TestCase):
             self.assertEqual(untouched["events"], 2500)
 
     def test_json_spec_stage_tuning_applies_to_real_stages(self):
-        """End-to-end: the foilsflash fixture's per-step `fixed` tuning (mirrors
-        the live JSON foilsflash mode's real values) lands on stage_cfg()'s
-        merged view for its stages."""
+        """End-to-end: the live foilsflash spec's per-step `fixed` tuning
+        lands on stage_cfg()'s merged view for its stages."""
         import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
         from study_compat import load_modespec as load_mode_file  # noqa: E402 (bare, core/ on sys.path)
-        fixture = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
-        spec = load_mode_file(fixture)
+        spec = load_mode_file(
+            Path(__file__).resolve().parent.parent / "mode_specs" / "foilsflash.json")
         probe = self._probe_spec(spec.stage_tuning)
         with mock.patch.dict(_modes.SPECS, {probe.name: probe}):
             self.assertEqual(
@@ -197,7 +196,7 @@ class TestStageTuningModuleLevelWiring(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         mode_name = f"stagetuningprobe{uuid.uuid4().hex[:8]}"
         doc = json.loads(
-            (Path(__file__).parent / "fixtures" / "modes" / "foils.json").read_text())
+            (Path(__file__).parent / "fixtures" / "modes" / "template.json").read_text())
         doc["name"] = mode_name
         doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{mode_name}.tsv"
         mubeam = next(s for s in doc["evaluate"] if s["step"] == "mubeam")

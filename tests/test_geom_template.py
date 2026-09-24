@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 # Bare `core/`-on-sys.path convention (matches tests/test_modes.py,
-# test_study.py, test_json_mode.py, test_json_mode_parity.py): a
+# test_study.py, test_json_mode.py, test_geom_golden_parity.py): a
 # qualified `from core.geom_template import ...` loads a SECOND,
 # non-identical GeomTemplate/ExprError class under the `core.geom_template`
 # sys.modules key alongside the bare one core/study.py itself uses,
