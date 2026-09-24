@@ -56,12 +56,73 @@ class TestRefusals(unittest.TestCase):
                 sc.load_modespec(p)
         return str(cm.exception)
 
+    def test_no_geom(self):
+        # geom=null only passes study.py if derive is also emptied and no
+        # step/preflight lists "geom" among its rendered files -- otherwise
+        # study.py itself refuses the doc before study_compat ever sees it.
+        def m(d):
+            d["geom"] = None
+            d["derive"] = {"consts": {}, "exprs": {}, "profiles": {}}
+            for s in d["evaluate"]:
+                s["files"] = [f for f in s["files"] if f != "geom"]
+            d["preflight"]["files"] = [f for f in d["preflight"]["files"]
+                                       if f != "geom"]
+        self.assertIn("no geom", self._load(m))
+
+    def test_preflight_not_offline_preflight(self):
+        # Only the null-preflight half of this guard is reachable: study.py's
+        # own kit_registry check already refuses any preflight.kit that isn't
+        # offline_preflight (the only kit with check_kit=True), so that half
+        # can never reach study_compat. A null preflight passes study.py only
+        # once the now-unused offline_preflight kit settings are also removed
+        # (otherwise study.py's "configured but unused" check fires first).
+        def m(d):
+            d["preflight"] = None
+            del d["kits"]["offline_preflight"]
+        self.assertIn("not offline_preflight", self._load(m))
+
     def test_three_objectives(self):
         def m(d):
             d["objectives"].append({"name": "third", "metric": "sob.x",
                                     "direction": "max", "transform": "none",
                                     "noise": 0.1, "fmt": "{:.3f}"})
         self.assertIn("Phase-A pipeline", self._load(m))
+
+    def test_extra_metrics_declared(self):
+        def m(d):
+            d["extra_metrics"] = [{"name": "extra1", "metric": "sob.extra_key",
+                                   "fmt": "{:.3f}"}]
+        self.assertIn("extra_metrics", self._load(m))
+
+    def test_extra_columns_wrong_names(self):
+        def m(d):
+            d["extra_columns"][1]["name"] = "score"
+        self.assertIn("extra_columns", self._load(m))
+
+    def test_objective_not_from_harvest_plugin(self):
+        def m(d):
+            d["objectives"][0]["metric"] = "mubeam.rate"
+        self.assertIn("harvest plugin", self._load(m))
+
+    def test_no_prodtools_steps(self):
+        def m(d):
+            d["evaluate"] = [
+                {"step": "sob", "kit": "ce_sensitivity", "entry": None,
+                 "files": [], "files_from": [], "params": {}, "fixed": {}},
+                {"step": "flash", "kit": "flash_edep_per_pot", "entry": None,
+                 "files": [], "files_from": [], "params": {}, "fixed": {}},
+            ]
+            del d["kits"]["prodtools"]
+        self.assertIn("no prodtools steps", self._load(m))
+
+    def test_first_prodtools_step_has_files_from(self):
+        # Swap mubeam and mustops_ce so the first prodtools step in
+        # evaluate-order (mustops_ce) is the one with a non-empty
+        # files_from; mubeam (now second) still has files_from=[], so the
+        # later per-step loop (test_input_rule's guard) would not fire here.
+        def m(d):
+            d["evaluate"][0], d["evaluate"][1] = d["evaluate"][1], d["evaluate"][0]
+        self.assertIn("first prodtools step", self._load(m))
 
     def test_input_rule(self):
         def m(d):
