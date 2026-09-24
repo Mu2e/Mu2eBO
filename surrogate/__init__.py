@@ -11,7 +11,7 @@ moved to adapter._board_summary and now rides the MCP `stats` tool.
 
 What remains:
     adapter.py     AutoresearchAdapter -- problems/history/suggest over
-                   the ModeSpec registry, the production pick path.
+                   the studies (modes.STUDIES), the production pick path.
     mcp_server.py  make_server(AutoresearchAdapter()) on stdio.
 
 Plain-Python clients should import core/botorch_predict.py directly

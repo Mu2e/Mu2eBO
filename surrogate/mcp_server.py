@@ -3,7 +3,7 @@
 
 Rides surrokit's generic mcp_scaffold.make_server: every tool
 (list_problems, predict, suggest, stats, refit) is generated from the
-AutoresearchAdapter's problems()/history() over the ModeSpec registry.
+AutoresearchAdapter's problems()/history() over the studies (modes.STUDIES).
 All GP logic lives in surrokit (core/botorch_predict.py stays the
 production picker CLI). Uses the official `mcp` SDK (2.0, ships in the
 ana 2.8.0 cvmfs env -- the project's default interpreter -- so there is
@@ -39,8 +39,10 @@ server = make_server(
         "GP surrogate over the autoresearch leaderboards. Problems are the "
         "registered studies. Every output axis is MAXIMIZED; stats(problem)"
         ".objectives gives each axis's name, direction, transform and label "
-        "(e.g. '-log10(flash_edep)'), and .knobs gives names, units and "
-        "bounds. suggest() IS the production pick path (qnehvi | qlnei | "
+        "(e.g. '-log10(flash_edep)'), .knobs gives names, units and "
+        "bounds, and .best gives the champion by the primary objective as "
+        "{config, x, values: {name: value}}, with .primary_range its "
+        "observed [min, max]. suggest() IS the production pick path (qnehvi | qlnei | "
         "budget_sob | hybrid, seed derived from round_idx exactly as the "
         "closed loop does). Nothing here submits jobs or writes to "
         "leaderboards -- pure read + compute."

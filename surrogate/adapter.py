@@ -24,7 +24,9 @@ import modes as _modes  # noqa: E402
 
 def _board_summary(name: str) -> dict:
     """Champion by the primary objective (direction-aware) and its observed
-    range, for the MCP `stats` tool (the scaffold's stats is n_rows + meta)."""
+    range, for the MCP `stats` tool (the scaffold's stats is n_rows + meta).
+    The champion's values are nested under "values" so no objective name
+    (a study may legally name one `x` or `config`) can overwrite a key."""
     study = _modes.STUDIES[name]
     prim = study.objectives[0]
     pts = [p for p in bo.MODES[name].load_history()
@@ -34,7 +36,8 @@ def _board_summary(name: str) -> dict:
     pick = max if prim.direction == "max" else min
     best = pick(pts, key=lambda p: p.y[prim.name])
     vals = [p.y[prim.name] for p in pts]
-    return {"best": {"config": best.cfg, "x": list(best.x), **best.y},
+    return {"best": {"config": best.cfg, "x": list(best.x),
+                     "values": dict(best.y)},
             "primary_range": [min(vals), max(vals)]}
 
 

@@ -7,7 +7,7 @@ description: 'surrogate/ — the MCP door onto surrokit (the extracted ask/tell
   deleted 2026-09-22; stats meta now built from the study (Phase A, 2026-09-24)'
 status: active
 timestamp: '2026-09-24'
-updated_note: Phase A (generic-study) -- stats meta now built from the study (objectives/knobs/best/primary_range), not ModeSpec.metric_cols
+updated_note: Phase A (generic-study) -- stats meta now built from the study (objectives/knobs/best/primary_range), not ModeSpec.metric_cols; best's values nested under best.values (fix wave 2026-09-24)
 ---
 
 # Surrogate package + MCP server
@@ -138,9 +138,13 @@ later — plugs into `MCPServer(middleware=[...])` without touching the tools).
   `sob` or `-log10(flash_edep)`); `knobs` — one dict per study knob,
   `{name, type, unit, min, max}`; `knob_names`; `leaderboard`. Plus, from
   `adapter._board_summary` (keyed on the study's first/primary objective,
-  direction-aware max-or-min pick): `best` (`{config, x, **best.y}` — every
-  objective's value at the champion row) and `primary_range` (`[min, max]`
-  of the primary objective over finite rows). These replace the old
+  direction-aware max-or-min pick): `best` (`{config, x, values}`, where
+  `values` is `{name: value}` for every objective and extra metric at the
+  champion row) and `primary_range` (`[min, max]` of the primary objective
+  over finite rows). The values are NESTED, not spread beside `config`/`x`:
+  an objective a study legally names `x` or `config` would otherwise
+  overwrite the knob vector or the config name. The MCP server
+  `instructions` string describes this shape too. These replace the old
   ModeSpec-era `best_sob`/`sob_range` keys and the `objectives: ["sob",
   "neg_log10_<metric>"]` string list. The config NAME is why
   `_board_summary` re-reads the board (`load_history_tensor` keeps only

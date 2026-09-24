@@ -105,7 +105,13 @@ class TestAutoresearchAdapter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
             _, _, meta = AutoresearchAdapter().history("foilsflash")
             self.assertEqual(meta["best"]["config"], "cfg009")
-            self.assertAlmostEqual(meta["best"]["sob"], 3.8, places=4)
+            self.assertAlmostEqual(meta["best"]["values"]["sob"], 3.8,
+                                   places=4)
+            # Values are nested, never spread beside config/x: an objective
+            # named "x" or "config" must not overwrite the knob vector.
+            self.assertEqual(sorted(meta["best"]),
+                             ["config", "values", "x"])
+            self.assertEqual(len(meta["best"]["x"]), 6)
             self.assertAlmostEqual(meta["primary_range"][0], 3.0, places=4)
             self.assertAlmostEqual(meta["primary_range"][1], 3.8, places=4)
 
