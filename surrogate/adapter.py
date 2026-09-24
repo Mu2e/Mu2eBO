@@ -7,6 +7,7 @@ the axis labels so MCP clients can interpret the numbers.
 """
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 
@@ -16,8 +17,31 @@ from paths import SURROKIT_ROOT  # noqa: E402
 sys.path.insert(0, str(SURROKIT_ROOT))
 
 import surrokit  # noqa: E402
+import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 import modes as _modes  # noqa: E402
+
+
+def _board_summary(name: str, spec: "_modes.ModeSpec") -> dict:
+    """Champion + observed sob range, for the MCP `stats` tool.
+
+    The scaffold's stats tool is `n_rows` plus whatever meta the adapter
+    serves, so the leaderboard summary rides in meta. This was
+    surrogate/__init__.board_stats until that facade was deleted
+    (2026-09-22, zero callers); the config NAME is why it re-reads the
+    board -- load_history_tensor keeps only X/Y.
+    """
+    pts = bo.MODES[name].load_history()
+    finite = [p for p in pts if p.sob is not None and math.isfinite(p.sob)]
+    if not finite:
+        return {}
+    best = max(finite, key=lambda p: p.sob)
+    return {
+        "best_sob": {"config": best.cfg, "x": list(best.x),
+                     "sob": best.sob, spec.metric_cols[1]: best.calo},
+        "sob_range": [min(p.sob for p in finite),
+                      max(p.sob for p in finite)],
+    }
 
 
 class AutoresearchAdapter:
@@ -49,4 +73,5 @@ class AutoresearchAdapter:
             "knob_names": list(spec.knob_names),
             "leaderboard": spec.leaderboard_rel,
         }
+        meta.update(_board_summary(name, spec))
         return X.tolist(), Y.tolist(), meta

@@ -1,155 +1,20 @@
-"""The GP surrogate behind the BO pickers, as a clean importable seam.
+"""Package marker for the MCP surrogate door.
 
-Plain-Python clients (plotting scripts, orchestrators) import this module;
-LLM agents reach the same functions through surrogate/mcp_server.py, a thin
-MCP adapter. First-order wrapper per the 2026-08-28 agreement with Simon
-Corrodi: `fit`/`predict` call the surrokit engine directly (the same
-Problem construction and train_Yvar the closed loop uses); `suggest`,
-`board_stats`, and `modes_info` still delegate to core/botorch_predict.py
-glue so the surrogate can never drift from what the closed loop actually
-optimizes.
+The importable plain-Python facade that used to live here (`fit`,
+`predict`, `suggest`, `board_stats`, `modes_info`) was DELETED
+2026-09-22: a repo-wide plus off-repo sweep found zero callers outside
+its own test file four weeks after the 2026-08-28 agreement that made it
+a published seam, and 4 of its 5 functions duplicated what
+surrokit.mcp_scaffold.make_server generates (including a byte-identical
+fit cache). Its one piece of unique behavior, the leaderboard summary,
+moved to adapter._board_summary and now rides the MCP `stats` tool.
 
-API:
-    modes_info()                      -> registry snapshot (dims, bounds, ...)
-    fit(mode, refresh=False)          -> fitted SingleTaskGP (cached per mode)
-    predict(mode, points)             -> posterior mean/sigma per point
-    suggest(mode, q, picker, ...)     -> candidate x-points (the real pickers)
-    board_stats(mode)                 -> leaderboard summary
+What remains:
+    adapter.py     AutoresearchAdapter -- problems/history/suggest over
+                   the ModeSpec registry, the production pick path.
+    mcp_server.py  make_server(AutoresearchAdapter()) on stdio.
 
-The GP is fit on the mode's live leaderboard exactly as the closed loop fits
-it (train_Yvar from ModeSpec.obs_noise; Y = [sob, -log10(metric2)]). The fit
-cache is invalidated by leaderboard row count, so a long-lived process (the
-MCP server) picks up new evals on the next call.
+Plain-Python clients should import core/botorch_predict.py directly
+(build_problem + load_history_tensor + compute_explore_picks are the
+same seam the adapter and the closed loop use).
 """
-from __future__ import annotations
-
-import math
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
-
-import bo_driver as bo  # noqa: E402
-import botorch_predict as bp  # noqa: E402
-import modes as _modes  # noqa: E402
-
-from paths import SURROKIT_ROOT  # noqa: E402
-sys.path.insert(0, str(SURROKIT_ROOT))
-import surrokit  # noqa: E402
-
-# mode -> (model, n_rows_at_fit). Row count is the invalidation key: the
-# leaderboard is append-only, so "same count" == "same history".
-_FITS: dict[str, tuple[object, int]] = {}
-
-
-def _spec(mode: str) -> _modes.ModeSpec:
-    if mode not in _modes.SPECS:
-        raise ValueError(f"unknown mode {mode!r}; choose from "
-                         f"{sorted(_modes.SPECS)}")
-    return _modes.SPECS[mode]
-
-
-def modes_info() -> dict:
-    """One entry per registered mode: dimensionality, knobs, bounds, metrics."""
-    out = {}
-    for name, spec in sorted(_modes.SPECS.items()):
-        out[name] = {
-            "dims": len(spec.knob_names),
-            "knob_names": list(spec.knob_names),
-            "bounds_lo": list(spec.bounds_lo),
-            "bounds_hi": list(spec.bounds_hi),
-            "int_dims": list(spec.int_dims),
-            "objectives": ["sob", spec.metric_cols[1]],
-            "obs_noise": list(spec.obs_noise),
-            "n_rows": len(bo.MODES[name].load_history()),
-        }
-    return out
-
-
-def fit(mode: str, refresh: bool = False):
-    """Fit (or return the cached) GP for `mode` on its current leaderboard.
-
-    Same fit as production: bp.load_history_tensor + bp.build_problem feed
-    surrokit.fit with the mode's pinned obs_noise
-    (wiki/incidents/gp-free-noise-erases-champion.md).
-    Raises RuntimeError below 2 usable history rows — the surrogate has
-    nothing to say there (the pickers fall back to Sobol; prediction cannot).
-    """
-    _spec(mode)
-    X, Y, _, _ = bp.load_history_tensor(mode)
-    n = X.shape[0]
-    cached = _FITS.get(mode)
-    if cached is not None and cached[1] == n and not refresh:
-        return cached[0]
-    if n < 2:
-        raise RuntimeError(f"mode={mode}: only {n} usable history rows; "
-                           "need >= 2 to fit a GP")
-    model = surrokit.fit(bp.build_problem(mode), X.tolist(), Y.tolist())
-    _FITS[mode] = (model, n)
-    return model
-
-
-def predict(mode: str, points: list[list[float]]) -> list[dict]:
-    """GP posterior at each point. Returns one dict per point.
-
-    Output axis 0 is sob (direct). Axis 1 is -log10(metric2); it is reported
-    both in log space (mean/sigma) and inverted to linear units as a point
-    estimate with a 1-sigma interval [lo, hi]. metric2 is named from the
-    mode's metric_cols (calo_per_pot or flash_edep).
-    """
-    spec = _spec(mode)
-    d = len(spec.knob_names)
-    for i, p in enumerate(points):
-        if len(p) != d:
-            raise ValueError(f"point {i} has {len(p)} values; mode={mode} "
-                             f"needs {d} ({', '.join(spec.knob_names)})")
-    model = fit(mode)
-    mean, sig = surrokit.predict(model, [[float(v) for v in p] for p in points])
-    m2 = spec.metric_cols[1]
-    out = []
-    for i in range(len(points)):
-        lm, ls = float(mean[i][1]), float(sig[i][1])
-        out.append({
-            "sob_mean": float(mean[i][0]),
-            "sob_sigma": float(sig[i][0]),
-            f"{m2}_mean": 10.0 ** (-lm),
-            f"{m2}_lo": 10.0 ** (-(lm + ls)),
-            f"{m2}_hi": 10.0 ** (-(lm - ls)),
-            f"neg_log10_{m2}_mean": lm,
-            f"neg_log10_{m2}_sigma": ls,
-        })
-    return out
-
-
-def suggest(mode: str, q: int = 5, picker: str = _modes.DEFAULT_PICKER,
-            round_idx: int = 0, x_pending: list | None = None) -> list[list]:
-    """Candidate x-points from the production pickers (compute_explore_picks).
-
-    Exactly what a closed-loop round would submit: qnehvi | qlnei |
-    budget_sob | hybrid, Sobol cold-start below 2 history rows. Pure
-    computation — nothing is submitted or written anywhere.
-    """
-    _spec(mode)
-    if picker not in _modes.PICKER_CHOICES:
-        raise ValueError(f"unknown picker {picker!r}; choose from "
-                         f"{_modes.PICKER_CHOICES}")
-    picks = bp.compute_explore_picks(mode, q=q, round_idx=round_idx,
-                                     picker=picker, x_pending=x_pending)
-    return [list(p) for p in picks]
-
-
-def board_stats(mode: str) -> dict:
-    """Leaderboard summary: row count, champion, objective ranges."""
-    spec = _spec(mode)
-    pts = bo.MODES[mode].load_history()
-    out = {"mode": mode, "n_rows": len(pts),
-           "objectives": ["sob", spec.metric_cols[1]],
-           "leaderboard": spec.leaderboard_rel}
-    finite = [p for p in pts if p.sob is not None and math.isfinite(p.sob)]
-    if finite:
-        best = max(finite, key=lambda p: p.sob)
-        out["best_sob"] = {"config": best.cfg, "x": list(best.x),
-                           "sob": best.sob, spec.metric_cols[1]: best.calo}
-        out["sob_range"] = [min(p.sob for p in finite),
-                            max(p.sob for p in finite)]
-    return out
