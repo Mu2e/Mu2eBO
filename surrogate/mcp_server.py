@@ -36,15 +36,14 @@ server = make_server(
     AutoresearchAdapter(),
     name="autoresearch-surrogate",
     instructions=(
-        "GP surrogate over the autoresearch BO leaderboards (Mu2e "
-        "geometry optimization). Problems are the registered BO modes; "
-        "axis 0 is sob (maximize), axis 1 is -log10 of the mode's second "
-        "objective (maximize = minimize the raw metric). suggest() IS "
-        "the production pick path (qnehvi | qlnei | budget_sob | "
-        "hybrid, seed derived from round_idx exactly as the closed "
-        "loop does) -- picks match what a real round would submit. "
-        "Nothing here submits jobs or writes to leaderboards -- pure "
-        "read + compute."
+        "GP surrogate over the autoresearch leaderboards. Problems are the "
+        "registered studies. Every output axis is MAXIMIZED; stats(problem)"
+        ".objectives gives each axis's name, direction, transform and label "
+        "(e.g. '-log10(flash_edep)'), and .knobs gives names, units and "
+        "bounds. suggest() IS the production pick path (qnehvi | qlnei | "
+        "budget_sob | hybrid, seed derived from round_idx exactly as the "
+        "closed loop does). Nothing here submits jobs or writes to "
+        "leaderboards -- pure read + compute."
     ),
 )
 

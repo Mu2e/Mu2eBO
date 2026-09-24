@@ -3,14 +3,16 @@ type: driver
 title: pipeline.py — parametric grid runner
 description: 'per-config runner: job description is checked-in `stage_entries/<stage>.json`, execution shells prodtools (env `AUTORESEARCH_PRODTOOLS`: json2jobdef/submit/jobwait/runlocal) — submits grid or local, harvests'
 status: active
-timestamp: '2026-08-22'
+timestamp: '2026-09-24'
 updated_note: 'prodtools-switch Task 12: page rewritten end-to-end for the
   final architecture (Tasks 1-14) — job description is now checked-in
   stage_entries/<stage>.json + mode_specs stage_tuning, execution is shelled
   to prodtools (json2jobdef/submit/jobwait/runlocal) via core/prodtools_exec.py,
   mu2ejobdef/mu2ejobsub/local_exec.py/poll_cluster/list_outputs-glob/
   local-build/local-run/--cap-hours are all deleted; supersedes the
-  mu2ejobdef-era content this page carried through 2026-08-16'
+  mu2ejobdef-era content this page carried through 2026-08-16. 2026-09-24:
+  repointed a stale core/mode_json.py mention (deleted 2026-09-24, Phase A
+  generic-study Task 9) to core/study.py'
 ---
 
 # pipeline.py — parametric grid runner
@@ -235,9 +237,10 @@ this replaced.
   mislabeled `…Run1Bak_pt001…` despite being built against MDC2025aq) and
   both became unreachable when the STAGES literal retired into
   `stage_entries/`: a mode spec cannot supply either, because
-  `core/mode_json.py`'s `_STAGE_TUNING_KEYS` is a closed allow-list
+  `core/mode_json.py`'s `_STAGE_TUNING_KEYS` was a closed allow-list
   (`events_per_job`, `memory_mb`, `quorum`) validated at load, and no
-  `stage_entries/*.json` declares them.
+  `stage_entries/*.json` declared them (`core/mode_json.py` itself deleted
+  2026-09-24; replaced by `core/study.py`, the schema-2 loader).
   - `"code_tarball"` could never reach `stage_cfg`'s result, so
     `write_code_tarball(base_tarball=...)` had no production caller. The
     parameter survives as a TEST seam only.

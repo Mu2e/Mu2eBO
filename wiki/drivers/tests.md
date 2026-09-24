@@ -6,10 +6,11 @@ description: '`tests/` regression suite (31 files, 676 tests), no grid contact;
   golden parity harness (manual, not in discover): `PYTHONPATH=
   "$AUTORESEARCH_PYTHON" tests/golden_parity.py check`'
 status: active
-timestamp: '2026-09-22'
-updated_note: 'slim-down audit: tools/capture_golden_geom.py deleted (it
-  could not fail), 5 vacuous tests removed, 2 grid-staging regression tests
-  added'
+timestamp: '2026-09-24'
+updated_note: 'Phase A (generic-study) Task 9: added tests/test_generic_core.py
+  (the gate that generic code never names physics quantities by literal
+  string); repointed a stale core/mode_json.py mention (deleted 2026-09-24)
+  to core/study.py + core/study_compat.py'
 ---
 
 # Self-tests (`tests/`)
@@ -32,14 +33,22 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   (1 skipped by design), ~60 s under `ana 2.8.0`.**
   The per-file breakdown further down is a 2026-07-20 snapshot (12 files /
   211) and has NOT been re-audited — trust these two numbers over it.
+  **Superseded (measured 2026-09-24, Phase A Task 9): 34 `test_*.py`, 712
+  tests (1 skipped)** — the generic-study refactor's Tasks 1-8 landed new
+  test files between 2026-09-22 and today (not re-audited file-by-file
+  here), and this task added `tests/test_generic_core.py` (2 tests, the
+  gate that generic code never names physics quantities).
 - **`tools/capture_golden_geom.py` was DELETED 2026-08-22** (slim-down
   audit). Everything below about its skip guard is history, not a live
   recipe: the guard could no longer return True for any mode, so the tool
   skipped its only target and reported success while verifying nothing
   (`--check` → `0 drifted, 0 cosmetic, 1 mode(s) skipped`, rc=0; a bare run
   wrote zero goldens). `ModeSpec.geom` is non-Optional and
-  `core/mode_json.py` builds it unconditionally from a REQUIRED JSON key, so
-  a Python renderer cannot come back without a schema change. **The goldens
+  `core/study_compat.py` builds it from the study's own required `geom`
+  field (`core/mode_json.py`, which did this before the schema-2 study
+  loader landed, was deleted 2026-09-24; replaced by `core/study.py` +
+  `core/study_compat.py`), so a Python renderer cannot come back without a
+  schema change. **The goldens
   in `tests/fixtures/golden_geom/` are now permanent and must never be
   regenerated** — rebuilding one from the JSON spec turns
   `test_production_spec_still_matches_the_golden` into a tautology. That

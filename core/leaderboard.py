@@ -34,7 +34,7 @@ class SchemaMismatch(LeaderboardError):
         saved = (f"\n  row saved to quarantine: {quarantined}"
                  if quarantined else "")
         super().__init__(
-            f"{path}: header does not match the ModeSpec schema.\n"
+            f"{path}: header does not match the study's leaderboard schema.\n"
             f"  expected: {expected.rstrip()!r}\n"
             f"  found:    {found.rstrip()!r}{saved}\n"
             f"  Refusing to proceed — a mismatched header means silent "
@@ -327,7 +327,7 @@ class Leaderboard:
             # appends in "a" mode then wrote the next row straight onto the
             # header line -- the file became a single line forever and
             # load_pending() returned 0 rows, silently. Fatal once the
-            # pending TSV became the ONLY record of x: foilsflash24R00_00
+            # pending TSV became the ONLY record of x: a campaign child
             # lost a finished 3.5 h eval to it (2026-07-26).
             pp.write_text("\n".join([header] + kept) + "\n")
             return True

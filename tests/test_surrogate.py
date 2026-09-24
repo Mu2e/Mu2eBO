@@ -80,18 +80,20 @@ class TestAutoresearchAdapter(unittest.TestCase):
             self.assertEqual(len(X), len(Y))
             self.assertEqual(len(Y[0]), 2)
             self.assertIn("objectives", meta)
+            self.assertEqual([o["axis"] for o in meta["objectives"]],
+                             ["sob", "-log10(flash_edep)"])
 
     def test_meta_carries_board_summary(self):
-        """Champion + sob range ride in history() meta, which is what the
-        scaffold's `stats` tool returns. Ported from the deleted
+        """Champion + primary-objective range ride in history() meta, which
+        is what the scaffold's `stats` tool returns. Ported from the deleted
         surrogate.board_stats facade (2026-09-22) -- same assertions."""
         from surrogate.adapter import AutoresearchAdapter
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
             _, _, meta = AutoresearchAdapter().history("foilsflash")
-            self.assertEqual(meta["best_sob"]["config"], "cfg009")
-            self.assertAlmostEqual(meta["best_sob"]["sob"], 3.8, places=4)
-            self.assertAlmostEqual(meta["sob_range"][0], 3.0, places=4)
-            self.assertAlmostEqual(meta["sob_range"][1], 3.8, places=4)
+            self.assertEqual(meta["best"]["config"], "cfg009")
+            self.assertAlmostEqual(meta["best"]["sob"], 3.8, places=4)
+            self.assertAlmostEqual(meta["primary_range"][0], 3.0, places=4)
+            self.assertAlmostEqual(meta["primary_range"][1], 3.8, places=4)
 
 
 if __name__ == "__main__":

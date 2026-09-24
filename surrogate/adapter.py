@@ -1,4 +1,4 @@
-"""AutoresearchAdapter: serve ModeSpec registry + leaderboards to surrokit.
+"""AutoresearchAdapter: serve schema-2 studies + leaderboards to surrokit.
 
 Problem assembly and the -log10 transform live in core/botorch_predict.py
 (build_problem / load_history_tensor -- the same seam production picks
@@ -22,33 +22,30 @@ import botorch_predict as bp  # noqa: E402
 import modes as _modes  # noqa: E402
 
 
-def _board_summary(name: str, spec: "_modes.ModeSpec") -> dict:
-    """Champion + observed sob range, for the MCP `stats` tool.
-
-    The scaffold's stats tool is `n_rows` plus whatever meta the adapter
-    serves, so the leaderboard summary rides in meta. This was
-    surrogate/__init__.board_stats until that facade was deleted
-    (2026-09-22, zero callers); the config NAME is why it re-reads the
-    board -- load_history_tensor keeps only X/Y.
-    """
-    pts = bo.MODES[name].load_history()
-    finite = [p for p in pts
-              if p.y["sob"] is not None and math.isfinite(p.y["sob"])]
-    if not finite:
+def _board_summary(name: str) -> dict:
+    """Champion by the primary objective (direction-aware) and its observed
+    range, for the MCP `stats` tool (the scaffold's stats is n_rows + meta)."""
+    study = _modes.STUDIES[name]
+    prim = study.objectives[0]
+    pts = [p for p in bo.MODES[name].load_history()
+           if p.y.get(prim.name) is not None and math.isfinite(p.y[prim.name])]
+    if not pts:
         return {}
-    best = max(finite, key=lambda p: p.y["sob"])
-    return {
-        "best_sob": {"config": best.cfg, "x": list(best.x),
-                     "sob": best.y["sob"],
-                     spec.metric_cols[1]: best.y[spec.metric_cols[1]]},
-        "sob_range": [min(p.y["sob"] for p in finite),
-                      max(p.y["sob"] for p in finite)],
-    }
+    pick = max if prim.direction == "max" else min
+    best = pick(pts, key=lambda p: p.y[prim.name])
+    vals = [p.y[prim.name] for p in pts]
+    return {"best": {"config": best.cfg, "x": list(best.x), **best.y},
+            "primary_range": [min(vals), max(vals)]}
+
+
+def _axis_label(o) -> str:
+    inner = f"log10({o.name})" if o.transform == "log10" else o.name
+    return inner if o.direction == "max" else f"-{inner}"
 
 
 class AutoresearchAdapter:
     def problems(self) -> dict[str, surrokit.Problem]:
-        return {name: bp.build_problem(name) for name in _modes.SPECS}
+        return {name: bp.build_problem(name) for name in _modes.STUDIES}
 
     def suggest(self, name: str, q: int = 5, picker: str | None = None,
                 round_idx: int = 0, pending: list | None = None):
@@ -56,9 +53,9 @@ class AutoresearchAdapter:
         budget_sob | hybrid), same sob-only history policy for qlnei, and
         the closed loop's 42^round_idx seed -- picks are what a real
         round would submit. picker=None means the registry default."""
-        if name not in _modes.SPECS:
+        if name not in _modes.STUDIES:
             raise ValueError(f"unknown problem {name!r}; choose from "
-                             f"{sorted(_modes.SPECS)}")
+                             f"{sorted(_modes.STUDIES)}")
         picker = picker or _modes.DEFAULT_PICKER
         if picker not in _modes.PICKER_CHOICES:
             raise ValueError(f"unknown picker {picker!r}; choose from "
@@ -68,12 +65,16 @@ class AutoresearchAdapter:
         return [list(p) for p in picks]
 
     def history(self, name: str):
-        spec = _modes.SPECS[name]
+        study = _modes.STUDIES[name]
         X, Y, _, _ = bp.load_history_tensor(name)
         meta = {
-            "objectives": ["sob", f"neg_log10_{spec.metric_cols[1]}"],
-            "knob_names": list(spec.knob_names),
-            "leaderboard": spec.leaderboard_rel,
+            "objectives": [{"name": o.name, "direction": o.direction,
+                            "transform": o.transform, "axis": _axis_label(o)}
+                           for o in study.objectives],
+            "knobs": [{"name": k.name, "type": k.type, "unit": k.unit,
+                       "min": k.min, "max": k.max} for k in study.knobs],
+            "knob_names": list(study.knob_names),
+            "leaderboard": study.leaderboard_rel,
         }
-        meta.update(_board_summary(name, spec))
+        meta.update(_board_summary(name))
         return X.tolist(), Y.tolist(), meta

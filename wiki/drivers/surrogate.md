@@ -1,10 +1,13 @@
 ---
 type: driver
 title: Surrogate package + MCP server
-description: surrogate/ — the MCP door onto surrokit (the extracted ask/tell engine): AutoresearchAdapter + a thin mcp_server.py stdio wrapper (official mcp SDK 2.0, ships in ana 2.8.0); the importable plain-Python facade was deleted 2026-09-22
+description: 'surrogate/ — the MCP door onto surrokit (the extracted ask/tell
+  engine): AutoresearchAdapter + a thin mcp_server.py stdio wrapper (official
+  mcp SDK 2.0, ships in ana 2.8.0); the importable plain-Python facade was
+  deleted 2026-09-22; stats meta now built from the study (Phase A, 2026-09-24)'
 status: active
-timestamp: '2026-09-22'
-updated_note: facade deleted (zero callers); board summary ported into adapter meta
+timestamp: '2026-09-24'
+updated_note: Phase A (generic-study) -- stats meta now built from the study (objectives/knobs/best/primary_range), not ModeSpec.metric_cols
 ---
 
 # Surrogate package + MCP server
@@ -14,7 +17,7 @@ updated_note: facade deleted (zero callers); board summary ported into adapter m
 sim — see
 [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md)). Two files
 carry it: `adapter.py` (`AutoresearchAdapter` — `problems`/`history`/
-`suggest` over the ModeSpec registry) and `mcp_server.py`
+`suggest` over `modes.STUDIES`, the schema-2 study registry) and `mcp_server.py`
 (`make_server(AutoresearchAdapter())` on stdio). The importable
 plain-Python facade that also lived here — `fit`/`predict`/`suggest`/
 `board_stats`/`modes_info` — was **DELETED 2026-09-22**; see "Facade
@@ -123,17 +126,25 @@ later — plugs into `MCPServer(middleware=[...])` without touching the tools).
 - MCP tool names as currently registered: `list_problems`, `predict`,
   `suggest`, `stats`, `refit` (renamed from the pre-surrokit adapter's
   `list_modes`/`board_stats` — see "Surrokit extraction" above).
-- `predict` output axis 1 is `-log10(metric2)` and is returned **raw** —
-  the scaffold's generic tool gives `mean`/`sigma` per axis and nothing
-  else. The linear-units inversion with a 1-sigma interval went away with
-  the facade (2026-09-22); clients invert with `10**(-mean)` and read the
-  axis names from `stats`'s `objectives`.
-- **`stats` carries the board summary**: the scaffold's `stats` is
-  `n_rows` + whatever `adapter.history()` puts in meta, so
-  `adapter._board_summary` rides there — `best_sob` (config name, x, sob,
-  metric2) and `sob_range`. This is the ported body of the deleted
-  `board_stats`, and the config NAME is why it re-reads the board
-  (`load_history_tensor` keeps only X/Y).
+- `predict` output axes are returned **raw**, one per study objective in
+  study order — the scaffold's generic tool gives `mean`/`sigma` per axis
+  and nothing else. The linear-units inversion with a 1-sigma interval went
+  away with the facade (2026-09-22); clients invert a `log10`-transform
+  axis with `10**(-mean)` and read the axis label (e.g. `-log10(flash_edep)`)
+  from `stats`'s `objectives[i].axis`.
+- **`stats` meta is built entirely from the study (Phase A, 2026-09-24)**:
+  `objectives` — one dict per study objective, `{name, direction,
+  transform, axis}` (`axis` is the direction/transform-aware label, e.g.
+  `sob` or `-log10(flash_edep)`); `knobs` — one dict per study knob,
+  `{name, type, unit, min, max}`; `knob_names`; `leaderboard`. Plus, from
+  `adapter._board_summary` (keyed on the study's first/primary objective,
+  direction-aware max-or-min pick): `best` (`{config, x, **best.y}` — every
+  objective's value at the champion row) and `primary_range` (`[min, max]`
+  of the primary objective over finite rows). These replace the old
+  ModeSpec-era `best_sob`/`sob_range` keys and the `objectives: ["sob",
+  "neg_log10_<metric>"]` string list. The config NAME is why
+  `_board_summary` re-reads the board (`load_history_tensor` keeps only
+  X/Y).
 - Registered in `.mcp.json` (repo root): command is the absolute ana 2.8.0
   python, args `["surrogate/mcp_server.py"]`, stdio transport.
 - Validated 2026-08-28: 10 unit tests + full 685-test suite green under ana

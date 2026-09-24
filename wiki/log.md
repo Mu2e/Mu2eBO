@@ -5,6 +5,47 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-09-24
+- **Phase A of the generic-study refactor (all 9 tasks) COMPLETE.** Schema-2
+  study files under `mode_specs/` are now the ONLY spec format (the old
+  `core/mode_json.py` JSON loader is deleted); `modes.STUDIES` (built by
+  `core/study.py`) is the single source, with `modes.SPECS` kept only as a
+  `core/study_compat.py`-derived view for pipeline/runtime/preflight until
+  Phase C. The leaderboard (`core/leaderboard.py`), the surrogate glue
+  (`core/botorch_predict.py`), `cmd_evaluate` (`core/bo_driver.py`) and the
+  MCP adapter's `stats` meta (`surrogate/adapter.py`) all now read
+  objectives/knobs/constraints BY NAME from the study, generically — no
+  code path hardcodes `sob`/`calo`/`flash` any more outside the
+  Mu2e-specific usage sites (`core/botorch_predict.py`, `core/bo_driver.py`,
+  `surrogate/adapter.py`, `graph/pipeline_io.py`, `core/kit_registry.py`),
+  which read the physics only through the study's objective NAMES, not
+  literal strings. `AUTORESEARCH_FLASH_BUDGET`/`AUTORESEARCH_BUDGET_KSIGMA`
+  env overrides are gone (budget + k are `study.constraints[0].value`/
+  `.k_sigma` now); the old flash-metric fallback in `extract_metrics` is
+  gone (a missing key is a loud refuse, never a silent substitution). New
+  gate `tests/test_generic_core.py` gets this INTO the suite permanently:
+  it fails if `core/study.py`/`core/leaderboard.py` name `sob`/`calo`/
+  `flash` at all, or if the 5 usage-site files read an objective by a
+  hardcoded physics string. Golden parity (`a b d e`) and the full suite
+  (712 tests, up from 710 -- 2 new tests in `tests/test_generic_core.py`)
+  are unchanged/green —
+  [surrogate](/drivers/surrogate.md), [bo-driver](/drivers/bo-driver.md),
+  [budget-sob-picker](/concepts/budget-sob-picker.md)
+- **updated** [tests](/drivers/tests.md), [pipeline](/drivers/pipeline.md),
+  [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
+  — repointed stale `core/mode_json.py` mentions (that file was deleted as
+  part of Phase A, Task 5) to `core/study.py`/`core/study_compat.py`,
+  annotated `(deleted 2026-09-24; replaced by core/study.py)` where the
+  record is purely historical
+- **updated** [budget-sob-picker](/concepts/budget-sob-picker.md) — the
+  budget line and `k` moved from env vars (`AUTORESEARCH_FLASH_BUDGET`,
+  `AUTORESEARCH_BUDGET_KSIGMA`, both now unread anywhere) to study data
+  (`constraints[0].value`/`.k_sigma`); every live foilspf-family study
+  carries `k_sigma: 1.0` (the old code default) and the same deployed-target
+  `max: 6.85443e-07` line. foilspfbpz07 (2026-08-10) ran at `k=0.5` via the
+  now-removed env override; reproducing that today means a study copy on
+  `$AUTORESEARCH_STUDY_PATH` with `k_sigma: 0.5`
+
 ## 2026-09-23
 - created **generic study design** (`docs/superpowers/specs/2026-09-23-generic-study-design.md`, commit `4d8d1b3`): a new study = one schema-2 JSON (knobs, `derive` with lagrange profiles lifted out of `geom`, steps with `files_from` edges, N objectives, ≤1 constraint); kits reached through a `submit`/`status`/`results` evaluator contract (one adapter per kit family; native kits need zero code); NO legacy engine — foilspf moves onto it (prodtools adapter MCP-only after prodtools P1 code-tarball entries + P2 `run_local`), NO grid-job recoveries (quorum on ok jobs; beamkit adapter never calls `make_recoveries`). Found while designing: a stage is hard-coded across ~190 lines today (retiring `mustops_pileup` in `b369eda`), and `mustops_ce`'s `MaxEventsToSkip=8000` lives only in `core/pipeline.py:228` (its JSON template says 100720)
 - created **MCP framework plan review** (7 read-only reviewers) at `docs/superpowers/specs/2026-09-23-mcp-framework-plan-review.md`. Non-obvious facts found: (1) `prodtools-mcp` (mcp/pyproject.toml, console scripts `prodtools-mcp`/`prodtools-mcp-write`) runs only as an editable install inside a prodtools checkout: the write server finds `bin/json2jobdef` via `REPO_ROOT` four levels above `runner.py` (:47), and `install.sh` picks the htcondor series from the node's condor_version. The cvmfs release has no MCP venv and should not get one (MCP stays off cvmfs), but beamkit defaults `BEAMKIT_PRODTOOLS_ROOT` to cvmfs `current` (bridge.py:14). P1/P2 unchanged at upstream `2422c2b`; (2) the MCP SDK's stdio child env is only HOME/LOGNAME/PATH/SHELL/TERM/USER, so KRB5CCNAME, BEARER_TOKEN_FILE and AUTORESEARCH_* vanish silently in any kit we or HEP-KE's client spawn; (3) kits need different mcp majors: beamkit `mcp>=2.2`, anakit `mcp<2` (FastMCP), ana 2.8.0 ships 2.0 — stdio interoperates (tested mcp-1.x client vs our 2.x servers); (4) Mu2e already hosts MCP on mu2eaigpvm01 (registry :8000, dqm :8001, metacat :8002, memory :8007, kb :8008; uv-from-tag + systemd + key auth) plus group stdio deploys under `mu2epro/mcp/deploy/<name>/current`; (5) the graph couples to more than the 4 pipeline verbs (preflight, scan_logs, geom staging, `*_cluster.txt`) and the leaderboard is hard-wired to sob + one positive second metric; (6) live personal defaults at `tools/run_local.sh:23`, `tools/run_grid.sh:31`, `setup.sh:47`, all pragma-exempt; (7) MCP spec 2026-07-28 is stateless, Tasks is an extension the Python SDK 2.2.0 does not implement, custom `_meta` keys want a reverse-DNS prefix; `langchain-mcp-adapters` is being archived for `langchain.mcp` (LangChain ≥1.4); (8) CLARIPHY = Community Laboratory for AI-native Research In Physics (clariphy.org), no hosting/compute, curated list `clariphy/awesome-hep-agentic-analysis` — [loop-framework-spike-2026-09](/concepts/loop-framework-spike-2026-09.md), [surrogate](/drivers/surrogate.md)

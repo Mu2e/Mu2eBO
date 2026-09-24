@@ -152,7 +152,7 @@ All decided by the operator on 2026-09-23.
 **General:**
 - **Every key is required and unknown keys are rejected** (ADR-0002). Empty is written explicitly as `null`, `{}` or `[]`. Validation happens at load, and every error names the file, the field and the rule.
 - **`name`** matches the file stem.
-- **`${VAR}` substitutes an environment variable** (for example `${ARTIFACT}`). An unset variable is an error at load.
+- **Only `${ARTIFACT}/` is supported** (for example `${ARTIFACT}/geom/base.txt`). It resolves through `core/paths.py`'s `artifact()`: the local root first, falling back to the Muse backing if the local root has no such file. Any other `${...}` token is a load error, and a bare personal-user-area path (`/exp/mu2e/(app|data)/users/<name>/...`) is refused too — it would only run for that one account.
 
 **`knobs`:**
 - names are unique; `type` is `real` or `int`; `min < max`;
