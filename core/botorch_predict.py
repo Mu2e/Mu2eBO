@@ -27,9 +27,9 @@ torch.set_default_dtype(torch.float64)
 DEVICE = torch.device("cpu")
 
 
-# Bounds + integer-dim mask come straight off the ModeSpec registry
-# (ADR-0002). Order matches Point.x (= build_space); lockstep ENFORCED by
-# tests/test_modes.py.
+# Bounds, integer dims, objectives and the constraint come straight off the
+# study (modes.STUDIES, ADR-0002). Knob order matches Point.x (=
+# build_space); lockstep ENFORCED by tests/test_modes.py.
 import modes as _modes  # noqa: E402
 
 from paths import SURROKIT_ROOT  # noqa: E402
@@ -112,9 +112,35 @@ def _problem_from(study, primary_only: bool) -> "surrokit.Problem":
         noise=tuple(o.noise for o in objs), constraint=constraint)
 
 
+# Env overrides removed in Phase A of the generic-study refactor: the study
+# file is the only source of the constraint. A stale export would otherwise
+# be ignored SILENTLY -- the round runs at the study's value while the
+# operator believes it runs at theirs -- so a set variable is fatal.
+_REMOVED_ENV = {"AUTORESEARCH_FLASH_BUDGET": "max",
+                "AUTORESEARCH_BUDGET_KSIGMA": "k_sigma"}
+
+
+def _refuse_removed_env(study) -> None:
+    for var, field in _REMOVED_ENV.items():
+        if var in os.environ:
+            raise SystemExit(
+                f"[botorch_predict] {var}={os.environ[var]!r} is set, but "
+                f"{var} was removed in Phase A of the generic-study refactor "
+                f"(2026-09-24) and nothing reads it any more. The constraint "
+                f"now lives in the study file: constraints[0].{field} in "
+                f"{study.path}. Unset {var}; for a one-off round, edit "
+                f"constraints[0].{field} in the study (commit it, revert it "
+                f"after the round). Refusing to run with a value that would "
+                f"be silently ignored.")
+
+
 def build_problem(mode: str, primary_only: bool = False) -> "surrokit.Problem":
-    """The single home for surrokit.Problem assembly over a study."""
-    return _problem_from(_modes.STUDIES[mode], primary_only)
+    """The single home for surrokit.Problem assembly over a study. Every
+    production path (compute_explore_picks, the MCP adapter) comes through
+    here, so it is also where a removed env override is refused."""
+    study = _modes.STUDIES[mode]
+    _refuse_removed_env(study)
+    return _problem_from(study, primary_only)
 
 
 def compute_explore_picks(mode: str,
@@ -126,8 +152,9 @@ def compute_explore_picks(mode: str,
     """Explore-pick engine: picker = qnehvi | qlnei | budget_sob | hybrid.
 
     Thin glue over surrokit.ask: this side owns leaderboard loading, the
-    -log10 transform, env-tunable constants, and the 42^round_idx seed
-    convention; the engine owns the GP and the pickers.
+    study's per-objective direction/transform, the constraint (study data,
+    via build_problem), the hybrid hv_frac env knob, and the 42^round_idx
+    seed convention; the engine owns the GP and the pickers.
     """
     primary_only = (picker == "qlnei")
     X, Y, bounds, int_dims = load_history_tensor(mode, primary_only=primary_only)

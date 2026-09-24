@@ -11,8 +11,9 @@ status_note: 'first production round foilspfbpz07 launched 2026-08-10 (k=0.5,
   2026-09-24 (Phase A); GP predicts ~4.13 reachable at budget vs 4.00 measured'
 timestamp: '2026-09-24'
 updated_note: 'Phase A (2026-09-24): AUTORESEARCH_FLASH_BUDGET and
-  AUTORESEARCH_BUDGET_KSIGMA are gone; the budget and k now come from the
-  study''s constraints[0].max / k_sigma'
+  AUTORESEARCH_BUDGET_KSIGMA are gone (setting either is now a SystemExit);
+  the budget and k come from the study''s constraints[0].max / k_sigma; the
+  corner-round recipe is an in-place, committed, reverted study edit'
 ---
 
 # budget-sob-picker
@@ -40,23 +41,37 @@ untouched at 4.00.
   i.e. at the k-sigma level, NOT on the mean — a pick whose true damage lands
   above the line contributes nothing to the deployment question. Picker name
   `budget_sob` maps to surrokit picker `constrained_max`
-  (`core/botorch_predict.py:147`).
+  (`core/botorch_predict.py:compute_explore_picks`).
 - **Since Phase A (2026-09-24) the budget and k are STUDY DATA, not env
   vars.** `AUTORESEARCH_FLASH_BUDGET` and `AUTORESEARCH_BUDGET_KSIGMA` are
-  GONE — there is no code left that reads them. A study's
-  `constraints[0].value` (JSON key `max`) is the damage-budget line and
-  `constraints[0].k_sigma` is `k`. Every live foilspf-family study
+  GONE, and a stale export is FATAL, not ignored:
+  `core/botorch_predict.py:build_problem` (the path both
+  `compute_explore_picks` and the MCP adapter take) raises `SystemExit`
+  naming `constraints[0].max` / `constraints[0].k_sigma` if either is set.
+  A study's `constraints[0].value` (JSON key `max`) is the damage-budget
+  line and `constraints[0].k_sigma` is `k`. Every live foilspf-family study
   (`foilspf`, `foilspfbp`, `foilspfbpx`, `foilspfbpz`, `foilspf2k`,
   `foilspfbw`, `foilsflash`) carries the SAME deployed-target line, `max:
   6.85443e-07` (MeV/POT, was the old code constant `DEP_FLASH_PER_POT`), and
-  `k_sigma: 1.0` (the old code default). To reproduce an UNCONSTRAINED corner
-  round, or a different `k`, copy the study directory to a new name +
-  leaderboard on `$AUTORESEARCH_STUDY_PATH` and edit `max`/`k_sigma` there —
-  editing the live study in place is not the pattern (it would also move
-  the deployment line for every other picker/round reading it).
+  `k_sigma: 1.0` — main's behavior with no env var set. Whether foilspfbpz
+  should sit at 0.5 is an open operator decision; no data was changed.
+- **Corner-round recipe (a different `k`, or an UNCONSTRAINED round):**
+  edit the study's `constraints[0]` IN PLACE (`mode_specs/<study>.json`:
+  `k_sigma`, or `max` raised far above every row's flash for an
+  unconstrained ceiling-mapping round), commit the edit, run the round, and
+  revert it (commit) after the round. The study's `spec_sha` (a hash of the
+  whole file, `core/study.py`) changes with the edit and back with the
+  revert. Do NOT copy the study to a new name with its own board: an empty
+  board means the picker cold-starts on a Sobol draw, not the GP over the
+  parent's history, so the "corner round" is random search that looks like
+  BO; and pointing the copy at the parent's board is refused by the
+  basename-uniqueness guard (`core/study.py:load_study_dirs`). The edit
+  moves the line for every picker reading that study while it is in
+  place, which is why it is committed and reverted, never left.
 - **foilspfbpz07 (2026-08-10) ran with `k=0.5` via the now-removed
   `AUTORESEARCH_BUDGET_KSIGMA=0.5` env override.** Reproducing that k today
-  means a study copy with `k_sigma: 0.5`, not an env var.
+  means editing `mode_specs/foilspfbpz.json` `constraints[0].k_sigma` to
+  0.5 for the round (recipe above), not an env var.
 - **`k` is the real tuning knob.** MEASURED on the 337-row foilspfbpz board
   2026-08-10, q=20 (numbers below predate the env->study-field move and are
   unaffected by it — same GP, same math):

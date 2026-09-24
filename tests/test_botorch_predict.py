@@ -6,6 +6,7 @@ Fixtures repoint bo.MODES["foilsflash"].leaderboard at a tmp 10-row TSV
 leaderboards are never touched."""
 import json
 import math
+import os
 import sys
 import tempfile
 import types
@@ -190,6 +191,53 @@ class TestComputeExplorePicks(unittest.TestCase):
                      "--emit-picks-json", str(out)])
             picks = json.loads(out.read_text())
             self.assertEqual(len(picks), 2)
+
+
+_REMOVED = (("AUTORESEARCH_FLASH_BUDGET", "max"),
+            ("AUTORESEARCH_BUDGET_KSIGMA", "k_sigma"))
+
+
+def _env_without_removed():
+    return {k: v for k, v in os.environ.items()
+            if k not in dict(_REMOVED)}
+
+
+class TestRemovedEnvOverrides(unittest.TestCase):
+    """The budget/k env overrides were removed in Phase A (the study's
+    constraints[0] is the only source). A stale export must be FATAL: the
+    last production budget_sob round ran with AUTORESEARCH_BUDGET_KSIGMA=0.5,
+    and silently ignoring that export would run at the study's k while the
+    operator believes it runs at theirs."""
+
+    def test_each_removed_variable_is_fatal_in_build_problem(self):
+        study = bp._modes.STUDIES["foilspfbpz"]
+        for var, field in _REMOVED:
+            with self.subTest(var=var), \
+                 mock.patch.dict(os.environ, {var: "0.5"}):
+                with self.assertRaises(SystemExit) as cm:
+                    bp.build_problem("foilspfbpz")
+                msg = str(cm.exception)
+                self.assertIn(var, msg)
+                self.assertIn("removed in Phase A", msg)
+                self.assertIn(f"constraints[0].{field}", msg)
+                self.assertIn(str(study.path), msg)
+
+    def test_compute_explore_picks_hits_it(self):
+        for var, _field in _REMOVED:
+            with self.subTest(var=var), \
+                 tempfile.TemporaryDirectory() as tmp, \
+                 patched_leaderboard(tmp), \
+                 mock.patch.dict(os.environ, {var: "6.8e-7"}):
+                with self.assertRaises(SystemExit) as cm:
+                    bp.compute_explore_picks("foilsflash", q=1,
+                                             picker="budget_sob")
+                self.assertIn(var, str(cm.exception))
+
+    def test_unset_builds_the_study_constraint(self):
+        with mock.patch.dict(os.environ, _env_without_removed(), clear=True):
+            prob = bp.build_problem("foilspfbpz")
+        c = bp._modes.STUDIES["foilspfbpz"].constraints[0]
+        self.assertEqual(prob.constraint.k_sigma, c.k_sigma)
 
 
 class TestBotorchAskSeamSmoke(unittest.TestCase):

@@ -8,10 +8,12 @@ SDK is absent (it ships in ana 2.8.0 but not in the dev venv).
 The plain-Python facade these tests used to cover was deleted 2026-09-22
 (zero callers); see surrogate/__init__.py."""
 import asyncio
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -54,6 +56,18 @@ class TestAutoresearchAdapter(unittest.TestCase):
             self.assertEqual(prob.dim, len(spec.knob_names))
             self.assertEqual(prob.noise, tuple(spec.obs_noise))
             self.assertIsNotNone(prob.constraint)
+
+    def test_problems_refuse_a_removed_env_override(self):
+        """The MCP door takes the same build_problem path, so a stale
+        AUTORESEARCH_BUDGET_KSIGMA / AUTORESEARCH_FLASH_BUDGET export is
+        fatal there too, not silently ignored."""
+        from surrogate.adapter import AutoresearchAdapter
+        for var in ("AUTORESEARCH_FLASH_BUDGET", "AUTORESEARCH_BUDGET_KSIGMA"):
+            with self.subTest(var=var), \
+                 mock.patch.dict(os.environ, {var: "0.5"}):
+                with self.assertRaises(SystemExit) as cm:
+                    AutoresearchAdapter().problems()
+                self.assertIn(var, str(cm.exception))
 
     def test_suggest_is_production_pick_path(self):
         from surrogate.adapter import AutoresearchAdapter
