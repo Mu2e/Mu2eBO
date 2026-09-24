@@ -75,13 +75,6 @@ class TestRegistryCompleteness(unittest.TestCase):
         self.assertEqual(len(noise), 2)
         self.assertTrue(all(v > 0 for v in noise))
 
-    def test_obs_noise_malformed_rejected_at_construction(self):
-        import dataclasses
-        spec = modes.SPECS["foilsflash"]
-        for bad in ((0.006,), (0.006, 0.0), (0.006, -1.0), (0.006, 0.01, 0.02)):
-            with self.assertRaises(ValueError, msg=repr(bad)):
-                dataclasses.replace(spec, obs_noise=bad)
-
 
 class TestBoundsLockstep(unittest.TestCase):
     def test_build_space_matches_spec(self):
@@ -187,11 +180,6 @@ class TestSpotFacts(unittest.TestCase):
 
 
 class TestSchemaFields(unittest.TestCase):
-    def test_lockstep_enforced_at_construction(self):
-        import dataclasses
-        with self.assertRaises(ValueError):
-            dataclasses.replace(modes.SPECS["foilsflash"], knob_names=("one",))
-
     def test_metric_cols_spot_pins(self):
         # "foils" (plain "calo" tail) and "prodtarget" (5-column mu_per_POT
         # tail) were archived 2026-08-08; every surviving mode shares the
@@ -265,7 +253,7 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
     """F8: the lines that ARE the study-directory feature had zero coverage.
 
     Deleting the `STUDIES = load_study_dirs(MODES_DIR, ...)` /
-    `SPECS.update(...)` tail of core/modes.py, or the
+    `SPECS = {...}` tail of core/modes.py, or the
     `MODES[_name] = JsonMode(_name)` loop in core/bo_driver.py, used to leave
     the whole suite green -- verified by mutation, twice. Every other test
     registers its study by hand into modes.STUDIES/SPECS and so bypasses

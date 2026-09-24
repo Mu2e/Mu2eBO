@@ -123,7 +123,6 @@ class Study:
     knobs: Tuple[Knob, ...]
     derive: Dict[str, Any]
     geom: Optional[GeomTemplate] = field(compare=False)
-    geom_writer: Optional[str]
     kits: Dict[str, Dict[str, Any]]
     preflight: Optional[Dict[str, Any]]
     steps: Tuple[Step, ...]
@@ -157,30 +156,8 @@ class Study:
         return tuple(i for i, k in enumerate(self.knobs) if k.type == "int")
 
     @property
-    def value_names(self) -> Tuple[str, ...]:
-        """Objective then extra-metric names: the values a row carries."""
-        return (tuple(o.name for o in self.objectives)
-                + tuple(m.name for m in self.extra_metrics))
-
-    @property
     def consts(self) -> Dict[str, Any]:
         return dict(self.derive["consts"])
-
-
-class _DuplicateJsonKey(ValueError):
-    def __init__(self, key):
-        super().__init__(key)
-        self.key = key
-
-
-def _no_duplicate_keys(pairs):
-    """json.loads keeps the LAST duplicate key silently; refuse instead."""
-    out = {}
-    for k, v in pairs:
-        if k in out:
-            raise _DuplicateJsonKey(k)
-        out[k] = v
-    return out
 
 
 def _obj(d, keys, where):
@@ -201,6 +178,47 @@ def _list(v, where):
     if not isinstance(v, list):
         raise ValueError(f"{where}: must be a list, got {v!r}")
     return v
+
+
+def _dict(v, where):
+    if not isinstance(v, dict):
+        raise ValueError(f"{where}: must be an object, got {v!r}")
+    return v
+
+
+def _one_of(v, choices, where, why=""):
+    if v not in choices:
+        raise ValueError(f"{where}: must be one of {list(choices)}, got "
+                         f"{v!r}{why}")
+    return v
+
+
+def _kit(name, role, where):
+    """A registered kit whose KitDecl sets `role` ('step_kit' or
+    'check_kit')."""
+    ok = sorted(k for k, d in kit_registry.KITS.items() if getattr(d, role))
+    return _one_of(name, ok, where, f" (the kits with {role}=True)")
+
+
+def _files(raw, has_geom, where):
+    """`where` is the owning step or preflight."""
+    files = tuple(_list(raw, f"{where}[files]"))
+    for f in files:
+        _one_of(f, _RENDERED_FILES, f"{where}[files]")
+        if f == "geom" and not has_geom:
+            raise ValueError(f"{where}[files]: lists 'geom' but the study's "
+                             f"geom is null")
+    return files
+
+
+def _params(raw, names, where):
+    """`where` is the owning step or preflight; each value names a knob,
+    const, expr or profile."""
+    for k, v in _dict(raw, f"{where}[params]").items():
+        if not isinstance(v, str) or v not in names:
+            raise ValueError(f"{where}[params.{k}]: must be a string naming "
+                             f"a knob, const, expr or profile, got {v!r}")
+    return dict(raw)
 
 
 def _name(v, where):
@@ -262,9 +280,7 @@ def _knobs(raw, where):
         if name in _RESERVED_ELEMENTWISE_NAMES:
             raise ValueError(f"{kw}: knob name {name!r} is reserved (the "
                              f"geometry renderer injects 'i' and 'n')")
-        if k["type"] not in ("real", "int"):
-            raise ValueError(f"{kw}[type]: must be 'real' or 'int', got "
-                             f"{k['type']!r}")
+        _one_of(k["type"], ("real", "int"), f"{kw}[type]")
         lo, hi = _number(k["min"], f"{kw}[min]"), _number(k["max"], f"{kw}[max]")
         if not lo < hi:
             raise ValueError(f"{kw}: min ({lo}) must be < max ({hi})")
@@ -275,24 +291,18 @@ def _knobs(raw, where):
             raise ValueError(f"{kw}[unit]: must be a string (may be empty)")
         _validate_fmt(k["fmt"], f"{kw}[fmt]")
         out.append(Knob(name, k["type"], lo, hi, k["unit"], k["fmt"]))
-    names = [k.name for k in out]
-    if len(set(names)) != len(names):
-        raise ValueError(f"{where}[knobs]: duplicate knob names {names}")
-    return tuple(out)
+    return tuple(out)     # duplicate names: _check_columns
 
 
 def _derive_and_geom(doc, knob_names, where):
     derive = _obj(doc["derive"], _DERIVE, f"{where}[derive]")
     for k in _DERIVE:
-        if not isinstance(derive[k], dict):
-            raise ValueError(f"{where}[derive.{k}]: must be an object")
+        _dict(derive[k], f"{where}[derive.{k}]")
     profiles = {}
     for pname, p in derive["profiles"].items():
         pw = f"{where}[derive.profiles.{pname}]"
         _obj(p, _PROFILE, pw)
-        if p["kind"] != "lagrange":
-            raise ValueError(f"{pw}[kind]: only 'lagrange' exists, got "
-                             f"{p['kind']!r}")
+        _one_of(p["kind"], ("lagrange",), f"{pw}[kind]")
         profiles[pname] = {k: p[k] for k in ("count", "control", "clip")}
     geom = doc["geom"]
     if geom is None:
@@ -300,17 +310,15 @@ def _derive_and_geom(doc, knob_names, where):
             raise ValueError(f"{where}[derive]: must be empty when geom is "
                              f"null in this version (derive without a "
                              f"geometry file arrives with Phase B)")
-        return derive, None, None
+        return derive, None
     _obj(geom, _GEOM, f"{where}[geom]")
-    if geom["writer"] not in _WRITERS:
-        raise ValueError(f"{where}[geom.writer]: must be one of "
-                         f"{list(_WRITERS)}, got {geom['writer']!r}")
+    _one_of(geom["writer"], _WRITERS, f"{where}[geom.writer]")
     template = GeomTemplate.from_dict(
         {"base": geom["base"], "consts": derive["consts"],
          "derived": derive["exprs"], "profiles": profiles,
          "lines": geom["lines"]},
         knob_names, f"{where}[derive+geom]")
-    return derive, template, geom["writer"]
+    return derive, template
 
 
 def _steps(raw, has_geom, names, where):
@@ -322,10 +330,7 @@ def _steps(raw, has_geom, names, where):
         sw = f"{where}[evaluate[{i}]]"
         _obj(s, _STEP, sw)
         step = _name(s["step"], f"{sw}[step]")
-        kit = s["kit"]
-        if kit not in kit_registry.KITS or not kit_registry.KITS[kit].step_kit:
-            raise ValueError(f"{sw}[kit]: {kit!r} is not a step kit; known: "
-                             f"{sorted(k for k, d in kit_registry.KITS.items() if d.step_kit)}")
+        kit = _kit(s["kit"], "step_kit", f"{sw}[kit]")
         decl = kit_registry.KITS[kit]
         entry = s["entry"]
         if decl.uses_entries and not (isinstance(entry, dict)
@@ -334,28 +339,11 @@ def _steps(raw, has_geom, names, where):
                              f"name or an inline template object")
         if not decl.uses_entries and entry is not None:
             raise ValueError(f"{sw}[entry]: kit {kit!r} takes no entry; use null")
-        files = tuple(_list(s["files"], f"{sw}[files]"))
-        for f in files:
-            if f not in _RENDERED_FILES:
-                raise ValueError(f"{sw}[files]: unknown rendered file {f!r}; "
-                                 f"known: {list(_RENDERED_FILES)}")
-            if f == "geom" and not has_geom:
-                raise ValueError(f"{sw}[files]: lists 'geom' but the study's "
-                                 f"geom is null")
-        params = s["params"]
-        if not isinstance(params, dict):
-            raise ValueError(f"{sw}[params]: must be an object")
-        for pk, pv in params.items():
-            if not isinstance(pv, str):
-                raise ValueError(f"{sw}[params.{pk}]: must be a string naming "
-                                 f"a knob, const, expr or profile, got {pv!r}")
-            if pv not in names:
-                raise ValueError(f"{sw}[params.{pk}]: {pv!r} is not a knob, "
-                                 f"const, expr or profile name")
-        fixed = kit_registry.validate_fixed(kit, s["fixed"], f"{sw}[fixed]")
-        out.append(Step(step, kit, entry, files,
+        fixed = kit_registry.validate(kit, s["fixed"], decl.fixed_keys,
+                                      f"{sw}[fixed]", required=False)
+        out.append(Step(step, kit, entry, _files(s["files"], has_geom, sw),
                         tuple(_list(s["files_from"], f"{sw}[files_from]")),
-                        dict(params), fixed))
+                        _params(s["params"], names, sw), fixed))
     step_names = [s.step for s in out]
     if len(set(step_names)) != len(step_names):
         raise ValueError(f"{where}[evaluate]: duplicate step names {step_names}")
@@ -387,29 +375,16 @@ def _check_acyclic(steps, where):
         visit(n, [])
 
 
-def _kits_and_preflight(doc, steps, has_geom, where):
-    kits_raw = doc["kits"]
-    if not isinstance(kits_raw, dict):
-        raise ValueError(f"{where}[kits]: must be an object")
+def _kits_and_preflight(doc, steps, has_geom, names, where):
+    kits_raw = _dict(doc["kits"], f"{where}[kits]")
     pre = doc["preflight"]
     used = {s.kit for s in steps}
     if pre is not None:
         pw = f"{where}[preflight]"
         _obj(pre, _PREFLIGHT, pw)
-        kit = pre["kit"]
-        if kit not in kit_registry.KITS or not kit_registry.KITS[kit].check_kit:
-            raise ValueError(f"{pw}[kit]: {kit!r} does not offer a check; "
-                             f"known: {sorted(k for k, d in kit_registry.KITS.items() if d.check_kit)}")
-        for f in _list(pre["files"], f"{pw}[files]"):
-            if f not in _RENDERED_FILES or (f == "geom" and not has_geom):
-                raise ValueError(f"{pw}[files]: cannot provide {f!r}")
-        if not isinstance(pre["params"], dict):
-            raise ValueError(f"{pw}[params]: must be an object")
-        for pk, pv in pre["params"].items():
-            if not isinstance(pv, str):
-                raise ValueError(f"{pw}[params.{pk}]: must be a string, got "
-                                 f"{pv!r}")
-        used.add(kit)
+        used.add(_kit(pre["kit"], "check_kit", f"{pw}[kit]"))
+        _files(pre["files"], has_geom, pw)
+        _params(pre["params"], names, pw)
     kits = {}
     for kit, settings in kits_raw.items():
         kw = f"{where}[kits.{kit}]"
@@ -418,7 +393,9 @@ def _kits_and_preflight(doc, steps, has_geom, where):
         if kit not in used:
             raise ValueError(f"{kw}: kit {kit!r} is configured but unused by "
                              f"any step or the preflight")
-        checked = kit_registry.validate_study_settings(kit, settings, kw)
+        checked = kit_registry.validate(
+            kit, settings, kit_registry.KITS[kit].study_keys, kw,
+            required=True)
         kits[kit] = {k: _expand(v, f"{kw}[{k}]") for k, v in checked.items()}
     for kit in sorted(used):
         if kit_registry.KITS[kit].study_keys and kit not in kits:
@@ -437,12 +414,8 @@ def _objectives(raw, step_names, where):
     for i, o in enumerate(raw):
         ow = f"{where}[objectives[{i}]]"
         _obj(o, _OBJECTIVE, ow)
-        if o["direction"] not in _DIRECTIONS:
-            raise ValueError(f"{ow}[direction]: must be one of "
-                             f"{list(_DIRECTIONS)}, got {o['direction']!r}")
-        if o["transform"] not in _TRANSFORMS:
-            raise ValueError(f"{ow}[transform]: must be one of "
-                             f"{list(_TRANSFORMS)}, got {o['transform']!r}")
+        _one_of(o["direction"], _DIRECTIONS, f"{ow}[direction]")
+        _one_of(o["transform"], _TRANSFORMS, f"{ow}[transform]")
         noise = _number(o["noise"], f"{ow}[noise]")
         if noise <= 0:
             raise ValueError(f"{ow}[noise]: must be > 0, got {noise}")
@@ -462,9 +435,7 @@ def _constraints(raw, objectives, where):
     out = []
     for i, c in enumerate(raw):
         cw = f"{where}[constraints[{i}]]"
-        if not isinstance(c, dict):
-            raise ValueError(f"{cw}: must be an object")
-        bounds = [b for b in ("max", "min") if b in c]
+        bounds = [b for b in ("max", "min") if b in _dict(c, cw)]
         if len(bounds) != 1:
             raise ValueError(f"{cw}: needs exactly one of 'max' or 'min'")
         _obj(c, ("name", "k_sigma", bounds[0]), cw)
@@ -521,24 +492,26 @@ def _leaderboard(raw, where):
     if ".." in Path(rel).parts:
         raise ValueError(f"{where}[leaderboard.file]: must not contain '..' "
                          f"(got {rel!r})")
-    if lb["layout"] != "v1":
-        raise ValueError(f"{where}[leaderboard.layout]: only 'v1' in this "
-                         f"version; 'v2' arrives with Phase B")
+    _one_of(lb["layout"], ("v1",), f"{where}[leaderboard.layout]",
+            "; 'v2' arrives with Phase B")
     context = tuple(_name(c, f"{where}[leaderboard.context]")
                     for c in _list(lb["context"], f"{where}[leaderboard.context]"))
     return Path(rel).as_posix(), lb["layout"], context
 
 
 def _check_columns(knobs, objectives, metrics, columns, context, where):
-    cols = (["config"] + [k.name for k in knobs] + [o.name for o in objectives]
-            + [m.name for m in metrics] + [c.name for c in columns])
-    seen = set()
-    for c in cols:
-        if c in seen:
-            raise ValueError(f"{where}: leaderboard column {c!r} appears "
-                             f"twice (knob, objective, extra metric or extra "
-                             f"column names must all differ)")
-        seen.add(c)
+    cols = [("config", "config")] + [
+        (x.name, f"{field}.{x.name}")
+        for field, xs in (("knobs", knobs), ("objectives", objectives),
+                          ("extra_metrics", metrics),
+                          ("extra_columns", columns))
+        for x in xs]
+    names = [n for n, _ in cols]
+    dup = sorted({label for n, label in cols if names.count(n) > 1})
+    if dup:
+        raise ValueError(f"{where}[{', '.join(dup)}]: a leaderboard column "
+                         f"appears twice (config, knob, objective, extra "
+                         f"metric and extra column names must all differ)")
     # A context name is allowed to equal an extra_column name -- that's how
     # an externally-supplied context value (e.g. alpha) is rendered as a
     # leaderboard column (an extra_column with a passthrough expr of the
@@ -557,14 +530,21 @@ def load_study_file(path: Path) -> Study:
     """Parse and validate one schema-2 study file. Raises ValueError."""
     path = Path(path)
     where = str(path)
-    text = path.read_text()
+
+    def no_duplicate_keys(pairs):
+        out = {}
+        for k, v in pairs:
+            if k in out:
+                raise ValueError(f"{where}: duplicate JSON key {k!r} "
+                                 f"(json.loads would silently keep the last "
+                                 f"one)")
+            out[k] = v
+        return out
+
     try:
-        doc = json.loads(text, object_pairs_hook=_no_duplicate_keys)
+        doc = json.loads(path.read_text(), object_pairs_hook=no_duplicate_keys)
     except json.JSONDecodeError as exc:
         raise ValueError(f"{where}: invalid JSON: {exc}") from None
-    except _DuplicateJsonKey as exc:
-        raise ValueError(f"{where}: duplicate JSON key {exc.key!r} (json.loads "
-                         f"would silently keep the last one)") from None
     _obj(doc, _TOP, where)
     if doc["schema"] != SCHEMA:
         raise ValueError(f"{where}[schema]: must be {SCHEMA}, got "
@@ -573,12 +553,13 @@ def load_study_file(path: Path) -> Study:
         raise ValueError(f"{where}[note]: must be a string")
     knobs = _knobs(doc["knobs"], where)
     knob_names = tuple(k.name for k in knobs)
-    derive, geom, writer = _derive_and_geom(doc, knob_names, where)
+    derive, geom = _derive_and_geom(doc, knob_names, where)
     names = (set(knob_names) | set(derive["consts"]) | set(derive["exprs"])
              | set(derive["profiles"]))
     steps = _steps(doc["evaluate"], geom is not None, names, where)
     step_names = {s.step for s in steps}
-    kits, preflight = _kits_and_preflight(doc, steps, geom is not None, where)
+    kits, preflight = _kits_and_preflight(doc, steps, geom is not None,
+                                          names, where)
     objectives = _objectives(doc["objectives"], step_names, where)
     constraints = _constraints(doc["constraints"], objectives, where)
     rel, layout, context = _leaderboard(doc["leaderboard"], where)
@@ -589,7 +570,7 @@ def load_study_file(path: Path) -> Study:
                                     separators=(",", ":")).encode()).hexdigest()
     return Study(path=path, name=_name(doc["name"], f"{where}[name]"),
                  note=doc["note"], knobs=knobs, derive=derive, geom=geom,
-                 geom_writer=writer, kits=kits, preflight=preflight,
+                 kits=kits, preflight=preflight,
                  steps=steps, objectives=objectives, constraints=constraints,
                  extra_metrics=metrics, extra_columns=columns,
                  leaderboard_rel=rel, layout=layout, context=context,

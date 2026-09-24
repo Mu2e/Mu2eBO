@@ -35,7 +35,6 @@ def modespec_from_study(study: Study):
     _need(study.preflight is not None
           and study.preflight["kit"] == "offline_preflight", study,
           "its preflight is not offline_preflight")
-    _need(study.layout == "v1", study, "its leaderboard layout is not v1")
     _need(len(study.objectives) == 2, study,
           f"it has {len(study.objectives)} objectives; the pipeline writes "
           f"exactly 2")

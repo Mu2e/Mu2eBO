@@ -140,7 +140,7 @@ def stage_cfg(stage: str, mode) -> dict:
         spec = _modes.SPECS[mode]
         if stage in spec.stage_target_overrides:
             cfg["njobs"] = spec.stage_target_overrides[stage]
-        # No second allow-list: core/kit_registry.py's validate_fixed rejects
+        # No second allow-list: core/kit_registry.py's validate() rejects
         # unknown keys at LOAD time. stage_entries/ spells the count `events`.
         tuning = dict(spec.stage_tuning.get(stage, {}))
         if "events_per_job" in tuning:

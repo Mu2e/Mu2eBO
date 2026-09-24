@@ -64,30 +64,19 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
 )}
 
 
-def validate_study_settings(kit: str, settings, where: str) -> dict:
-    """study["kits"][kit]: an object holding exactly the declared keys."""
-    decl = KITS[kit]
-    if not isinstance(settings, dict):
-        raise ValueError(f"{where}: must be an object, got {settings!r}")
-    unknown = sorted(set(settings) - set(decl.study_keys))
+def validate(kit: str, raw, table: Dict[str, Callable], where: str, *,
+             required: bool) -> dict:
+    """study["kits"][kit] (table=study_keys, required=True: exactly the
+    declared keys) or a step's "fixed" (table=fixed_keys, required=False:
+    any subset). Each value is type-checked by its table entry."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: must be an object, got {raw!r}")
+    unknown = sorted(set(raw) - set(table))
     if unknown:
         raise ValueError(f"{where}: unknown key(s) {unknown}; kit {kit!r} "
-                         f"accepts {sorted(decl.study_keys)}")
-    missing = sorted(set(decl.study_keys) - set(settings))
-    if missing:
+                         f"accepts {sorted(table)}")
+    missing = sorted(set(table) - set(raw))
+    if required and missing:
         raise ValueError(f"{where}: missing required key(s) {missing} for "
                          f"kit {kit!r}")
-    return {k: decl.study_keys[k](v, f"{where}[{k}]")
-            for k, v in settings.items()}
-
-
-def validate_fixed(kit: str, fixed, where: str) -> dict:
-    """A step's "fixed": any subset of the declared keys, each type-checked."""
-    decl = KITS[kit]
-    if not isinstance(fixed, dict):
-        raise ValueError(f"{where}: must be an object, got {fixed!r}")
-    unknown = sorted(set(fixed) - set(decl.fixed_keys))
-    if unknown:
-        raise ValueError(f"{where}: unknown key(s) {unknown}; kit {kit!r} "
-                         f"accepts {sorted(decl.fixed_keys)}")
-    return {k: decl.fixed_keys[k](v, f"{where}[{k}]") for k, v in fixed.items()}
+    return {k: table[k](v, f"{where}[{k}]") for k, v in raw.items()}

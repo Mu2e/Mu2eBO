@@ -59,7 +59,6 @@ class TestFixtureLoads(_Tmp):
         self.assertEqual(s.objectives[1].step, "flash")
         self.assertEqual(s.objectives[1].key, "flash_edep_per_pot")
         self.assertEqual(s.constraints[0].bound, "max")
-        self.assertEqual(s.value_names, ("sob", "flash_edep"))
         self.assertEqual(s.layout, "v1")
         self.assertEqual(s.context, ("alpha",))
         self.assertEqual(s.consts, {"n_el": 5, "z0": 100.0})
@@ -132,7 +131,7 @@ def _doc_every_level():
 # keys: every key is optional by declaration (kit_registry.KitDecl
 # fixed_keys), so only its unknown-key case applies; `fixed` itself missing
 # from a step is the step level's case. Kit settings are checked by
-# kit_registry.validate_study_settings, not study._obj, hence two entries.
+# kit_registry.validate, not study._obj, hence two entries.
 _LEVELS = (
     ("top", lambda d: d, st._TOP, ""),
     ("knob", lambda d: d["knobs"][0], st._KNOB, "[knobs[0]]"),
@@ -289,6 +288,15 @@ class TestLoaderEdgeCases(_Tmp):
                 self.assertIn(path + "[preflight][params.radius]", msg)
                 self.assertIn("must be a string", msg)
 
+    def test_preflight_params_name_must_exist(self):
+        # The design's params rule (a knob, const, expr or profile name)
+        # holds for the preflight as for a step.
+        doc = _doc()
+        doc["preflight"]["params"] = {"radius": "nope"}
+        path, msg = self._reject(doc)
+        self.assertIn(path + "[preflight][params.radius]", msg)
+        self.assertIn("'nope'", msg)
+
     def test_non_finite_numbers_rejected(self):
         cases = (
             ("[objectives[0]][noise]",
@@ -352,6 +360,11 @@ class TestKnobs(_Tmp):
         doc["derive"]["exprs"] = {"ab": "sob * b"}
         doc["derive"]["profiles"]["a_p"]["control"] = ["sob", "ab", "sob"]
         self.assertRejects(doc, "sob", "appears", "twice")
+
+    def test_duplicate_knob_name(self):
+        doc = _doc()
+        doc["knobs"].append(dict(doc["knobs"][0]))
+        self.assertRejects(doc, "[knobs.a]", "appears twice")
 
     def test_reserved_elementwise_name(self):
         doc = _doc()

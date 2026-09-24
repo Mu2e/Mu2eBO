@@ -56,21 +56,6 @@ class ModeSpec:
     metrics: Dict[str, Tuple[str, ...]]
     leaderboard_rel: str
 
-    def __post_init__(self):
-        if not (len(self.knob_names) == len(self.knob_fmts)
-                == len(self.bounds_lo)):
-            raise ValueError(
-                f"{self.name}: knob_names ({len(self.knob_names)}) / "
-                f"knob_fmts ({len(self.knob_fmts)}) / bounds "
-                f"({len(self.bounds_lo)}) lockstep broken")
-        if not (len(self.obs_noise) == 2
-                and all(v > 0 for v in self.obs_noise)):
-            raise ValueError(
-                f"{self.name}: obs_noise must be 2 positive sigmas "
-                f"(one per GP output axis), got {self.obs_noise!r}")
-
-
-SPECS: Dict[str, ModeSpec] = {}
 
 # THE IMPORT MIRRORS OUR OWN PACKAGE-QUALIFICATION (__package__): this
 # module loads as `core.modes` from the repo root AND as bare `modes` in the
@@ -80,7 +65,7 @@ SPECS: Dict[str, ModeSpec] = {}
 # under a different sys.modules key, needing a second non-identical ModeSpec
 # class.
 if __package__:
-    from core.study import load_study_dirs  # noqa: E402 - SPECS must exist first
+    from core.study import load_study_dirs  # noqa: E402
     from core.study_compat import modespec_from_study  # noqa: E402
 else:
     from study import load_study_dirs  # noqa: E402
@@ -90,7 +75,8 @@ MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 # Schema-2 studies: the one source. SPECS is today's ModeSpec view of them,
 # kept for pipeline.py/runtime.py/preflight until Phase C deletes both.
 STUDIES = load_study_dirs(MODES_DIR, os.environ.get("AUTORESEARCH_STUDY_PATH"))
-SPECS.update({n: modespec_from_study(s) for n, s in STUDIES.items()})
+SPECS: Dict[str, ModeSpec] = {n: modespec_from_study(s)
+                               for n, s in STUDIES.items()}
 
 # THE fallback for every import-time AUTORESEARCH_MODE reader; single-sourced
 # because per-module literals drift. Pinned by
