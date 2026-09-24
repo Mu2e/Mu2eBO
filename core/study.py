@@ -526,6 +526,20 @@ def _check_columns(knobs, objectives, metrics, columns, context, where):
                          f"with column names")
 
 
+def _check_steps_used(steps, objectives, metrics, where):
+    """Every step feeds another step's files_from or an objective / extra
+    metric. A step nothing reads spends grid time for nothing; a study that
+    wants a step's side outputs names an extra metric from it."""
+    used = ({up for s in steps for up in s.files_from}
+            | {x.metric.split(".", 1)[0] for x in objectives + metrics})
+    unused = [s.step for s in steps if s.step not in used]
+    if unused:
+        raise ValueError(f"{where}[{', '.join(f'evaluate.{u}' for u in unused)}]: "
+                         f"nothing uses this step's output (no files_from, "
+                         f"objective or extra metric names it); drop the step "
+                         f"or add an extra metric from it")
+
+
 def load_study_file(path: Path) -> Study:
     """Parse and validate one schema-2 study file. Raises ValueError."""
     path = Path(path)
@@ -566,6 +580,7 @@ def load_study_file(path: Path) -> Study:
     metrics, columns = _extras(doc, step_names, objectives, derive["consts"],
                                context, where)
     _check_columns(knobs, objectives, metrics, columns, context, where)
+    _check_steps_used(steps, objectives, metrics, where)
     sha = hashlib.sha256(json.dumps(doc, sort_keys=True,
                                     separators=(",", ":")).encode()).hexdigest()
     return Study(path=path, name=_name(doc["name"], f"{where}[name]"),

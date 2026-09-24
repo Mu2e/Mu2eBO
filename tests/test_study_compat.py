@@ -102,6 +102,9 @@ class TestRefusals(unittest.TestCase):
     def test_objective_not_from_harvest_plugin(self):
         def m(d):
             d["objectives"][0]["metric"] = "mubeam.rate"
+            # keep the sob step used, or the loader refuses it first
+            next(s for s in d["evaluate"]
+                 if s["step"] == "flash")["files_from"].append("sob")
         self.assertIn("harvest plugin", self._load(m))
 
     def test_no_prodtools_steps(self):

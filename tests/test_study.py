@@ -417,6 +417,19 @@ class TestSteps(_Tmp):
         _step(doc, "mubeam")["params"] = {"x": "nope"}
         self.assertRejects(doc, "nope")
 
+    def test_step_nothing_uses_is_rejected(self):
+        doc = _doc()
+        doc["evaluate"].append(dict(_step(doc, "elebeam_flash"), step="digi"))
+        self.assertRejects(doc, "evaluate.digi", "nothing uses")
+
+    def test_an_extra_metric_makes_a_step_used(self):
+        doc = _doc()
+        doc["evaluate"].append(dict(_step(doc, "elebeam_flash"), step="digi"))
+        doc["extra_metrics"].append({"name": "digi_jobs",
+                                     "metric": "digi.njobs_ok", "fmt": "{:.0f}"})
+        self.assertEqual(self.load(doc).steps[-1].step,
+                         "digi")
+
     def test_files_from_bare_string_rejected(self):
         # Ported from the old loader tests (run.stages / presubmit_after as a
         # bare string): tuple("mubeam") would silently be its characters.
