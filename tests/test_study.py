@@ -1,9 +1,9 @@
-import copy
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import study as st  # noqa: E402
@@ -116,6 +116,214 @@ class TestTopLevel(_Tmp):
         with self.assertRaises(ValueError) as cm:
             st.load_study_file(p)
         self.assertIn("duplicate JSON key", str(cm.exception))
+
+
+def _doc_every_level():
+    """The demo fixture plus one extra metric, so every schema level the
+    loader parses has an object to break."""
+    doc = _doc()
+    doc["extra_metrics"] = [{"name": "aux", "metric": "sob.aux_value",
+                             "fmt": "{:.4e}"}]
+    return doc
+
+
+# (level, getter for the object at that level, its required keys, a needle
+# naming that level in the error's field path). `fixed` has no required
+# keys: every key is optional by declaration (kit_registry.KitDecl
+# fixed_keys), so only its unknown-key case applies; `fixed` itself missing
+# from a step is the step level's case. Kit settings are checked by
+# kit_registry.validate_study_settings, not study._obj, hence two entries.
+_LEVELS = (
+    ("top", lambda d: d, st._TOP, ""),
+    ("knob", lambda d: d["knobs"][0], st._KNOB, "[knobs[0]]"),
+    ("derive", lambda d: d["derive"], st._DERIVE, "[derive]"),
+    ("profile", lambda d: d["derive"]["profiles"]["a_p"], st._PROFILE,
+     "[derive.profiles.a_p]"),
+    ("geom", lambda d: d["geom"], st._GEOM, "[geom]"),
+    ("kits.prodtools", lambda d: d["kits"]["prodtools"],
+     tuple(kit_registry.KITS["prodtools"].study_keys), "[kits.prodtools]"),
+    ("kits.offline_preflight", lambda d: d["kits"]["offline_preflight"],
+     tuple(kit_registry.KITS["offline_preflight"].study_keys),
+     "[kits.offline_preflight]"),
+    ("preflight", lambda d: d["preflight"], st._PREFLIGHT, "[preflight]"),
+    ("step", lambda d: d["evaluate"][0], st._STEP, "[evaluate[0]]"),
+    ("fixed", lambda d: d["evaluate"][0]["fixed"], (),
+     "[evaluate[0]][fixed]"),
+    ("objective", lambda d: d["objectives"][0], st._OBJECTIVE,
+     "[objectives[0]]"),
+    ("constraint", lambda d: d["constraints"][0], ("name", "max", "k_sigma"),
+     "[constraints[0]]"),
+    ("extra_metric", lambda d: d["extra_metrics"][0], st._EXTRA_METRIC,
+     "[extra_metrics[0]]"),
+    ("extra_column", lambda d: d["extra_columns"][0], st._EXTRA_COLUMN,
+     "[extra_columns[0]]"),
+    ("leaderboard", lambda d: d["leaderboard"], st._LEADERBOARD,
+     "[leaderboard]"),
+)
+
+
+class TestEveryLevelRejectsUnknownAndMissingKeys(_Tmp):
+    """ADR-0002 at every schema level: a typo'd key and a dropped key are
+    load errors naming the file, the field path and the offending key.
+    Restores the per-level coverage the deleted tests/test_mode_json.py
+    had for the old loader."""
+
+    def _message(self, doc):
+        path = self.write(doc)
+        with self.assertRaises(ValueError) as cm:
+            st.load_study_file(path)
+        return str(path), str(cm.exception)
+
+    def test_the_every_level_doc_loads(self):
+        # Otherwise a rejection below could come from the base doc itself.
+        s = self.load(_doc_every_level())
+        self.assertEqual([m.name for m in s.extra_metrics], ["aux"])
+
+    def test_unknown_key_at_every_level(self):
+        for level, get, _keys, field in _LEVELS:
+            doc = _doc_every_level()
+            get(doc)["typo_key"] = 1
+            with self.subTest(level=level):
+                path, msg = self._message(doc)
+                self.assertIn("'typo_key'", msg)
+                self.assertIn("unknown", msg)
+                self.assertIn(path + field, msg)
+
+    def test_missing_key_at_every_level(self):
+        for level, get, keys, field in _LEVELS:
+            for key in keys:
+                doc = _doc_every_level()
+                del get(doc)[key]
+                with self.subTest(level=level, key=key):
+                    path, msg = self._message(doc)
+                    self.assertIn(f"'{key}'", msg)
+                    self.assertIn(path + field, msg)
+
+    def test_every_level_has_a_required_key_case(self):
+        # Guard against the table silently losing a level's keys.
+        empty = [lvl for lvl, _g, keys, _f in _LEVELS if not keys]
+        self.assertEqual(empty, ["fixed"])
+
+
+class TestArtifactExpansion(_Tmp):
+    """A kits setting '${ARTIFACT}/<rel>' expands to exactly
+    paths.artifact(rel): the local artifact root first, then the backing,
+    and -- artifact() is total -- the intended local path when neither has
+    the file (preflight/submit, not the loader, turn that into a failure).
+    Guards the local-vs-backing resolution behind the prodtarget
+    env-divergence incident class."""
+
+    REL = "autoresearch_muse/Code_helical_holeradii.tar.bz2"
+
+    def _expanded(self, rel):
+        doc = _doc()
+        doc["kits"]["prodtools"]["code_tarball"] = "${ARTIFACT}/" + rel
+        return self.load(doc).kits["prodtools"]["code_tarball"]
+
+    def test_equals_paths_artifact_for_a_real_looking_rel(self):
+        # Environment-independent: whatever this checkout's roots hold.
+        self.assertEqual(self._expanded(self.REL),
+                         str(st.paths.artifact(self.REL)))
+
+    def test_equals_paths_artifact_for_a_missing_rel(self):
+        rel = "no_such_dir_4f1c/Code_missing.tar.bz2"
+        got = self._expanded(rel)
+        self.assertEqual(got, str(st.paths.artifact(rel)))
+        self.assertEqual(got, str(st.paths.ARTIFACT_ROOT / rel))
+
+    def _roots(self):
+        local, backing = self.tmp / "local", self.tmp / "backing"
+        return local, backing, mock.patch.multiple(
+            st.paths, ARTIFACT_ROOT=local, BACKING=backing)
+
+    def _touch(self, root, rel):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("")
+
+    def test_local_file_wins(self):
+        local, backing, roots = self._roots()
+        self._touch(local, self.REL)
+        self._touch(backing, self.REL)
+        with roots:
+            got = self._expanded(self.REL)
+            self.assertEqual(got, str(st.paths.artifact(self.REL)))
+        self.assertEqual(got, str(local / self.REL))
+
+    def test_backing_fills_in(self):
+        local, backing, roots = self._roots()
+        self._touch(backing, self.REL)
+        with roots:
+            got = self._expanded(self.REL)
+            self.assertEqual(got, str(st.paths.artifact(self.REL)))
+        self.assertEqual(got, str(backing / self.REL))
+
+    def test_missing_everywhere_is_the_local_path(self):
+        local, _backing, roots = self._roots()
+        with roots:
+            got = self._expanded(self.REL)
+            self.assertEqual(got, str(st.paths.artifact(self.REL)))
+        self.assertEqual(got, str(local / self.REL))
+
+
+class TestLoaderEdgeCases(_Tmp):
+    """Values that used to escape the ADR-0002 messages: a non-string
+    params value (was a bare TypeError: unhashable) and the JSON literals
+    NaN/Infinity (every comparison with NaN is False, so "> 0" checks
+    passed them)."""
+
+    def test_step_params_value_must_be_a_string(self):
+        for bad in (["a"], {"k": "a"}, 3, None):
+            doc = _doc()
+            _step(doc, "mubeam")["params"] = {"radius": bad}
+            with self.subTest(value=bad):
+                path, msg = self._reject(doc)
+                self.assertIn(path + "[evaluate[0]][params.radius]", msg)
+                self.assertIn("must be a string", msg)
+
+    def test_preflight_params_value_must_be_a_string(self):
+        for bad in (["a"], 3, None):
+            doc = _doc()
+            doc["preflight"]["params"] = {"radius": bad}
+            with self.subTest(value=bad):
+                path, msg = self._reject(doc)
+                self.assertIn(path + "[preflight][params.radius]", msg)
+                self.assertIn("must be a string", msg)
+
+    def test_non_finite_numbers_rejected(self):
+        cases = (
+            ("[objectives[0]][noise]",
+             lambda d, v: d["objectives"][0].__setitem__("noise", v)),
+            ("[constraints[0]][k_sigma]",
+             lambda d, v: d["constraints"][0].__setitem__("k_sigma", v)),
+            ("[constraints[0]][max]",
+             lambda d, v: d["constraints"][0].__setitem__("max", v)),
+            ("[knobs[0]][min]",
+             lambda d, v: d["knobs"][0].__setitem__("min", v)),
+            ("[knobs[0]][max]",
+             lambda d, v: d["knobs"][0].__setitem__("max", v)),
+        )
+        for field, put in cases:
+            for bad in (float("nan"), float("inf"), float("-inf")):
+                doc = _doc()
+                put(doc, bad)
+                with self.subTest(field=field, value=bad):
+                    path, msg = self._reject(doc)
+                    self.assertIn(path + field, msg)
+                    self.assertIn("finite", msg)
+
+    def test_the_json_literals_reach_the_check(self):
+        # json.dumps writes NaN/Infinity literals and json.loads reads them
+        # back as floats: the case above is a real file, not a Python-only
+        # value.
+        doc = _doc()
+        doc["objectives"][0]["noise"] = float("nan")
+        self.assertIn('"noise": NaN', json.dumps(doc))
+
+    def _reject(self, doc):
+        path = self.write(doc)
+        with self.assertRaises(ValueError) as cm:
+            st.load_study_file(path)
+        return str(path), str(cm.exception)
 
 
 class TestKnobs(_Tmp):
@@ -410,6 +618,19 @@ class TestDirs(_Tmp):
         with self.assertRaises(ValueError) as cm:
             st.load_study_dirs(self.tmp / "main", str(self.tmp / "mine"))
         self.assertIn("defined twice", str(cm.exception))
+
+    def test_relative_study_path_entry_rejected(self):
+        # A relative entry resolves against each process's cwd, and
+        # campaign children run elsewhere: refused even if it exists here.
+        (self.tmp / "rel").mkdir()
+        for extra in ("rel", f"{self.tmp}:rel", "./rel"):
+            with self.subTest(extra=extra):
+                with self.assertRaises(ValueError) as cm:
+                    st.load_study_dirs(self.tmp, extra)
+                msg = str(cm.exception)
+                self.assertIn("AUTORESEARCH_STUDY_PATH", msg)
+                self.assertIn("absolute", msg)
+                self.assertIn(extra.split(":")[-1], msg)
 
     def test_missing_study_path_dir(self):
         with self.assertRaises(ValueError) as cm:

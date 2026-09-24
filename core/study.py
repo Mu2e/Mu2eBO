@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -210,9 +210,18 @@ def _name(v, where):
 
 
 def _number(v, where):
+    # json.loads accepts the literals NaN/Infinity, and every comparison
+    # against NaN is False: a NaN noise or bound would pass the "> 0" checks
+    # below and reach the GP as a silent garbage value.
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         raise ValueError(f"{where}: must be a number, got {v!r}")
-    return float(v)
+    try:
+        f = float(v)
+    except OverflowError:      # an int literal too large for a float
+        f = math.inf
+    if not math.isfinite(f):
+        raise ValueError(f"{where}: must be a finite number, got {v!r}")
+    return f
 
 
 def _expand(value, where):
@@ -337,6 +346,9 @@ def _steps(raw, has_geom, names, where):
         if not isinstance(params, dict):
             raise ValueError(f"{sw}[params]: must be an object")
         for pk, pv in params.items():
+            if not isinstance(pv, str):
+                raise ValueError(f"{sw}[params.{pk}]: must be a string naming "
+                                 f"a knob, const, expr or profile, got {pv!r}")
             if pv not in names:
                 raise ValueError(f"{sw}[params.{pk}]: {pv!r} is not a knob, "
                                  f"const, expr or profile name")
@@ -393,6 +405,10 @@ def _kits_and_preflight(doc, steps, has_geom, where):
                 raise ValueError(f"{pw}[files]: cannot provide {f!r}")
         if not isinstance(pre["params"], dict):
             raise ValueError(f"{pw}[params]: must be an object")
+        for pk, pv in pre["params"].items():
+            if not isinstance(pv, str):
+                raise ValueError(f"{pw}[params.{pk}]: must be a string, got "
+                                 f"{pv!r}")
         used.add(kit)
     kits = {}
     for kit, settings in kits_raw.items():
@@ -582,11 +598,18 @@ def load_study_file(path: Path) -> Study:
 
 def load_study_dirs(primary: Path, extra: Optional[str]) -> Dict[str, Study]:
     """Every *.json in `primary` (flat: archive/ stays unloaded) and in each
-    directory of the colon-separated `extra` ($AUTORESEARCH_STUDY_PATH)."""
+    directory of the colon-separated `extra` ($AUTORESEARCH_STUDY_PATH),
+    whose entries must be absolute paths."""
     dirs = [Path(primary)]
     for d in (extra or "").split(":"):
         if not d:
             continue
+        if not Path(d).is_absolute():
+            raise ValueError(f"AUTORESEARCH_STUDY_PATH entry {d!r} is a "
+                             f"relative path; every entry must be absolute "
+                             f"(a relative one resolves against each "
+                             f"process's working directory, and campaign "
+                             f"children do not share the operator's)")
         if not Path(d).is_dir():
             raise ValueError(f"AUTORESEARCH_STUDY_PATH names {d!r}, which is "
                              f"not a directory")
