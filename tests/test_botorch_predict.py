@@ -75,7 +75,8 @@ class TestLoadHistoryTensor(unittest.TestCase):
             self.assertEqual(tuple(Y.shape), (10, 1))
 
     def test_width_guard_systemexit_on_dim_mismatch(self):
-        wrong = [bo.Point(cfg="w", x=[1.0, 2.0, 3.0], sob=1.0, calo=1e-7)]
+        wrong = [bo.Point(cfg="w", x=[1.0, 2.0, 3.0],
+                          y={"sob": 1.0, "flash_edep": 1e-7})]
         with mock.patch.object(bo.MODES["foilsflash"], "load_history",
                                return_value=wrong):
             with self.assertRaises(SystemExit):

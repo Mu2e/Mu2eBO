@@ -103,7 +103,7 @@ class TestBoundsLockstep(unittest.TestCase):
     def test_leaderboard_row_roundtrips(self):
         # Leaderboard.append (core/leaderboard.py) writes the header + line;
         # Leaderboard.load must read exactly those columns back. This pins
-        # the KNOB_NAMES / header / metric_cols contract the 2026-07-12
+        # the KNOB_NAMES / header / value-column contract the 2026-07-12
         # driver collapse introduced: a renamed knob column silently broke
         # reading EXISTING rows (now a loud RowParseError/SchemaMismatch
         # instead of a swallowed KeyError -- see
@@ -117,27 +117,29 @@ class TestBoundsLockstep(unittest.TestCase):
         for name, mode in bo.MODES.items():
             # leaderboard_io() caches onto the shared bo.MODES[name]
             # singleton (same object across every test in this process);
-            # drop the cache afterward so a later test that patches
-            # modes.SPECS[name] and expects a fresh Leaderboard build
-            # (e.g. test_leaderboard_io_rejects_non4_metric_tail) doesn't
+            # drop the cache afterward so a later test that patches the
+            # registry and expects a fresh Leaderboard build doesn't
             # silently get this test's cached instance back instead.
             self.addCleanup(setattr, mode, "_lb_cache", None)
-            spec_lb = mode.leaderboard_io()
+            study = modes.STUDIES[name]
+            self.assertEqual(mode.leaderboard_io().header(),
+                             bo.Leaderboard.for_study(
+                                 study, path=mode.leaderboard,
+                                 archive_path=None).header(), name)
             x0 = []
             for d in mode.build_space():
                 if d.is_int:
                     x0.append(int(round((d.low + d.high) / 2)))
                 else:
                     x0.append((d.low + d.high) / 2.0)
-            p = bo.Point(cfg="RT01", x=x0, sob=3.21, calo=6.5e-7)
+            p = bo.Point(cfg="RT01", x=x0,
+                         y={study.objectives[0].name: 3.21,
+                            study.objectives[1].name: 6.5e-7})
             with tempfile.TemporaryDirectory() as td:
-                lb = bo.Leaderboard(
-                    path=Path(td) / f"leaderboard_bo_{name}.tsv", name=name,
-                    knob_names=spec_lb.knob_names,
-                    knob_fmts=spec_lb.knob_fmts,
-                    metric_cols=spec_lb.metric_cols,
+                lb = bo.Leaderboard.for_study(
+                    study, path=Path(td) / f"leaderboard_bo_{name}.tsv",
                     archive_path=None)
-                lb.append(p, alpha=1.0e5)
+                lb.append(p, {"alpha": 1.0e5})
                 [back] = lb.load()
             self.assertEqual(back.cfg, "RT01", name)
             self.assertEqual(len(back.x), len(x0), name)
@@ -205,25 +207,13 @@ class TestSchemaFields(unittest.TestCase):
             self.assertEqual(mode.KNOB_NAMES, modes.SPECS[name].knob_names)
             self.assertEqual(mode.KNOB_FMTS, modes.SPECS[name].knob_fmts)
 
-    def test_leaderboard_io_rejects_non4_metric_tail(self):
-        # format_row's own 4-column-tail guard moved to
-        # Leaderboard.__post_init__ (core/leaderboard.py) with Tasks 4-5;
-        # leaderboard_io() is what constructs one from modes.SPECS, so that's
-        # the seam a malformed metric_cols must fail loudly at now.
-        import dataclasses
-        import bo_driver as bo
-        mode = bo.MODES["foilsflash"]
-        self.addCleanup(setattr, mode, "_lb_cache", None)
-        bad = dataclasses.replace(modes.SPECS["foilsflash"],
-                                  metric_cols=("sob", "calo", "obj"))
-        with mock.patch.dict(modes.SPECS, {"foilsflash": bad}):
-            # Force a fresh Leaderboard build against the patched (bad)
-            # spec -- leaderboard_io() caches onto the shared bo.MODES
-            # singleton, so a valid instance left behind by an earlier test
-            # would otherwise be handed back unchecked.
-            mode._lb_cache = None
-            with self.assertRaises(ValueError):
-                mode.leaderboard_io()
+    # test_leaderboard_io_rejects_non4_metric_tail removed 2026-09-24
+    # (generic-study Task 6): a study's leaderboard columns are no longer a
+    # fixed four-column tail, so there is no length to reject. Column-name
+    # collisions are refused at study load
+    # (tests/test_study.py::TestKnobs::test_knob_name_collides_with_column)
+    # and the study-derived header/format is pinned by
+    # tests/test_leaderboard.py::TestGenericRows.
 
 
 class TestGeomField(unittest.TestCase):

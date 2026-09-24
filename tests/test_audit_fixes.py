@@ -144,13 +144,13 @@ class TestRemovePendingBeforeAppend(unittest.TestCase):
             def parse_geom(self, _t): return [0.0]
             def remove_pending(self, _n):
                 calls.append("remove_pending"); return False
-            def append_history(self, _p, _a):
+            def append_history(self, _p, _context):
                 calls.append("append_history")
 
         # Mirror the cmd_evaluate ordering exactly.
         m = FakeMode()
         removed = m.remove_pending("cfg")
-        m.append_history(object(), 1.0)
+        m.append_history(object(), {"alpha": 1.0})
         self.assertEqual(calls, ["remove_pending", "append_history"])
 
 

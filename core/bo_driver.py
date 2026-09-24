@@ -99,8 +99,9 @@ class JsonMode:
             f"evaluate. Re-running evaluate for an already-recorded config "
             f"hits this. Refusing to append a row rather than guess x.")
 
-    # Row shape (KNOB_NAMES/KNOB_FMTS/metric_cols) reads modes.SPECS, the
-    # single source (ADR-0002 extension) -- no class-attr overrides.
+    # KNOB_NAMES/KNOB_FMTS read modes.SPECS, the single source (ADR-0002
+    # extension) -- no class-attr overrides. The leaderboard row shape
+    # comes from modes.STUDIES via leaderboard_io().
     @property
     def KNOB_NAMES(self) -> tuple:
         return _modes.SPECS[self.name].knob_names
@@ -138,20 +139,17 @@ class JsonMode:
         # the object-cache layer.
         archive = getattr(self, "leaderboard_archive", None)
         if lb is None or lb.path != self.leaderboard or lb.archive_path != archive:
-            spec = _modes.SPECS[self.name]
-            lb = Leaderboard(path=self.leaderboard, name=self.name,
-                             knob_names=tuple(spec.knob_names),
-                             knob_fmts=tuple(spec.knob_fmts),
-                             metric_cols=tuple(spec.metric_cols),
-                             archive_path=archive)
+            lb = Leaderboard.for_study(_modes.STUDIES[self.name],
+                                       path=self.leaderboard,
+                                       archive_path=archive)
             self._lb_cache = lb
         return lb
 
     def load_history(self) -> list[Point]:
         return self.leaderboard_io().load()
 
-    def append_history(self, p: Point, alpha: float):
-        self.leaderboard_io().append(p, alpha)
+    def append_history(self, p: Point, context: dict):
+        self.leaderboard_io().append(p, context)
 
     def pending_path(self) -> Path:
         return self.leaderboard_io().pending_path()
@@ -366,23 +364,27 @@ def cmd_evaluate(args):
     # Returns a list or raises; there has been no parse-failure path since
     # the geometry round-trip went away with the Python modes.
     x = mode.x_for_evaluate(args.config_name)
-    p = Point(cfg=args.config_name, x=x, sob=float(sob), calo=float(calo))
+    study = _modes.STUDIES[mode.name]
+    p = Point(cfg=args.config_name, x=x,
+              y={study.objectives[0].name: float(sob),
+                 study.objectives[1].name: float(calo)})
     # Clear pending BEFORE appending: a crash in between leaves "missing
     # leaderboard row" (loud, re-runnable) rather than a silent phantom
     # pending row that trips propose_one's collision guard.
     removed = mode.remove_pending(args.config_name)
-    mode.append_history(p, args.alpha)
+    mode.append_history(p, {"alpha": args.alpha})
+    obj = float(sob) - args.alpha * float(calo)   # removed in Task 8
     if getattr(args, "emit_json", None):
         write_json_atomic(Path(args.emit_json), {
             "config": p.cfg,
-            "obj": p.obj(args.alpha),
-            "sob": p.sob,
-            "calo_or_flash": p.calo,
+            "obj": obj,
+            "sob": float(sob),
+            "calo_or_flash": float(calo),
             "row_appended": True,
         })
     pend_tag = "  (cleared from pending)" if removed else ""
-    print(f"[{mode.name}] recorded {p.cfg}: sob={p.sob:.3f} calo={p.calo:.3e} "
-          f"obj={p.obj(args.alpha):+.3f}  →  {mode.leaderboard}{pend_tag}")
+    print(f"[{mode.name}] recorded {p.cfg}: sob={float(sob):.3f} "
+          f"calo={float(calo):.3e} obj={obj:+.3f}  →  {mode.leaderboard}{pend_tag}")
     return 0
 
 

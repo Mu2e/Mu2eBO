@@ -27,6 +27,7 @@ import modes  # noqa: E402
 import bo_driver  # noqa: E402
 from bo_driver import JsonMode  # noqa: E402
 from study_compat import load_modespec as load_mode_file  # noqa: E402
+from study import load_study_file  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
 
@@ -159,10 +160,15 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="jsonmode_eval_"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
         # Unique name: the probe is registered into the process-global
-        # modes.SPECS / bo_driver.MODES, and tests/test_modes.py asserts
-        # those two keysets are equal -- so both registrations are undone by
-        # addCleanup even if this setUp raises partway through.
+        # modes.STUDIES / modes.SPECS / bo_driver.MODES, and
+        # tests/test_modes.py asserts the SPECS and MODES keysets are equal
+        # -- so every registration is undone by addCleanup even if this
+        # setUp raises partway through. STUDIES is where leaderboard_io()
+        # takes the row shape from.
         self.name = "evalprobe" + uuid.uuid4().hex[:8]
+        study = dataclasses.replace(load_study_file(FIXTURE), name=self.name)
+        modes.STUDIES[self.name] = study
+        self.addCleanup(modes.STUDIES.pop, self.name, None)
         spec = dataclasses.replace(load_mode_file(FIXTURE), name=self.name)
         modes.SPECS[self.name] = spec
         self.addCleanup(modes.SPECS.pop, self.name, None)

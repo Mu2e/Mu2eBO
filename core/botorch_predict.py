@@ -51,17 +51,18 @@ def load_history_tensor(mode: str, sob_only: bool = False):
 
     X_rows = []
     Y_rows = []
+    sob_col, calo_col = spec.metric_cols[0], spec.metric_cols[1]
     for p in seeds:
         if sob_only:
-            if p.sob is None or not math.isfinite(p.sob):
+            if p.y[sob_col] is None or not math.isfinite(p.y[sob_col]):
                 continue
             X_rows.append([float(v) for v in p.x])
-            Y_rows.append([p.sob])
+            Y_rows.append([p.y[sob_col]])
         else:
-            if p.calo <= 0:
+            if p.y[calo_col] <= 0:
                 continue  # log10 undefined (broken harvest)
             X_rows.append([float(v) for v in p.x])
-            Y_rows.append([p.sob, -math.log10(p.calo)])
+            Y_rows.append([p.y[sob_col], -math.log10(p.y[calo_col])])
     lo = torch.tensor(list(spec.bounds_lo), device=DEVICE)
     hi = torch.tensor(list(spec.bounds_hi), device=DEVICE)
     bounds = torch.stack([lo, hi], dim=0)

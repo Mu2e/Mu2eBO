@@ -32,15 +32,17 @@ def _board_summary(name: str, spec: "_modes.ModeSpec") -> dict:
     board -- load_history_tensor keeps only X/Y.
     """
     pts = bo.MODES[name].load_history()
-    finite = [p for p in pts if p.sob is not None and math.isfinite(p.sob)]
+    finite = [p for p in pts
+              if p.y["sob"] is not None and math.isfinite(p.y["sob"])]
     if not finite:
         return {}
-    best = max(finite, key=lambda p: p.sob)
+    best = max(finite, key=lambda p: p.y["sob"])
     return {
         "best_sob": {"config": best.cfg, "x": list(best.x),
-                     "sob": best.sob, spec.metric_cols[1]: best.calo},
-        "sob_range": [min(p.sob for p in finite),
-                      max(p.sob for p in finite)],
+                     "sob": best.y["sob"],
+                     spec.metric_cols[1]: best.y[spec.metric_cols[1]]},
+        "sob_range": [min(p.y["sob"] for p in finite),
+                      max(p.y["sob"] for p in finite)],
     }
 
 
