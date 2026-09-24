@@ -171,7 +171,8 @@ class TestDryRun(unittest.TestCase):
         picks = [(float(i),) * n for i in range(2)]
         rc, m, out = self._run(self._args(), picks)
         self.assertEqual(rc, 0)
-        self.assertEqual(m.call_args.kwargs.get("picker"), cl.DEFAULT_PICKER)
+        self.assertEqual(m.call_args.kwargs.get("picker"),
+                         cl._modes.DEFAULT_PICKER)
         self.assertEqual(m.call_args.kwargs.get("round_idx"), 0)
         self.assertEqual(m.call_args.args[0], "foilspf")
 

@@ -17,13 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
-# Imported for its IMPORT-TIME side effects only -- there is no `_pipeline.`
-# call left in this module, and the verbs below shell PIPELINE_DRIVER as a
-# subprocess. Keeping it makes the graph PARENT fail loudly at startup on an
-# unknown mode (pipeline.py:97 MUSE_BASE_TARBALL is a KeyError, see
-# wiki/incidents/foilsflash-tarball-mode-key-omission.md) instead of at the
-# first submit, hours later, inside a child.
-import pipeline as _pipeline  # noqa: E402,F401
 import prodtools_exec as _prodtools_exec  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from runtime import (  # noqa: E402
@@ -43,7 +36,7 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     x_override forces that x but still writes the pending row so concurrent
     proposals see it in-flight; seed_idx varies the picker seed so a
     re-propose after preflight failure draws a fresh point. Returns
-    (x_point, geom_path); ValueError on a name collision."""
+    x_point; ValueError on a name collision."""
     mode = bo.MODES[mode_name]
 
     pending = mode.load_pending()
@@ -66,7 +59,7 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     mode.append_pending(config_name, x, alpha)
     # Coerce numpy scalars for JSON + TSVs (originally for the retired
     # SqliteSaver, wiki/incidents/langgraph-checkpoint-numpy-int64.md).
-    return bo.to_py_scalars(x), str(geom_path)
+    return bo.to_py_scalars(x)
 
 
 def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_TIMEOUT_S) -> tuple[str, str]:

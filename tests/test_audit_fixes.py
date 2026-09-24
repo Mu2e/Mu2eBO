@@ -219,7 +219,7 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
                                   "x_override": x_override,
                                   "seed_idx": seed_idx})
             # side_effect is a list of either Exception instances or
-            # (x, geom_path) tuples, consumed in order.
+            # x-point lists, consumed in order.
             outcome = propose_one_side_effect.pop(0)
             if isinstance(outcome, Exception):
                 raise outcome
@@ -261,7 +261,7 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
         }
         side_effect = [
             ValueError("config name foilsX06R02_08 already in leaderboard or pending"),
-            ([1.0, 2.0, 3.0, 4.0, 5.0], "/tmp/geom.txt"),
+            [1.0, 2.0, 3.0, 4.0, 5.0],
         ]
         result, propose_calls, next_name_calls = self._run_propose(
             nodes_mod, state, side_effect, remove_calls,
@@ -290,7 +290,7 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
             "x_point": None,
             "attempts": {"propose": 0},
         }
-        side_effect = [([1.0, 2.0, 3.0, 4.0, 5.0], "/tmp/geom.txt")]
+        side_effect = [[1.0, 2.0, 3.0, 4.0, 5.0]]
         result, propose_calls, next_name_calls = self._run_propose(
             nodes_mod, state, side_effect, remove_calls,
         )
@@ -317,7 +317,7 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
         }
         side_effect = [
             ValueError("config name foilsX06R02_08 already in leaderboard or pending"),
-            (forced_x, "/tmp/geom.txt"),
+            forced_x,
         ]
         result, propose_calls, next_name_calls = self._run_propose(
             nodes_mod, state, side_effect, remove_calls,
@@ -344,7 +344,7 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
         }
         side_effect = [
             ValueError("config name graph002 already in leaderboard or pending"),
-            ([1.0, 2.0, 3.0, 4.0, 5.0], "/tmp/geom.txt"),
+            [1.0, 2.0, 3.0, 4.0, 5.0],
         ]
         # First next_config_name call seeds the initial name; second is the
         # collision fork. Patch with a counter.
@@ -398,7 +398,7 @@ class TestProposeReentryPreservesCallerName(unittest.TestCase):
         }
         side_effect = [
             ValueError("config name foilsX06R02_08 already in leaderboard or pending"),
-            ([1.0, 2.0, 3.0, 4.0, 5.0], "/tmp/geom.txt"),
+            [1.0, 2.0, 3.0, 4.0, 5.0],
         ]
         result, _, _ = self._run_propose(
             nodes_mod, state, side_effect, remove_calls,

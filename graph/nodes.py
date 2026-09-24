@@ -64,20 +64,20 @@ def node_propose(state: BOIterationState) -> dict:
     seed_idx = state.get("attempts", {}).get("propose", 0)
 
     try:
-        x, _ = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
-                                  seed_idx=seed_idx)
+        x = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
+                            seed_idx=seed_idx)
     except ValueError:
         if caller_pinned:
             # Re-entry under a pinned name: the ValueError is our own prior
             # pending row. Retry under the SAME name -- renaming would break
             # the --name-prefix contract and trip run.py's swap guard.
             bo.MODES[mode].remove_pending(name)
-            x, _ = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
-                                      seed_idx=seed_idx)
+            x = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
+                                seed_idx=seed_idx)
         else:
             retry_name = pio.next_config_name(mode)
-            x, _ = pio.propose_one(mode, retry_name, alpha=alpha,
-                                      x_override=forced, seed_idx=seed_idx)
+            x = pio.propose_one(mode, retry_name, alpha=alpha,
+                                x_override=forced, seed_idx=seed_idx)
             name = retry_name
 
     return {
