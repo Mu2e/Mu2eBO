@@ -2,8 +2,8 @@
 """Golden parity harness (manually run; NOT part of unittest discover).
 
 Usage:
-    PYTHONPATH= .venv/bin/python tests/golden_parity.py capture [a b c]
-    PYTHONPATH= .venv/bin/python tests/golden_parity.py check   [a b c]
+    PYTHONPATH= .venv/bin/python tests/golden_parity.py capture [a b c d e]
+    PYTHONPATH= .venv/bin/python tests/golden_parity.py check   [a b c d e]
 
 (a) per-mode leaderboard round-trip: parse -> core/leaderboard.py's
     Leaderboard formatter over BOTH boards the archive/live split created
@@ -30,6 +30,15 @@ Usage:
     (real G4, ~2 min) for a completed config of the live line (C_MODE). Baseline = rc,
     obj, appended line, verdict line — and, once Phase 2 lands, the
     emitted JSON payloads (re-capture then).
+(d) spec dump: every live ModeSpec field (all but `geom`) plus sha256 of
+    `geom.render()` at 3 sample points per mode. Pins the schema-2
+    conversion target: the Phase-A pipeline view must rebuild today's
+    ModeSpec exactly.
+(e) ask-input fingerprint: sha256 of the exact arguments compute_explore_
+    picks hands to surrokit.ask, per picker (budget_sob/qnehvi/qlnei), on
+    the frozen foilsflash board. Pick OUTPUTS are not bit-reproducible run
+    to run (wiki/incidents/hybrid-picker-scipy-abnormal-retry-
+    nondeterminism.md); identical INPUTS are what Phase A must preserve.
 Never writes to leaderboards/ — evaluate replays into a tmp copy.
 """
 import contextlib
@@ -54,6 +63,85 @@ FROZEN_LB = GOLDENS / "leaderboard_bo_foilsflash.frozen.tsv"
 B_BASE = GOLDENS / "history_tensor_fingerprint.json"
 A_BASE = GOLDENS / "parity_a_baseline.json"
 C_BASE = GOLDENS / "seam_replay_baseline.json"
+D_BASE = GOLDENS / "spec_dump_baseline.json"
+E_BASE = GOLDENS / "ask_inputs_baseline.json"
+
+# Every ModeSpec field except `geom` (pinned through rendered text below).
+_SPEC_FIELDS = (
+    "name", "musing", "grid_tarball", "grid_stages", "stage_target_overrides",
+    "presubmit_after", "stage_tuning", "bounds_lo", "bounds_hi", "int_dims",
+    "dumps_gdml", "verifies_foil_gdml", "checks_managed_overlap",
+    "require_zero_overlaps", "knob_names", "knob_fmts", "metric_cols",
+    "obs_noise", "metrics", "leaderboard_rel")
+
+
+def _jsonable(v):
+    if isinstance(v, tuple):
+        return [_jsonable(e) for e in v]
+    if isinstance(v, dict):
+        return {k: _jsonable(e) for k, e in sorted(v.items())}
+    return v
+
+
+def _sample_points(spec):
+    lo, hi = spec.bounds_lo, spec.bounds_hi
+    return {"lo": list(lo),
+            "mid": [(a + b) / 2 for a, b in zip(lo, hi)],
+            "q30": [a + 0.3 * (b - a) for a, b in zip(lo, hi)]}
+
+
+def section_d():
+    """Every live ModeSpec, field by field, plus sha256 of geom.render at 3
+    points. Pins the schema-2 conversion: the Phase-A pipeline view must
+    rebuild today's ModeSpec exactly."""
+    import modes
+    out = {}
+    for name in sorted(modes.SPECS):
+        spec = modes.SPECS[name]
+        rec = {f: _jsonable(getattr(spec, f)) for f in _SPEC_FIELDS}
+        rec["geom_sha"] = {
+            k: hashlib.sha256(spec.geom.render(x).encode()).hexdigest()
+            for k, x in _sample_points(spec).items()}
+        out[name] = rec
+    return out
+
+
+def section_e():
+    """sha256 of the exact arguments compute_explore_picks hands to
+    surrokit.ask, per picker, on the frozen foilsflash board. Pick OUTPUTS
+    are not bit-reproducible run to run (wiki/incidents/hybrid-picker-scipy-
+    abnormal-retry-nondeterminism.md); identical INPUTS are what Phase A must
+    preserve."""
+    import botorch_predict as bp
+    mode = bo.MODES["foilsflash"]
+    spec_lo = list(bp._modes.SPECS["foilsflash"].bounds_lo)
+    spec_hi = list(bp._modes.SPECS["foilsflash"].bounds_hi)
+    pending = [[(a + b) / 2 for a, b in zip(spec_lo, spec_hi)]]
+    captured = {}
+
+    def fake_ask(problem, X, Y, **kw):
+        captured["args"] = {"problem": repr(problem), "X": X, "Y": Y,
+                            **{k: kw[k] for k in sorted(kw)}}
+        return [list(problem.bounds_lo)] * kw["q"]
+
+    orig_ask = bp.surrokit.ask
+    orig, orig_arch = mode.leaderboard, mode.leaderboard_archive
+    mode.leaderboard, mode.leaderboard_archive = FROZEN_LB, None
+    out = {}
+    try:
+        bp.surrokit.ask = fake_ask
+        for picker in ("budget_sob", "qnehvi", "qlnei"):
+            bp.compute_explore_picks("foilsflash", q=2, round_idx=3,
+                                     picker=picker, x_pending=pending)
+            blob = json.dumps(captured["args"], sort_keys=True, default=repr)
+            out[picker] = {"sha": hashlib.sha256(blob.encode()).hexdigest(),
+                           "problem": captured["args"]["problem"],
+                           "n_rows": len(captured["args"]["X"])}
+    finally:
+        bp.surrokit.ask = orig_ask
+        mode.leaderboard, mode.leaderboard_archive = orig, orig_arch
+    return out
+
 
 # Section (c) replays the LIVE line, not the retired one. foilsflash cannot be
 # used: 461 of its 464 stored geoms carry the real TT_MidInner->DS2Vacuum
@@ -251,7 +339,7 @@ def section_c():
 
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else "check"
-    sections = sys.argv[2:] or ["a", "b", "c"]
+    sections = sys.argv[2:] or ["a", "b", "c", "d", "e"]
     GOLDENS.mkdir(exist_ok=True)
     fails = 0
     if "a" in sections:
@@ -300,6 +388,24 @@ def main():
                 print(f"    baseline={json.dumps(base, indent=2)}\n"
                       f"    current ={json.dumps(cur, indent=2)}")
                 fails += 1
+    for key, fn, base_path in (("d", section_d, D_BASE),
+                               ("e", section_e, E_BASE)):
+        if key not in sections:
+            continue
+        cur = fn()
+        if action == "capture":
+            base_path.write_text(json.dumps(cur, indent=2, sort_keys=True))
+            print(f"[{key}] captured -> {base_path}")
+            continue
+        base = json.loads(base_path.read_text())
+        ok = cur == base
+        print(f"[{key}] parity: {'OK' if ok else 'MISMATCH'}")
+        if not ok:
+            for k in sorted(set(base) | set(cur)):
+                if base.get(k) != cur.get(k):
+                    print(f"    {k}: baseline={json.dumps(base.get(k))[:400]}\n"
+                          f"         current ={json.dumps(cur.get(k))[:400]}")
+            fails += 1
     sys.exit(1 if fails else 0)
 
 
