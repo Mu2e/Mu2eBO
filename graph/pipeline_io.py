@@ -302,7 +302,7 @@ def scan_worker_logs(config_name: str) -> tuple[dict[str, dict[str, int]], Path,
 def run_evaluate(mode_name: str, config_name: str, metrics: dict,
                  alpha: float = DEFAULT_ALPHA) -> tuple[float | None, str]:
     """Run the driver's evaluate verb on a tmp summary.json; read the
-    objective from the typed result JSON.
+    objective (the study's primary objective) from the typed result JSON.
 
     rc != 0 => driver refused, nothing appended => (None, tail) (a zero_row).
     rc == 0 with missing/unparseable JSON is a HARD error: a run that cannot
@@ -328,7 +328,7 @@ def run_evaluate(mode_name: str, config_name: str, metrics: dict,
     if proc.returncode != 0:
         return None, tail
     try:
-        return float(json.loads(result_path.read_text())["obj"]), tail
+        return float(json.loads(result_path.read_text())["primary"]), tail
     except (FileNotFoundError, json.JSONDecodeError, KeyError,
             TypeError, ValueError) as e:
         raise RuntimeError(

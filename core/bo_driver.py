@@ -163,46 +163,19 @@ class JsonMode:
     def remove_pending(self, name: str) -> bool:
         return self.leaderboard_io().pending_remove(name)
 
-    @staticmethod
-    def _resolve_metric(summary: dict, keys) -> tuple:
-        """First candidate key that is present AND non-null wins.
-        Returns (value, key), or (None, None) when none resolves."""
-        for key in keys:
-            if summary.get(key) is not None:
-                return float(summary[key]), key
-        return None, None
+    def extract_metrics(self, summary: dict) -> dict:
+        """summary.json -> {objective/extra-metric name: value or None}.
 
-    def extract_metrics(self, summary: dict) -> tuple[float, float | None]:
-        """Map summary.json onto (sob, second objective).
-
-        UNRESOLVED and RESOLVED-TO-ZERO are deliberately different:
-        unresolved returns None and cmd_evaluate refuses the row with rc=1
-        (raising here made every child of a second-objective-less launch
-        fail after full wall-clock);
-        resolved to zero/negative from a REAL key is refused outright -- a
-        fake zero row at good sob dominates the whole Pareto front at the
-        next GP refit (7 poison rows landed that way 2026-07-10). A missing
-        sob raises KeyError (rc=1); nothing to substitute there.
-        """
-        spec = _modes.SPECS[self.name]
-        sob_col, second_col = spec.metric_cols[0], spec.metric_cols[1]
-        sob, _sob_key = self._resolve_metric(summary, spec.metrics[sob_col])
-        if sob is None:
-            raise KeyError(
-                f"{self.name}: summary.json has none of "
-                f"{list(spec.metrics[sob_col])} for column {sob_col!r}")
-        second, second_key = self._resolve_metric(
-            summary, spec.metrics[second_col])
-        if second is None:
-            return sob, None
-        if second <= 0:
-            raise SystemExit(
-                f"[{self.name}] second-objective column {second_col!r} "
-                f"resolved to {second!r} from summary.json key "
-                f"{second_key!r} -- refusing to append a row; a "
-                f"zero/negative second metric would dominate the Pareto "
-                f"front at the next GP refit")
-        return sob, second
+        Phase A: summary.json is still one flat harvest file, so a metric
+        'step.key' resolves by its key. No fallback between keys: two keys
+        are two different quantities (per-POT vs per-event flash differ by
+        units)."""
+        study = _modes.STUDIES[self.name]
+        out = {}
+        for item in (*study.objectives, *study.extra_metrics):
+            v = summary.get(item.key)
+            out[item.name] = None if v is None else float(v)
+        return out
 
 
 MODES: dict[str, JsonMode] = {}
@@ -341,50 +314,48 @@ def _cmd_propose_locked(args, mode, names):
 
 def cmd_evaluate(args):
     mode = MODES[args.mode]
+    study = _modes.STUDIES[mode.name]
     summary = json.loads(Path(args.summary).read_text())
-    try:
-        sob, calo = mode.extract_metrics(summary)
-    except (KeyError, TypeError) as e:
-        print(f"summary.json missing metric for {mode.name}: {e}; got {summary}")
+    values = mode.extract_metrics(summary)
+    # A missing value is NEVER coerced to a number: a fake zero row dominates
+    # the whole Pareto front at the next GP refit
+    # (wiki/incidents/no-run1b-substitution-poisons-flash-modes.md).
+    missing = [n for n, v in values.items() if v is None]
+    if missing:
+        print(f"[{mode.name}] summary.json has no value for {missing} "
+              f"({[i.metric for i in (*study.objectives, *study.extra_metrics) if i.name in missing]}) "
+              f"— refusing to append a row; recover the failed stage first.")
         return 1
-    # A missing second objective is NEVER coerced to a number. Every stage
-    # in every mode chain produces a real second objective, so None means
-    # its producing stage fail-softed; writing 0.0 would land a fake
-    # zero-flash row that dominates the whole Pareto front at the next GP
-    # refit (the 7-poison-row incident, 2026-07-10;
-    # wiki/incidents/no-run1b-substitution-poisons-flash-modes.md).
-    if sob is None or calo is None:
-        print(f"[{mode.name}] summary.json metric is None ({summary}) — "
-              f"refusing to append a row; recover the failed stage first.")
-        return 1
+    for o in study.objectives:
+        if o.transform == "log10" and values[o.name] <= 0:
+            raise SystemExit(
+                f"[{mode.name}] objective {o.name!r} resolved to "
+                f"{values[o.name]!r} from summary.json key {o.key!r} -- "
+                f"refusing to append a row; a zero/negative log10 objective "
+                f"would dominate the Pareto front at the next GP refit")
     geom = mode.proposal_dir / f"{args.config_name}_geom.txt"
     if not geom.exists():
         print(f"Proposal geom not found: {geom}", file=sys.stderr)
         return 1
-    # Returns a list or raises; there has been no parse-failure path since
-    # the geometry round-trip went away with the Python modes.
     x = mode.x_for_evaluate(args.config_name)
-    study = _modes.STUDIES[mode.name]
-    p = Point(cfg=args.config_name, x=x,
-              y={study.objectives[0].name: float(sob),
-                 study.objectives[1].name: float(calo)})
+    p = Point(cfg=args.config_name, x=x, y=values)
     # Clear pending BEFORE appending: a crash in between leaves "missing
     # leaderboard row" (loud, re-runnable) rather than a silent phantom
     # pending row that trips propose_one's collision guard.
     removed = mode.remove_pending(args.config_name)
     mode.append_history(p, {"alpha": args.alpha})
-    obj = float(sob) - args.alpha * float(calo)   # removed in Task 8
+    primary = study.objectives[0].name
     if getattr(args, "emit_json", None):
         write_json_atomic(Path(args.emit_json), {
             "config": p.cfg,
-            "obj": obj,
-            "sob": float(sob),
-            "calo_or_flash": float(calo),
+            "primary": values[primary],
+            "objectives": {o.name: values[o.name] for o in study.objectives},
             "row_appended": True,
         })
     pend_tag = "  (cleared from pending)" if removed else ""
-    print(f"[{mode.name}] recorded {p.cfg}: sob={float(sob):.3f} "
-          f"calo={float(calo):.3e} obj={obj:+.3f}  →  {mode.leaderboard}{pend_tag}")
+    shown = ", ".join(f"{o.name}={values[o.name]:.4g}" for o in study.objectives)
+    print(f"[{mode.name}] recorded {p.cfg}: {shown}  →  "
+          f"{mode.leaderboard}{pend_tag}")
     return 0
 
 

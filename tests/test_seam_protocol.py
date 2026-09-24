@@ -142,7 +142,10 @@ class TestCmdEvaluateEmit(unittest.TestCase):
                 payload = json.loads(out.read_text())
                 self.assertEqual(payload["config"], "cfgE")
                 self.assertTrue(payload["row_appended"])
-                self.assertAlmostEqual(payload["sob"], 3.5)
+                # primary = the study's first objective (sob for foilsflash).
+                self.assertAlmostEqual(payload["primary"], 3.5)
+                self.assertAlmostEqual(payload["objectives"]["sob"], 3.5)
+                self.assertAlmostEqual(payload["objectives"]["flash_edep"], 1e-6)
 
     def test_refusal_emits_nothing(self):
         """Flash edep missing → no row, no emit. Since foilsflash became
@@ -229,11 +232,12 @@ class TestRunEvaluateReadsJson(unittest.TestCase):
             return pio.run_evaluate("foilsflash", "cfgX",
                                     {"s_over_sqrt_b": 1.0})
 
-    def test_obj_comes_from_json(self):
+    def test_primary_comes_from_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             obj, _ = self._call(tmp, _fake_eval_run(
-                {"config": "cfgX", "obj": 1.234, "sob": 1.2,
-                 "calo_or_flash": 1e-6, "row_appended": True}, rc=0))
+                {"config": "cfgX", "primary": 1.234,
+                 "objectives": {"sob": 1.234, "flash_edep": 1e-6},
+                 "row_appended": True}, rc=0))
             self.assertEqual(obj, 1.234)
 
     def test_rc_nonzero_returns_none_unchanged_contract(self):
@@ -254,8 +258,9 @@ class TestSeamStaleAndFallback(unittest.TestCase):
         # and the stale obj must NOT be returned.
         with tempfile.TemporaryDirectory() as tmp:
             stale = Path(tmp) / "cfgX" / "state" / "evaluate_result.json"
-            bo.write_json_atomic(stale, {"config": "cfgX", "obj": 9.9,
-                                         "sob": 9.9, "calo_or_flash": 1e-9,
+            bo.write_json_atomic(stale, {"config": "cfgX", "primary": 9.9,
+                                         "objectives": {"sob": 9.9,
+                                                        "flash_edep": 1e-9},
                                          "row_appended": True})
             with mock.patch.object(pio, "GRID_DATA_ROOT", Path(tmp)), \
                  mock.patch.object(pio.subprocess, "run",

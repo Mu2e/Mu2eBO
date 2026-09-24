@@ -28,8 +28,8 @@ Usage:
     (X, Y, bounds, int_dims) assembly.
 (c) seam replay: evaluate (in-process, tmp leaderboard copy) + preflight
     (real G4, ~2 min) for a completed config of the live line (C_MODE). Baseline = rc,
-    obj, appended line, verdict line — and, once Phase 2 lands, the
-    emitted JSON payloads (re-capture then).
+    primary (the study's primary objective, from the typed JSON payload),
+    appended line, verdict line, and the emitted JSON payload itself.
 (d) spec dump: every live ModeSpec field (all but `geom`) plus sha256 of
     `geom.render()` at 3 sample points per mode. Pins the schema-2
     conversion target: the Phase-A pipeline view must rebuild today's
@@ -45,7 +45,6 @@ import contextlib
 import hashlib
 import io
 import json
-import re
 import shutil
 import sys
 import tempfile
@@ -351,14 +350,19 @@ def section_c():
                                emit_json=str(tmp / "evaluate_result.json"))
         with contextlib.redirect_stdout(buf):
             rc = bo.cmd_evaluate(args)
-        m = re.search(r"obj=([+-]?\d+\.\d+)", buf.getvalue())
+        ej = getattr(args, "emit_json", None)
+        ej_payload = (json.loads(Path(ej).read_text())
+                     if ej and Path(ej).exists() else None)
+        # Task 8: cmd_evaluate's stdout line no longer prints a scalarized
+        # "obj=...": the primary objective is read from the typed JSON
+        # payload instead (also what graph/pipeline_io.run_evaluate reads).
         result["evaluate"] = {
-            "rc": rc, "obj": m.group(1) if m else None,
+            "rc": rc,
+            "primary": ej_payload["primary"] if ej_payload else None,
             "appended_line": lb_copy.read_text().splitlines()[-1],
         }
-        ej = getattr(args, "emit_json", None)
-        if ej and Path(ej).exists():
-            result["evaluate"]["json"] = json.loads(Path(ej).read_text())
+        if ej_payload is not None:
+            result["evaluate"]["json"] = ej_payload
     finally:
         mode.leaderboard = orig
         mode.leaderboard_archive = orig_arch

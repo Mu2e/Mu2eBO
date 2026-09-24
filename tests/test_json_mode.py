@@ -44,6 +44,11 @@ class TestJsonMode(unittest.TestCase):
         cls.spec = dataclasses.replace(load_mode_file(FIXTURE), name="demoflash")
         modes.SPECS["demoflash"] = cls.spec
         cls.addClassCleanup(modes.SPECS.pop, "demoflash", None)
+        # extract_metrics reads _modes.STUDIES (Task 8: objectives/
+        # extra_metrics come from the Study, not the ModeSpec).
+        cls.study = dataclasses.replace(load_study_file(FIXTURE), name="demoflash")
+        modes.STUDIES["demoflash"] = cls.study
+        cls.addClassCleanup(modes.STUDIES.pop, "demoflash", None)
         cls.mode = JsonMode("demoflash")
 
     def test_knob_names_and_space_come_from_the_spec(self):
@@ -66,6 +71,15 @@ class TestJsonMode(unittest.TestCase):
     # stub), now that no Python mode needs the round-trip default. See
     # docs/superpowers/specs/2026-08-08-leaderboard-module-design.md.
 
+    def test_extract_metrics_values_by_name(self):
+        """Task 8: extract_metrics returns {objective/extra-metric name:
+        value}, read by the study's Objective.key -- no positional tuple, no
+        per-mode metric_cols indexing."""
+        self.assertEqual(
+            self.mode.extract_metrics(
+                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}),
+            {"sob": 3.9, "flash_edep": 1e-6})
+
     def test_extract_metrics_has_no_per_event_fallback(self):
         """Intended Phase-A change (generic-study spec, "Changed on
         purpose"): a schema-2 objective names ONE metric, so the flash column
@@ -73,74 +87,72 @@ class TestJsonMode(unittest.TestCase):
         is missing. A per-event-only summary leaves the column unresolved
         (None -> cmd_evaluate refuses the row, rc=1) instead of landing a
         per-event value in a per-POT column."""
-        self.assertEqual(
-            self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}),
-            (3.9, 1e-6))
-        self.assertEqual(
-            self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_event": 2e-6}),
-            (3.9, None))
+        out = self.mode.extract_metrics(
+            {"s_over_sqrt_b": 3.9, "flash_edep_per_event": 2e-6})
+        self.assertEqual(out["sob"], 3.9)
+        self.assertIsNone(out["flash_edep"])
 
     # -- F7: UNRESOLVED and RESOLVED-TO-ZERO are different cases ------------
-    # JsonMode used to raise KeyError when no candidate key resolved, so a
-    # second-objective-less summary killed every child at evaluate after the
-    # full wall-clock. Returning None instead lets cmd_evaluate refuse the
-    # row with a diagnostic rc=1 -- and keeps "unresolved" distinguishable
-    # from "resolved to a real zero", which is a different (poison) case.
+    # A second-objective-less summary used to kill every child at evaluate
+    # after the full wall-clock (raising in extract_metrics). Returning None
+    # instead lets cmd_evaluate refuse the row with a diagnostic rc=1 -- and
+    # keeps "unresolved" distinguishable from "resolved to a real zero",
+    # which is a different (poison) case handled in cmd_evaluate.
     def test_extract_metrics_unresolved_second_objective_returns_none(self):
         self.assertEqual(
-            self.mode.extract_metrics({"s_over_sqrt_b": 3.9}), (3.9, None))
+            self.mode.extract_metrics({"s_over_sqrt_b": 3.9}),
+            {"sob": 3.9, "flash_edep": None})
 
     def test_extract_metrics_null_second_objective_returns_none(self):
         self.assertEqual(
             self.mode.extract_metrics(
                 {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": None,
                  "flash_edep_per_event": None}),
-            (3.9, None))
+            {"sob": 3.9, "flash_edep": None})
 
-    def test_extract_metrics_missing_sob_still_raises(self):
-        """Column 0 keeps the Python modes' behaviour (KeyError), which
-        cmd_evaluate's `except (KeyError, TypeError)` turns into rc=1."""
-        with self.assertRaises(KeyError) as cm:
-            self.mode.extract_metrics({"flash_edep_per_pot": 1e-6})
-        self.assertIn("sob", str(cm.exception))
+    def test_extract_metrics_missing_sob_returns_none(self):
+        """Task 8: extract_metrics is a pure by-name lookup now -- a missing
+        objective value is None like any other key, never a raise.
+        cmd_evaluate is the seam that turns a None into a refusal (rc=1);
+        it used to be extract_metrics raising KeyError for column 0 only."""
+        out = self.mode.extract_metrics({"flash_edep_per_pot": 1e-6})
+        self.assertIsNone(out["sob"])
+        self.assertEqual(out["flash_edep"], 1e-6)
 
-    # -- Critical: the second objective must never silently collapse to a
-    # poison zero row (mirrors FoilsFlashMode.extract_metrics's SystemExit
-    # guard, which JsonMode lacked entirely).
-    def test_extract_metrics_zero_second_metric_refused(self):
-        with self.assertRaises(SystemExit) as cm:
+    # -- The second objective must never silently collapse to a poison zero
+    # row (mirrors the retired FoilsFlashMode.extract_metrics's SystemExit
+    # guard). Task 8 moved this check out of extract_metrics (now a pure
+    # lookup) and into cmd_evaluate's log10-transform check; the end-to-end
+    # refusal is exercised by
+    # TestJsonModeEvaluateEndToEnd.test_evaluate_still_refuses_a_second_objective_that_resolves_to_zero
+    # below. Here we just confirm extract_metrics passes the raw value
+    # through unrefused.
+    def test_extract_metrics_zero_and_negative_pass_through(self):
+        self.assertEqual(
             self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 0.0})
-        msg = str(cm.exception)
-        self.assertIn("demoflash", msg)
-        self.assertIn("flash_edep_per_pot", msg)
-
-    def test_extract_metrics_negative_second_metric_refused(self):
-        with self.assertRaises(SystemExit) as cm:
+                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 0.0}
+            )["flash_edep"], 0.0)
+        self.assertEqual(
             self.mode.extract_metrics(
-                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": -1e-6})
-        self.assertIn("flash_edep_per_pot", str(cm.exception))
+                {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": -1e-6}
+            )["flash_edep"], -1e-6)
 
     def test_extract_metrics_valid_second_metric_passes(self):
         self.assertEqual(
             self.mode.extract_metrics(
                 {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}),
-            (3.9, 1e-6))
+            {"sob": 3.9, "flash_edep": 1e-6})
 
     def test_extract_metrics_calo_per_pot_is_not_a_fallback(self):
         """Root-cause regression: the fixture's flash_edep fallback chain
         used to list calo_per_pot -- copied from the STALE comment above
         FoilsFlashMode.extract_metrics, which claims that fallback but never
         implements it. A calo-only summary must NOT put calo in the flash
-        column. (It now reports the column as unresolved -- None -- rather
-        than raising; see the F7 block above. The guarantee this test exists
-        for is unchanged: the calo value must never appear.)"""
-        sob, second = self.mode.extract_metrics(
+        column (it reports the column as unresolved -- None)."""
+        out = self.mode.extract_metrics(
             {"s_over_sqrt_b": 3.9, "calo_per_pot": 1.2e-6})
-        self.assertEqual(sob, 3.9)
-        self.assertIsNone(second)
+        self.assertEqual(out["sob"], 3.9)
+        self.assertIsNone(out["flash_edep"])
 
 
 class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
