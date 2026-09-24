@@ -10,16 +10,16 @@ from __future__ import annotations
 import math
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
-from paths import SURROKIT_ROOT  # noqa: E402
-sys.path.insert(0, str(SURROKIT_ROOT))
-
-import surrokit  # noqa: E402
 import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 import modes as _modes  # noqa: E402
+
+if TYPE_CHECKING:  # annotation only; botorch_predict puts surrokit on sys.path
+    import surrokit
 
 
 def _board_summary(name: str) -> dict:

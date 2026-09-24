@@ -49,8 +49,8 @@ DEFAULT_ALPHA = 1.0e5  # mmackenz calo range 4e-8..2.5e-5; alpha=1e5 makes
 
 
 class SpaceDim(NamedTuple):
-    """One search-space dimension (the picker reads bounds from modes.SPECS
-    directly; this exists for the lockstep check and printing)."""
+    """One search-space dimension (the picker reads bounds off the study;
+    this exists for printing)."""
     name: str
     low: float
     high: float
@@ -60,8 +60,8 @@ class SpaceDim(NamedTuple):
 # --- JsonMode: the mode seam. One instance per mode_specs/*.json ----------
 
 class JsonMode:
-    """A BO mode = search space + render + prior loader + leaderboard format,
-    all read from the same modes.SPECS spec (TSV I/O delegated to
+    """A BO mode = search space + render + leaderboard format, all read
+    from the same modes.SPECS spec (TSV I/O delegated to
     core/leaderboard.py via leaderboard_io())."""
     name: str
     leaderboard: Path
@@ -115,7 +115,8 @@ class JsonMode:
     # never a silently-truncated space.
     def build_space(self) -> list[SpaceDim]:
         spec = _modes.SPECS[self.name]
-        # lockstep enforced at ModeSpec construction (modes.py __post_init__)
+        # names, bounds and int_dims all derive from the study's one knobs
+        # list, so the zip below cannot truncate
         int_dims = set(spec.int_dims or ())
         return [
             SpaceDim(nm, float(lo), float(hi), i in int_dims)
@@ -148,12 +149,6 @@ class JsonMode:
 
     def load_history(self) -> list[Point]:
         return self.leaderboard_io().load()
-
-    def format_history_row(self, p: Point, context: dict) -> str:
-        """The exact line append_history would write, touching no file.
-        Raises whatever append would before writing (a missing context
-        value, a failing extra-column expression)."""
-        return self.leaderboard_io().format_line(p, context)
 
     def append_history(self, p: Point, context: dict):
         self.leaderboard_io().append(p, context)
@@ -320,22 +315,16 @@ def _cmd_propose_locked(args, mode, names):
 
 
 # Where each leaderboard.context name gets its value at evaluate time. A
-# study naming a context value with no entry here is refused before
-# evaluate touches anything.
+# study naming a context value with no entry here fails the row
+# pre-validation in cmd_evaluate, before anything is written.
 _CONTEXT_SOURCES = {"alpha": lambda args: args.alpha}
 
 
 def cmd_evaluate(args):
     mode = MODES[args.mode]
     study = _modes.STUDIES[mode.name]
-    unsourced = [c for c in study.context if c not in _CONTEXT_SOURCES]
-    if unsourced:
-        raise SystemExit(
-            f"[{mode.name}] leaderboard.context names {unsourced}, which the "
-            f"evaluate CLI has no value for (it supplies "
-            f"{sorted(_CONTEXT_SOURCES)}); refusing before touching the "
-            f"pending row or the leaderboard ({study.path}).")
-    context = {c: _CONTEXT_SOURCES[c](args) for c in study.context}
+    context = {c: f(args) for c, f in _CONTEXT_SOURCES.items()
+               if c in study.context}
     summary = json.loads(Path(args.summary).read_text())
     values = mode.extract_metrics(summary)
     # A missing value is NEVER coerced to a number: a fake zero row dominates
@@ -354,10 +343,6 @@ def cmd_evaluate(args):
                 f"{values[o.name]!r} from summary.json key {o.key!r} -- "
                 f"refusing to append a row; a zero/negative log10 objective "
                 f"would dominate the Pareto front at the next GP refit")
-    geom = mode.proposal_dir / f"{args.config_name}_geom.txt"
-    if not geom.exists():
-        print(f"Proposal geom not found: {geom}", file=sys.stderr)
-        return 1
     x = mode.x_for_evaluate(args.config_name)
     p = Point(cfg=args.config_name, x=x, y=values)
     # Format the row BEFORE clearing pending: the pending row is the ONLY
@@ -365,7 +350,7 @@ def cmd_evaluate(args):
     # value, an extra-column expression failing on these values) must fire
     # while that record still exists.
     try:
-        mode.format_history_row(p, context)
+        mode.leaderboard_io().format_line(p, context)
     except Exception as e:
         raise SystemExit(
             f"[{mode.name}] cannot format the leaderboard row for "

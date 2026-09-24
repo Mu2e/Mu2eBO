@@ -17,9 +17,7 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from paths import REPO_ROOT as AUTORESEARCH  # noqa: E402,F401  (pinned by
-import bo_driver as bo  # noqa: E402      tests/test_paths.py: every module
-#                                          agrees on ONE resolved root)
+import bo_driver as bo  # noqa: E402
 
 
 # float64 + CPU: history is tiny (<200 pts), CPU beats GPU incl. transfer.
@@ -157,16 +155,7 @@ def compute_explore_picks(mode: str,
     seed convention; the engine owns the GP and the pickers.
     """
     primary_only = (picker == "qlnei")
-    X, Y, bounds, int_dims = load_history_tensor(mode, primary_only=primary_only)
-    if x_pending:
-        pend_width = len(x_pending[0])
-        if pend_width != bounds.shape[-1]:
-            raise SystemExit(
-                f"[botorch_predict] x_pending dim {pend_width} != "
-                f"search-space dim {bounds.shape[-1]} for mode={mode}")
-    if X.shape[0] < 2:
-        print(f"[botorch_predict] mode={mode} cold-start: history={X.shape[0]} rows "
-              f"< 2 -> Sobol draw (q={q}, round_idx={round_idx})", flush=True)
+    X, Y, _, _ = load_history_tensor(mode, primary_only=primary_only)
     study = _modes.STUDIES[mode]
     if picker == "budget_sob" and not study.constraints:
         raise SystemExit(f"[botorch_predict] picker budget_sob needs a "
