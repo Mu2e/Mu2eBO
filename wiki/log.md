@@ -6,6 +6,31 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-24
+- **updated** PR #34 (`generic-study-phase-a`) **simplification pass**,
+  three stages, no behavior change intended. Stage 1, runtime (−143/+49):
+  `graph/pipeline_io.py` drops its dead side-effect `import pipeline`
+  (an unknown mode already dies in `resolve_env_mode` /
+  `assert_mode_stamped`); `propose_one` returns x only; `closed_loop`
+  reads `PICKER_CHOICES`/`DEFAULT_PICKER` from `modes` instead of
+  re-exported aliases; `botorch_predict` drops the x_pending width check
+  and cold-start print that surrokit.ask repeats; `cmd_evaluate`'s
+  proposal-geom guard and unsourced-context pre-check are gone, folded
+  into the row pre-validation (format before clearing pending);
+  docstring history cut. Stage 2, study loader: `mode_specs/*.json`
+  compacted to one entry per line (2973 -> 609 lines, parsed documents
+  identical, so `spec_sha` unchanged); `core/study.py` shares its
+  membership/object/kit/params checks, and preflight params are now
+  name-checked like step params; `Study.geom_writer`,
+  `Study.value_names` and the unreachable `ModeSpec.__post_init__` are
+  removed. Stage 3, tests: golden d stored one line per field (767 -> 163
+  lines, same data, not re-captured) and `golden_parity.py` runs every
+  section from one table with a per-field mismatch report;
+  `tests/fixtures/modes/foilsflash.json` and `foils.json` deleted (tests
+  read `mode_specs/foilsflash.json`); `test_json_mode_parity.py` renamed
+  `test_geom_golden_parity.py`; `test_evaluate_generic.py` folded into
+  `test_json_mode.py`; duplicate tests merged into tables; dated removal
+  notes deleted. Suite 735 -> 726 (stages 1-2) -> **702 OK, 1 skipped**
+  across 33 files; goldens `a b d e` OK — [tests](/drivers/tests.md)
 - **updated** `test_no_hardcoded_paths` scans only files git tracks, so
   stage before running the suite — [tests](/drivers/tests.md)
 - **updated** Phase A **final-review fix wave** (branch
