@@ -10,6 +10,12 @@ framework plan),
 [`2026-09-22-kit-seam-design.md`](2026-09-22-kit-seam-design.md) (spec 1: the kit
 client and the verified prodtools facts).
 
+Amended 2026-09-24 with four points taken from M. MacKenzie's
+`2026-09-24-configurable-workflow-and-analyses.md` (in his Mu2eBO checkout
+under `mu2eopt/`): every step must be used, one scheduler node runs the steps,
+a board refuses rows measured a different way, and preflight runs from the
+grid's code tarball.
+
 ## Goal
 
 The goal comes from the operator (2026-09-23): make the codebase generic, so that
@@ -180,6 +186,7 @@ All decided by the operator on 2026-09-23.
 - **`entry`:** a stage-template name, an inline template object, or `null`.
 - **`files`:** names of rendered files, currently only `geom`.
 - **`files_from`:** earlier steps whose output files feed this step. They must be step names, and the steps must form a graph with no cycles. A step with no `files_from` starts at once.
+- **Every step must be used:** another step's `files_from`, an objective or an extra metric names it. A step nothing reads is a load error, because it spends grid time for nothing. A study that wants a step's side outputs names an extra metric from it, such as `reco.njobs_ok`. Enforced since Phase A.
 - **`params`:** maps the kit's parameter names to knob, expression or profile names. If an adapter declares scalar-only parameters, a profile is sent flattened as `name_0 … name_{N-1}`.
 - **`fixed`:** constant settings for this step.
 
@@ -199,7 +206,7 @@ All decided by the operator on 2026-09-23.
 **`fmt`** on objectives, extra metrics and extra columns is the number format in the TSV. It is required, so that rows appended to old boards match today's bytes.
 
 **`leaderboard`** holds `file` (the board path), `layout` and `context`.
-- `layout` is `"v1"` (config, knobs, objectives, extra metrics, extra columns: today's boards) or `"v2"` (the same plus `handles`, `spec_sha` and `time`). `"v2"` arrives with Phase B.
+- `layout` is `"v1"` (config, knobs, objectives, extra metrics, extra columns: today's boards) or `"v2"` (the same plus `handles`, `spec_sha`, `measure_sha` and `time`). `"v2"` arrives with Phase B.
 - `context` lists runtime values the caller must supply when a row is written, for example `["alpha"]`, which today's CLI passes as `--alpha`. A missing context value is an error at write time.
 
 **Environment overrides are gone.** `AUTORESEARCH_FLASH_BUDGET` and `AUTORESEARCH_BUDGET_KSIGMA` are removed, and the study file is the only source of the constraint. Setting either one is a loud error (`SystemExit` from `core/botorch_predict.py:build_problem`, naming `constraints[0].max` or `constraints[0].k_sigma`), so a stale export can never be silently ignored.
@@ -218,11 +225,15 @@ After this change, no stage name appears in Python.
 ### Leaderboard rows
 
 ```
-name | each knob | each objective | each extra metric | handles | spec_sha | time
+name | each knob | each objective | each extra metric | handles | spec_sha | measure_sha | time
 ```
 
 - `handles` records each step's handle.
 - `spec_sha` is the SHA-256 of the canonical study JSON.
+- `measure_sha` identifies how the row was measured. It is the SHA-256 of `derive` and `geom` (what a knob vector means), `kits`, each step's `kit`, resolved `entry` template, `files`, `files_from`, `params` and `fixed`, each objective's and extra metric's `metric` and `transform`, and each kit's reported version. It leaves out what doesn't change a measurement: `note`, knob bounds, `fmt`, `noise`, `constraints` and `leaderboard`. `spec_sha` is too coarse for this, since editing the note changes it.
+- **A board holds one measurement.** Appending a row whose `measure_sha` differs from the board's rows is an error. Changing how an objective is measured means a new board, never mixed rows: at identical x, Run1Bak and Run1Bap differ by +5% in sob, far beyond the noise (see `wiki/concepts/run1bak-run1bap-sob-shift.md`). A new kit that reproduces the old numbers within noise on archived evaluations may continue a board, but only through an explicit, recorded change to its `measure_sha`.
+- Each step's `state/<step>_results.json` also records the kit's version and environment (from `describe`), its `params` and its input file list, so a row can be traced to what produced it.
+- v1 boards have no `measure_sha` column; the rule applies from v2.
 
 **Old boards** are read by their header names. The converted foilspf-family studies name their objectives after the existing columns (`sob`, `flash_edep`) and add `alpha` and `obj` as `extra_columns`. The file layout and number formats therefore don't change. New boards use the schema-2 layout.
 
@@ -252,14 +263,14 @@ Kits that speak the contract offer these as MCP tools; adapters and plugins impl
 2. **render:** if `geom` is set, the writer renders `geom.txt`.
 3. **preflight:** runs `check`.
    - Not ok: write `broken.txt` and `preflight_verdict.json`, the files the runner already reads, and the point ends.
-4. **One node per step,** with edges from `files_from`. Independent steps run in parallel. Each node works from its state files:
+4. **One `run_steps` node schedules all the steps.** LangGraph finishes a whole superstep before it starts the next, so one graph node per step would make `mustops_ce` wait for `elebeam_flash` even after `mubeam` is done. That is the wait today's `presubmit_after` works around. Instead, `run_steps` starts each step as soon as every step in its `files_from` has completed, runs ready steps concurrently in threads, and subsumes `presubmit_after`. Resuming after a crash doesn't need LangGraph checkpoints at the step level, because each step works from its state files:
    - `state/<step>_results.json` exists: skip the step;
    - `state/<step>_cluster.txt` exists: poll that handle;
    - neither exists: `submit`, then write the handle to `state/<step>_cluster.txt`, the file name the pool, launch checks and scan already use.
 
    It polls `status` at `poll_ms`, clamped to 30 s–10 min.
    - `completed`: call `results` and write `state/<step>_results.json`.
-   - `failed` or `cancelled`: write `broken.txt` naming the step and the kit's message, and the point ends.
+   - `failed` or `cancelled`: write `broken.txt` naming the step and the kit's message; `run_steps` starts no further steps, lets the running ones finish, and the point ends.
 5. **score:**
    - look up each objective and extra metric;
    - apply the transforms;
@@ -325,7 +336,7 @@ A small MCP server in `tests/` that speaks the contract natively. Its delays and
 
 | Plugin | Contract calls | Source |
 |---|---|---|
-| `offline_preflight` | `check` | today's `bo_driver` preflight: `mu2e -n 1`, surface check, GDML checks |
+| `offline_preflight` | `check` | today's `bo_driver` preflight: `mu2e -n 1`, surface check, GDML checks. From Phase C it runs from the prodtools kit's `code_tarball` (unpacked once, cached by its digest), not a separate Musing, so preflight and the grid run the same build. That closes the divergence behind three incidents (prodtarget env divergence, the foilsflash tarball omission, the foilsg holeRadii fallback). Its `musing` setting then goes away. |
 | `ce_sensitivity` | full contract | today's harvest steps: EdepAna plus the sensitivity macro, with successful-job denominators. Returns `s_over_sqrt_b` and related metrics. |
 | `flash_edep_per_pot` | full contract | today's PyROOT extractor. Returns `flash_edep_per_pot` and `flash_edep_per_event`. |
 
@@ -365,8 +376,8 @@ Each phase gets its own implementation plan. The suite stays green at every comm
 | Phase | Delivers | Depends on | Acceptance |
 |---|---|---|---|
 | **A. Study model** | `core/study.py`, `derive` lifted out of `geom`, the generic leaderboard, `build_problem(study)`, `stats` meta enriched, and a one-time conversion of the 7 live foilspf-family specs to schema 2 (committed; the old-format loader deleted). Today's pipeline keeps running foilspf through a temporary view that builds the old `ModeSpec` from a `Study` (`core/study_compat.py`, deleted in Phase C). | none | Golden parity: every live spec's `ModeSpec` fields and rendered `geom.txt` unchanged; the same history tensor fingerprint; the same `surrokit.ask` inputs for `budget_sob`, `qnehvi` and `qlnei` (pick outputs themselves are not bit-reproducible, per the hybrid-picker incident); a byte-identical row appended to a copy of a real board. A synthetic three-objective study fits and picks. |
-| **B. Contract engine** | the contract, the kit client (`core/kits.py`, `kits.toml`), the per-point graph builder, the adapter registry, `toykit` | A | A toy study (Branin, 2 objectives, 1 constraint, q = 2, 8 evaluations) runs end to end in CI from a JSON file alone, in under a minute. |
-| **C. foilspf on the engine** | the prodtools adapter (MCP only), the stage templates holding every stage-specific value, the three plugins | B, and prodtools P1 and P2 | First a dry run: the rendered entries and submit arguments match today's. Then one foilspfbpz point at q = 1 on the grid, whose row agrees with history within noise. Then **delete** the old path: the `pipeline.py` verbs, `harvest.py` wiring, the `scan_logs` and preflight nodes, `ALL_STAGES`/`INPUT_STAGE`. |
+| **B. Contract engine** | the contract, the kit client (`core/kits.py`, `kits.toml`), the per-point graph builder with its `run_steps` scheduler node, the v2 board layout with `measure_sha`, the adapter registry, `toykit` | A | A toy study (Branin, 2 objectives, 1 constraint, q = 2, 8 evaluations) runs end to end in CI from a JSON file alone, in under a minute. |
+| **C. foilspf on the engine** | the prodtools adapter (MCP only), the stage templates holding every stage-specific value, the three plugins (`offline_preflight` running from the code tarball) | B, and prodtools P1 and P2 | First a dry run: the rendered entries and submit arguments match today's. Then one foilspfbpz point at q = 1 on the grid, whose row agrees with history within noise. Then **delete** the old path: the `pipeline.py` verbs, `harvest.py` wiring, the `scan_logs` and preflight nodes, `ALL_STAGES`/`INPUT_STAGE`. |
 | **D. beamkit adapter** | the adapter, the first G4beamline study | B | A study defined only in JSON lands rows through beamkit. |
 | **E. Second Offline study** | OPA: a `mustops_cp` stage template plus a tracker-deposit metric (a plugin, or an anakit analysis) | C | OPA, defined only in JSON (plus that template and metric), lands rows. |
 
