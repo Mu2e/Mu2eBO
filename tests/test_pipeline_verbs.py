@@ -120,8 +120,9 @@ class TestListOutputsGating(unittest.TestCase):
 
 
 class TestStageTuning(unittest.TestCase):
-    """core/mode_json.py `run.stage_tuning` -> pipeline.stage_cfg() wiring
-    (I4 in the json-configurable-modes final review; retargeted to
+    """A step's prodtools `fixed` tuning (schema 2, core/study.py; reaches
+    ModeSpec.stage_tuning via core/study_compat.py) -> pipeline.stage_cfg()
+    wiring (I4 in the json-configurable-modes final review; retargeted to
     stage_cfg() in Task 6, which replaced the old module-level
     `_apply_stage_tuning(STAGES, ...)` mutation with a per-call merge --
     `spec.stage_tuning` overrides `stage_entries/<stage>.json`, applied fresh
@@ -158,11 +159,11 @@ class TestStageTuning(unittest.TestCase):
             self.assertEqual(untouched["events"], 2500)
 
     def test_json_spec_stage_tuning_applies_to_real_stages(self):
-        """End-to-end: the foilsflash fixture's run.stage_tuning (mirrors
+        """End-to-end: the foilsflash fixture's per-step `fixed` tuning (mirrors
         the live JSON foilsflash mode's real values) lands on stage_cfg()'s
         merged view for its stages."""
         import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
-        from mode_json import load_mode_file  # noqa: E402 (bare, core/ on sys.path)
+        from study_compat import load_modespec as load_mode_file  # noqa: E402 (bare, core/ on sys.path)
         fixture = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
         spec = load_mode_file(fixture)
         probe = self._probe_spec(spec.stage_tuning)
@@ -181,7 +182,7 @@ class TestStageTuning(unittest.TestCase):
 
 class TestStageTuningModuleLevelWiring(unittest.TestCase):
     """End-to-end, real subprocess: hand-register a throwaway ModeSpec
-    carrying a non-empty run.stage_tuning directly into a fresh
+    carrying a non-empty stage_tuning directly into a fresh
     subprocess's `modes.SPECS` (bypassing mode_specs/ directory discovery
     entirely -- core/modes.py's MODES_DIR is a hardcoded path, not
     overridable via env, and the real mode_specs/ directory must stay
@@ -198,7 +199,8 @@ class TestStageTuningModuleLevelWiring(unittest.TestCase):
             (Path(__file__).parent / "fixtures" / "modes" / "foils.json").read_text())
         doc["name"] = mode_name
         doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{mode_name}.tsv"
-        doc["run"]["stage_tuning"] = {"mubeam": {"events_per_job": 424242}}
+        mubeam = next(s for s in doc["evaluate"] if s["step"] == "mubeam")
+        mubeam["fixed"]["events_per_job"] = 424242
 
         with tempfile.TemporaryDirectory() as td:
             tmp_json = Path(td) / f"{mode_name}.json"
@@ -208,7 +210,7 @@ class TestStageTuningModuleLevelWiring(unittest.TestCase):
                 "sys.path.insert(0, 'core')\n"
                 "from pathlib import Path\n"
                 "import modes\n"
-                "from mode_json import load_mode_file\n"
+                "from study_compat import load_modespec as load_mode_file\n"
                 f"spec = load_mode_file(Path({str(tmp_json)!r}))\n"
                 "modes.SPECS[spec.name] = spec\n"
                 "os.environ['AUTORESEARCH_MODE'] = spec.name\n"
@@ -715,8 +717,9 @@ class TestSubmitStageProdtools(unittest.TestCase):
             # normal test run) -- assert against the live STAGES dict, not
             # the module's base literal, same convention as
             # TestCmdSubmitLocalViaRunlocal below. `run` is never
-            # stage_tuning-tunable (not in mode_json._STAGE_TUNING_KEYS) --
-            # it's the static stage_entries/mubeam.json default.
+            # stage_tuning-tunable (not a prodtools `fixed` key in
+            # core/kit_registry.py) -- it's the static
+            # stage_entries/mubeam.json default.
             self.assertEqual(entry["events"],
                              pipeline.stage_cfg("mubeam", pipeline.MODE)["events"])
             self.assertEqual(entry["run"], 1800)

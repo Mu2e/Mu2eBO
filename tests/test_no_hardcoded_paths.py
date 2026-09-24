@@ -1,9 +1,9 @@
 """Permanent guard: no personal user path in tracked source.
 
 Two layers protect this. Here, a grep over tracked sources catches a
-literal anyone pastes back in. In core/mode_json.py, a load-time check
-rejects a bare /exp/mu2e/.../users/<name>/ in a mode spec, which covers
-untracked specs this grep never sees.
+literal anyone pastes back in. In core/study.py, a load-time check
+rejects a bare /exp/mu2e/.../users/<name>/ in a study file, which covers
+untracked studies this grep never sees.
 
 SCANNED covers the source directories (core, graph, tests, mode_specs) plus
 a short list of individual top-level files that are prose or config, not
@@ -26,8 +26,9 @@ synthetic account name, a docstring describing the rule) opts out with the
 `personal-path-ok:` pragma, in place, with a stated reason -- never a
 file-level exemption. A file-level exemption blinds every other line in
 that file, which is how a guard like this quietly stops guarding: it is
-exactly what let a real, unexempted-by-pattern regex line in
-core/mode_json.py go unchecked in an earlier version of this test.
+exactly what let a real, unexempted-by-pattern regex line in the
+pre-schema-2 spec loader (its check now lives in core/study.py) go
+unchecked in an earlier version of this test.
 """
 import re
 import subprocess

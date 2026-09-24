@@ -368,6 +368,99 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
             self.assertIsInstance(bo.MODES[name], bo.JsonMode)
 
 
+class TestCopyPasteTemplate(unittest.TestCase):
+    """F4 (second half), ported from the old spec loader's test module
+    (deleted with the schema-2 switch):
+    mode_specs/README.md once advertised tests/fixtures/modes/foilsflash.json
+    as the thing to copy -- and that file declares the LIVE foilsflash
+    leaderboard. Copy it, miss the leaderboard line (it looks plausible) and
+    the new line appends into a live TSV. The loader rejects a shared
+    leaderboard outright, but what the README hands an author must not be a
+    live-leaderboard file in the first place.
+    """
+
+    ROOT = Path(__file__).resolve().parent.parent
+    TEMPLATE = Path(__file__).parent / "fixtures" / "modes" / "template.json"
+
+    def readme(self) -> str:
+        return (self.ROOT / "mode_specs" / "README.md").read_text()
+
+    def test_readme_advertises_the_template(self):
+        self.assertIn("tests/fixtures/modes/template.json", self.readme())
+
+    def test_template_loads(self):
+        """Through the same study -> ModeSpec path core/modes.py uses, so a
+        copy dropped into mode_specs/ becomes a runnable mode."""
+        from study_compat import load_modespec
+        spec = load_modespec(self.TEMPLATE)
+        self.assertEqual(spec.name, "template")
+        self.assertIsNotNone(spec.geom)
+        self.assertTrue(spec.geom.render([v for v in spec.bounds_lo]))
+
+    def test_template_leaderboard_is_not_a_live_one(self):
+        # By basename: the live board tree is flat (paths.leaderboard_live),
+        # so a template sharing only a basename would still write a live TSV.
+        from study import load_study_file
+        board = Path(load_study_file(self.TEMPLATE).leaderboard_rel).name
+        live = {Path(s.leaderboard_rel).name for s in modes.STUDIES.values()}
+        self.assertNotIn(board, live)
+
+    def test_readme_documents_the_int_fmt_limitation(self):
+        """F14: _validate_fmt probes with a float, so "{:d}" is rejected at
+        load even for a knob with "type": "int" -- authors must write
+        "{:.0f}". Loud, not silent; documented rather than changed (a {:d}
+        fmt genuinely breaks on the float path)."""
+        readme = self.readme()
+        self.assertIn("{:d}", readme)
+        self.assertIn("{:.0f}", readme)
+
+
+class TestSingleModeSpecClass(unittest.TestCase):
+    """Only ONE copy of each of these modules may be live in the suite process.
+
+    Ported from the old spec loader's test module (deleted with the
+    schema-2 switch): the invariant is about import convention, not the
+    loader. `core/modes.py` (and its siblings
+    core/geom_template.py, core/bo_driver.py) are importable two ways --
+    bare (core/ on sys.path, which is how bo_driver.py runs as a subprocess
+    and how this suite imports) and qualified `core.<module>`. If both load,
+    Python builds two non-identical copies of the same class (ModeSpec,
+    GeomTemplate, ...) and any isinstance check or `is`-identity across them
+    silently returns False. Every test file here must therefore use the bare
+    convention. tests/test_geom_template.py was the gap that motivated the
+    geom_template/bo_driver entries below (I7 in the json-configurable-modes
+    final review) -- it used qualified `core.geom_template`/`core.bo_driver`
+    imports until fixed. A qualified `core.study`/`core.study_compat` import
+    trips these too: both pull in `core.geom_template`, and
+    study_compat.modespec_from_study imports `core.modes` when called.
+    """
+    def test_qualified_modes_module_is_not_loaded(self):
+        self.assertNotIn(
+            "core.modes", sys.modules,
+            "core.modes is loaded alongside bare `modes`, which creates two "
+            "non-identical ModeSpec classes. Some test module is importing "
+            "`from core import modes` -- switch it to the sys.path.insert + "
+            "bare `import modes` convention used by tests/test_modes.py.")
+
+    def test_qualified_geom_template_module_is_not_loaded(self):
+        self.assertNotIn(
+            "core.geom_template", sys.modules,
+            "core.geom_template is loaded alongside bare `geom_template`, "
+            "which creates two non-identical GeomTemplate/ExprError classes. "
+            "Some test module is importing `from core.geom_template import "
+            "...` -- switch it to the sys.path.insert + bare `import "
+            "geom_template` convention used by tests/test_geom_template.py.")
+
+    def test_qualified_bo_driver_module_is_not_loaded(self):
+        self.assertNotIn(
+            "core.bo_driver", sys.modules,
+            "core.bo_driver is loaded alongside bare `bo_driver`, which "
+            "creates two non-identical MODES/ModeSpec-consuming classes. "
+            "Some test module is importing `from core.bo_driver import "
+            "...` -- switch it to the sys.path.insert + bare `import "
+            "bo_driver` convention used by tests/test_json_mode.py.")
+
+
 if __name__ == "__main__":
     unittest.main()
 

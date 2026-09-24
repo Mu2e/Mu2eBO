@@ -76,15 +76,21 @@ SPECS: Dict[str, ModeSpec] = {}
 # module loads as `core.modes` from the repo root AND as bare `modes` in the
 # grid subprocess (tests/test_modes.py TestSubprocessImport). A hardcoded
 # qualified import fails outright on the bare path; a hardcoded bare import
-# would, on the qualified path, load mode_json.py a SECOND time under a
-# different sys.modules key, needing a second non-identical ModeSpec class.
+# would, on the qualified path, load study.py/study_compat.py a SECOND time
+# under a different sys.modules key, needing a second non-identical ModeSpec
+# class.
 if __package__:
-    from core.mode_json import load_mode_dir  # noqa: E402 - SPECS must exist first
+    from core.study import load_study_dirs  # noqa: E402 - SPECS must exist first
+    from core.study_compat import modespec_from_study  # noqa: E402
 else:
-    from mode_json import load_mode_dir  # noqa: E402
+    from study import load_study_dirs  # noqa: E402
+    from study_compat import modespec_from_study  # noqa: E402
 
 MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
-SPECS.update(load_mode_dir(MODES_DIR))
+# Schema-2 studies: the one source. SPECS is today's ModeSpec view of them,
+# kept for pipeline.py/runtime.py/preflight until Phase C deletes both.
+STUDIES = load_study_dirs(MODES_DIR, os.environ.get("AUTORESEARCH_STUDY_PATH"))
+SPECS.update({n: modespec_from_study(s) for n, s in STUDIES.items()})
 
 # THE fallback for every import-time AUTORESEARCH_MODE reader; single-sourced
 # because per-module literals drift. Pinned by

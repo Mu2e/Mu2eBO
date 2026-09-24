@@ -1,12 +1,13 @@
 """JsonMode: the single generic driver class behind every JSON-defined mode.
 
-Import convention: bare `modes`/`bo_driver`/`mode_json` via sys.path.insert,
-matching tests/test_modes.py and tests/test_mode_json.py -- NOT `from core
-import modes`. bo_driver.py itself does `import modes as _modes` (bare); a
-qualified `from core import modes` here would load a SECOND, non-identical
-`core.modes` module alongside it (the two-non-identical-classes bug Task 4
-fixed for GeomTemplate -- see core/modes.py's tail comment), and
-tests.test_mode_json.TestSingleModeSpecClass asserts "core.modes" never
+Import convention: bare `modes`/`bo_driver`/`study_compat` via
+sys.path.insert, matching tests/test_modes.py and tests/test_study.py --
+NOT `from core import modes`. bo_driver.py itself does `import modes as
+_modes` (bare); a qualified `from core import modes` here would load a
+SECOND, non-identical `core.modes` module alongside it (the
+two-non-identical-classes bug Task 4 fixed for GeomTemplate -- see
+core/modes.py's tail comment), and
+tests.test_modes.TestSingleModeSpecClass asserts "core.modes" never
 lands in sys.modules across the whole suite.
 """
 import argparse
@@ -25,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes  # noqa: E402
 import bo_driver  # noqa: E402
 from bo_driver import JsonMode  # noqa: E402
-from mode_json import load_mode_file  # noqa: E402
+from study_compat import load_modespec as load_mode_file  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
 
@@ -64,16 +65,21 @@ class TestJsonMode(unittest.TestCase):
     # stub), now that no Python mode needs the round-trip default. See
     # docs/superpowers/specs/2026-08-08-leaderboard-module-design.md.
 
-    def test_extract_metrics_uses_the_fallback_chain(self):
+    def test_extract_metrics_has_no_per_event_fallback(self):
+        """Intended Phase-A change (generic-study spec, "Changed on
+        purpose"): a schema-2 objective names ONE metric, so the flash column
+        no longer falls back to flash_edep_per_event when flash_edep_per_pot
+        is missing. A per-event-only summary leaves the column unresolved
+        (None -> cmd_evaluate refuses the row, rc=1) instead of landing a
+        per-event value in a per-POT column."""
         self.assertEqual(
             self.mode.extract_metrics(
                 {"s_over_sqrt_b": 3.9, "flash_edep_per_pot": 1e-6}),
             (3.9, 1e-6))
-        # falls through to the second key when the first is absent
         self.assertEqual(
             self.mode.extract_metrics(
                 {"s_over_sqrt_b": 3.9, "flash_edep_per_event": 2e-6}),
-            (3.9, 2e-6))
+            (3.9, None))
 
     # -- F7: UNRESOLVED and RESOLVED-TO-ZERO are different cases ------------
     # JsonMode used to raise KeyError when no candidate key resolved, so a
@@ -273,6 +279,34 @@ class TestJsonModeEvaluateEndToEnd(unittest.TestCase):
         self.assertIn(str(self.mode.pending_path()), msg)
         self.assertFalse(self.mode.leaderboard.exists(),
                          "refused evaluate must not append anything")
+
+
+class TestLoadFixture(unittest.TestCase):
+    """Ported from the old spec loader's test module (deleted with the
+    schema-2 switch). tests/fixtures/modes/foilsflash.json is what the tests
+    above (and the geometry-parity and stage-tuning tests) drive in place of
+    the live spec, so its facts must equal the live mode_specs/foilsflash.json
+    -- otherwise those tests prove things about a stale copy."""
+
+    def test_fixture_loads_into_a_modespec(self):
+        spec = load_mode_file(FIXTURE)
+        self.assertEqual(spec.name, "foilsflash")
+        self.assertIsNotNone(spec.geom)
+        self.assertEqual(spec.grid_stages,
+                         ("mubeam", "mustops_ce", "elebeam_flash"))
+        self.assertEqual(spec.metric_cols, ("sob", "flash_edep", "alpha", "obj"))
+        self.assertEqual(spec.obs_noise, (0.006, 0.010))
+        self.assertEqual(spec.metrics["sob"], ("s_over_sqrt_b",))
+
+    def test_fixture_matches_the_python_spec(self):
+        """The fixture is the acceptance target: its facts must equal the live spec."""
+        spec, live = load_mode_file(FIXTURE), modes.SPECS["foilsflash"]
+        for field in ("musing", "grid_tarball", "grid_stages",
+                      "stage_target_overrides", "presubmit_after", "bounds_lo",
+                      "bounds_hi", "knob_names", "knob_fmts", "metric_cols",
+                      "obs_noise", "dumps_gdml",
+                      "verifies_foil_gdml", "checks_managed_overlap"):
+            self.assertEqual(getattr(spec, field), getattr(live, field), field)
 
 
 if __name__ == "__main__":

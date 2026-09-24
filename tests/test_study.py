@@ -150,6 +150,26 @@ class TestKnobs(_Tmp):
         doc["knobs"][0]["name"] = "i"
         self.assertRejects(doc, "reserved")
 
+    def test_knob_named_after_any_leaderboard_column(self):
+        # Ported from the old loader tests (F11); the sob case is
+        # test_knob_name_collides_with_column. `config` is a literal column,
+        # alpha/obj come from extra_columns: each source must be checked.
+        for name in ("config", "flash_edep", "alpha", "obj"):
+            doc = _doc()
+            doc["knobs"][0]["name"] = name
+            doc["derive"]["exprs"] = {"ab": f"{name} * b"}
+            doc["derive"]["profiles"]["a_p"]["control"] = [name, "ab", name]
+            with self.subTest(name=name):
+                self.assertRejects(doc, name, "appears", "twice")
+
+    def test_knob_fmt_without_replacement_field(self):
+        # Ported from the old loader tests (R1): fmt "75.0" writes a CONSTANT
+        # into every knob column, so every past eval collapses to one point
+        # and the GP trains on garbage -- silently.
+        doc = _doc()
+        doc["knobs"][0]["fmt"] = "75.0"
+        self.assertRejects(doc, "75.0", "replacement field")
+
 
 class TestDeriveAndGeom(_Tmp):
     def test_profile_kind_must_be_lagrange(self):
@@ -223,6 +243,22 @@ class TestSteps(_Tmp):
         _step(doc, "mubeam")["params"] = {"x": "nope"}
         self.assertRejects(doc, "nope")
 
+    def test_files_from_bare_string_rejected(self):
+        # Ported from the old loader tests (run.stages / presubmit_after as a
+        # bare string): tuple("mubeam") would silently be its characters.
+        doc = _doc()
+        _step(doc, "mustops_ce")["files_from"] = "mubeam"
+        self.assertRejects(doc, "files_from", "must be a list")
+
+    def test_fixed_njobs_must_be_a_positive_int(self):
+        # Ported from the old loader tests (F6): njobs reaches the jobsub
+        # command line unchanged, and isinstance(True, int) is True.
+        for bad in (True, 15.5, "20", 0):
+            doc = _doc()
+            _step(doc, "mubeam")["fixed"]["njobs"] = bad
+            with self.subTest(njobs=bad):
+                self.assertRejects(doc, "njobs", "positive int")
+
 
 class TestKits(_Tmp):
     def test_missing_kit_setting(self):
@@ -249,6 +285,20 @@ class TestKits(_Tmp):
         doc = _doc()
         doc["kits"]["prodtools"]["code_tarball"] = "/exp/mu2e/app/users/somebody/x.tar"  # personal-path-ok: made-up name, exercises the refusal
         self.assertRejects(doc, "personal")
+
+    def test_unknown_variable_token_refused(self):
+        # Ported from the old loader tests: only '${ARTIFACT}/' expands.
+        doc = _doc()
+        doc["kits"]["offline_preflight"]["musing"] = "${HOME}/x/setup.sh"
+        self.assertRejects(doc, "ARTIFACT")
+
+    def test_unknown_kit_setting(self):
+        # Ported from the old loader tests (unknown software/preflight key):
+        # those fields now live in kits.<kit>, whose unknown-key check is
+        # kit_registry.validate_study_settings, not the _obj helper.
+        doc = _doc()
+        doc["kits"]["offline_preflight"]["typo_key"] = True
+        self.assertRejects(doc, "typo_key")
 
     def test_registry_declares_the_zero_overlap_flag(self):
         self.assertIn("require_zero_overlaps",
@@ -318,6 +368,13 @@ class TestLeaderboard(_Tmp):
         doc["leaderboard"]["file"] = "../x.tsv"
         self.assertRejects(doc, "..")
 
+    def test_absolute_path_rejected(self):
+        # Ported from the old loader tests: pathlib's '/' discards the left
+        # side when the right is absolute, so the board would escape the repo.
+        doc = _doc()
+        doc["leaderboard"]["file"] = "/abs/escaped.tsv"
+        self.assertRejects(doc, "/abs/escaped.tsv", "repo-relative")
+
     def test_context_collides_with_column(self):
         doc = _doc()
         # Keep "alpha" in context: extra_columns[0] ("alpha") passes it
@@ -367,6 +424,24 @@ class TestDirs(_Tmp):
         with self.assertRaises(ValueError) as cm:
             st.load_study_dirs(self.tmp / "main", None)
         self.assertIn("leaderboard", str(cm.exception))
+
+    def test_shared_leaderboard_basename_rejected(self):
+        # Ported from the old loader tests: paths.leaderboard_live flattens
+        # to the basename, so boards that differ only in directory or by a
+        # './' prefix are one live file.
+        pairs = (("a/lb_dup.tsv", "b/lb_dup.tsv"),
+                 ("leaderboards/lb_dot.tsv", "./leaderboards/lb_dot.tsv"))
+        for i, (one, two) in enumerate(pairs):
+            d = self.tmp / f"case{i}"
+            for name, rel in (("lineone", one), ("linetwo", two)):
+                doc = _doc()
+                doc["name"] = name
+                doc["leaderboard"]["file"] = rel
+                self.write(doc, directory=d)
+            with self.subTest(pair=(one, two)):
+                with self.assertRaises(ValueError) as cm:
+                    st.load_study_dirs(d, None)
+                self.assertIn("basename", str(cm.exception))
 
 
 if __name__ == "__main__":

@@ -3,13 +3,13 @@ import unittest
 from pathlib import Path
 
 # Bare `core/`-on-sys.path convention (matches tests/test_modes.py,
-# test_mode_json.py, test_json_mode.py, test_json_mode_parity.py): a
+# test_study.py, test_json_mode.py, test_json_mode_parity.py): a
 # qualified `from core.geom_template import ...` loads a SECOND,
 # non-identical GeomTemplate/ExprError class under the `core.geom_template`
-# sys.modules key alongside the bare one core/mode_json.py itself uses,
+# sys.modules key alongside the bare one core/study.py itself uses,
 # reproducing the two-non-identical-classes bug Task 4 fixed for this exact
 # module (see core/modes.py's tail comment). TestSingleModeSpecClass in
-# tests/test_mode_json.py asserts "core.geom_template" and "core.bo_driver"
+# tests/test_modes.py asserts "core.geom_template" and "core.bo_driver"
 # never land in sys.modules across the whole suite -- this file was the gap.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 

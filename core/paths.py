@@ -113,7 +113,7 @@ def leaderboard_archive(rel: str) -> Path:
 
 def leaderboard_live(rel: str) -> Path:
     """This operator's own appendable board. The live tree is FLAT, so only
-    the basename survives -- why core/mode_json.py enforces basename
+    the basename survives -- why core/study.py enforces basename
     uniqueness."""
     return LEADERBOARD_LIVE / _relative(rel, "leaderboard 'file'").name
 

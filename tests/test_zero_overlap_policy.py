@@ -122,8 +122,9 @@ class TestJsonSchemaRequiresTheKey(unittest.TestCase):
         """A JSON mode that omits require_zero_overlaps must be a load error,
         not a silent False -- silently-lenient is the failure mode this whole
         policy exists to remove."""
-        import mode_json
-        self.assertIn("require_zero_overlaps", mode_json._REQUIRED_PREFLIGHT)
+        import kit_registry
+        self.assertIn("require_zero_overlaps",
+                      kit_registry.KITS["offline_preflight"].study_keys)
 
 
 if __name__ == "__main__":

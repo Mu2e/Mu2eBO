@@ -92,7 +92,7 @@ def _sample_points(spec):
 
 def _portable_artifact_path(value: str, mode_name: str, field: str) -> str:
     """musing/grid_tarball on a live ModeSpec are already-resolved absolute
-    paths (core/mode_json.py's `${ARTIFACT}/` expansion through
+    paths (core/study.py's `${ARTIFACT}/` expansion through
     paths.artifact()), so they carry THIS operator's ARTIFACT_ROOT (or
     BACKING) baked in -- exactly the personal-path shape
     tests/test_no_hardcoded_paths.py exists to catch, and it caught it here
@@ -436,6 +436,13 @@ def main():
             print(f"[{key}] captured -> {base_path}")
             continue
         base = json.loads(base_path.read_text())
+        if key == "d":
+            # Intended Phase-A change (spec, "Changed on purpose"): the flash
+            # objective no longer falls back to flash_edep_per_event.
+            for rec in base.values():
+                flash = rec["metrics"].get(rec["metric_cols"][1])
+                if flash and flash[1:] == ["flash_edep_per_event"]:
+                    rec["metrics"][rec["metric_cols"][1]] = flash[:1]
         ok = cur == base
         print(f"[{key}] parity: {'OK' if ok else 'MISMATCH'}")
         if not ok:

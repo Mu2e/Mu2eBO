@@ -6,13 +6,14 @@ reproduce cosmetic alignment (the renderer pads stoppingTarget.radii so '='
 lines up with halfThicknesses), non-ASCII comment characters, and an inherited
 header calling foilsflash "foils mode v2, 6D" -- none of which reaches Geant4.
 
-Import convention: bare `bo_driver`/`mode_json` via sys.path.insert, matching
-tests/test_modes.py, tests/test_mode_json.py, and tests/test_json_mode.py --
-NOT `from core import bo_driver`/`from core.mode_json import ...`. A
-qualified import here would load a SECOND, non-identical `core.modes` module
-alongside the bare one bo_driver.py itself uses (the two-non-identical-classes
-bug Task 4 fixed for GeomTemplate -- see core/modes.py's tail comment), and
-tests.test_mode_json.TestSingleModeSpecClass asserts "core.modes" never lands
+Import convention: bare `bo_driver`/`study_compat` via sys.path.insert,
+matching tests/test_modes.py, tests/test_study.py, and
+tests/test_json_mode.py -- NOT `from core import bo_driver`/`from
+core.study_compat import ...`. A qualified import here would load a
+SECOND, non-identical `core.modes` module alongside the bare one
+bo_driver.py itself uses (the two-non-identical-classes bug Task 4 fixed
+for GeomTemplate -- see core/modes.py's tail comment), and
+tests.test_modes.TestSingleModeSpecClass asserts "core.modes" never lands
 in sys.modules across the whole suite.
 """
 import re
@@ -22,15 +23,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 from bo_driver import MODES  # noqa: E402
-from mode_json import load_mode_file  # noqa: E402
+from study_compat import load_modespec as load_mode_file  # noqa: E402
 
 
 # There are no Python renderers left, and none can return: ModeSpec.geom is
-# non-Optional and core/mode_json.py builds it unconditionally from a
-# REQUIRED `geom` key. The goldens below are therefore the sole oracle --
-# they are never regenerated, which is why tools/capture_golden_geom.py
-# (whose entire job was to decide when regeneration was safe) went away with
-# this comment's predecessor.
+# non-Optional and core/study_compat.py refuses a study without a geom
+# (core/study.py builds it from the REQUIRED `geom` key). The goldens
+# below are therefore the sole oracle -- they are never regenerated,
+# which is why tools/capture_golden_geom.py (whose entire job was to
+# decide when regeneration was safe) went away with this comment's
+# predecessor.
 
 FIXTURES = Path(__file__).parent / "fixtures" / "modes"
 # Frozen captures of the Python renderers, taken 2026-07-26 while every Python

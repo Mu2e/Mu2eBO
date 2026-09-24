@@ -140,7 +140,7 @@ def stage_cfg(stage: str, mode) -> dict:
         spec = _modes.SPECS[mode]
         if stage in spec.stage_target_overrides:
             cfg["njobs"] = spec.stage_target_overrides[stage]
-        # No second allow-list: mode_json's _validate_stage_tuning rejects
+        # No second allow-list: core/kit_registry.py's validate_fixed rejects
         # unknown keys at LOAD time. stage_entries/ spells the count `events`.
         tuning = dict(spec.stage_tuning.get(stage, {}))
         if "events_per_job" in tuning:
@@ -230,9 +230,10 @@ def _render_fcl_overrides(stage: str, entry_tmpl: dict) -> dict:
     return overrides
 
 
-# Flash-line stage tuning (mode_specs/<mode>.json run.stage_tuning, applied
-# by stage_cfg): mubeam 200k ev / 2000 MB / quorum 0.8, mustops_ce 75k /
-# 2000 / 0.8, elebeam_flash 110k / 2000 / default. WHY: sizes ~30-min
+# Flash-line stage tuning (mode_specs/<mode>.json, each evaluate step's
+# "fixed", applied by stage_cfg): mubeam 200k ev / 2000 MB / quorum 0.8,
+# mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 / default.
+# WHY: sizes ~30-min
 # payloads (measured per-event: mubeam 9.1 ms, mustops_ce 24.1 ms,
 # elebeam_flash 16.6 ms) so the payload dominates the ~44-s muse/setup
 # overhead (~80% grid efficiency vs ~15-30%). With njobs=100: σ(sob)~0.09%,
