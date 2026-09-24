@@ -3,7 +3,7 @@ type: driver
 title: pipeline.py — parametric grid runner
 description: 'per-config runner: job description is checked-in `stage_entries/<stage>.json`, execution shells prodtools (env `AUTORESEARCH_PRODTOOLS`: json2jobdef/submit/jobwait/runlocal) — submits grid or local, harvests'
 status: active
-timestamp: '2026-08-16'
+timestamp: '2026-08-22'
 updated_note: 'prodtools-switch Task 12: page rewritten end-to-end for the
   final architecture (Tasks 1-14) — job description is now checked-in
   stage_entries/<stage>.json + mode_specs stage_tuning, execution is shelled
@@ -129,11 +129,13 @@ this replaced.
   raises `SystemExit` naming the variable if it's unset or the checkout is
   bad. No hardcoded personal-path default in committed code (9f0c43c
   convention) — the operator checkout used for prodtools-switch validation
-  is `/exp/mu2e/app/users/oksuzian/muse_050125/prodtools`; since 2026-08-20
-  the README default is the pinned cvmfs release
-  `/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.1.0` (submit-layer files
-  byte-identical to that checkout's head, see
-  [prodtools-submit-entry-tarball-schema-drift](/incidents/prodtools-submit-entry-tarball-schema-drift.md)).
+  is `/exp/mu2e/app/users/oksuzian/muse_050125/prodtools`; the pin to use is the cvmfs release
+  `/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.2.0` (cvmfs `current`;
+  byte-identical in `utils/` + `bin/` to that checkout at `359c2b5`, the state
+  gridsmoke05 validated). **Not v3.1.0**: it predates the `jobwait`
+  `condor_history -name` fix and the `check_inputs` `dir:` arm, and lost a
+  15/15 cluster on 2026-08-22 — see
+  [prodtools-v310-pin-predates-jobwait-fix](/incidents/prodtools-v310-pin-predates-jobwait-fix.md).
 - **`submit <stage>`**: `submit_stage_prodtools` builds the code tarball,
   loads + renders the stage's `stage_entries/<stage>.json` entry (merging in
   runtime njobs/events/memory/staged-input fields), writes
@@ -228,19 +230,20 @@ this replaced.
   `graph/config.py` (Mu2eBO issue #15, design only as of 2026-06-07);
   invoked-by-name `pipeline.py submit <stage>` works for any STAGES entry
   regardless of mode dispatch.
-- **Per-stage backing override (2026-06-07):** two optional STAGES keys
-  let one stage swap out from the helical-patched Run1Bak default:
-  - `"code_tarball"`: absolute path to an alternate muse-built
-    `Code_*.tar.bz2` (used by `write_code_tarball(stage_dir,
-    base_tarball=...)`). Default is module-global `MUSE_BASE_TARBALL`
-    (helical-patched Run1Bak).
-  - `"dsconf_musing"`: string substituted into DSCONF as
-    `f"{musing}_{cfg}"` (via new `_stage_dsconf(stage)` helper at
-    pipeline.py:113). Default is module-global `DSCONF = f"Run1Bak_{cfg}"`.
-    Only affects the cnf filename and the `--dsconf` arg of mu2ejobdef
-    (does NOT propagate into /pnfs paths). Without this, prodtarget
-    output files were mislabeled `…Run1Bak_pt001…` despite being built
-    against MDC2025aq.
+- **Per-stage backing override — RETIRED 2026-08-22.** Both keys were
+  added 2026-06-07 for prodtarget (whose output files were otherwise
+  mislabeled `…Run1Bak_pt001…` despite being built against MDC2025aq) and
+  both became unreachable when the STAGES literal retired into
+  `stage_entries/`: a mode spec cannot supply either, because
+  `core/mode_json.py`'s `_STAGE_TUNING_KEYS` is a closed allow-list
+  (`events_per_job`, `memory_mb`, `quorum`) validated at load, and no
+  `stage_entries/*.json` declares them.
+  - `"code_tarball"` could never reach `stage_cfg`'s result, so
+    `write_code_tarball(base_tarball=...)` had no production caller. The
+    parameter survives as a TEST seam only.
+  - `"dsconf_musing"` was pinned to `None`, so `_stage_dsconf(stage)`
+    could only ever return the module-global `DSCONF = f"Run1Bak_{cfg}"`.
+    The helper is deleted; call sites read `DSCONF` directly.
 - **Geom overlay:** ships via `Code.tar`; geom-bearing stages
   (mubeam, run1b_mubeam, mustops_ce) reference the same
   `autoresearch_<cfg>_geom.txt` basename via the stage_entries `{geom}`

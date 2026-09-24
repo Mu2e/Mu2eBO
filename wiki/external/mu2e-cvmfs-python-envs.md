@@ -83,7 +83,7 @@ re-derivable in under 5 minutes — it needs a dist-info diff across three prefi
 - **Lockfile blocker RESOLVED 2026-08-18.** `requirements.txt` remains
   unpublishable on its own — 7 of its 12 lines are `>=` ranges (`langgraph`,
   `langgraph-checkpoint-sqlite`, `python-dotenv`, `matplotlib`, `scikit-learn`,
-  `uproot`, `awkward`) — so `requirements.lock` now carries the pinned, hashed
+  `uproot`, `awkward`) — so `requirements.lock` carried the pinned, hashed
   resolution: **77 packages, 1744 hashes**, `--require-hashes` clean, and
   `uv pip install --dry-run` against the live venv reports *"would make no
   changes"*.
@@ -196,6 +196,9 @@ BO rounds would change the numerical stack under a running campaign.
 - External: `/cvmfs/mu2e.opensciencegrid.org/bin/pyenv.sh`,
   `/cvmfs/mu2e.opensciencegrid.org/env/{ana,rootana,trkqual}/`, EAF change log on
   mu2ewiki
+
+## Known gap (2026-08-21)
+- `ana 2.8.0` lacks `six` (dateutil imports `six.moves`), so **`import pandas` fails** there. The off-repo figure generators in `autoresearch_grid/mmackenz_table_plots/` all use pandas — run them with `PYTHONPATH= .venv/bin/python`, not `$AUTORESEARCH_PYTHON`. The suite passes because nothing in it imports pandas.
 
 ## Open questions / TODO
 - **Request not sent.** Ask the EAF/analysis-tools maintainers (owners of the EAF

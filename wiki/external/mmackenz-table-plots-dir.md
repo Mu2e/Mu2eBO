@@ -1,11 +1,14 @@
 ---
 type: external
 title: mmackenz_table_plots/ — off-repo analysis + picker scripts dir
-description: off-repo /data dir holding ~20 unversioned picker/renderer scripts
-  + artifacts; name is historical misnomer; 3 hardcoded repo refs; migration blocked
-  while a closed-loop runs
+description: off-repo /data dir holding 46 unversioned picker/renderer scripts
+  + artifacts; name is historical misnomer; the 3 repo->dir refs are GONE (no
+  repo module imports it any more) and 12 of its scripts are dead-and-stamped
 status: active
-timestamp: '2026-07-17'
+timestamp: '2026-08-22'
+updated_note: '2026-08-22 audit: repo->dir coupling fully severed; 12 scripts
+  verified DOES-NOT-RUN and stamped in place; the 12 live foilspf deck
+  generators import nothing from the repo'
 ---
 
 # mmackenz_table_plots/ — off-repo analysis + picker scripts dir
@@ -15,8 +18,10 @@ timestamp: '2026-07-17'
 **off-repo** directory (on the /data volume, NOT under the git tree at
 `/exp/mu2e/app/.../autoresearch`) holding ~20 Python scripts — the BO pickers,
 GP-cloud renderers, overlays, saturation report — mixed with their generated
-artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
-`gp_predict_{foils,helical}.py` are imported live by the closed-loop picker.
+artifacts (PNGs, GIFs, TSVs). It is **no longer load-bearing**: the closed
+loop stopped importing `gp_predict_*.py` when the skopt kernel was retired
+(2026-07-18), and as of 2026-08-22 no module under `core/` or `graph/` names
+this directory at all.
 
 ## Key facts
 - **Why "mmackenz" (historical drift):** it began as plots of mmackenz's
@@ -33,10 +38,30 @@ artifacts (PNGs, GIFs, TSVs). Some of these scripts are **load-bearing**:
   `botorch_predict_helical.py` was once deleted before a snapshot window
   (see [bo-helical](/projects/bo-helical.md)) — exactly this fragility. Artifacts on /data is fine;
   load-bearing code on /data is the risk.
-- **THREE hardcoded repo refs pin this path** (must all change on any move):
-  - `graph/closed_loop.py:86` — `GP_SCRIPT_DIR` (picker import dir)
-  - `botorch_predict.py:6` — docstring pointer to `gp_predict_{foils,helical}.py`
-  - `bo_driver.py:76` — `GEOM_TSV = .../geom_params.tsv`
+- **The three hardcoded repo refs are GONE (verified 2026-08-22):**
+  `grep -n "GP_SCRIPT_DIR\|gp_predict_\|GEOM_TSV\|mmackenz_table_plots"
+  core/*.py graph/*.py` returns nothing. Was: `graph/closed_loop.py:86`
+  `GP_SCRIPT_DIR`, `botorch_predict.py:6` docstring, `bo_driver.py:76`
+  `GEOM_TSV`. **The directory can now be moved without touching the repo.**
+- **12 of the 46 scripts DO NOT RUN, and are stamped as such in place
+  (2026-08-22).** Verified by executing each against a worktree of the
+  pre-audit tree AND the current one — identical failures on both, so none
+  of it was caused by the 2026-08-22 slim-down. Blockers: 7 die at `from
+  skopt import Optimizer` (skopt retired 2026-07-18, absent from cvmfs
+  `ana 2.8.0` and the dev venv; their `cl_min` strategy went with it per
+  ADR-0001) — `gp_predict_{foilsflash,foilsf,foils,foilsg,ipa}.py`,
+  `diversity_overlay_foils.py`, `loco_picker_eval.py`; 3 at
+  `bo.HelicalMode` — `gp_predict_helical.py`,
+  `botorch_predict_helical.py`, `overlay_knob_locations.py`; 2 on a mode
+  that is in neither `mode_specs/` nor its archive —
+  `botorch_predict_prodtarget{,6d}_cloud.py`. Originals are in
+  `_backup_20260822/`.
+- **The 12 LIVE foilspf deck generators import NOTHING from the repo**
+  (`gp_predict_foilspf*_perpot_cloud.py`, `sketch_foilspf*.py`): they read
+  the leaderboard TSV and train their own sklearn GPs. The deck-refresh path
+  is therefore insulated from repo refactors — checked after the slim-down.
+  `gp_predict_ipa_cloud.py` and `foils_v2_loader.py` are self-contained the
+  same way and still run; only their comments named retired symbols.
 - **REVERSE coupling (these plotters hardcode the repo's module + leaderboard
   paths) — REBASED onto the 2026-07-17 core/leaderboards/ reorg.** 20 scripts
   were rewritten in one pass: every `sys.path.insert(0, <repo root>)` →

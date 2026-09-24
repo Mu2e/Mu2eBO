@@ -1,25 +1,25 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (12 files, 211 tests; test_wal_multiwriter_stress.py
-  is a manual stress script with 0 TestCase), no grid contact; `PYTHONPATH=
-  .venv/bin/python -m unittest discover -s tests -v`; golden parity harness
-  (manual, not in discover): `PYTHONPATH= .venv/bin/python tests/golden_parity.py check`'
+description: '`tests/` regression suite (31 files, 676 tests), no grid contact;
+  `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .`;
+  golden parity harness (manual, not in discover): `PYTHONPATH=
+  "$AUTORESEARCH_PYTHON" tests/golden_parity.py check`'
 status: active
-timestamp: '2026-08-02'
-updated_note: 'slimming round: ChildTracker full-cut + harvest seams + B0
-  batch added STALE_CLUSTER/launch-failed/harvest/lockstep coverage;
-  196 → 211 tests'
+timestamp: '2026-09-22'
+updated_note: 'slim-down audit: tools/capture_golden_geom.py deleted (it
+  could not fail), 5 vacuous tests removed, 2 grid-staging regression tests
+  added'
 ---
 
 # Self-tests (`tests/`)
 
 ## Summary
-Regression tests for the Python drivers in this project. **12 `test_*.py`
-files, 211 tests**, run under the single project `.venv` with no grid contact
+Regression tests for the Python drivers in this project. **30 `test_*.py`
+files, 676 tests**, run under `$AUTORESEARCH_PYTHON` with no grid contact
 (all mocks/tempdirs) — plus `tests/golden_parity.py`, a manually-run byte/
 tensor-parity harness (not picked up by `unittest discover`, same convention
-as `test_wal_multiwriter_stress.py`). Added 2026-05-29 alongside the
+as `tests/golden_parity.py`). Added 2026-05-29 alongside the
 5-finding `/simplify` audit so future refactors that revert the audit fixes
 fail loudly; grown since with the foils v2 6D round-trip suite, the shared
 env-source helper, the 2026-07-17 reorg, the 2026-07-19 tests/schema/
@@ -28,10 +28,25 @@ tests: ChildTracker `STALE_CLUSTER` + launch-failed coverage, harvest.py
 Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
 
 ## Key facts
-- **Suite size (measured 2026-08-02): 18 `test_*.py`, 432 tests (2 skipped
-  by design), 11.7 s.**
+- **Suite size (measured 2026-09-22): 31 `test_*.py`, 676 tests
+  (1 skipped by design), ~60 s under `ana 2.8.0`.**
   The per-file breakdown further down is a 2026-07-20 snapshot (12 files /
   211) and has NOT been re-audited — trust these two numbers over it.
+- **`tools/capture_golden_geom.py` was DELETED 2026-08-22** (slim-down
+  audit). Everything below about its skip guard is history, not a live
+  recipe: the guard could no longer return True for any mode, so the tool
+  skipped its only target and reported success while verifying nothing
+  (`--check` → `0 drifted, 0 cosmetic, 1 mode(s) skipped`, rc=0; a bare run
+  wrote zero goldens). `ModeSpec.geom` is non-Optional and
+  `core/mode_json.py` builds it unconditionally from a REQUIRED JSON key, so
+  a Python renderer cannot come back without a schema change. **The goldens
+  in `tests/fixtures/golden_geom/` are now permanent and must never be
+  regenerated** — rebuilding one from the JSON spec turns
+  `test_production_spec_still_matches_the_golden` into a tautology. That
+  test, and `test_same_geometry_as_python_renderer`, are the surviving
+  oracles; `test_golden_still_matches_the_live_python_mode` (always skipped)
+  and `test_regeneration_guard_uses_the_registry_not_an_attribute` went with
+  the tool.
 - **`tools/capture_golden_geom.py`'s skip guard was BROKEN and would have
   destroyed the oracle it protects (found + fixed 2026-08-02).** The tool
   re-captures the frozen geometry goldens
@@ -80,10 +95,11 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   JSON mode — i.e. that an attribute check can never mean "has a Python
   renderer". Nothing had pinned that invariant, which is why it could
   break in silence for a week.
-- **Venv & invocation:** `PYTHONPATH= .venv/bin/python -m unittest discover
-  -s tests -v` (single project venv since the 2026-07-18 consolidation —
-  it carries langgraph AND botorch, so there is no wrong venv anymore).
-- **Golden parity harness:** `PYTHONPATH= .venv/bin/python
+- **Venv & invocation:** `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover
+  -s tests -t .` (the published cvmfs env `ana 2.8.0` since 2026-08-20; it
+  carries langgraph AND botorch, so there is no wrong venv anymore —
+  `AUTORESEARCH_VENV=<path>` still selects a writable dev stack).
+- **Golden parity harness:** `PYTHONPATH= "$AUTORESEARCH_PYTHON"
   tests/golden_parity.py check` (capture with `... capture`) — three
   sections: (a) per-mode `load_history()`→`format_row` round-trip vs the
   live leaderboards (byte-compared, all 6 modes); (b) a deterministic
@@ -154,7 +170,7 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
     added a stale-`evaluate_result.json`-not-reused case (symmetric to the
     preflight stale test) and the out-of-domain preflight rc→`ambiguous`
     fallback.
-  - `tests/test_wal_multiwriter_stress.py` (0 `def test_` — a manual WAL
+  - `tests/test_wal_multiwriter_stress.py` REMOVED 2026-08-19 (`be70827`) with the checkpointer (was: 0 `def test_` — a manual WAL
     stress script, tracked but NOT part of the 211; `unittest discover`
     picks up the file but finds no `TestCase`).
 - **Off-tree module import recipe.** `gp_predict_helical.py` lives at

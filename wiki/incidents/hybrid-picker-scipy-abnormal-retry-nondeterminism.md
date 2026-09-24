@@ -3,8 +3,8 @@ type: incident
 title: Hybrid picker (qnehvi+qnparego) non-reproducible at production leaderboard scale
 description: torch.manual_seed(_seed(round_idx)) is set inside the picker, AFTER an unseeded _fit_gp; scipy's L-BFGS-B hits ABNORMAL termination and retries draw extra RNG, so re-running the same seed/inputs gives different picks — at 20 rows as well as ~300, and for bare qnehvi not just hybrid; only budget_sob is reproducible
 status: open
-status_note: found 2026-07-19 building tests/golden_parity.py Task 4; golden (b) redesigned as a tensor fingerprint and committed (eeb8cb6) — only the underlying picker nondeterminism remains open, no production fix applied; scope widened 2026-08-18 (fires at 20 rows, qnehvi affected too, budget_sob is the clean probe)
-timestamp: '2026-08-18'
+status_note: found 2026-07-19 building tests/golden_parity.py Task 4; golden (b) redesigned as a tensor fingerprint and committed (eeb8cb6) — only the underlying picker nondeterminism remains open, no production fix applied; scope widened 2026-08-18 (fires at 20 rows, qnehvi affected too, budget_sob is the clean probe); scope widened again 2026-08-28 (fires at n=10, qlnei affected too, first surfaced via surrokit's test_seed_determinism_qlnei); ROOT-CAUSED 2026-08-28 as ambient torch global-RNG state (not scipy-internal) — pinning torch.manual_seed before each call makes qlnei/qnehvi bit-identical at n=10; surrokit's ask() now pins it at entry (commit df81955) and is repeat-deterministic per (X,Y,seed) for every picker; the legacy botorch_predict.py call path still has no entry seed; whether this fully explains the original n≈300 production finding above remains OPEN
+timestamp: '2026-08-28'
 ---
 
 # Hybrid picker (qnehvi+qnparego) non-reproducible at production leaderboard scale
@@ -91,6 +91,56 @@ this nondeterminism instead of the change under test.
   real-G4 preflight replay) of the same harness are NOT affected — both
   reproduced their own capture exactly across re-runs. This is isolated to
   the acquisition-optimization retry path.
+
+## Broader still: fires at n=10 rows, and `qlnei` is affected too (2026-08-28)
+
+Found porting `_qlnei_picks` verbatim into the `surrokit` extraction
+(Task 5, `.superpowers/sdd/2026-08-28-surrokit-extraction/`). The port is
+byte-for-byte identical to `core/botorch_predict.py`'s `_qlnei_picks` (same
+`_optimize`/`optimize_acqf` call, same `ACQ_NUM_RESTARTS=16`), and neither
+the source nor the port ever calls `torch.manual_seed` inside
+`_qlnei_picks`/`_qlnei` — only `_sampler`/`sampler` seeds the
+`SobolQMCNormalSampler`'s own generator, which does NOT cover
+`optimize_acqf`'s initial-condition draw or its ABNORMAL-retry redraw from
+torch's global RNG stream. So `qlnei` was never actually seed-deterministic
+in the source either; it just hadn't been tested for it.
+
+- `surrokit`'s `tests/test_ask.py::TestAskPickers::test_seed_determinism_qlnei`
+  (2 calls, identical inputs, `seed=9`, **n=10** rows — smaller than the
+  previously-recorded 20-row floor) fails 8/8 runs, including with
+  `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` (rules out thread-count timing here
+  too, same as the original finding).
+- Swept `seed` 0-5 directly: **every seed diverges** on a second identical
+  call — sometimes by float noise in the 6th-7th significant figure,
+  sometimes a full swap of which of the two picks lands first (e.g.
+  `[[0.818, 4], [0.438, 7]]` vs `[[0.432, 8], [0.812, 4]]`). Not
+  seed-dependent, not rare — this is the expected steady-state behavior of
+  this acquisition path, not an occasional flake.
+- **Root cause at n=10, confirmed by controller probe (2026-08-28, ana
+  2.8.0, surrokit fixtures): it is AMBIENT torch global-RNG state, not a
+  scipy-internal or ABNORMAL-retry-count artifact per se.** Calling
+  `torch.manual_seed(123)` immediately before EACH of two otherwise-identical
+  `ask(picker="qlnei", seed=9)` calls makes them bit-IDENTICAL; same for
+  `qnehvi`. Left uncontrolled (no seed pinned between the two calls), the
+  same pair of calls diverges every time, exactly as swept above. So the
+  divergence is state *carried over* from whatever RNG draws happened
+  earlier in the process (`fit_gpytorch_mll`, a prior call's
+  `optimize_acqf`, test-ordering, etc.) — not nondeterminism intrinsic to
+  `optimize_acqf` itself. The engine CAN honor a determinism contract; it
+  just wasn't pinning the global stream at the right boundary.
+- **Fix landed in `surrokit`**: `ask()` (`surrokit/pickers.py`) now calls
+  `torch.manual_seed(seed)` at entry, before `_fit_model` or any picker
+  runs (commit `df81955`). This makes `ask()` **repeat-deterministic per
+  `(X, Y, seed)` for every picker**, `qlnei`/`qnehvi`/`qnparego`/`hybrid`
+  included — `tests/test_ask.py::TestAskPickers::test_seed_determinism_qlnei`
+  now passes, full suite 35/35. The legacy `core/botorch_predict.py`
+  `compute_explore_picks`-style call path has **no equivalent entry seed**
+  and remains non-repeatable in-process. Whether the **original
+  production-scale (n≈300) hybrid nondeterminism** documented above (the
+  five-independent-invocation `foilsflash` finding) is *fully* explained by
+  this same ambient-state mechanism, or has an additional component,
+  **remains open — not claimed resolved by this probe**, which only tested
+  n=10 qlnei/qnehvi in the surrokit fixtures.
 
 ## Cross-links
 
