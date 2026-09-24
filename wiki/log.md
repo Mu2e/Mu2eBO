@@ -6,6 +6,8 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-24
+- **updated** `test_no_hardcoded_paths` scans only files git tracks, so
+  stage before running the suite — [tests](/drivers/tests.md)
 - **updated** Phase A **final-review fix wave** (branch
   `generic-study-phase-a`; suite 712 -> **735** OK, goldens `a b d e` OK,
   none recaptured). (1) The removed `AUTORESEARCH_FLASH_BUDGET` /

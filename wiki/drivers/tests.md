@@ -29,6 +29,13 @@ tests: ChildTracker `STALE_CLUSTER` + launch-failed coverage, harvest.py
 Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
 
 ## Key facts
+- **`tests/test_no_hardcoded_paths.py` only sees files git tracks**
+  (`git ls-files`, `tests/test_no_hardcoded_paths.py:57`). A new file
+  carrying a personal path passes the suite until it is staged, then goes
+  red at the commit. So run `git add` BEFORE the full suite, never after.
+  This bit Phase A Task 1 on 2026-09-24: the new golden
+  `spec_dump_baseline.json` held expanded `/exp/mu2e/app/users/<name>/`
+  musing and tarball paths. The fix stores them as `${ARTIFACT}/` tokens.
 - **Suite size (measured 2026-09-22): 31 `test_*.py`, 676 tests
   (1 skipped by design), ~60 s under `ana 2.8.0`.**
   The per-file breakdown further down is a 2026-07-20 snapshot (12 files /
