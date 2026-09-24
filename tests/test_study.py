@@ -31,9 +31,9 @@ class _Tmp(unittest.TestCase):
     def write(self, doc, name=None, directory=None):
         d = directory or self.tmp
         d.mkdir(parents=True, exist_ok=True)
-        # doc.get, not doc[...]: test_every_top_key_required deletes "name"
-        # itself to prove the loader rejects that, and the write must not
-        # KeyError before load_study_file ever sees the doc.
+        # doc.get, not doc[...]: test_missing_key_at_every_level deletes
+        # "name" itself to prove the loader rejects that, and the write must
+        # not KeyError before load_study_file ever sees the doc.
         p = d / f"{name or doc.get('name', 'study')}.json"
         p.write_text(json.dumps(doc))
         return p
@@ -41,11 +41,17 @@ class _Tmp(unittest.TestCase):
     def load(self, doc):
         return st.load_study_file(self.write(doc))
 
-    def assertRejects(self, doc, *needles):
+    def _reject(self, doc):
+        """Load `doc`, expecting a ValueError; return (path, message)."""
+        path = self.write(doc)
         with self.assertRaises(ValueError) as cm:
-            self.load(doc)
+            st.load_study_file(path)
+        return str(path), str(cm.exception)
+
+    def assertRejects(self, doc, *needles):
+        _path, msg = self._reject(doc)
         for n in needles:
-            self.assertIn(n, str(cm.exception))
+            self.assertIn(n, msg)
 
 
 class TestFixtureLoads(_Tmp):
@@ -91,18 +97,7 @@ class TestFixtureLoads(_Tmp):
 
 
 class TestTopLevel(_Tmp):
-    def test_every_top_key_required(self):
-        for key in st._TOP:
-            doc = _doc()
-            del doc[key]
-            with self.subTest(key=key):
-                self.assertRejects(doc, key)
-
-    def test_unknown_top_key(self):
-        doc = _doc()
-        doc["stages"] = []
-        self.assertRejects(doc, "stages")
-
+    # Missing and unknown top-level keys: _LEVELS' "top" row.
     def test_schema_must_be_2(self):
         doc = _doc()
         doc["schema"] = 1
@@ -167,12 +162,6 @@ class TestEveryLevelRejectsUnknownAndMissingKeys(_Tmp):
     Restores the per-level coverage the deleted tests/test_mode_json.py
     had for the old loader."""
 
-    def _message(self, doc):
-        path = self.write(doc)
-        with self.assertRaises(ValueError) as cm:
-            st.load_study_file(path)
-        return str(path), str(cm.exception)
-
     def test_the_every_level_doc_loads(self):
         # Otherwise a rejection below could come from the base doc itself.
         s = self.load(_doc_every_level())
@@ -183,7 +172,7 @@ class TestEveryLevelRejectsUnknownAndMissingKeys(_Tmp):
             doc = _doc_every_level()
             get(doc)["typo_key"] = 1
             with self.subTest(level=level):
-                path, msg = self._message(doc)
+                path, msg = self._reject(doc)
                 self.assertIn("'typo_key'", msg)
                 self.assertIn("unknown", msg)
                 self.assertIn(path + field, msg)
@@ -194,7 +183,7 @@ class TestEveryLevelRejectsUnknownAndMissingKeys(_Tmp):
                 doc = _doc_every_level()
                 del get(doc)[key]
                 with self.subTest(level=level, key=key):
-                    path, msg = self._message(doc)
+                    path, msg = self._reject(doc)
                     self.assertIn(f"'{key}'", msg)
                     self.assertIn(path + field, msg)
 
@@ -219,49 +208,24 @@ class TestArtifactExpansion(_Tmp):
         doc["kits"]["prodtools"]["code_tarball"] = "${ARTIFACT}/" + rel
         return self.load(doc).kits["prodtools"]["code_tarball"]
 
-    def test_equals_paths_artifact_for_a_real_looking_rel(self):
-        # Environment-independent: whatever this checkout's roots hold.
-        self.assertEqual(self._expanded(self.REL),
-                         str(st.paths.artifact(self.REL)))
-
-    def test_equals_paths_artifact_for_a_missing_rel(self):
-        rel = "no_such_dir_4f1c/Code_missing.tar.bz2"
-        got = self._expanded(rel)
-        self.assertEqual(got, str(st.paths.artifact(rel)))
-        self.assertEqual(got, str(st.paths.ARTIFACT_ROOT / rel))
-
-    def _roots(self):
-        local, backing = self.tmp / "local", self.tmp / "backing"
-        return local, backing, mock.patch.multiple(
-            st.paths, ARTIFACT_ROOT=local, BACKING=backing)
-
-    def _touch(self, root, rel):
-        (root / rel).parent.mkdir(parents=True, exist_ok=True)
-        (root / rel).write_text("")
-
-    def test_local_file_wins(self):
-        local, backing, roots = self._roots()
-        self._touch(local, self.REL)
-        self._touch(backing, self.REL)
-        with roots:
-            got = self._expanded(self.REL)
-            self.assertEqual(got, str(st.paths.artifact(self.REL)))
-        self.assertEqual(got, str(local / self.REL))
-
-    def test_backing_fills_in(self):
-        local, backing, roots = self._roots()
-        self._touch(backing, self.REL)
-        with roots:
-            got = self._expanded(self.REL)
-            self.assertEqual(got, str(st.paths.artifact(self.REL)))
-        self.assertEqual(got, str(backing / self.REL))
-
-    def test_missing_everywhere_is_the_local_path(self):
-        local, _backing, roots = self._roots()
-        with roots:
-            got = self._expanded(self.REL)
-            self.assertEqual(got, str(st.paths.artifact(self.REL)))
-        self.assertEqual(got, str(local / self.REL))
+    def test_local_then_backing_then_intended_local(self):
+        # (roots holding the file, root the expansion must land in)
+        cases = ((("local", "backing"), "local"),
+                 (("backing",), "backing"),
+                 ((), "local"))
+        for i, (holders, want) in enumerate(cases):
+            roots = {r: self.tmp / f"case{i}" / r
+                     for r in ("local", "backing")}
+            for r in holders:
+                (roots[r] / self.REL).parent.mkdir(parents=True)
+                (roots[r] / self.REL).write_text("")
+            with self.subTest(holders=holders):
+                with mock.patch.multiple(st.paths,
+                                         ARTIFACT_ROOT=roots["local"],
+                                         BACKING=roots["backing"]):
+                    got = self._expanded(self.REL)
+                    self.assertEqual(got, str(st.paths.artifact(self.REL)))
+                self.assertEqual(got, str(roots[want] / self.REL))
 
 
 class TestLoaderEdgeCases(_Tmp):
@@ -326,12 +290,6 @@ class TestLoaderEdgeCases(_Tmp):
         doc = _doc()
         doc["objectives"][0]["noise"] = float("nan")
         self.assertIn('"noise": NaN', json.dumps(doc))
-
-    def _reject(self, doc):
-        path = self.write(doc)
-        with self.assertRaises(ValueError) as cm:
-            st.load_study_file(path)
-        return str(path), str(cm.exception)
 
 
 class TestKnobs(_Tmp):
@@ -449,11 +407,6 @@ class TestSteps(_Tmp):
         _step(doc, "sob")["entry"] = "x"
         self.assertRejects(doc, "entry")
 
-    def test_unknown_fixed_key(self):
-        doc = _doc()
-        _step(doc, "mubeam")["fixed"]["njob"] = 3
-        self.assertRejects(doc, "njob")
-
     def test_fixed_value_type(self):
         doc = _doc()
         _step(doc, "mubeam")["fixed"]["quorum"] = 1.5
@@ -482,11 +435,7 @@ class TestSteps(_Tmp):
 
 
 class TestKits(_Tmp):
-    def test_missing_kit_setting(self):
-        doc = _doc()
-        del doc["kits"]["offline_preflight"]["require_zero_overlaps"]
-        self.assertRejects(doc, "require_zero_overlaps")
-
+    # Missing and unknown kit settings: _LEVELS' kits.* rows.
     def test_configured_but_unused_kit(self):
         doc = _doc()
         doc["preflight"] = None   # offline_preflight keeps its settings
@@ -512,14 +461,6 @@ class TestKits(_Tmp):
         doc = _doc()
         doc["kits"]["offline_preflight"]["musing"] = "${HOME}/x/setup.sh"
         self.assertRejects(doc, "ARTIFACT")
-
-    def test_unknown_kit_setting(self):
-        # Ported from the old loader tests (unknown software/preflight key):
-        # those fields now live in kits.<kit>, whose unknown-key check is
-        # kit_registry.validate_study_settings, not the _obj helper.
-        doc = _doc()
-        doc["kits"]["offline_preflight"]["typo_key"] = True
-        self.assertRejects(doc, "typo_key")
 
     def test_registry_declares_the_zero_overlap_flag(self):
         self.assertIn("require_zero_overlaps",
