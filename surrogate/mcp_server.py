@@ -7,15 +7,7 @@ AutoresearchAdapter's problems()/history() over the studies (modes.STUDIES).
 All GP logic lives in surrokit (core/botorch_predict.py stays the
 production picker CLI). Uses the official `mcp` SDK (2.0, ships in the
 ana 2.8.0 cvmfs env -- the project's default interpreter -- so there is
-nothing to install). Transport is stdio; register in .mcp.json:
-
-    {"mcpServers": {"surrogate": {
-        "command": "/cvmfs/mu2e.opensciencegrid.org/env/ana/2.8.0/bin/python",
-        "args": ["surrogate/mcp_server.py"]}}}
-
-Tool names changed from the pre-surrokit adapter: list_modes -> list_problems,
-board_stats -> stats; refit is unchanged. .mcp.json consumers re-learn the
-new names on next session start.
+nothing to install). Transport is stdio; registered in .mcp.json.
 
 Fits are cached in this process and refreshed automatically when the
 leaderboard grows (row-count key inside surrokit.mcp_scaffold). A future

@@ -440,11 +440,7 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
     the per-config geom + extra_files into Code/, write Code/setup_post.sh
     extending MU2E_SEARCH_PATH + FHICL_FILE_PATH, repack.
 
-    base_tarball defaults to MUSE_BASE_TARBALL and is now a TEST seam only
-    (tests/test_pipeline_verbs.py builds a synthetic base, since the real one
-    is a multi-hundred-MB artifact). There is no per-stage override key: the
-    stage_cfg "code_tarball" branch this used to read could never fire and
-    was deleted 2026-08-22.
+    base_tarball: test seam, default MUSE_BASE_TARBALL.
     """
     if base_tarball is None:
         base_tarball = MUSE_BASE_TARBALL
@@ -497,8 +493,7 @@ def write_code_tarball(stage_dir: Path, base_tarball: Path | None = None,
 
 def _prev_stage_sources(stage: str) -> list[Path]:
     """The previous stage's harvested output paths, refusing both the absent
-    and the EMPTY file. Empty used to be caught on the --local branch only;
-    the grid branch farmed [] and submitted a cluster with no inputs."""
+    and the EMPTY file."""
     prev = INPUT_STAGE
     files = hv.read_outputs(STATE, prev)
     if files is None:
@@ -519,23 +514,11 @@ INPUT_STAGE = "mubeam"
 
 def input_farm(stage: str, dest: Path, sources: list[Path], *,
                allow_copy: bool) -> tuple[Path, dict]:
-    """Put every input file in ONE dir (entry input_data is basename-keyed
-    and inloc assumes a single dir), and return (dir, {basename: 1}) -- one
-    input file per job. Serves both executors.
-
-    Hard links, NOT symlinks: xrootd doors don't follow /pnfs symlinks, but
-    hard links share the dCache namespace entry.
-
-    `allow_copy` is the ONLY behavioural difference between the two callers,
-    and it is explicit because the difference matters. The local farm sets it
-    (a local outstage tree and ROOT legitimately land on different
-    filesystems, so EXDEV is expected and a copy is right). The /pnfs grid
-    farm does NOT: there, EXDEV means the sources are not on dCache at all --
-    a stage chained off a --local previous stage -- and copying would
-    silently duplicate the whole previous stage's output into /pnfs, against
-    the quota that once killed a campaign
-    (wiki/incidents/data-quota-exhausted-grid-accumulation.md). Raise instead.
-    """
+    """Hard-link every input into ONE dir (input_data is basename-keyed);
+    return (dir, {basename: 1}). Hard, not sym, links: xrootd won't follow
+    /pnfs symlinks. allow_copy: local farm only (EXDEV is expected there);
+    on the /pnfs grid farm EXDEV means non-dCache sources and a copy would
+    eat the quota (wiki/incidents/data-quota-exhausted-grid-accumulation.md)."""
     if dest.exists():
         for p in dest.iterdir():
             p.unlink()

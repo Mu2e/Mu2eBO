@@ -1,20 +1,5 @@
 #!/bin/bash
-# Operator-facing skin over core/paths.py. Mirrors muse's verbs:
-#   --status   ~ muse status
-#   --backing  ~ muse backing
-#
-#   source setup.sh          export the resolved roots into this shell, so a
-#                            campaign's children cannot have them shift
-#   ./setup.sh --status      print the resolved roots + venv, and their origins
-#   ./setup.sh --backing P   link P as the artifact backing (local wins)
-#   ./setup.sh --backing -r  remove the link
-#   ./setup.sh --venv [P]    link P (default: the site venv) as .venv
-#   ./setup.sh --venv -r     remove the .venv link
-#
-# --venv defaults to a named area and --backing does not, deliberately: a
-# borrowed venv is only ever an override on the published cvmfs env, which is
-# the immutable, versioned thing results are reproducible against. Borrowing a
-# BACKING silently changes your physics results, so that one stays explicit.
+# Operator-facing skin over core/paths.py, verbs mirroring muse's; see _usage.
 #
 # Deliberately does NOT activate the venv and does NOT touch PYTHONPATH:
 # the test suite depends on `PYTHONPATH=` being empty, and this script has

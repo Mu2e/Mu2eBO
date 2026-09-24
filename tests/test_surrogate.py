@@ -6,7 +6,7 @@ leaderboards are never touched. The MCP test is skipped where the `mcp`
 SDK is absent (it ships in ana 2.8.0 but not in the dev venv).
 
 The plain-Python facade these tests used to cover was deleted 2026-09-22
-(zero callers); see surrogate/__init__.py."""
+(zero callers); see wiki/drivers/surrogate.md."""
 import asyncio
 import os
 import sys
