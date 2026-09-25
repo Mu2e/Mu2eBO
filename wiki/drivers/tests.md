@@ -1,33 +1,41 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (33 files, 704 tests), no grid contact;
-  `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .`;
-  golden parity harness (manual, not in discover): `PYTHONPATH=
+description: '`tests/` regression suite (43 files, 856 tests, 1 skipped), no
+  grid contact; `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s
+  tests -t .`; golden parity harness (manual, not in discover): `PYTHONPATH=
   "$AUTORESEARCH_PYTHON" tests/golden_parity.py check`'
 status: active
-timestamp: '2026-09-24'
-updated_note: 'PR #34 simplification pass, stage 3: suite 726 -> 702;
-  test_json_mode_parity.py renamed test_geom_golden_parity.py,
-  test_evaluate_generic.py folded into test_json_mode.py, the foils/
-  foilsflash mode fixtures deleted (tests read mode_specs/foilsflash.json),
-  golden d stored one line per field'
+timestamp: '2026-09-25'
+updated_note: 'generic-study Phase B (contract engine) landed 10 new test
+  files (704 -> 856 tests): test_kit_config.py, test_toykit.py,
+  test_kits.py, test_contract.py, test_scheduler.py, test_score.py,
+  test_study_engine.py, test_boards.py, test_study_run.py,
+  test_study_loop.py. The engine subprocess tests (test_study_run.py,
+  test_study_loop.py) set AUTORESEARCH_DATA_ROOT to a temp dir per
+  test and add about 2 minutes to the suite (measured full run:
+  ~270s / 4m30s under ana 2.8.0).'
 ---
 
 # Self-tests (`tests/`)
 
 ## Summary
-Regression tests for the Python drivers in this project. **33 `test_*.py`
-files, 704 tests** (2026-09-24), run under `$AUTORESEARCH_PYTHON` with no grid contact
-(all mocks/tempdirs) — plus `tests/golden_parity.py`, a manually-run byte/
-tensor-parity harness (not picked up by `unittest discover`, same convention
-as `tests/golden_parity.py`). Added 2026-05-29 alongside the
-5-finding `/simplify` audit so future refactors that revert the audit fixes
-fail loudly; grown since with the foils v2 6D round-trip suite, the shared
-env-source helper, the 2026-07-17 reorg, the 2026-07-19 tests/schema/
-protocol round (156 → 196 tests), and the same-day slimming round (196 → 211
-tests: ChildTracker `STALE_CLUSTER` + launch-failed coverage, harvest.py
-Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
+Regression tests for the Python drivers in this project. **43 `test_*.py`
+files, 856 tests (1 skipped)** (2026-09-25), run under `$AUTORESEARCH_PYTHON`
+with no grid contact (all mocks/tempdirs, or a temp `AUTORESEARCH_DATA_ROOT`
+for the engine's subprocess tests) — plus `tests/golden_parity.py`, a
+manually-run byte/tensor-parity harness (not picked up by `unittest
+discover`, same convention as `tests/golden_parity.py`). Added 2026-05-29
+alongside the 5-finding `/simplify` audit so future refactors that revert
+the audit fixes fail loudly; grown since with the foils v2 6D round-trip
+suite, the shared env-source helper, the 2026-07-17 reorg, the 2026-07-19
+tests/schema/ protocol round (156 → 196 tests), the same-day slimming round
+(196 → 211 tests: ChildTracker `STALE_CLUSTER` + launch-failed coverage,
+harvest.py Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol
+tests), and the generic-study refactor (704 → 856 tests: Phase A landed the
+study loader/leaderboard/build_problem tests, Phase B — the [contract-engine](/drivers/contract-engine.md)
+— added 10 files for `kits.toml`/`KitClient`/the evaluator contract/
+`run_steps`/`score`/v2 boards/`graph.study_run`/`graph.study_loop`/`toykit`).
 
 ## Key facts
 - **`tests/test_no_hardcoded_paths.py` only sees files git tracks**
@@ -56,7 +64,7 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   failure (`tests/test_json_mode.py`); the STUDY_PATH wiring test, which
   replaced the only test that wrote into the real `mode_specs/`
   (`tests/test_modes.py`); a regex self-test in the gate.
-  **Current (measured 2026-09-24, PR #34 simplification pass): 33
+  **Superseded (measured 2026-09-24, PR #34 simplification pass): 33
   `test_*.py`, 704 tests (1 skipped), ~95 s.** Stages 1-2 took 735 -> 726;
   stage 3 took 726 -> 702 by merging duplicates and deleting checks; the
   unused-step rule (d95f034) added 2 -> 704
@@ -78,6 +86,25 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   fixture left. `tests/test_modes.py` now ends with its `__main__` guard:
   `TestModeStamping` used to sit after it and never ran under
   `python tests/test_modes.py`.
+  **Current (measured 2026-09-25, generic-study Phase B, the
+  [contract-engine](/drivers/contract-engine.md)): 43 `test_*.py`, 856
+  tests (1 skipped), ~270 s (4m30s) under `ana 2.8.0`.** +152 over the
+  704 baseline, from 10 new files: `tests/test_kit_config.py` (`kits.toml`
+  loading/validation), `tests/test_toykit.py` (the reference kit),
+  `tests/test_kits.py` (`KitClient`: start/respawn/generation-counter/
+  retries), `tests/test_contract.py` (reply validation, `NativeKit`,
+  `check_kits`, the adapter registry), `tests/test_scheduler.py`
+  (`run_steps`: dependency graph, parallel steps, `broken.txt` timing,
+  sibling-finish-before-raise), `tests/test_score.py` (metric collection,
+  `measure_sha`/`row_meta`), `tests/test_study_engine.py` (v2 boards,
+  `measure_sha`, engine studies), `tests/test_boards.py` (`board_for`),
+  `tests/test_study_run.py` (the per-point graph and CLI, subprocess),
+  `tests/test_study_loop.py` (the Branin acceptance campaign, busy names,
+  runner-restart, launch refusals, subprocess). The two subprocess files
+  (`test_study_run.py`, `test_study_loop.py`) set `AUTORESEARCH_DATA_ROOT`
+  to a per-test temp dir (`tests/engine_fixtures.py:engine_env`) so no
+  engine test writes under the real `DATA_ROOT`, and together add roughly
+  2 minutes to the suite's wall time.
 - **`tools/capture_golden_geom.py` was DELETED 2026-08-22** (slim-down
   audit). Everything below about its skip guard is history, not a live
   recipe: the guard could no longer return True for any mode, so the tool
@@ -286,7 +313,11 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   trap will recur for any future mode addition.
 
 ## Cross-links
-- Related: [closed-loop-runner](/drivers/closed-loop-runner.md), [graph-runner](/drivers/graph-runner.md),
+- Related: [contract-engine](/drivers/contract-engine.md) (the Phase B
+  engine tests: `test_kit_config.py`, `test_toykit.py`, `test_kits.py`,
+  `test_contract.py`, `test_scheduler.py`, `test_score.py`,
+  `test_study_engine.py`, `test_boards.py`, `test_study_run.py`,
+  `test_study_loop.py`), [closed-loop-runner](/drivers/closed-loop-runner.md), [graph-runner](/drivers/graph-runner.md),
   [bo-driver](/drivers/bo-driver.md), [pipeline](/drivers/pipeline.md),
   [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md),
   [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md),

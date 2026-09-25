@@ -206,7 +206,7 @@ All decided by the operator on 2026-09-23.
 **`fmt`** on objectives, extra metrics and extra columns is the number format in the TSV. It is required, so that rows appended to old boards match today's bytes.
 
 **`leaderboard`** holds `file` (the board path), `layout` and `context`.
-- `layout` is `"v1"` (config, knobs, objectives, extra metrics, extra columns: today's boards) or `"v2"` (the same plus `handles`, `spec_sha`, `measure_sha` and `time`). `"v2"` arrives with Phase B.
+- `layout` is `"v1"` (config, knobs, objectives, extra metrics, extra columns: today's boards) or `"v2"` (the same plus `handles`, `spec_sha`, `measure_sha` and `time`).
 - `context` lists runtime values the caller must supply when a row is written, for example `["alpha"]`, which today's CLI passes as `--alpha`. A missing context value is an error at write time.
 
 **Environment overrides are gone.** `AUTORESEARCH_FLASH_BUDGET` and `AUTORESEARCH_BUDGET_KSIGMA` are removed, and the study file is the only source of the constraint. Setting either one is a loud error (`SystemExit` from `core/botorch_predict.py:build_problem`, naming `constraints[0].max` or `constraints[0].k_sigma`), so a stale export can never be silently ignored.
@@ -225,14 +225,15 @@ After this change, no stage name appears in Python.
 ### Leaderboard rows
 
 ```
-name | each knob | each objective | each extra metric | handles | spec_sha | measure_sha | time
+name | each knob | each objective | each extra metric | extra columns | handles | spec_sha | measure_sha | time
 ```
 
+- A v2 row keeps the extra columns.
 - `handles` records each step's handle.
 - `spec_sha` is the SHA-256 of the canonical study JSON.
-- `measure_sha` identifies how the row was measured. It is the SHA-256 of `derive` and `geom` (what a knob vector means), `kits`, each step's `kit`, resolved `entry` template, `files`, `files_from`, `params` and `fixed`, each objective's and extra metric's `metric` and `transform`, and each kit's reported version. It leaves out what doesn't change a measurement: `note`, knob bounds, `fmt`, `noise`, `constraints` and `leaderboard`. `spec_sha` is too coarse for this, since editing the note changes it.
+- `measure_sha` identifies how the row was measured. It is the SHA-256 of `derive` and `geom` (what a knob vector means), `kits`, each step's `kit`, resolved `entry` template, `files`, `files_from`, `params` and `fixed`, each objective's and extra metric's `metric` and `transform`, and the reported version of each kit a step runs on (the preflight kit gates a point but does not produce its numbers, so only its settings in `kits` are hashed). It leaves out what doesn't change a measurement: `note`, knob bounds, `fmt`, `noise`, `constraints` and `leaderboard`. `spec_sha` is too coarse for this, since editing the note changes it.
 - **A board holds one measurement.** Appending a row whose `measure_sha` differs from the board's rows is an error. Changing how an objective is measured means a new board, never mixed rows: at identical x, Run1Bak and Run1Bap differ by +5% in sob, far beyond the noise (see `wiki/concepts/run1bak-run1bap-sob-shift.md`). A new kit that reproduces the old numbers within noise on archived evaluations may continue a board, but only through an explicit, recorded change to its `measure_sha`.
-- Each step's `state/<step>_results.json` also records the kit's version and environment (from `describe`), its `params` and its input file list, so a row can be traced to what produced it.
+- Each step's `state/<step>_results.json` also records the kit and its version, its `params`, its inputs, and the kit's `files` and `metadata`. The kit's environment from `describe` is not recorded in Phase B.
 - v1 boards have no `measure_sha` column; the rule applies from v2.
 
 **Old boards** are read by their header names. The converted foilspf-family studies name their objectives after the existing columns (`sob`, `flash_edep`) and add `alpha` and `obj` as `extra_columns`. The file layout and number formats therefore don't change. New boards use the schema-2 layout.
@@ -254,10 +255,15 @@ Kits that speak the contract offer these as MCP tools; adapters and plugins impl
 
 - A `FileRef` is `{name, uri, kind}`, where `uri` is `file://…` or `root://…`.
 - **Handles are deterministic,** named `<config>.<step>`.
+- Replies must carry the keys this table names, with the right types; keys it doesn't name are ignored.
+- `submit`'s handle must equal the name it was given.
+- A kit's version is the `serverInfo.version` its MCP server reports at initialize (an adapter's own constant), and `check_kits` refuses a kit that reports none, because `measure_sha` needs it.
 
 ## One point, end to end
 
 `graph.run --study S --config C --x …` builds a graph with these nodes:
+
+Until Phase C deletes the pipeline path, the engine's child is `python -m graph.study_run` and its campaign runner is `python -m graph.study_loop`; Phase C renames them to `graph.run` and `graph.closed_loop`.
 
 1. **derive:** knobs become expressions and profiles, written to `state/derived.json`.
 2. **render:** if `geom` is set, the writer renders `geom.txt`.
@@ -268,7 +274,7 @@ Kits that speak the contract offer these as MCP tools; adapters and plugins impl
    - `state/<step>_cluster.txt` exists: poll that handle;
    - neither exists: `submit`, then write the handle to `state/<step>_cluster.txt`, the file name the pool, launch checks and scan already use.
 
-   It polls `status` at `poll_ms`, clamped to 30 s–10 min.
+   It polls `status` at `poll_ms`, clamped to the kit's `poll_s` bounds in `kits.toml` (30 s–10 min for grid kits; `toykit` uses 0.1–2 s so CI runs in seconds).
    - `completed`: call `results` and write `state/<step>_results.json`.
    - `failed` or `cancelled`: write `broken.txt` naming the step and the kit's message; `run_steps` starts no further steps, lets the running ones finish, and the point ends.
 5. **score:**
@@ -282,7 +288,7 @@ Kits that speak the contract offer these as MCP tools; adapters and plugins impl
 - **Environment:** each kit's `env_passthrough` comes from `kits.toml`, because the MCP SDK otherwise passes only six variables.
 - **Timeouts:** every call has a named timeout.
 - **Retries:**
-  - `status`, `results`, `describe` and server start get up to 3 bounded retries;
+  - `status`, `results`, `check` and `describe` get up to 3 bounded retries, and a server that fails to start or dies is restarted inside those attempts. At launch, `check_kits` starts each kit once and refuses the campaign if one won't start.
   - `submit` may be repeated, which is safe because it is idempotent by name.
 - **Tracing:** every call carries `_meta["gov.fnal.mu2e/workflow"] = "<campaign>/<config>/<step>"` and appends one line to `GRAPH_DATA/<campaign>/kit_trace.jsonl`.
 
@@ -297,6 +303,8 @@ Each entry is keyed by kit name and declares:
 - whether it offers `check`.
 
 A kit that speaks the contract natively needs no entry: the engine calls its tools directly.
+
+Native kits are `kits.toml` entries with the keys `command`, `env_passthrough`, `set`, `study_keys`, `fixed_keys`, `accepts_lists`, `check`, `launch_stagger_s`, `poll_s` and `timeouts`, all required. An adapter is a class registered in `core/contract.py`'s `ADAPTERS`, taking the campaign name, with a `LAUNCH_STAGGER_S` attribute.
 
 ### `toykit`
 
@@ -357,7 +365,7 @@ Every failure is loud and explained. **A missing number is never replaced by 0.*
 | A metric is missing, not a number, or ≤ 0 under log10 | at score | A failed evaluation naming the metric; no row. |
 | A kit reply outside the contract | kit client | A failed evaluation; never read as success. |
 | Credentials expire | `status` calls fail | Bounded retries, then fail loudly. Launch still requires 4 h of ticket life. |
-| A child or the runner crashes | at restart | Adopted from the state files; no second submit, and at most one row. |
+| A child or the runner crashes | at restart | Adopted from the state files (`point.json`, `<step>_cluster.txt`, `<step>_results.json`); no second submit, and at most one row. A restarted runner skips every name that has state, rather than adopting its child. |
 
 **No grid-job recoveries:** failed jobs inside a step are never resubmitted.
 

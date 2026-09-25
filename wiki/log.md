@@ -5,6 +5,32 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-09-25
+- **created** [contract-engine](/drivers/contract-engine.md): the Phase B
+  contract engine — `kits.toml` native kits over stdio MCP (`core/kits.py`'s
+  `KitClient`, lock covers only start+scheduling, a generation counter
+  stops a stale failure from closing a respawned server, only a closed
+  connection counts as lost, a timeout keeps the session); the evaluator
+  contract (`core/contract.py`'s `NativeKit` — `status`/`results`/`check`/
+  `describe` retry 3x with in-attempt respawn, `submit`/`cancel` don't
+  retry tool errors — and `check_kits`, the launch gate); `run_steps`
+  (`core/scheduler.py`: one scheduler node, not one per step, because
+  LangGraph's superstep barrier would stall a parallel chain; state-file
+  resume; `broken.txt` written at the first failure, siblings finish,
+  `cancel` unused); v2 rows with `measure_sha` (hashes each STEP kit's
+  version, not the preflight kit's); `graph.study_run` (exit 0/2) /
+  `graph.study_loop` (busy names by row/`broken.txt`/`point.json`/
+  `*_cluster.txt`, unbuffered children, `STOP` flag, rows counted by name
+  on the board not `row_appended`); `tests/toykit.py` reference kit;
+  Branin acceptance campaign (q=2, 8 evals) in 28.7 s. Suite now 43
+  `test_*.py`, 856 tests (1 skipped) — [tests](/drivers/tests.md). Amended
+  the design spec with these Phase-B-decided facts and the pre-flight
+  rulings (retries, v2 layout, `measure_sha` versions, results record) —
+  `docs/superpowers/specs/2026-09-23-generic-study-design.md`. Also
+  updated `CONTEXT.md` (Kit, Native kit, Adapter's second sense, Engine
+  study vs. Pipeline study, `measure_sha`) and `mode_specs/README.md`
+  (Engine studies section).
+
 ## 2026-09-24
 - **updated** golden (c) re-captured for the `evaluate_result.json` key change; `check c` showed only `obj` -> `primary` and the payload shape moved — [tests](/drivers/tests.md)
 - **updated** `core/study.py` now refuses a step whose output nothing uses

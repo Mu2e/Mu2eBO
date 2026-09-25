@@ -27,6 +27,31 @@ Keep the shipped files' layout: one knob, profile, geom line, kit, step,
 objective or column per line. Only the parsed JSON matters (`spec_sha`
 hashes it), so the layout is for readable diffs.
 
+## Engine studies
+
+A study whose kits are ALL engine kits (`core.modes.ENGINE`; a kit is an
+engine kit once it has either a `kits.toml` entry or, from Phase C, a
+registered adapter — `toykit` is the only one today) runs through the
+contract engine — `graph.study_run` per point, `graph.study_loop` for a
+campaign — instead of the pipeline. Its `leaderboard.layout` should be
+`"v2"`, so its board carries `measure_sha` and refuses an append measured
+a different way. A study with even one kit that has no adapter yet
+(`prodtools`, `offline_preflight`, `ce_sensitivity`,
+`flash_edep_per_pot` — Phase C) still runs through the pipeline
+(`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`), regardless
+of layout.
+
+`tests/fixtures/engine_studies/branin.json` is the worked example: two
+knobs, two objectives (Branin minimized, Currin minimized + log10) with
+Currin constrained, one `toykit` step, `"layout": "v2"`. It's what
+`tests/test_study_loop.py`'s acceptance test runs end to end.
+
+A study need not live in this directory: any `*.json` under a directory
+named on `$AUTORESEARCH_STUDY_PATH` (colon-separated, each entry an
+absolute path) is loaded the same way. That's where an engine study that
+isn't a production line yet — a toy, a one-off experiment — belongs
+instead of `mode_specs/`.
+
 ## Gotchas
 
 - **Integer knobs still need a float format.** Write `"fmt": "{:.0f}"`, not

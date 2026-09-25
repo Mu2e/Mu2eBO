@@ -21,6 +21,12 @@ _Avoid_: spec file, mode config
 The Phase-A compat view of a Study (`core/study_compat.py`), held in `core.modes.SPECS` for the pipeline, runtime and preflight code that still read it; deleted in Phase C.
 _Avoid_: mode config, mode table, per-mode dict
 
+**Engine study**:
+A Study every one of whose kits is an engine kit (`core.modes.ENGINE`, `core/kit_registry.py`'s `engine=True`); runs through `graph.study_run`/`graph.study_loop` (the contract engine), never the pipeline. `branin` (`tests/fixtures/engine_studies/branin.json`, on `toykit`) is the only one as of Phase B.
+
+**Pipeline study**:
+A Study that still runs through the pipeline (`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`) because at least one of its kits has no engine adapter yet. `foilspf` and its siblings, until Phase C gives `prodtools` an adapter.
+
 **JsonMode**:
 The behavior half of a Mode (render geometry, recover x at evaluate time, read and append leaderboard rows), one driver object per ModeSpec (`core/bo_driver.py`). There is exactly one class — the five Python subclasses were archived 2026-08-08 (`4bc54cc`) and the `BOMode` ABC itself collapsed into `JsonMode` 2026-08-19 (`55168e7`).
 
@@ -46,12 +52,24 @@ _Avoid_: asktell (rejected name), surrogate library
 The Engine's search-space declaration — bounds, integer dims, per-axis noise sigmas, optional budget Constraint. The client (autoresearch) builds one per Mode from its Study (`core/botorch_predict.py:build_problem`).
 
 **Adapter**:
-The client bridge that names Problems and serves their history (X, Y, meta) to the Engine's MCP scaffold via `make_server(adapter)`; autoresearch's Adapter wraps Study + Leaderboards.
+Two distinct senses, kept apart by context — see Flagged ambiguities.
+(1) The client bridge that names Problems and serves their history (X, Y, meta) to the Engine's MCP scaffold via `make_server(adapter)`; autoresearch's Adapter wraps Study + Leaderboards.
+(2) Python that speaks the evaluator contract (see Kit) for a kit that doesn't speak it natively: a class registered in `core/contract.py`'s `ADAPTERS`, taking the Campaign name, with a `LAUNCH_STAGGER_S` attribute. None is registered yet — Phase C adds `prodtools`.
 
 **Leaderboard**:
 The append-only per-mode TSV of completed evals; the ONLY durable source of truth for BO history. There is no checkpointer (retired 2026-08-19) and no other resume state.
 
+**measure_sha**:
+On a `"v2"`-layout Leaderboard, the SHA-256 identifying HOW a row was measured: `derive`, `geom`, every kit's settings, each step's kit/entry/files/params/fixed, each objective's and extra metric's metric/transform, and the reported version of each kit a step runs on (`core/study.py:Study.measure_sha`). The preflight Kit's version is excluded — it gates a point but produces none of its numbers. An append whose `measure_sha` differs from the board's is refused and the row quarantined (`core/leaderboard.py`): a board holds one measurement, never mixed ones.
+_Avoid_: spec_sha (a coarser hash of the whole study file, including things like `note` that don't change a measurement)
+
 ### Execution
+
+**Kit**:
+An MCP server (or, for a kit with no adapter yet, Python that speaks the same interface — see Adapter) offering the evaluator contract a study's steps run on: `submit`/`status`/`results`, plus optional `check`/`describe`/`cancel` (`docs/superpowers/specs/2026-09-23-generic-study-design.md`, "The evaluator contract"). A study names its kits per step (`evaluate[].kit`) and, optionally, one for preflight.
+
+**Native kit**:
+A Kit that speaks the evaluator contract over MCP directly: one `kits.toml` entry (`core/kit_config.py`), no Python. The engine drives it through `core/contract.py`'s `NativeKit` and `core/kits.py`'s `KitClient`. `toykit` (`tests/toykit.py`) is the only one as of Phase B; grid kits (`prodtools` from Phase C, `beamkit` from Phase D, `anakit` from Phase E) arrive as Adapters instead.
 
 **Stage**:
 One grid-submission unit in an eval's chain (`mubeam`, `mustops_ce`, `elebeam_flash`) driven by idempotent submit/poll/list-outputs verbs.
@@ -105,3 +123,4 @@ The `Code.tar.bz2` shipped to grid workers; must be built from the same patched 
 - "config" was used for both an Eval's identity and per-mode settings — resolved: an Eval has a *config name*; per-mode settings are the **Study**.
 - "completed" in closed_loop.py mixed done-with-row, done-broken, and died-unresolved — resolved: use the specific **Outcome** reason. (The whole Barrier/ChildTracker/Resolution vocabulary this replaced was deleted 2026-08-19 with the parent rewrite; see `docs/superpowers/specs/2026-08-19-minimal-foilspf-workflow-design.md`.)
 - "mode tables" (the scattered `*_BY_MODE` dicts) — superseded by **ModeSpec** (see ADR-0002), itself now the **Study**.
+- **Adapter** names two unrelated bridges — not resolved, just documented in place (see the Adapter entry): the surrokit-facing one (Study+Leaderboards → the Engine's MCP scaffold, `core/botorch_predict.py`) and the contract-facing one (an existing kit family → the evaluator contract, `core/contract.py`'s `ADAPTERS`, Phase C on). Context disambiguates in practice; a rename was considered and rejected as more churn than the ambiguity is worth.
