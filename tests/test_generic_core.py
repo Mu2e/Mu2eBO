@@ -8,7 +8,10 @@ ROOT = Path(__file__).resolve().parent.parent
 # core/study_compat.py is deliberately in neither list: it builds
 # metric_cols and names the harvest plugins by design -- it is the
 # schema-1-compat bridge and is deleted in Phase C.
-STRICT = ["core/study.py", "core/leaderboard.py"]
+STRICT = ["core/study.py", "core/leaderboard.py", "core/kit_config.py",
+          "core/kits.py", "core/contract.py", "core/boards.py",
+          "core/scheduler.py", "core/score.py", "graph/study_graph.py",
+          "graph/study_run.py", "graph/study_loop.py"]
 # Files that still host Mu2e code paths (preflight, picker names like
 # budget_sob) but must not read objectives by physics name.
 USAGE = ["core/botorch_predict.py", "core/bo_driver.py",
