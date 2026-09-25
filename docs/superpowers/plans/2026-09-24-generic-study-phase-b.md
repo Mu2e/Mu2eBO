@@ -35,7 +35,7 @@
 
 These five conditions follow from the spec but no happy-path test exercises them. Each is pinned by a test in the task named.
 
-1. **A kit whose server can't start** (a `kits.toml` command or `env_passthrough` naming an unset variable, or a server that exits at start-up): the campaign refuses at launch and names the kit and the variable. It never launches children that all die. → Task 4 (`check_kits`) and Task 10 (`study_loop` refuses, launches nothing).
+1. **A kit whose server can't start** (a `kits.toml` command or `env_passthrough` naming an unset variable, or a server that exits at start-up): the campaign refuses at launch and names the kit and the variable. It never launches children that all die. → Task 4 (`check_kits` names the kit and the variable) and Task 10 (any `check_kits` problem makes `study_loop` refuse and launch nothing).
 2. **A kit server that dies between polls:** the next call respawns it and the step carries on; read-only calls retry up to 3 times. → Task 3 (respawn) and Task 4 (retry policy).
 3. **Relaunching under the same `--name-prefix` while a killed runner's children still run:** no name is launched twice and each point lands at most one row. → Task 10.
 4. **Editing how a study measures (a kit setting, a `fixed` value, a metric) and appending to its existing v2 board:** the append is refused with the row quarantined, never mixed into the GP history. → Task 6 and Task 9.
@@ -805,9 +805,11 @@ after its submit; `fail` picks a failure (failed | cancelled | bad_state |
 missing_metric | nonpositive). Functions: branin_currin (Branin and
 Currin on x1 in [-5, 10], x2 in [0, 15]) and reject (the check fails).
 Run as a script it serves stdio; imported, it exposes ToyStore.
-"""
-from __future__ import annotations
 
+No `from __future__ import annotations` here: the MCP SDK evaluates tool
+annotations against module globals, and Context is imported inside
+make_server.
+"""
 import asyncio
 import json
 import math
@@ -1026,7 +1028,7 @@ Expected: all PASS.
 - [ ] **Step 5: Smoke-test the server by hand**
 
 Run: `TOYKIT_STATE_DIR=$(mktemp -d) timeout 5 "$AUTORESEARCH_PYTHON" tests/toykit.py </dev/null; echo rc=$?`
-Expected: `rc=0` (the server sees EOF on stdin and exits cleanly), with no traceback. `rc=124` means it didn't exit on EOF; a traceback means the tool registration is wrong (check that every tool returns `dict[str, Any]`).
+Expected: `rc=0` (the server sees EOF on stdin and exits cleanly), with no traceback. `rc=124` means it didn't exit on EOF; a traceback means the tool registration is wrong: `InvalidSignature` means an annotation names a symbol that is not a module global (keep `from __future__ import annotations` out of this file), and a serialization error means a tool is not annotated `-> dict[str, Any]`.
 
 - [ ] **Step 6: Commit**
 
@@ -1053,7 +1055,7 @@ Claude-Session: https://claude.ai/code/session_01MyWw6RZmPD7Ap3TtFRCdWM"
 
 **Interfaces:**
 - Consumes: `kit_config.KitConfig`, `KitConfigError` (Task 1); `tests/toykit.py` (Task 2).
-- Produces: `kits.KitError(kit, tool, message)` (`.kit`, `.tool`, `.message`), `kits.KitToolError(KitError)` (the server answered `is_error`), `kits.KitTimeout(KitError)` (the call timed out; the session is kept), `kits.WORKFLOW_META_KEY = "gov.fnal.mu2e/workflow"`, `kits.KitClient(config, *, campaign, trace_dir)` with `start()`, `call(tool, args, *, timeout_s, workflow) -> dict`, `close()`, and attributes `started`, `tools: frozenset`, `server_name`, `server_version`.
+- Produces: `kits.KitError(kit, tool, message)` (`.kit`, `.tool`, `.message`), `kits.KitToolError(KitError)` (the server answered `is_error`), `kits.KitTimeout(KitError)` (the call timed out; the session is kept), `kits.WORKFLOW_META_KEY = "gov.fnal.mu2e/workflow"`, `kits.KitClient(config, *, campaign, trace_dir)` with `start()`, `call(tool, args, *, timeout_s, workflow) -> dict`, `close()`, and attributes `campaign`, `started`, `tools: frozenset`, `server_name`, `server_version`.
 - Produces (tests): `engine_fixtures.toy_config(state_dir, **overrides) -> KitConfig`.
 
 Behaviour this task pins:
@@ -1445,8 +1447,8 @@ class KitClient:
         error = None
         try:
             return self._call(tool, args, timeout_s, workflow)
-        except KitError as exc:
-            error = exc.message
+        except BaseException as exc:
+            error = getattr(exc, "message", None) or repr(exc)
             raise
         finally:
             self._trace(tool, args, workflow, time.monotonic() - t0, error)
@@ -1516,7 +1518,6 @@ class KitClient:
 Run: `git add core/kits.py tests/engine_fixtures.py tests/test_kits.py && PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest tests.test_kits -v`
 Expected: all PASS, in about 15 s (each test starts a server).
 
-If `test_server_death_respawns_on_the_next_call` shows `KitTimeout` instead of `KitError`, the SDK reported the dead pipe as a timeout. Check `exc.code` in `_call` and treat `CONNECTION_CLOSED` (`mcp.types.CONNECTION_CLOSED`, -32000) as lost. Do not weaken the test.
 
 - [ ] **Step 6: Run the whole suite, then commit**
 
@@ -2316,6 +2317,7 @@ Claude-Session: https://claude.ai/code/session_01MyWw6RZmPD7Ap3TtFRCdWM"
 - Modify: `core/modes.py`
 - Modify: `core/study_compat.py`
 - Create: `tests/fixtures/engine_studies/branin.json`
+- Modify: `tests/test_study.py` (delete `test_layout_v2_arrives_in_phase_b`, which asserts v2 is refused)
 - Test: `tests/test_study_engine.py`
 
 **Interfaces:**
@@ -2523,7 +2525,9 @@ class TestEngineClassification(_Tmp):
         self.assertIn("layout", str(cm.exception))
 
     def test_engine_studies_stay_out_of_specs(self):
-        env = dict(os.environ, PYTHONPATH="",
+        data = tempfile.TemporaryDirectory()
+        self.addCleanup(data.cleanup)
+        env = dict(os.environ, PYTHONPATH="", AUTORESEARCH_DATA_ROOT=data.name,
                    AUTORESEARCH_STUDY_PATH=str(ENGINE_STUDIES))
         script = ("import modes; print(sorted(modes.ENGINE), "
                   "'branin' in modes.SPECS, 'branin' in modes.STUDIES)")
@@ -2577,7 +2581,7 @@ Replace the start of `GeomTemplate.render`, from `x = list(x)` through the profi
 - [ ] **Step 5: Change `core/study.py`**
 
 1. Add `import os` to the imports.
-2. In `_leaderboard`, change the layout check to `_one_of(lb["layout"], ("v1", "v2"), f"{where}[leaderboard.layout]")`, dropping the `"; 'v2' arrives with Phase B"` argument.
+2. In `_leaderboard`, change the layout check to `_one_of(lb["layout"], ("v1", "v2"), f"{where}[leaderboard.layout]")`, dropping the `"; 'v2' arrives with Phase B"` argument. Delete `test_layout_v2_arrives_in_phase_b` from `tests/test_study.py`: it asserts the refusal this step removes, and `test_study_engine.TestLayout.test_v2_loads` now pins v2 loading.
 3. In `_derive_and_geom`, replace the error text for a non-empty `derive` with a null `geom` by:
    `f"{where}[derive]: must be empty when geom is null: derive values are computed by the geometry template, and derive without a geometry file is not supported yet"`.
 4. Add the field `measure_basis: Dict[str, Any] = field(compare=False, repr=False)` after `spec_sha` in `Study`, and the method:
@@ -2698,7 +2702,7 @@ Add as the first check in `modespec_from_study`:
 
 - [ ] **Step 8: Run the new tests, then the whole suite and golden d**
 
-Run: `git add core/study.py core/geom_template.py core/modes.py core/study_compat.py && PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest tests.test_study_engine -v`
+Run: `git add core/study.py core/geom_template.py core/modes.py core/study_compat.py tests/test_study.py && PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest tests.test_study_engine -v`
 Expected: all PASS.
 
 Run: `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .`
@@ -2710,7 +2714,7 @@ Expected: `[a] … OK`, `[b] … OK`, `[d] parity: OK`, `[e] parity: OK`. Golden
 - [ ] **Step 9: Commit**
 
 ```bash
-git add tests/fixtures/engine_studies/branin.json tests/test_study_engine.py core/study.py core/geom_template.py core/modes.py core/study_compat.py
+git add tests/fixtures/engine_studies/branin.json tests/test_study_engine.py tests/test_study.py core/study.py core/geom_template.py core/modes.py core/study_compat.py
 git commit -m "feat(study): v2 boards, measure_sha, and engine studies
 
 A study may declare a v2 board. measure_basis holds what a row's numbers
@@ -3101,8 +3105,8 @@ In `surrogate/adapter.py` `_board_summary`, change `bo.MODES[name].load_history(
 Run: `git add core/leaderboard.py core/boards.py core/botorch_predict.py surrogate/adapter.py tests/test_leaderboard.py tests/test_boards.py && PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest tests.test_leaderboard tests.test_boards -v`
 Expected: all PASS.
 
-Run: `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .` and `PYTHONPATH= "$AUTORESEARCH_PYTHON" tests/golden_parity.py check a b d e`
-Expected: OK, and all four sections OK. Golden a proves v1 rows are byte-identical.
+Run: `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .` and `PYTHONPATH= "$AUTORESEARCH_PYTHON" tests/golden_parity.py check a b c d e` (c needs a muse shell and takes about 4 min)
+Expected: OK, and all five sections OK. Golden a proves v1 rows are byte-identical.
 
 - [ ] **Step 7: Commit**
 
@@ -3912,6 +3916,7 @@ class _Point(unittest.TestCase):
         self.addCleanup(self._td.cleanup)
         self.tmp = Path(self._td.name)
         self.studies = self.tmp / "studies"
+        self.studies.mkdir(parents=True)
         self.data = self.tmp / "data"
         self.env = engine_env(self.data, self.studies)
 
@@ -4045,6 +4050,7 @@ class TestRefusals(_Point):
         r = self.run_point(s, x=(3.0, 4.0))
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("point.json", r.stdout)
+        self.assertEqual(self.submits(), ["p1.toy"])
 
 
 class TestResume(_Point):
@@ -4164,7 +4170,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
         write_atomic(state_dir / "derived.json",
                      json.dumps(env, indent=1, sort_keys=True))
         shared["env"], shared["x"] = env, x
-        return {}
+        return {"broken": False}
 
     def node_render(state):
         files = {}
@@ -4174,12 +4180,12 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
             files["geom"] = {"name": "geom", "uri": path.resolve().as_uri(),
                              "kind": "geom"}
         shared["files"] = files
-        return {}
+        return {"broken": False}
 
     def node_preflight(state):
         pre = study.preflight
         if pre is None:
-            return {}
+            return {"broken": False}
         try:
             kit = kits.get(pre["kit"])
             params = {**map_params(pre["params"], shared["env"],
@@ -4192,7 +4198,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
             ok, message = False, f"{type(exc).__name__}: {exc}"
         write_atomic(state_dir / "preflight_verdict.json",
                      json.dumps({"ok": ok, "message": message}, indent=1))
-        return {} if ok else broken(f"preflight: {message}")
+        return {"broken": False} if ok else broken(f"preflight: {message}")
 
     def node_run_steps(state):
         outcomes = run_steps(study, config=config, state_dir=state_dir,
@@ -4202,7 +4208,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
         if failed:
             return broken(f"step {failed[0].step}: {failed[0].message}")
         shared["records"] = {s: o.record for s, o in outcomes.items()}
-        return {}
+        return {"broken": False}
 
     def node_score(state):
         try:
@@ -4862,6 +4868,10 @@ Claude-Session: https://claude.ai/code/session_01MyWw6RZmPD7Ap3TtFRCdWM"
     - "`submit`'s handle must equal the name it was given."
     - "A kit's version is the `serverInfo.version` its MCP server reports at initialize (an adapter's own constant), and `check_kits` refuses a kit that reports none, because `measure_sha` needs it."
   - **"Adapters and plugins" → "Registry":** add "Native kits are `kits.toml` entries with the keys `command`, `env_passthrough`, `set`, `study_keys`, `fixed_keys`, `accepts_lists`, `check`, `launch_stagger_s`, `poll_s` and `timeouts`, all required. An adapter is a class registered in `core/contract.py`'s `ADAPTERS`, taking the campaign name, with a `LAUNCH_STAGGER_S` attribute."
+  - **"Kit client" → "Retries":** replace "`status`, `results`, `describe` and server start get up to 3 bounded retries" with "`status`, `results`, `check` and `describe` get up to 3 bounded retries, and a server that fails to start or dies is restarted inside those attempts. At launch, `check_kits` starts each kit once and refuses the campaign if one won't start."
+  - **"Leaderboard" → `layout`:** delete "`\"v2\"` arrives with Phase B."; and make the v2 row line read `name | each knob | each objective | each extra metric | extra columns | handles | spec_sha | measure_sha | time` (a v2 row keeps the extra columns).
+  - **`measure_sha` bullet:** replace "and each kit's reported version" with "and the reported version of each kit a step runs on (the preflight kit gates a point but does not produce its numbers, so only its settings in `kits` are hashed)".
+  - **Results-record bullet:** replace "records the kit's version and environment (from `describe`), its `params` and its input file list" with "records the kit and its version, its `params`, its inputs, and the kit's `files` and `metadata`. The kit's environment from `describe` is not recorded in Phase B."
   - **"Failures and recovery" table, the "A child or the runner crashes" row:** make the result read "Adopted from the state files (`point.json`, `<step>_cluster.txt`, `<step>_results.json`); no second submit, and at most one row. A restarted runner skips every name that has state, rather than adopting its child."
 
 - [ ] **Step 2: Write `wiki/drivers/contract-engine.md`**
