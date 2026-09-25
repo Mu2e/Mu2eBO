@@ -79,12 +79,12 @@ class _Run(unittest.TestCase):
         self.addCleanup(self._td.cleanup)
         self.state = Path(self._td.name) / "state"
 
-    def run_steps(self, st, kit, env=None, sleep=None, state=None):
+    def run_steps(self, st, kit, env=None, sleep=None, state=None, log=None):
         return sch.run_steps(st, config="c", state_dir=state or self.state,
                              env=env or {}, files={}, kits=Kits(kit),
                              workflow=lambda s: f"camp/c/{s}",
                              sleep=sleep or (lambda s: time.sleep(0.001)),
-                             log=lambda m: None)
+                             log=log or (lambda m: None))
 
 
 class TestScheduling(_Run):
@@ -154,6 +154,70 @@ class TestFailures(_Run):
         kit = FakeKit({"a": [ContractError("fake", "status", "bad state")]})
         out = self.run_steps(study(step("a")), kit)
         self.assertIn("outside the contract", out["a"].message)
+
+    def test_a_failure_stops_launches_even_once_an_unrelated_dep_finishes(self):
+        # "a" fails immediately; "d" is unrelated and slow but succeeds; "e"
+        # depends only on "d", so a dependency-graph check alone would let it
+        # launch once "d" completes. It must not: a failure anywhere stops
+        # every new launch, not just ones downstream of the failed step.
+        kit = FakeKit({"a": ["failed"], "d": ["working"] * 1500 + ["completed"]})
+        out = self.run_steps(study(step("a"), step("d"), step("e", ["d"])), kit)
+        self.assertTrue(out["d"].ok)
+        self.assertNotIn("e", out)
+        self.assertNotIn(("submit", "e"), kit.events)
+
+
+class TestCrash(_Run):
+    def test_an_uncaught_exception_logs_and_breaks_before_a_sibling_finishes(self):
+        kit = FakeKit({"a": [OSError(122, "Disk quota exceeded")],
+                       "c": ["working"] * 1500 + ["completed"]})
+        order = []
+
+        def log(msg):
+            order.append(("log", msg))
+
+        def sleep(s):
+            # A real (tiny) delay -- not a no-op -- is what actually yields
+            # the GIL/CPU to "a"'s thread between "c"'s polls; a busy no-op
+            # loop can run all 1500 iterations before "a" is ever scheduled,
+            # especially under a loaded test suite (this flaked in exactly
+            # that way at full-suite scale before this was added).
+            time.sleep(0.001)
+            order.append(("sleep", s))
+
+        with self.assertRaises(OSError):
+            self.run_steps(study(step("a"), step("c")), kit, sleep=sleep,
+                           log=log)
+
+        failed_idx = next(i for i, e in enumerate(order)
+                          if e[0] == "log" and e[1].startswith(
+                              "[steps] a: FAILED"))
+        self.assertIn("OSError", order[failed_idx][1])
+        sleeps_before = sum(1 for e in order[:failed_idx] if e[0] == "sleep")
+        self.assertLess(sleeps_before, 1500)
+        self.assertTrue((self.state / "c_results.json").exists())
+        broken = (self.state / "broken.txt").read_text()
+        self.assertIn("step a", broken)
+        self.assertIn("OSError", broken)
+
+    def test_broken_txt_exists_while_a_sibling_is_still_running(self):
+        # "a" fails on its very first (unslept) status call, so it is
+        # essentially instant; a real, small per-poll delay for "c" (rather
+        # than a no-op sleep) is what actually yields the GIL/CPU to "a"'s
+        # thread, so this checks real ordering, not a busy race.
+        kit = FakeKit({"a": ["failed"], "c": ["working"] * 30 + ["completed"]})
+        seen = []
+
+        def sleep(s):
+            time.sleep(0.005)
+            path = self.state / "broken.txt"
+            if path.exists():
+                seen.append(path.read_text())
+
+        self.run_steps(study(step("a"), step("c")), kit, sleep=sleep)
+        self.assertTrue(seen)
+        self.assertIn("step a", seen[0])
+        self.assertIn("a failed", seen[0])
 
 
 class TestResume(_Run):

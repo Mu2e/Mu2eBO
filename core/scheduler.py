@@ -14,7 +14,11 @@ resumable with no second submit:
   neither                    submit, then write the handle
 A failed or cancelled step, a kit error, or a reply outside the contract
 stops new launches; running steps finish; broken.txt names the first step
-that failed. A failed step is never retried.
+that failed, written the moment that failure is known (not after the other
+steps drain). A failed step is never retried. An exception outside those
+(a bug -- e.g. an OSError from write_atomic) is logged and recorded the
+same way, then re-raised once every already-running step has finished, so
+a programming error still crashes loudly instead of hanging silently.
 """
 from __future__ import annotations
 
@@ -88,6 +92,7 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
             log(f"[steps] {s.step}: adopted {path.name}")
     pending = [s for s in study.steps if s.step not in outcomes]
     failed: Optional[StepOutcome] = None
+    crash: Optional[Exception] = None
     with ThreadPoolExecutor(max_workers=max(1, len(pending))) as pool:
         running = {}
         while True:
@@ -107,15 +112,26 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
             done, _ = wait(running, return_when=FIRST_COMPLETED)
             for fut in done:
                 name = running.pop(fut)
-                out = fut.result()      # _run_one reports errors as outcomes
+                try:
+                    # _run_one reports every contract/kit failure as a
+                    # StepOutcome; anything else raised here is a bug in the
+                    # step itself (e.g. an OSError from write_atomic), not a
+                    # reported evaluation failure.
+                    out = fut.result()
+                except Exception as exc:
+                    out = StepOutcome(name, False,
+                                      f"{type(exc).__name__}: {exc}", None)
+                    if crash is None:
+                        crash = exc
                 outcomes[name] = out
                 log(f"[steps] {name}: "
                     f"{'completed' if out.ok else 'FAILED: ' + out.message}")
                 if not out.ok and failed is None:
                     failed = out
-    if failed is not None:
-        write_atomic(state_dir / "broken.txt",
-                     f"step {failed.step}: {failed.message}\n")
+                    write_atomic(state_dir / "broken.txt",
+                                 f"step {failed.step}: {failed.message}\n")
+    if crash is not None:
+        raise crash
     return outcomes
 
 
