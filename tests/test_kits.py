@@ -1,7 +1,10 @@
+import asyncio
 import json
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -98,6 +101,115 @@ class TestFailures(_Client):
         self.assertEqual(cm.exception.tool, "start")
         self.assertIn("TOYKIT_NOT_SET_ANYWHERE", cm.exception.message)
         self.assertIn("'toykit'", cm.exception.message)
+
+
+class TestConcurrency(_Client):
+    def test_short_call_is_not_blocked_by_a_long_call_on_the_same_client(self):
+        """Fix round 1, I1: the lock must be held only for start / the tool
+        check / scheduling, not across the wait -- the MCP session
+        multiplexes requests, so a slow call on one thread must not hold
+        every other thread's `timeout_s` hostage on a client several
+        callers share (Task 4's KitSet shares one KitClient per kit across
+        Task 7's scheduler threads)."""
+        c = self.client()
+        self.call(c, "describe")  # start the server before threading in
+        result = {}
+
+        def slow():
+            result["reply"] = self.call(c, "debug_sleep", {"seconds": 2.0},
+                                        timeout_s=10)
+
+        t = threading.Thread(target=slow)
+        t.start()
+        try:
+            time.sleep(0.3)  # let the slow call actually reach the server
+            t0 = time.monotonic()
+            reply = self.call(c, "describe", timeout_s=1.0)
+            elapsed = time.monotonic() - t0
+        finally:
+            t.join(10)
+        self.assertLess(elapsed, 1.0,
+                        f"describe took {elapsed:.2f}s behind a slow call "
+                        f"on the same client -- the lock is held too long")
+        self.assertIn("x1", reply["params"])
+        self.assertEqual(result["reply"]["slept"], 2.0)
+
+
+class TestServerDeathBetweenCalls(_Client):
+    def test_death_with_no_call_in_flight_raises_then_respawns(self):
+        """Fix round 1, review finding for M1/M4: the server dies with no
+        KitClient.call() tracking it as in flight, unlike
+        test_server_death_respawns_on_the_next_call (which kills it via a
+        normal call() and so is indistinguishable from a mid-call death).
+
+        There is no clean handle on the child's OS pid to kill from outside
+        the client: stdio_client's subprocess is private to its own async
+        context and is never surfaced on KitClient or ClientSession. So this
+        fires debug_exit directly at the raw session -- the client's own
+        internals -- bypassing KitClient.call() entirely, which is the
+        least invasive way to make the server die while nothing is counted
+        as "in flight" from the client's own bookkeeping, without changing
+        toykit.
+        """
+        c = self.client()
+        self.call(c, "describe")
+        fut = asyncio.run_coroutine_threadsafe(
+            c._session.call_tool("debug_exit", {}, read_timeout_seconds=10,
+                                 meta={WORKFLOW_META_KEY: WF}),
+            c._loop)
+        self.addCleanup(fut.cancel)
+        time.sleep(0.5)  # let the child actually exit
+        # Empirically (mcp 2.0.0): neither stdio_client's stdout reader nor
+        # the session's own reader raises on a mid-idle EOF, so the client
+        # does not notice the death on its own -- only an actual call does.
+        self.assertTrue(c.started)
+
+        with self.assertRaises(KitError) as cm:
+            self.call(c, "describe")
+        self.assertNotIsInstance(cm.exception, KitTimeout)
+        self.assertIn("toykit", str(cm.exception))
+        self.assertFalse(c.started)
+        self.assertIn("x1", self.call(c, "describe")["params"])
+
+
+class TestLeakedLoop(_Client):
+    def test_a_session_cleared_without_teardown_does_not_leak_the_loop(self):
+        """Fix round 1, M1: reproduces the exact state _serve's `finally`
+        would leave behind if the serve task ever ended on its own between
+        calls -- `_session` cleared but the private loop, its thread and
+        the (still healthy) server process all still alive. `start()` must
+        tear the stale loop down before building a fresh one, or the old
+        `kit-<name>` thread -- and the server it still owns -- leak
+        forever. (Real toykit death does not spontaneously clear `_session`
+        with the loop left running; see TestServerDeathBetweenCalls's
+        docstring. This directly reproduces the state the fix guards.)
+        """
+        c = self.client()
+        self.call(c, "describe")
+        old_loop, old_thread = c._loop, c._thread
+        self.assertTrue(old_thread.is_alive())
+        c._session = None  # what _serve's finally leaves behind on its own
+        reply = self.call(c, "describe")
+        self.assertIn("x1", reply["params"])
+        self.assertIsNot(c._loop, old_loop)
+        old_thread.join(5)
+        self.assertFalse(old_thread.is_alive(),
+                         "the old loop/thread were not torn down: leaked")
+
+
+# Fix round 1, M4: a JSON-RPC error other than a timeout must keep the
+# session. No test exercises this against the real toykit server: every
+# way tried to provoke a non-timeout, non-CONNECTION_CLOSED MCPError --
+# missing required args, wrong-typed args, and calling a genuinely
+# unregistered tool name via the raw session (bypassing KitClient's own
+# "tool not in self.tools" guard) -- came back as an ordinary
+# CallToolResult(is_error=True) from the mcp 2.0.0 MCPServer, not a
+# protocol-level error; toykit's own tools cannot be made to raise one
+# without changing toykit, which fix round 1 explicitly rules out. The
+# code path (core/kits.py:_call, the `if exc.code == CONNECTION_CLOSED`
+# branch) is implemented per the ruling but is untested against a real
+# server; see task-3-report.md fix round 1 for the probes that established
+# this.
 
 
 class TestEnvironment(_Client):

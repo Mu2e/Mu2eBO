@@ -73,6 +73,7 @@ class KitClient:
         self._loop = self._thread = None
         self._serve_fut = self._task = self._stop = None
         self._session = None
+        self._generation = 0    # bumped on each successful start; see _lost
         atexit.register(self.close)
 
     @property
@@ -85,6 +86,13 @@ class KitClient:
         with self._lock:
             if self._session is not None:
                 return
+            if self._loop is not None:
+                # The serve task ended on its own between calls (the
+                # server died with nobody waiting on it): _session is
+                # already cleared, but its loop and thread are not.
+                # Tear them down before building a fresh one, or the old
+                # `kit-<name>` thread spins forever.
+                self._teardown()
             try:
                 from mcp.client.stdio import get_default_environment
                 command = self.config.resolve_command()
@@ -133,11 +141,19 @@ class KitClient:
                     listing = await session.list_tools()
                     self.tools = frozenset(t.name for t in listing.tools)
                     self._session = session
+                    self._generation += 1
                     ready.set_result(None)
                     await self._stop.wait()
         except BaseException as exc:  # noqa: BLE001 - via ready, or on stop
             if not ready.done():
                 ready.set_exception(exc)
+            elif not isinstance(exc, asyncio.CancelledError):
+                # Started, then ended on its own with nobody waiting (no
+                # `ready` to report to): the cause must not be swallowed.
+                sys.stderr.write(f"kit {self.config.name}: server ended "
+                                 f"unexpectedly between calls: "
+                                 f"{type(exc).__name__}: {exc}\n")
+                sys.stderr.flush()
         finally:
             if not errlog.closed:
                 errlog.close()
@@ -219,7 +235,7 @@ class KitClient:
 
     def _call(self, tool, args, timeout_s, workflow) -> dict:
         from mcp.shared.exceptions import MCPError
-        from mcp.types import REQUEST_TIMEOUT
+        from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT
         name = self.config.name
         with self._lock:
             if self._session is None:
@@ -227,20 +243,34 @@ class KitClient:
             if tool not in self.tools:
                 raise KitError(name, tool, f"server has no tool {tool!r}; it "
                                f"has {sorted(self.tools)}")
+            # Captured under the lock, at the moment THIS call is scheduled:
+            # a stale generation tells _lost that a concurrent call already
+            # respawned the server, so it must not tear down the new one.
+            generation = self._generation
             coro = self._session.call_tool(
                 tool, args, read_timeout_seconds=timeout_s,
                 meta={WORKFLOW_META_KEY: workflow})
             fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
-            try:
-                res = fut.result(timeout_s + _GRACE_S)
-            except MCPError as exc:
-                if exc.code == REQUEST_TIMEOUT:
-                    raise KitTimeout(name, tool, f"timed out after "
-                                     f"{timeout_s:g} s") from exc
-                self._lost(tool, exc)
-            except Exception as exc:  # noqa: BLE001 - transport state unknown
-                fut.cancel()
-                self._lost(tool, exc)
+        # The MCP session multiplexes requests over the one connection, so
+        # the wait itself must happen OUTSIDE the lock: otherwise a slow
+        # call from one thread would hold every other thread's `timeout_s`
+        # hostage on a client several kits.toml callers share.
+        try:
+            res = fut.result(timeout_s + _GRACE_S)
+        except MCPError as exc:
+            if exc.code == REQUEST_TIMEOUT:
+                raise KitTimeout(name, tool, f"timed out after "
+                                 f"{timeout_s:g} s") from exc
+            if exc.code == CONNECTION_CLOSED:
+                self._lost(tool, exc, generation)
+            # Any other JSON-RPC error (bad params, tool-side crash the
+            # server itself reported at the protocol level, ...) is the
+            # server answering, not losing it: keep the session.
+            raise KitError(name, tool,
+                           f"error {exc.code}: {exc.message}") from exc
+        except Exception as exc:  # noqa: BLE001 - transport state unknown
+            fut.cancel()
+            self._lost(tool, exc, generation)
         text = "".join(c.text for c in res.content
                        if getattr(c, "type", None) == "text")
         if res.is_error:
@@ -250,10 +280,20 @@ class KitClient:
                            f"{text[:200]!r}")
         return res.structured_content
 
-    def _lost(self, tool, exc):
-        """The session is gone or in an unknown state: close it so the next
-        call respawns the server, and report with the child's stderr."""
-        self.close()
+    def _lost(self, tool, exc, generation):
+        """The session is gone or in an unknown state. Close it so the next
+        call respawns the server -- UNLESS a concurrent call already did:
+        if `generation` is stale (some other call has since started a new
+        session), this call's own failure must never tear that new one
+        down."""
+        with self._lock:
+            stale = generation != self._generation
+            if not stale:
+                self.close()
+        if stale:
+            raise KitError(self.config.name, tool, f"server lost: "
+                           f"{type(exc).__name__}: {exc} (a concurrent call "
+                           f"already respawned the server)") from exc
         if self._pump is not None:
             self._pump.join(2)
         tail = " | ".join(self._stderr_tail)
