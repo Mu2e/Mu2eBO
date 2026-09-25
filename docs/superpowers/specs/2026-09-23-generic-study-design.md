@@ -365,7 +365,7 @@ Every failure is loud and explained. **A missing number is never replaced by 0.*
 | A metric is missing, not a number, or ≤ 0 under log10 | at score | A failed evaluation naming the metric; no row. |
 | A kit reply outside the contract | kit client | A failed evaluation; never read as success. |
 | Credentials expire | `status` calls fail | Bounded retries, then fail loudly. Launch still requires 4 h of ticket life. |
-| A child crashes; `graph.study_run` is rerun on the same config | at restart | Adopts its state files (`point.json`, `<step>_cluster.txt`, `<step>_results.json`): no second submit, and at most one row. |
+| A child crashes; `graph.study_run` is rerun on the same config | at restart | Adopts its state files (`point.json`, `<step>_cluster.txt`, `<step>_results.json`): no second submit, and at most one row. Refused instead if the study's measurement changed since `point.json` recorded it (its `measure_basis_sha`): a new config name is needed. |
 | The runner crashes; `graph.study_loop` is relaunched under the same `--name-prefix` | at restart | Skips every name that already has state (a row, `broken.txt`, `point.json`, or any `<step>_cluster.txt`) rather than adopting its child: a name is never launched twice. |
 
 **No grid-job recoveries:** failed jobs inside a step are never resubmitted.

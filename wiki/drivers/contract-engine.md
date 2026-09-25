@@ -51,12 +51,26 @@ prodtools an adapter.
   with the four pipeline kits (`prodtools`, `offline_preflight`,
   `ce_sensitivity`, `flash_edep_per_pot`, all `engine=False` until Phase C
   gives them adapters); a name clash between the two raises at import.
+- **`kits.toml` is parsed when `core.kit_registry` is imported**
+  (`NATIVE = load_kit_configs()`), and `core.study` and `core.modes` import
+  it, so a `kits.toml` error breaks the pipeline's imports too
+  (`graph.run`, `graph.closed_loop`, the surrogate MCP server), not just
+  the engine's.
+- **Routing, as the code enforces it:** a study's kits are all engine kits
+  or all pipeline kits (a mix is refused, `core/modes.py:runs_on_engine`),
+  and a pipeline study must be layout `"v1"` (`core/study_compat.py`). Both
+  refusals happen at `core.modes` import, so one such study file in
+  `mode_specs/` or on `$AUTORESEARCH_STUDY_PATH` stops every command for
+  every study (`mode_specs/README.md`, "Engine studies").
 - **Why `env_passthrough` exists:** the MCP SDK's
   `mcp.client.stdio.get_default_environment()` passes only a short
   allowlist of variables to the child process, so any kit that needs more
   (a Kerberos cache, a token file, …) must name them in `env_passthrough`
-  in `kits.toml`; a missing one is a load error naming the kit and the
-  variable (`core/kit_config.py:KitConfig.resolve_env`).
+  in `kits.toml`; a missing one is a start-time error naming the kit and
+  the variable, raised when the kit starts (at `check_kits`, at
+  `graph.study_run`'s kit start check, or at the first call), never at
+  import (`core/kit_config.py:KitConfig.resolve_env`, surfaced as a
+  `KitError` from `core/kits.py:KitClient.start`).
 
 **KitClient (`core/kits.py`)**
 - One MCP session per kit per child, run on a private asyncio loop in a
@@ -103,8 +117,15 @@ prodtools an adapter.
   `serverInfo.version` (else `measure_sha` can't fingerprint it), and — if
   it offers `describe` — that the study's params/metrics match what the
   kit accepts/returns. It starts each kit exactly once; any problem is
-  collected and returned as a list, and `graph/study_run.py` /
-  `graph/study_loop.py` refuse to launch (exit 2) if the list is non-empty.
+  collected and returned as a list, and `graph/study_loop.py` refuses to
+  launch (exit 2) if the list is non-empty.
+- **`graph/study_run.py` runs a start check, not the full `check_kits`:**
+  after its other refusals and before anything is written for the point,
+  it starts every kit the study names (`kit_registry.kits_of`) through the
+  child's own `KitSet` (`kits.get(name).tools`), so the steps reuse those
+  servers. A kit that won't start is refused (exit 2) naming the kit and
+  the error — no submit, no `point.json`, no `broken.txt` — so an
+  environment problem is never recorded as a failed evaluation.
 
 **`run_steps` (`core/scheduler.py`)**
 - One LangGraph node (`run_steps`, called from
@@ -138,16 +159,21 @@ prodtools an adapter.
 **A broken point is terminal**
 - `graph/study_run.py:main` refuses (exit 2) any config whose
   `GRID_DATA_ROOT/<config>/state/broken.txt` already exists, printing
-  the message it recorded and naming the state dir to remove.
+  the message it recorded and how to retry (below).
 - `graph/study_loop.py:busy_reason` treats `broken.txt` the same as an
   existing leaderboard row: a resolved name from a prior run under this
   `--name-prefix`, and skips to the next index rather than relaunching it.
-- **To retry a point:** the operator deletes its `broken.txt`. A rerun
-  then re-executes `derive`/`render`, **re-runs `preflight`** (see Open
-  questions), and `run_steps` adopts any existing `<step>_cluster.txt`
-  handles it finds (polling the same handle rather than submitting again)
-  and any `<step>_results.json` already written — so a retry after a
-  transient failure costs no second submit.
+- **To retry a point:** the operator deletes its `broken.txt` — that is
+  enough. A rerun then re-executes `derive`/`render`, **re-runs
+  `preflight`** (see Open questions), and `run_steps` adopts any existing
+  `<step>_cluster.txt` handles it finds (polling the same handle rather
+  than submitting again) and any `<step>_results.json` already written —
+  so a retry after a transient failure costs no second submit.
+- **A step the kit itself reported `failed` stays failed on retry:** the
+  handle is deterministic (`<config>.<step>`), so polling it — or even
+  deleting the whole state dir and resubmitting the same params — gets
+  the kit's existing, failed job back. Re-evaluating such a point needs a
+  new config name (`graph/study_run.py`'s refusal text says the same).
 
 **`measure_sha` (`core/study.py:Study.measure_sha`, `core/score.py`)**
 - SHA-256 over `measure_basis` (`derive`, `geom`, all of `kits`, each
@@ -167,6 +193,17 @@ prodtools an adapter.
 - `core/leaderboard.py:Leaderboard._check_v2` refuses an append whose
   `measure_sha` differs from what's already on a v2 board, quarantining
   the row (`<board>.quarantine.tsv`) rather than mixing measurements.
+- **A resume is guarded too, one step earlier:** `point.json` records
+  `measure_basis_sha` (`core/study.py:Study.measure_basis_sha`, the
+  SHA-256 of `measure_basis` alone — the part of `measure_sha` the study
+  file controls; kit versions are known only once a kit starts). Rerunning
+  a killed point after the study's measurement changed raises
+  `PointMismatch` in `derive` (exit 2, nothing submitted or written):
+  otherwise the rerun would poll the old handle, measured the old way, and
+  stamp its numbers with the edited study's `measure_sha` — on a fresh
+  board nothing else would catch it. A `point.json` without the field
+  (written before 2026-09-25) is refused the same way, never assumed
+  unchanged (`graph/study_graph.py:node_derive`).
 
 **v2 rows**
 - Column order: `config`, each knob, each objective, each extra metric,
@@ -185,8 +222,16 @@ prodtools an adapter.
 - **Exit 0:** the point ran — either a leaderboard row landed, or
   `broken.txt` says why not. **Exit 2:** refused before anything ran (an
   unknown or non-engine study, `x` outside the knob box or of the wrong
-  length, a broken point, or a config name already claimed by a different
-  `x` in `point.json`). Anything else is a crash.
+  length, a missing or unknown `--context`, a broken point, a kit that
+  won't start, a config name already claimed by a different point in
+  `point.json`, or a `point.json` whose `measure_basis_sha` is missing or
+  differs from the study's). Anything else is a crash.
+- Preflight params follow the same clash rule as a step's
+  (`core/scheduler.py:merge_params`, shared by `step_params` and
+  `graph/study_graph.py:node_preflight`): a param mapped from the point may
+  not share a name with a kit setting (or a step's fixed value) — a
+  `ValueError` naming the param, which breaks the point at preflight
+  rather than letting the setting silently replace the point's value.
 - Phase C renames this module to `graph.run` when the pipeline path is
   deleted.
 
@@ -195,8 +240,11 @@ prodtools an adapter.
   --picker P --name-prefix NAME`, wired onto the existing rolling pool
   (`graph/pool.py:run_rolling`) via `graph/study_loop.py`'s
   `make_run_child`/`make_pick_source`.
-- `check_kits` must pass before anything launches (exit 2 otherwise,
-  naming each problem).
+- `--context` is validated once at launch with `graph/study_run.py:
+  parse_context` (the function each child uses), then `check_kits` must
+  pass, before anything launches (exit 2 otherwise, naming each problem).
+  Without the launch check a bad `--context` made every child refuse and
+  the pool abort after max(q, 2) of them.
 - Each child is launched **unbuffered**
   (`python -u -m graph.study_run ... --x=...`), logging to
   `GRAPH_DATA/closed_loop_logs/<child>.log` (`graph/study_loop.py:
@@ -206,6 +254,11 @@ prodtools an adapter.
   means a prior run RESOLVED that name; `point.json` or any
   `*_cluster.txt` means a child may still be in flight, or was abandoned —
   either way the name is skipped, never relaunched under the same name.
+  Its RECOVERY text recommends another `--name-prefix`: removing the state
+  dir is safe only when nothing runs the child AND no `*_cluster.txt` was
+  ever written, because a freed name is re-picked with a new x and the kit
+  refuses the same `<config>.<step>` handle with other params (→
+  `broken.txt` and an abort-streak increment).
 - **Rows are counted by name against the live board**
   (`{p.cfg for p in board_for(study).load()}`), never by reading
   `evaluate_result.json`'s `row_appended` flag — a row that landed but

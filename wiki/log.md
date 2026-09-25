@@ -6,6 +6,23 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [contract-engine](/drivers/contract-engine.md) after the
+  final Phase B review's fix wave: `point.json` now records
+  `measure_basis_sha`, and a resume after the study's measurement changed
+  (or of a `point.json` without the field) is refused (exit 2) instead of
+  landing old-measurement numbers under the new `measure_sha`;
+  `graph.study_run` gained a kit start check (a kit that won't start is a
+  refusal, not a terminal `broken.txt`) and the page no longer claims it
+  runs `check_kits`; preflight params share the step clash rule
+  (`core/scheduler.py:merge_params`); `graph.study_loop` validates
+  `--context` at launch; `busy_reason` recovery text and the "to retry a
+  point" advice corrected (a kit-`failed` step stays failed on retry —
+  needs a new config name); a missing `env_passthrough` variable is a
+  start-time error, not a load error; `kits.toml` is parsed at
+  `core.kit_registry` import, so its errors break the pipeline's imports
+  too; routing rules stated as enforced (all-engine or all-pipeline kits,
+  pipeline = layout v1, a violation stops every command at `core.modes`
+  import) — same routing fix in `mode_specs/README.md` and `CONTEXT.md`.
 - **updated** [contract-engine](/drivers/contract-engine.md) after review:
   fixed a wrong state-dir path (`GRID_DATA_ROOT/<config>/state/`, not
   `state/<config>/state/`), narrowed the `measure_sha` claim (extra
