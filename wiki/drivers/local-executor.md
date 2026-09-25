@@ -158,7 +158,7 @@ AUTORESEARCH_LOCAL=1 python -m graph.run --mode <m> --config-name <c> \
   the driver's process group, never reaches the jobs, which keep running
   and writing. Until the fix lands, kill the jobs' own groups too. They
   are the processes whose cwd is under the run's `job_NNNNNN/`. The fix
-  is on prodtools branch `run-local` (not yet merged). On SIGTERM, SIGINT
+  is in the local `main` of `muse_050125/prodtools` (6640e6e, not pushed to Mu2e). On SIGTERM, SIGINT
   or SIGHUP the driver ends every job's group and exits 128+signal
   without a summary. It waits up to 10 s for the whole group to empty,
   then sends SIGKILL, because mu2e ignores SIGTERM during G4 geometry

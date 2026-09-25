@@ -330,11 +330,13 @@ must still handle:
   does for a Musing. Our tarball's `setup_post.sh` already prepends
   `$CODE_DIR` to `FHICL_FILE_PATH`. Our per-config tarballs are 15 MB
   (17 MB unpacked).
-  **Implemented 2026-09-25, not yet merged:** PR 1 = prodtools branch
-  `code-entries-run-local` (tip 06fed73: `utils/code_cache.py`, content-
+  **Implemented 2026-09-25 and merged into the LOCAL `main` of
+  `muse_050125/prodtools` at 6640e6e (not pushed to Mu2e; the branches
+  were deleted). The prodtools MCP servers run that checkout, so they get
+  it after a restart.** PR 1 content = (06fed73: `utils/code_cache.py`, content-
   keyed unpack under `/exp/mu2e/data/users/<you>/prodtools/code/<sha256>/`;
-  `submit_once` takes code entries; `push_cnf` refuses them). PR 2 =
-  `run-local` (tip 6640e6e: `json2jobdef --once --local`, the `run_local`
+  `submit_once` takes code entries; `push_cnf` refuses them). PR 2 content =
+  (6640e6e: `json2jobdef --once --local`, the `run_local`
   write tool with `parallel` capped at 16, the local branch of
   `run_status`, and runlocal stopping its jobs on SIGTERM/SIGINT/SIGHUP).
   A live check on mu2esrv01 with gridphaseA01's mubeam entry passed: cnf
