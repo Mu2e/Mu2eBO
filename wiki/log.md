@@ -6,6 +6,10 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **created** [poms-chained-workflows](/external/poms-chained-workflows.md):
+  POMS stage chaining reviewed against the study JSON while scoping Phase C.
+  Edges pass data through SAM lineage, so POMS is not a fit for studies; three
+  ideas are worth borrowing.
 - **updated** [contract-engine](/drivers/contract-engine.md) and
   [local-executor](/drivers/local-executor.md): prodtools P1 and P2 are
   merged into the local `main` of `muse_050125/prodtools` (6640e6e), not
