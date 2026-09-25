@@ -533,11 +533,6 @@ class TestObjectivesAndConstraints(_Tmp):
 
 
 class TestLeaderboard(_Tmp):
-    def test_layout_v2_arrives_in_phase_b(self):
-        doc = _doc()
-        doc["leaderboard"]["layout"] = "v2"
-        self.assertRejects(doc, "Phase B")
-
     def test_dotdot_rejected(self):
         doc = _doc()
         doc["leaderboard"]["file"] = "../x.tsv"

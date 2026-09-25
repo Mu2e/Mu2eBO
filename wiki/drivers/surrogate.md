@@ -6,7 +6,7 @@ description: 'surrogate/ — the MCP door onto surrokit (the extracted ask/tell
   mcp SDK 2.0, ships in ana 2.8.0); the importable plain-Python facade was
   deleted 2026-09-22; stats meta now built from the study (Phase A, 2026-09-24)'
 status: active
-timestamp: '2026-09-24'
+timestamp: '2026-09-25'
 updated_note: Phase A (generic-study) -- stats meta now built from the study (objectives/knobs/best/primary_range), not ModeSpec.metric_cols; best's values nested under best.values (fix wave 2026-09-24)
 ---
 
@@ -158,7 +158,8 @@ later — plugs into `MCPServer(middleware=[...])` without touching the tools).
   in-budget picks.
 
 ## Cross-links
-- Related: [bo-driver](/drivers/bo-driver.md), [closed-loop-runner](/drivers/closed-loop-runner.md), [tests](/drivers/tests.md)
+- Related: [contract-engine](/drivers/contract-engine.md) (v2 boards the
+  same `core/botorch_predict.py` history reads also serve), [bo-driver](/drivers/bo-driver.md), [closed-loop-runner](/drivers/closed-loop-runner.md), [tests](/drivers/tests.md)
 - Concepts: [fast-sim-options-for-bo](/concepts/fast-sim-options-for-bo.md), [budget-sob-picker](/concepts/budget-sob-picker.md), [gp-free-noise-erases-champion fix carried via obs_noise](/incidents/gp-free-noise-erases-champion.md)
 - External: [mu2e-cvmfs-python-envs](/external/mu2e-cvmfs-python-envs.md)
 - Source files: `surrogate/adapter.py`, `surrogate/mcp_server.py`, `surrogate/__init__.py` (package marker + deletion record), `tests/test_surrogate.py`, `.mcp.json`

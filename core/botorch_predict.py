@@ -29,6 +29,7 @@ DEVICE = torch.device("cpu")
 # study (modes.STUDIES, ADR-0002). Knob order matches Point.x (=
 # build_space); lockstep ENFORCED by tests/test_modes.py.
 import modes as _modes  # noqa: E402
+import boards  # noqa: E402
 
 from paths import SURROKIT_ROOT  # noqa: E402
 sys.path.insert(0, str(SURROKIT_ROOT))
@@ -52,6 +53,15 @@ def _objectives(study, primary_only):
     return study.objectives[:1] if primary_only else study.objectives
 
 
+def history_points(name: str):
+    """A study's evaluated points. Pipeline studies read through their
+    JsonMode (the patchable leaderboard paths the golden harness and tests
+    use); engine studies read their board directly."""
+    if name in bo.MODES:
+        return bo.MODES[name].load_history()
+    return boards.board_for(_modes.STUDIES[name]).load()
+
+
 def load_history_tensor(mode: str, primary_only: bool = False):
     """(X, Y, bounds, int_dims) over the study's search space. Y has one
     maximized column per objective (primary_only: the first objective only);
@@ -62,7 +72,7 @@ def load_history_tensor(mode: str, primary_only: bool = False):
     study = _modes.STUDIES[mode]
     objs = _objectives(study, primary_only)
     X_rows, Y_rows = [], []
-    for p in bo.MODES[mode].load_history():
+    for p in history_points(mode):
         ys = [axis_value(o, p.y.get(o.name)) for o in objs]
         if any(y is None for y in ys):
             continue

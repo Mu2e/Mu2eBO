@@ -1157,6 +1157,49 @@ class TestSubmitStageProdtools(unittest.TestCase):
             entry = json.loads((state / "mubeam_entry.json").read_text())[0]
             self.assertEqual(entry["outloc"], custom_outloc)
 
+    def test_mustops_ce_sequential_aux_reaches_the_rendered_entry(self):
+        # The real checked-in entries, rendered: render_entry drops any key
+        # it doesn't name, so sequential_aux must be passed through.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            geom = root / "geom" / "autoresearch_cfg001_geom.txt"
+            geom.parent.mkdir(parents=True)
+            geom.write_text("geom\n")
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   return_value=(1, "1@s")):
+                staged = (Path(tmp) / "farm", {"sim.a.art": 1, "sim.b.art": 1})
+                pipeline.submit_stage_prodtools("mustops_ce", {},
+                                                staged_inputs=staged)
+                pipeline.submit_stage_prodtools("mubeam", {})
+
+            mustops = json.loads(
+                (state / "mustops_ce_entry.json").read_text())[0]
+            self.assertIs(mustops["sequential_aux"], True)
+            self.assertEqual(mustops["inloc"], f"dir:{Path(tmp) / 'farm'}")
+            mubeam = json.loads((state / "mubeam_entry.json").read_text())[0]
+            self.assertNotIn("sequential_aux", mubeam)
+
     def test_local_branch_stage_entries_outloc_also_flows_into_the_entry(self):
         # Same finding, the OTHER call site (cmd_submit's --local branch).
         with tempfile.TemporaryDirectory() as tmp:

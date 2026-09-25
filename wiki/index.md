@@ -57,6 +57,7 @@ See [CLAUDE](/CLAUDE.md) for the schema and maintenance contract.
 - [leaderboards](/datasets/leaderboards.md) — TSV history files for each BO driver
 
 ## Drivers (executable scripts)
+- [contract-engine](/drivers/contract-engine.md) — Phase B engine: kits.toml native kits over stdio MCP (KitClient), the evaluator contract (NativeKit, check_kits), run_steps (one scheduler node, state-file resume), v2 rows with measure_sha, graph.study_run / graph.study_loop; toykit Branin acceptance in 28.7 s
 - [bo-driver](/drivers/bo-driver.md) — `propose | evaluate | preflight` (6 modes; michael/helical retired 2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)
 - [autoresearch-bo](/drivers/autoresearch-bo.md) — original 7D BO driver
 - [pipeline](/drivers/pipeline.md) — per-config runner: job description is checked-in `stage_entries/<stage>.json`, execution shells prodtools (env `AUTORESEARCH_PRODTOOLS`: json2jobdef/submit/jobwait/runlocal) — submits grid or local, harvests

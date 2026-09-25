@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -115,6 +116,12 @@ class ExtraColumn:
         return float(eval_expr(self._compiled, dict(env)))
 
 
+def _sha256(blob) -> str:
+    """SHA-256 of `blob` as canonical JSON (sorted keys, no whitespace)."""
+    return hashlib.sha256(json.dumps(
+        blob, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class Study:
     path: Path
@@ -134,6 +141,27 @@ class Study:
     layout: str
     context: Tuple[str, ...]
     spec_sha: str
+    measure_basis: Dict[str, Any] = field(compare=False, repr=False)
+
+    def measure_sha(self, kit_versions: Dict[str, str]) -> str:
+        """SHA-256 of measure_basis plus each step kit's version: what a v2
+        row's numbers depend on and nothing else (not the note, bounds,
+        fmt, noise, constraints or leaderboard)."""
+        used = sorted({s.kit for s in self.steps})
+        missing = [k for k in used if k not in kit_versions]
+        if missing:
+            raise ValueError(f"{self.path}: measure_sha needs the version of "
+                             f"kit(s) {missing}")
+        return _sha256({"basis": self.measure_basis,
+                        "kit_versions": {k: kit_versions[k] for k in used}})
+
+    @property
+    def measure_basis_sha(self) -> str:
+        """SHA-256 of measure_basis alone: the part of measure_sha the study
+        file controls (kit versions are known only once a kit starts).
+        point.json records it, so a resumed child can tell that the study's
+        measurement changed since its point was submitted."""
+        return _sha256(self.measure_basis)
 
     @property
     def knob_names(self) -> Tuple[str, ...]:
@@ -308,8 +336,9 @@ def _derive_and_geom(doc, knob_names, where):
     if geom is None:
         if any(derive[k] for k in _DERIVE):
             raise ValueError(f"{where}[derive]: must be empty when geom is "
-                             f"null in this version (derive without a "
-                             f"geometry file arrives with Phase B)")
+                             f"null: derive values are computed by the "
+                             f"geometry template, and derive without a "
+                             f"geometry file is not supported yet")
         return derive, None
     _obj(geom, _GEOM, f"{where}[geom]")
     _one_of(geom["writer"], _WRITERS, f"{where}[geom.writer]")
@@ -492,8 +521,7 @@ def _leaderboard(raw, where):
     if ".." in Path(rel).parts:
         raise ValueError(f"{where}[leaderboard.file]: must not contain '..' "
                          f"(got {rel!r})")
-    _one_of(lb["layout"], ("v1",), f"{where}[leaderboard.layout]",
-            "; 'v2' arrives with Phase B")
+    _one_of(lb["layout"], ("v1", "v2"), f"{where}[leaderboard.layout]")
     context = tuple(_name(c, f"{where}[leaderboard.context]")
                     for c in _list(lb["context"], f"{where}[leaderboard.context]"))
     return Path(rel).as_posix(), lb["layout"], context
@@ -538,6 +566,49 @@ def _check_steps_used(steps, objectives, metrics, where):
                          f"nothing uses this step's output (no files_from, "
                          f"objective or extra metric names it); drop the step "
                          f"or add an extra metric from it")
+
+
+def _stage_template(name: str, where: str) -> Dict[str, Any]:
+    """A stage template by name: stage_entries/<name>.json in the repo, then
+    <dir>/stage_entries/<name>.json for each $AUTORESEARCH_STUDY_PATH
+    directory. Missing everywhere is a load error."""
+    dirs = [paths.REPO_ROOT / "stage_entries"] + [
+        Path(d) / "stage_entries"
+        for d in os.environ.get("AUTORESEARCH_STUDY_PATH", "").split(":") if d]
+    for d in dirs:
+        path = d / f"{name}.json"
+        if path.exists():
+            try:
+                doc = json.loads(path.read_text())
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{where}[entry]: {path}: invalid JSON: "
+                                 f"{exc}") from None
+            if not isinstance(doc, dict):
+                raise ValueError(f"{where}[entry]: {path} must hold a JSON "
+                                 f"object")
+            return doc
+    raise ValueError(f"{where}[entry]: stage template {name!r} not found; "
+                     f"searched {[str(d) for d in dirs]}")
+
+
+def _measure_basis(doc, steps, where) -> Dict[str, Any]:
+    """What a row's numbers depend on (design, "Leaderboard rows"). kits are
+    the RAW settings, so a ${ARTIFACT}/ value hashes the same for every
+    operator."""
+    def entry(s):
+        if isinstance(s.entry, str):
+            return _stage_template(s.entry, f"{where}[evaluate.{s.step}]")
+        return s.entry
+    return {
+        "derive": doc["derive"], "geom": doc["geom"], "kits": doc["kits"],
+        "steps": [{"step": s.step, "kit": s.kit, "entry": entry(s),
+                   "files": list(s.files), "files_from": list(s.files_from),
+                   "params": s.params, "fixed": s.fixed} for s in steps],
+        "objectives": [{"metric": o["metric"], "transform": o["transform"]}
+                       for o in doc["objectives"]],
+        "extra_metrics": [{"metric": m["metric"]}
+                          for m in doc["extra_metrics"]],
+    }
 
 
 def load_study_file(path: Path) -> Study:
@@ -589,7 +660,8 @@ def load_study_file(path: Path) -> Study:
                  steps=steps, objectives=objectives, constraints=constraints,
                  extra_metrics=metrics, extra_columns=columns,
                  leaderboard_rel=rel, layout=layout, context=context,
-                 spec_sha=sha)
+                 spec_sha=sha,
+                 measure_basis=_measure_basis(doc, steps, where))
 
 
 def load_study_dirs(primary: Path, extra: Optional[str]) -> Dict[str, Study]:

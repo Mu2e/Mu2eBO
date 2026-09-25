@@ -20,6 +20,9 @@ from leaderboard import (  # noqa: E402
 import leaderboard as lbm  # noqa: E402
 import study as st  # noqa: E402
 
+sys.path.insert(0, str(ROOT))
+from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
+
 _DEMO = Path(__file__).parent / "fixtures" / "studies" / "demo.json"
 
 
@@ -323,6 +326,89 @@ class TestArchivePlusLive(unittest.TestCase):
                              "reading the archive must not write to the repo")
         finally:
             repo.chmod(mode)                   # else tearDown cannot remove it
+
+
+META = {"handles": "toy=c1.toy", "spec_sha": "s" * 64,
+        "measure_sha": "m" * 64, "time": "2026-09-24T00:00:00Z"}
+
+
+class TestV2Rows(unittest.TestCase):
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.study = st.load_study_file(
+            write_study(toy_doc(layout="v2"), self.tmp / "studies"))
+        self.lb = Leaderboard.for_study(self.study, path=self.tmp / "b.tsv",
+                                        archive_path=self.tmp / "arch.tsv")
+
+    def pt(self, name="c1", b=1.5):
+        return Point(name, [1.0, 2.0], {"branin": b, "currin": 3.0})
+
+    def rows(self):
+        return self.lb.path.read_text().splitlines()[1:]
+
+    def test_header_ends_with_the_meta_columns(self):
+        self.assertEqual(self.lb.header().rstrip("\n").split("\t")[-4:],
+                         list(lbm.V2_META))
+
+    def test_a_v2_row_needs_all_its_meta(self):
+        with self.assertRaises(lbm.LeaderboardError):
+            self.lb.append(self.pt(), {})
+        partial = {k: v for k, v in META.items() if k != "time"}
+        with self.assertRaises(lbm.LeaderboardError):
+            self.lb.append(self.pt(), {}, partial)
+
+    def test_meta_may_not_hold_a_tab(self):
+        with self.assertRaises(lbm.LeaderboardError):
+            self.lb.append(self.pt(), {}, dict(META, handles="a\tb"))
+
+    def test_a_v1_row_carries_no_meta(self):
+        v1 = st.load_study_file(write_study(toy_doc(name="v1toy"),
+                                            self.tmp / "studies"))
+        lb = Leaderboard.for_study(v1, path=self.tmp / "v1.tsv",
+                                   archive_path=None)
+        with self.assertRaises(lbm.LeaderboardError):
+            lb.append(self.pt(), {}, META)
+
+    def test_append_then_load(self):
+        self.assertTrue(self.lb.append(self.pt(), {}, META))
+        (p,) = self.lb.load()
+        self.assertEqual((p.cfg, p.x, p.y),
+                         ("c1", [1.0, 2.0], {"branin": 1.5, "currin": 3.0}))
+        self.assertTrue(self.rows()[0].endswith(
+            "\ttoy=c1.toy\t" + "s" * 64 + "\t" + "m" * 64
+            + "\t2026-09-24T00:00:00Z"))
+
+    def test_the_same_row_again_is_a_no_op(self):
+        self.lb.append(self.pt(), {}, META)
+        again = self.lb.append(self.pt(), {},
+                               dict(META, time="2026-09-25T00:00:00Z"))
+        self.assertFalse(again)
+        self.assertEqual(len(self.rows()), 1)
+
+    def test_the_same_name_with_other_values_is_refused(self):
+        self.lb.append(self.pt(), {}, META)
+        with self.assertRaises(lbm.DuplicateRow):
+            self.lb.append(self.pt(b=2.0), {}, META)
+        self.assertEqual(len(self.rows()), 1)
+        self.assertIn("c1", self.lb.quarantine_path().read_text())
+
+    def test_a_different_measurement_is_refused(self):
+        self.lb.append(self.pt(), {}, META)
+        with self.assertRaises(lbm.MeasureMismatch) as cm:
+            self.lb.append(self.pt("c2"), {}, dict(META, measure_sha="n" * 64))
+        self.assertIn("new board", str(cm.exception))
+        self.assertEqual(len(self.rows()), 1)
+        self.assertIn("c2", self.lb.quarantine_path().read_text())
+
+    def test_the_archive_counts_for_the_measurement(self):
+        arch = Leaderboard.for_study(self.study, path=self.tmp / "arch.tsv",
+                                     archive_path=None)
+        arch.append(self.pt("a1"), {}, dict(META, measure_sha="a" * 64))
+        with self.assertRaises(lbm.MeasureMismatch):
+            self.lb.append(self.pt("c2"), {}, META)
+        self.assertFalse(self.lb.path.exists())
 
 
 if __name__ == "__main__":

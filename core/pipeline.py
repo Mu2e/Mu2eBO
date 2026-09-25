@@ -209,6 +209,9 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #     8000: each job reads ONE mubeam file (~16k events), so the random skip
 #     must stay below the smallest plausible file. The one substitution kept
 #     in Python -- it depends on submit-time state.
+#   'sequential_aux' = true -- job i reads staged mubeam file i (mod N).
+#     Without it prodtools draws each job's file at random, with replacement
+#     across jobs, wasting ~1/3 of mubeam (wiki/drivers/pipeline.md).
 #
 # elebeam_flash.json: foilsflash 2nd objective, EARLY-FLASH StrawGasStep edep
 #   with DS ON; harvest globs only the EARLY output. ASCII-only (FHiCL
@@ -610,7 +613,8 @@ def _render_and_build_cnf(stage, cfg, entry_tmpl, *, desc, dsconf, stage_dir,
                    else entry_tmpl.get("input_data")),
         inloc=inloc,
         resampler_name=entry_tmpl.get("resampler_name"),
-        outloc=entry_tmpl.get("outloc"))
+        outloc=entry_tmpl.get("outloc"),
+        sequential_aux=entry_tmpl.get("sequential_aux"))
     entry_path = px.write_entry(STATE, stage, entry)
     cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
                        _cnf_build_env(env))

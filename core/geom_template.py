@@ -460,7 +460,10 @@ class GeomTemplate:
             f"{where}: line needs one of value / raw / expr / segments / per_index")
 
     # -- rendering ----------------------------------------------------------
-    def render(self, x: Iterable[float]) -> str:
+    def derived_env(self, x: Iterable[float]) -> Dict[str, Any]:
+        """Knob values, consts, derived exprs and profiles for one point: the
+        env render() formats. Public so the engine hands a kit the same
+        values the geometry file carries."""
         x = list(x)
         if len(x) != len(self._knob_names):
             raise ValueError(
@@ -472,7 +475,10 @@ class GeomTemplate:
         for name, (count, controls, clip) in self._profiles.items():
             ctrl = [eval_expr(c, dict(env)) for c in controls]
             env[name] = lagrange_profile(ctrl, count, clip)
+        return env
 
+    def render(self, x: Iterable[float]) -> str:
+        env = self.derived_env(x)
         out = [f'#include "{self._base}"', ""]
         for ln in self._lines:
             out.append(self._render_line(ln, env))

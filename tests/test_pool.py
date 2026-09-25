@@ -742,5 +742,27 @@ class TestRenewDuringDrain(unittest.TestCase):
                             for ln in lines), lines)
 
 
+class TestNextFreeName(unittest.TestCase):
+    def test_skips_busy_names_and_summarises_after_the_limit(self):
+        n = pool.SKIP_LOG_LIMIT + 3
+        busy = {pool.child_name("p", i) for i in range(n)}
+        lines = []
+        name, i = pool.next_free_name(
+            "p", 0, lambda nm: "busy" if nm in busy else None,
+            log=lines.append, summary_hint="HINT")
+        self.assertEqual((name, i), (pool.child_name("p", n), n))
+        self.assertEqual(sum(ln.startswith("[pool] SKIP") for ln in lines),
+                         pool.SKIP_LOG_LIMIT)
+        self.assertIn("3 further", lines[-1])
+        self.assertIn("HINT", lines[-1])
+
+    def test_a_free_start_is_returned_as_is(self):
+        lines = []
+        self.assertEqual(pool.next_free_name("p", 4, lambda nm: None,
+                                             log=lines.append, summary_hint=""),
+                         ("pR04_00", 4))
+        self.assertEqual(lines, [])
+
+
 if __name__ == "__main__":
     unittest.main()

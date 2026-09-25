@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
-import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 import modes as _modes  # noqa: E402
 
@@ -29,7 +28,7 @@ def _board_summary(name: str) -> dict:
     (a study may legally name one `x` or `config`) can overwrite a key."""
     study = _modes.STUDIES[name]
     prim = study.objectives[0]
-    pts = [p for p in bo.MODES[name].load_history()
+    pts = [p for p in bp.history_points(name)
            if p.y.get(prim.name) is not None and math.isfinite(p.y[prim.name])]
     if not pts:
         return {}

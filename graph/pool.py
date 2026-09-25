@@ -271,6 +271,27 @@ def child_name(name_prefix: str, i: int) -> str:
     return f"{name_prefix}R{i:02d}_00"
 
 
+def next_free_name(name_prefix, start, busy_reason, *, log, summary_hint):
+    """(name, index) of the first name at or after index `start` that
+    busy_reason(name) calls free (None). Skips are logged, capped at
+    SKIP_LOG_LIMIT lines plus one summary line ending in `summary_hint`."""
+    i, skipped = start, 0
+    while True:
+        name = child_name(name_prefix, i)
+        why = busy_reason(name)
+        if why is None:
+            break
+        if skipped < SKIP_LOG_LIMIT:
+            log(f"[pool] SKIP {name}: {why}")
+        skipped += 1
+        i += 1
+    if skipped > SKIP_LOG_LIMIT:
+        log(f"[pool] ... and {skipped - SKIP_LOG_LIMIT} further consecutive "
+            f"busy names skipped (last was {child_name(name_prefix, i - 1)}); "
+            f"resuming at {name}. {summary_hint}")
+    return name, i
+
+
 def _default_pick_source(name_prefix):
     """Closure holding the monotonic launch index; imports closed_loop lazily
     (closed_loop imports pool). Busy names skip per `_name_busy_reason`."""
@@ -279,7 +300,6 @@ def _default_pick_source(name_prefix):
 
     def next_pick(mode, picker, x_pending):
         import closed_loop as cl
-        i = counter["i"]
         # Both TSVs read ONCE per process: flock'd full-file reads consulted
         # strictly for PRIOR-run state; the monotonic index plus the
         # single-writer-per---name-prefix invariant make later reads moot.
@@ -287,22 +307,12 @@ def _default_pick_source(name_prefix):
             busy_cache[mode] = (cl._leaderboard_names(mode),
                                 _pending_names(mode))
         lb_names, pending_names = busy_cache[mode]
-        skipped = 0
-        while True:
-            name = child_name(name_prefix, i)
-            why = _name_busy_reason(cl, name, lb_names, pending_names)
-            if why is None:
-                break
-            if skipped < SKIP_LOG_LIMIT:
-                print(f"[pool] SKIP {name}: {why}", flush=True)
-            skipped += 1
-            i += 1
-        if skipped > SKIP_LOG_LIMIT:
-            print(f"[pool] ... and {skipped - SKIP_LOG_LIMIT} further "
-                  f"consecutive busy names skipped (last was "
-                  f"{child_name(name_prefix, i - 1)}); resuming at {name}. "
-                  f"Reasons are the same four signals as above -- see "
-                  f"graph/pool.py::_name_busy_reason.", flush=True)
+        name, i = next_free_name(
+            name_prefix, counter["i"],
+            lambda n: _name_busy_reason(cl, n, lb_names, pending_names),
+            log=lambda m: print(m, flush=True),
+            summary_hint=("Reasons are the same four signals as above -- see "
+                          "graph/pool.py::_name_busy_reason."))
         counter["i"] = i + 1
         picks = cl._botorch_picks_subprocess(mode, q=1, round_idx=i,
                                              picker=picker, pending=x_pending)

@@ -5,6 +5,82 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-09-25
+- **updated** [pipeline](/drivers/pipeline.md): mustops_ce now sets
+  `"sequential_aux": true`, so job i reads staged mubeam file i
+  (rolling over when njobs > files). A bare JSON key would have been
+  dropped by `render_entry`, so the key is also passed by name. A rebuild
+  of gridphaseA01's cnf with v3.2.0 gave 15/15 distinct files, against 10
+  before. The worker runs the pinned prodtools' own bundle, not cvmfs
+  `current`.
+- **updated** [pipeline](/drivers/pipeline.md) and
+  [contract-engine](/drivers/contract-engine.md) with the prodtools P1
+  spike: a `dir:` entry works through `submit_once` unchanged; staged
+  inputs are drawn at random per job (gridphaseA01 mustops_ce read 10 of
+  15 files) unless `"sequential_aux": true`; a prodtools pin carrying
+  623dca6 breaks the pipeline's ledger+outstage submit.
+- **updated** [contract-engine](/drivers/contract-engine.md) after the
+  final Phase B review's fix wave: `point.json` now records
+  `measure_basis_sha`, and a resume after the study's measurement changed
+  (or of a `point.json` without the field) is refused (exit 2) instead of
+  landing old-measurement numbers under the new `measure_sha`;
+  `graph.study_run` gained a kit start check (a kit that won't start is a
+  refusal, not a terminal `broken.txt`) and the page no longer claims it
+  runs `check_kits`; preflight params share the step clash rule
+  (`core/scheduler.py:merge_params`); `graph.study_loop` validates
+  `--context` at launch; `busy_reason` recovery text and the "to retry a
+  point" advice corrected (a kit-`failed` step stays failed on retry —
+  needs a new config name); a missing `env_passthrough` variable is a
+  start-time error, not a load error; `kits.toml` is parsed at
+  `core.kit_registry` import, so its errors break the pipeline's imports
+  too; routing rules stated as enforced (all-engine or all-pipeline kits,
+  pipeline = layout v1, a violation stops every command at `core.modes`
+  import) — same routing fix in `mode_specs/README.md` and `CONTEXT.md`.
+- **updated** [contract-engine](/drivers/contract-engine.md) after review:
+  fixed a wrong state-dir path (`GRID_DATA_ROOT/<config>/state/`, not
+  `state/<config>/state/`), narrowed the `measure_sha` claim (extra
+  metrics contribute only `metric`, not `transform` — `ExtraMetric` has no
+  `transform` field), corrected "logged to stderr" to the injected `log`
+  callable (default `print`/stdout — no `sys.stderr` write in
+  `core/scheduler.py`), and made the lost-server rule precise (an
+  `MCPError` with code `CONNECTION_CLOSED` OR any non-`MCPError`
+  exception loses the server; any other `MCPError` code keeps the session
+  as a plain `KitError`; `REQUEST_TIMEOUT` keeps the session as
+  `KitTimeout`). Same `measure_sha` fix applied to
+  `docs/superpowers/specs/2026-09-23-generic-study-design.md`, whose
+  "Failures and recovery" row was also split into the two distinct
+  recovery paths (a `graph.study_run` rerun adopts `<step>_cluster.txt`
+  handles; a relaunched `graph.study_loop` skips claimed names instead of
+  adopting). Added backlinks to `contract-engine` from
+  [closed-loop-runner](/drivers/closed-loop-runner.md),
+  [surrogate](/drivers/surrogate.md) and
+  [closed-loop-bo-design](/concepts/closed-loop-bo-design.md).
+- **created** [contract-engine](/drivers/contract-engine.md): the Phase B
+  contract engine — `kits.toml` native kits over stdio MCP (`core/kits.py`'s
+  `KitClient`, lock covers only start+scheduling, a generation counter
+  stops a stale failure from closing a respawned server, a closed
+  connection or any non-MCPError transport failure counts as lost, a
+  timeout keeps the session); the evaluator
+  contract (`core/contract.py`'s `NativeKit` — `status`/`results`/`check`/
+  `describe` retry 3x with in-attempt respawn, `submit`/`cancel` don't
+  retry tool errors — and `check_kits`, the launch gate); `run_steps`
+  (`core/scheduler.py`: one scheduler node, not one per step, because
+  LangGraph's superstep barrier would stall a parallel chain; state-file
+  resume; `broken.txt` written at the first failure, siblings finish,
+  `cancel` unused); v2 rows with `measure_sha` (hashes each STEP kit's
+  version, not the preflight kit's); `graph.study_run` (exit 0/2) /
+  `graph.study_loop` (busy names by row/`broken.txt`/`point.json`/
+  `*_cluster.txt`, unbuffered children, `STOP` flag, rows counted by name
+  on the board not `row_appended`); `tests/toykit.py` reference kit;
+  Branin acceptance campaign (q=2, 8 evals) in 28.7 s. Suite now 43
+  `test_*.py`, 856 tests (1 skipped) — [tests](/drivers/tests.md). Amended
+  the design spec with these Phase-B-decided facts and the pre-flight
+  rulings (retries, v2 layout, `measure_sha` versions, results record) —
+  `docs/superpowers/specs/2026-09-23-generic-study-design.md`. Also
+  updated `CONTEXT.md` (Kit, Native kit, Adapter's second sense, Engine
+  study vs. Pipeline study, `measure_sha`) and `mode_specs/README.md`
+  (Engine studies section).
+
 ## 2026-09-24
 - **updated** golden (c) re-captured for the `evaluate_result.json` key change; `check c` showed only `obj` -> `primary` and the payload shape moved — [tests](/drivers/tests.md)
 - **updated** `core/study.py` now refuses a step whose output nothing uses

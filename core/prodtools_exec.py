@@ -95,7 +95,7 @@ def render_entry(*, dsconf, desc, njobs,
                  code_tarball, fcl_name, events=None, run=None,
                  memory_mb=None, input_data=None, inloc=None,
                  resampler_name=None, fcl_overrides=None,
-                 outloc=None) -> dict:
+                 outloc=None, sequential_aux=None) -> dict:
     """One json2jobdef entry dict for a (config, stage).
 
     `fcl_name` is the PUBLISHED Production FCL path from
@@ -106,6 +106,8 @@ def render_entry(*, dsconf, desc, njobs,
     Caller-supplied `outloc` wins; _DEFAULT_OUTLOC covers only a caller that
     passes none, so editing a stage's JSON outloc actually takes effect
     instead of being silently shadowed here.
+    Only the keys named here reach json2jobdef; `sequential_aux` is copied
+    when given.
     """
     entry = {
         "desc": desc,
@@ -128,6 +130,8 @@ def render_entry(*, dsconf, desc, njobs,
         entry["resampler_name"] = resampler_name
     if fcl_overrides is not None:
         entry["fcl_overrides"] = dict(fcl_overrides)
+    if sequential_aux is not None:
+        entry["sequential_aux"] = sequential_aux
     return entry
 
 

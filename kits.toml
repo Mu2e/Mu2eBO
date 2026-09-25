@@ -1,0 +1,20 @@
+# Native contract kits (docs/superpowers/specs/2026-09-23-generic-study-design.md,
+# "The evaluator contract"). A kit that speaks submit / status / results over
+# MCP needs only an entry here: the engine calls its tools directly. Every key
+# is required and unknown keys are rejected (ADR-0002). Tokens in `command`
+# and `set`: ${PYTHON} (the running interpreter), ${REPO_ROOT} and
+# ${DATA_ROOT} (core/paths.py), and ${NAME} for any environment variable,
+# which must be set. They resolve when the kit starts, never at import.
+
+[toykit]
+# The reference implementation and the CI engine: tests/toykit.py.
+command = ["${PYTHON}", "${REPO_ROOT}/tests/toykit.py"]
+env_passthrough = []
+set = { TOYKIT_STATE_DIR = "${DATA_ROOT}/toykit" }
+study_keys = { function = "string" }
+fixed_keys = { delay_s = "number", fail = "string", submit_sleep_s = "number" }
+accepts_lists = false
+check = true
+launch_stagger_s = 0
+poll_s = [0.1, 2.0]
+timeouts = { start = 60, submit = 30, status = 30, results = 30, check = 30, describe = 30, cancel = 30 }
