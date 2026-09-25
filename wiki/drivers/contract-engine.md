@@ -330,6 +330,20 @@ must still handle:
   does for a Musing. Our tarball's `setup_post.sh` already prepends
   `$CODE_DIR` to `FHICL_FILE_PATH`. Our per-config tarballs are 15 MB
   (17 MB unpacked).
+  **Implemented 2026-09-25, not yet merged:** PR 1 = prodtools branch
+  `code-entries-run-local` (tip 06fed73: `utils/code_cache.py`, content-
+  keyed unpack under `/exp/mu2e/data/users/<you>/prodtools/code/<sha256>/`;
+  `submit_once` takes code entries; `push_cnf` refuses them). PR 2 =
+  `run-local` (tip 6640e6e: `json2jobdef --once --local`, the `run_local`
+  write tool with `parallel` capped at 16, the local branch of
+  `run_status`, and runlocal stopping its jobs on SIGTERM/SIGINT/SIGHUP).
+  A live check on mu2esrv01 with gridphaseA01's mubeam entry passed: cnf
+  built from the tarball's environment; a 10-event `run_local` reached
+  `done` with 6 outputs; `kill <pid>` left no process of the run. The
+  build and review record is in
+  `/exp/mu2e/data/users/oksuzian/prodtools_p1p2_sdd_record/`. For the
+  adapter: `run_local` refuses `firstjob` windows, and a local run and a
+  grid run of one desc+dsconf share a run name, which is used once.
 - `submit_once`, `run_receipt` and `run_status` exist only in the prodtools
   checkout (commits 623dca6 and 9713171 on mu2e/main, 2026-09-20), not in
   v3.2.0 or cvmfs `current` (v3.3.4); the MCP server runs its own

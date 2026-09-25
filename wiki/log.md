@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [contract-engine](/drivers/contract-engine.md) and
+  [local-executor](/drivers/local-executor.md): prodtools P1 and P2 are
+  implemented on branches `code-entries-run-local` and `run-local`, not
+  yet merged. The live check on mu2esrv01 passed, and killing runlocal
+  now stops its mu2e jobs.
 - **updated** [local-executor](/drivers/local-executor.md): killing a
   runlocal driver leaves its mu2e jobs running, because each job has its
   own session. The fix is planned on prodtools branch `run-local`.
