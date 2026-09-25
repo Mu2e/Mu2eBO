@@ -6,6 +6,9 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [local-executor](/drivers/local-executor.md): killing a
+  runlocal driver leaves its mu2e jobs running, because each job has its
+  own session. The fix is planned on prodtools branch `run-local`.
 - **updated** [contract-engine](/drivers/contract-engine.md): the P1
   code-entry path needs no runner change and no FHiCL hook, because a
   Musing `setup.sh` and a `muse tarball` `Code/setup.sh` are the same
