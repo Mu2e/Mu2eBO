@@ -6,6 +6,7 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-24
+- **updated** golden (c) re-captured for the `evaluate_result.json` key change; `check c` showed only `obj` -> `primary` and the payload shape moved — [tests](/drivers/tests.md)
 - **updated** `core/study.py` now refuses a step whose output nothing uses
   (no `files_from`, objective or extra metric names it; the `sophie` digi/reco
   case), and the generic-study design took three more points from

@@ -160,9 +160,13 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   (d) `spec_dump_baseline.json` is stored **one line per ModeSpec field**
   (767 -> 163 lines, reformatted from the committed file, not
   re-captured, so its data is still the pre-Phase-A capture);
-  `tests/test_golden_parity_harness.py` pins that layout. (c) is stale:
-  its baseline predates the `evaluate_result.json` key change and needs a
-  G4 re-capture, so the working gate is `check a b d e`. The original
+  `tests/test_golden_parity_harness.py` pins that layout. (c) was
+  re-captured 2026-09-24 for the `evaluate_result.json` key change
+  (`obj`/`sob`/`calo_or_flash` -> `primary` + `objectives`); `check c`
+  first showed that ONLY those keys moved (appended row, rc and preflight
+  PASS identical). It runs its own muse setup inside `cmd_preflight`, so
+  no muse shell is needed, but it takes ~4 min; the full gate is
+  `check a b c d e`. The original
   three sections, as first written: (a) per-mode
   `load_history()`→`format_row` round-trip vs the live leaderboards (byte-compared, all 6 modes); (b) a deterministic
   history-tensor fingerprint on a frozen `leaderboard_bo_foilsflash.tsv`
