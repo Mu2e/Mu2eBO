@@ -4,7 +4,7 @@ title: pipeline.py — parametric grid runner
 description: 'per-config runner: job description is checked-in `stage_entries/<stage>.json`, execution shells prodtools (env `AUTORESEARCH_PRODTOOLS`: json2jobdef/submit/jobwait/runlocal) — submits grid or local, harvests'
 status: active
 timestamp: '2026-09-25'
-updated_note: 'P1 spike 2026-09-25: resampler aux inputs are drawn at random per job; a prodtools pin carrying 623dca6 breaks the ledger+outstage submit'
+updated_note: '2026-09-25: mustops_ce now sets sequential_aux (one staged mubeam file per job; render_entry passes it by name); P1 spike: a prodtools pin carrying 623dca6 breaks the ledger+outstage submit'
 ---
 
 # pipeline.py — parametric grid runner
@@ -310,18 +310,36 @@ this replaced.
   approach above; the patched lib travels inside `Code.tar.bz2` via `--code`
   staging, so worker mounts don't matter.
 
-- **Staged `dir:` inputs are drawn at random per job, not one file per job.**
-  prodtools picks each job's aux inputs with `_sampled` (seeded by job
-  index, without repetition *within* a job) unless the entry sets
-  `"sequential_aux": true` (`utils/job_common.py:386-398`,
-  `utils/jobdef.py:514`). No stage entry sets it, so a stage reading the
-  previous stage's staged outputs (mustops_ce reading mubeam's) samples
-  them with replacement across jobs: gridphaseA01's 15 mustops_ce jobs
-  read 10 distinct files, one of them four times, 5 never (expected
-  ~9.7 of 15). Unbiased (the choice ignores content) but it discards about
-  a third of the upstream statistics and correlates jobs; the measured
-  σ(sob) already includes it. `"sequential_aux": true` gives one file per
-  job. Found by the P1 spike, 2026-09-25.
+- **mustops_ce reads staged `dir:` inputs one file per job (`"sequential_aux": true`, set 2026-09-25).**
+  Without the key, prodtools picks each job's aux input at random, seeded
+  by the job index (`job_aux_inputs`: v3.2.0 `utils/job_common.py:396-438`,
+  v3.3.4 `:386-398`). Jobs then sample the staged files with replacement:
+  before the change, gridphaseA01's 15 mustops_ce jobs read 10 distinct
+  files, one of them four times, and 5 never (expected ~9.7 of 15). That
+  is unbiased but discards about a third of mubeam's statistics. The
+  measured σ(sob) of every row before 2026-09-25 includes this. With the
+  key, job i reads file i mod N: each file once when njobs ≤ N, and a
+  rollover used equally to within one when njobs > N. Rebuilding
+  gridphaseA01's cnf with v3.2.0 json2jobdef gave 15/15 distinct; 40 jobs
+  gave 10 files ×3 and 5 ×2. elebeam_flash and mubeam leave it unset
+  (SAM Cat inputs, where random sampling is intended).
+  - **`render_entry` emits only the keys it names.** A bare JSON key would
+    have been dropped silently, as `outloc` once was.
+    `prodtools_exec.render_entry` takes a `sequential_aux` kwarg that
+    `_render_and_build_cnf` passes from the entry. json2jobdef copies it
+    into the cnf's `tbs` (v3.2.0 `utils/jobdef.py:579-581`).
+  - **The worker runs the pinned prodtools, not cvmfs `current`.**
+    v3.2.0's `submit_entry` ships its own `utils/`+`bin/` as a dropbox
+    tarball (`_bundle_prodtools`, cached at `/tmp/prodtools-$USER.tar` on
+    the submit host and reused while newer than every source file), and
+    `runjob.sh` execs that `runmu2e.py`. The json2jobdef `prodtools_dir`
+    "None means `current`" default belongs to v3.3.4's `--enqueue` path.
+    That path is not ours.
+  - Pinned by `tests/test_pipeline_verbs.py`
+    (`test_only_mustops_ce_reads_its_aux_inputs_sequentially`,
+    `test_mustops_ce_sequential_aux_reaches_the_rendered_entry`).
+  - Rationale lives in the `core/pipeline.py` mustops_ce.json comment block.
+  - Found by the P1 spike, 2026-09-25.
 - **A prodtools pin carrying commit 623dca6 breaks this pipeline's grid
   submit.** That commit's `_check_tracking` (`submit.py:430`) refuses a
   ledger combined with outstage outputs, which is exactly what

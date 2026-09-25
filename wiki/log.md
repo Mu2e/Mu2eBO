@@ -6,6 +6,13 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [pipeline](/drivers/pipeline.md): mustops_ce now sets
+  `"sequential_aux": true`, so job i reads staged mubeam file i
+  (rolling over when njobs > files). A bare JSON key would have been
+  dropped by `render_entry`, so the key is also passed by name. A rebuild
+  of gridphaseA01's cnf with v3.2.0 gave 15/15 distinct files, against 10
+  before. The worker runs the pinned prodtools' own bundle, not cvmfs
+  `current`.
 - **updated** [pipeline](/drivers/pipeline.md) and
   [contract-engine](/drivers/contract-engine.md) with the prodtools P1
   spike: a `dir:` entry works through `submit_once` unchanged; staged

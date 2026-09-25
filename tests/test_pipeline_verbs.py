@@ -379,6 +379,16 @@ class TestStageEntries(unittest.TestCase):
         # mustops_ce's input_data is always staged (no static Cat dataset).
         self.assertNotIn("input_data", self._entry("mustops_ce"))
 
+    def test_only_mustops_ce_reads_its_aux_inputs_sequentially(self):
+        # Without sequential_aux, prodtools draws each job's staged mubeam
+        # file at random (gridphaseA01: 15 jobs read 10 distinct files). The
+        # SAM-Cat stages keep random sampling on purpose. Rationale: the
+        # mustops_ce.json comment block in core/pipeline.py.
+        self.assertIs(self._entry("mustops_ce").get("sequential_aux"), True)
+        for stage in ("mubeam", "elebeam_flash"):
+            with self.subTest(stage=stage):
+                self.assertNotIn("sequential_aux", self._entry(stage))
+
     def test_load_stage_entry_substitutes_geom_placeholder(self):
         entry = pipeline.px.load_stage_entry(
             "mubeam", cfg="x001", geom="autoresearch_x001_geom.txt")
@@ -1156,6 +1166,52 @@ class TestSubmitStageProdtools(unittest.TestCase):
 
             entry = json.loads((state / "mubeam_entry.json").read_text())[0]
             self.assertEqual(entry["outloc"], custom_outloc)
+
+    def test_mustops_ce_sequential_aux_reaches_the_rendered_entry(self):
+        # render_entry builds the entry from named kwargs only, so a
+        # stage_entries key with no kwarg is silently dropped (the same
+        # class as the outloc finding above). This test renders the REAL
+        # checked-in entries through submit_stage_prodtools and reads the
+        # file json2jobdef would get.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cfg001"
+            state = root / "state"
+            state.mkdir(parents=True)
+            geom = root / "geom" / "autoresearch_cfg001_geom.txt"
+            geom.parent.mkdir(parents=True)
+            geom.write_text("geom\n")
+
+            def fake_build_cnf(stage_dir, entry_path, desc, dsconf, env,
+                               runner=None):
+                cnf = Path(stage_dir) / f"cnf.u.{desc}.{dsconf}.0.tar"
+                cnf.touch()
+                return cnf
+
+            with mock.patch.object(pipeline, "ROOT", root), \
+                 mock.patch.object(pipeline, "STATE", state), \
+                 mock.patch.object(pipeline, "CONFIG", "cfg001"), \
+                 mock.patch.object(pipeline, "DSCONF", "Run1Bak_cfg001"), \
+                 mock.patch.object(pipeline, "GEOM_FILE", geom), \
+                 mock.patch.object(pipeline, "LEDGER_DB",
+                                   Path(tmp) / "ledger" / "submissions.db"), \
+                 mock.patch.object(pipeline, "write_code_tarball",
+                                   return_value=Path(tmp) / "Code.tar.bz2"), \
+                 mock.patch.object(pipeline, "_maybe_refresh_token"), \
+                 mock.patch.object(pipeline.px, "build_cnf",
+                                   side_effect=fake_build_cnf), \
+                 mock.patch.object(pipeline.px, "submit_cnf",
+                                   return_value=(1, "1@s")):
+                staged = (Path(tmp) / "farm", {"sim.a.art": 1, "sim.b.art": 1})
+                pipeline.submit_stage_prodtools("mustops_ce", {},
+                                                staged_inputs=staged)
+                pipeline.submit_stage_prodtools("mubeam", {})
+
+            mustops = json.loads(
+                (state / "mustops_ce_entry.json").read_text())[0]
+            self.assertIs(mustops["sequential_aux"], True)
+            self.assertEqual(mustops["inloc"], f"dir:{Path(tmp) / 'farm'}")
+            mubeam = json.loads((state / "mubeam_entry.json").read_text())[0]
+            self.assertNotIn("sequential_aux", mubeam)
 
     def test_local_branch_stage_entries_outloc_also_flows_into_the_entry(self):
         # Same finding, the OTHER call site (cmd_submit's --local branch).

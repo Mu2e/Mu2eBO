@@ -209,6 +209,18 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #     8000: each job reads ONE mubeam file (~16k events), so the random skip
 #     must stay below the smallest plausible file. The one substitution kept
 #     in Python -- it depends on submit-time state.
+#   'sequential_aux' = true -- job i reads staged mubeam file i. Without it
+#     prodtools picks each job's aux input at random, seeded by the job
+#     index (job_common.py job_aux_inputs), so jobs sample the staged
+#     files WITH replacement: gridphaseA01's 15 mustops_ce jobs read 10
+#     distinct files (one of them 4x) and 5 never. That is unbiased, but it
+#     wastes about a third of mubeam's statistics. json2jobdef copies the
+#     key into the cnf's tbs (jobdef.py); render_entry must pass it by name
+#     or it is dropped. When njobs exceeds the staged file count (e.g.
+#     mubeam met quorum short of its njobs), selection rolls over (job i
+#     reads file i mod N), so every file is used equally, to within one.
+#     elebeam_flash deliberately does not set it: its aux input is a SAM Cat
+#     dataset, and there random sampling is intended.
 #
 # elebeam_flash.json: foilsflash 2nd objective, EARLY-FLASH StrawGasStep edep
 #   with DS ON; harvest globs only the EARLY output. ASCII-only (FHiCL
@@ -610,7 +622,8 @@ def _render_and_build_cnf(stage, cfg, entry_tmpl, *, desc, dsconf, stage_dir,
                    else entry_tmpl.get("input_data")),
         inloc=inloc,
         resampler_name=entry_tmpl.get("resampler_name"),
-        outloc=entry_tmpl.get("outloc"))
+        outloc=entry_tmpl.get("outloc"),
+        sequential_aux=entry_tmpl.get("sequential_aux"))
     entry_path = px.write_entry(STATE, stage, entry)
     cnf = px.build_cnf(stage_dir, entry_path, desc, dsconf,
                        _cnf_build_env(env))
