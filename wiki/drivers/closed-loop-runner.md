@@ -4,7 +4,7 @@ title: closed-loop-runner — multi-round Pareto-pick BO driver
 description: 'multi-round Pareto-pick BO driver: wraps q parallel graph-runner children,
   refits GP between rounds'
 status: active
-timestamp: '2026-07-26'
+timestamp: '2026-09-25'
 updated_note: 'elebeam_flash overlap corrected (2026-07-26): the page ended at the
   v1 "OVERTURNED / DO NOT USE / REVERT" verdict and never recorded that v2
   (presubmit-after-mubeam, njobs 200→100) SHIPPED 2026-07-10 and delivered −40%
@@ -718,7 +718,9 @@ grid queue was empty.
     (~50 min/10-round campaign); safe to drop to 120s (write rate ~0.01/s).
 
 ## Cross-links
-- Related: [tests](/drivers/tests.md), [graph-runner](/drivers/graph-runner.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-helical](/projects/bo-helical.md),
+- Related: [contract-engine](/drivers/contract-engine.md) (the Phase B
+  engine this pipeline runner sits alongside, not on top of, until Phase C
+  moves foilspf onto it), [tests](/drivers/tests.md), [graph-runner](/drivers/graph-runner.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md), [bo-helical](/projects/bo-helical.md),
   [batch-bo](/concepts/batch-bo.md), [bo-driver](/drivers/bo-driver.md), [scalarized-objective](/concepts/scalarized-objective.md),
   [kerberos-mid-run-expiry](/incidents/kerberos-mid-run-expiry.md), [g4-speed-knobs](/concepts/g4-speed-knobs.md),
   [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md),

@@ -75,13 +75,16 @@ prodtools an adapter.
   its captured generation is still current. A stale generation means some
   other call already respawned the server, so this call's own failure must
   never tear the new one down (`core/kits.py:KitClient._lost`).
-- **Only a closed connection counts as a lost server.** `_call` inspects
-  the MCP error code: `CONNECTION_CLOSED` calls `_lost` (closes the
-  session so the next call respawns it); a timeout (`REQUEST_TIMEOUT`)
-  raises `KitTimeout` and **keeps the session** (the server may still be
-  working); any other JSON-RPC error (bad params, a tool-side crash the
-  server itself reported) is a plain `KitError` and also **keeps the
-  session** — the server answered, it didn't disappear.
+- **What counts as a lost server:** an `MCPError` with code
+  `CONNECTION_CLOSED`, or any non-`MCPError` exception raised while
+  waiting on the call (`core/kits.py:KitClient._call`'s bare
+  `except Exception`, e.g. a raw transport failure), calls `_lost` and
+  closes the session so the next call respawns the server. An `MCPError`
+  with any other code (not a timeout — bad params, a tool-side crash the
+  server itself reported at the protocol level) is a plain `KitError`
+  with the session **kept** — the server answered, it didn't disappear.
+  `REQUEST_TIMEOUT` raises `KitTimeout` with the session also **kept**
+  (the server may still be working on it).
 
 **Retry policy (`core/contract.py:NativeKit`)**
 - `ATTEMPTS = 3`. `status`, `results`, `check` and `describe` retry any
@@ -112,7 +115,8 @@ prodtools an adapter.
   (the wait today's `presubmit_after` works around). Ready steps run
   concurrently in a `ThreadPoolExecutor`.
 - Each step is driven from its own state files under
-  `state/<config>/state/`, which is what makes a killed child resumable
+  `GRID_DATA_ROOT/<config>/state/` (`core/paths.py:GRID_DATA_ROOT`,
+  `graph/study_run.py:main`), which is what makes a killed child resumable
   with no second submit: `<step>_results.json` exists → adopt and skip;
   `<step>_cluster.txt` exists → poll that handle; neither → `submit` then
   write the handle.
@@ -124,15 +128,17 @@ prodtools an adapter.
 - An unexpected exception in a step (a bug, e.g. an `OSError` from
   `write_atomic`, as opposed to a `KitError`/`ContractError`/`KeyError`/
   `ValueError` the step function itself catches and reports as a
-  `StepOutcome`) is logged to stderr at once, recorded in `broken.txt` the
-  same way, and **re-raised only after every already-running sibling has
-  finished** — so the child still exits non-zero on a programming error,
-  but doesn't kill in-flight grid work to do it.
+  `StepOutcome`) is logged at once through the injected `log` callable
+  (default `print`, i.e. stdout — `core/scheduler.py:run_steps`, no
+  `sys.stderr` write), recorded in `broken.txt` the same way, and
+  **re-raised only after every already-running sibling has finished** —
+  so the child still exits non-zero on a programming error, but doesn't
+  kill in-flight grid work to do it.
 
 **A broken point is terminal**
 - `graph/study_run.py:main` refuses (exit 2) any config whose
-  `state/<config>/state/broken.txt` already exists, printing the message
-  it recorded and naming the state dir to remove.
+  `GRID_DATA_ROOT/<config>/state/broken.txt` already exists, printing
+  the message it recorded and naming the state dir to remove.
 - `graph/study_loop.py:busy_reason` treats `broken.txt` the same as an
   existing leaderboard row: a resolved name from a prior run under this
   `--name-prefix`, and skips to the next index rather than relaunching it.
@@ -146,9 +152,10 @@ prodtools an adapter.
 **`measure_sha` (`core/study.py:Study.measure_sha`, `core/score.py`)**
 - SHA-256 over `measure_basis` (`derive`, `geom`, all of `kits`, each
   step's `kit`/resolved `entry`/`files`/`files_from`/`params`/`fixed`,
-  each objective's and extra metric's `metric`/`transform` —
-  `core/study.py:_measure_basis`) plus **the reported version of every
-  kit a step runs on**.
+  each objective's `metric` and `transform`, and each extra metric's
+  `metric` only — an `ExtraMetric` has no `transform` field —
+  `core/study.py:_EXTRA_METRIC`, `_measure_basis`) plus **the reported
+  version of every kit a step runs on**.
 - It leaves out `note`, knob bounds, `fmt`, `noise`, `constraints` and
   `leaderboard` — nothing that doesn't change what a measurement means.
 - The **preflight kit's version is not hashed** (it gates a point but

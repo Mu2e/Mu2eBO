@@ -6,11 +6,31 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [contract-engine](/drivers/contract-engine.md) after review:
+  fixed a wrong state-dir path (`GRID_DATA_ROOT/<config>/state/`, not
+  `state/<config>/state/`), narrowed the `measure_sha` claim (extra
+  metrics contribute only `metric`, not `transform` — `ExtraMetric` has no
+  `transform` field), corrected "logged to stderr" to the injected `log`
+  callable (default `print`/stdout — no `sys.stderr` write in
+  `core/scheduler.py`), and made the lost-server rule precise (an
+  `MCPError` with code `CONNECTION_CLOSED` OR any non-`MCPError`
+  exception loses the server; any other `MCPError` code keeps the session
+  as a plain `KitError`; `REQUEST_TIMEOUT` keeps the session as
+  `KitTimeout`). Same `measure_sha` fix applied to
+  `docs/superpowers/specs/2026-09-23-generic-study-design.md`, whose
+  "Failures and recovery" row was also split into the two distinct
+  recovery paths (a `graph.study_run` rerun adopts `<step>_cluster.txt`
+  handles; a relaunched `graph.study_loop` skips claimed names instead of
+  adopting). Added backlinks to `contract-engine` from
+  [closed-loop-runner](/drivers/closed-loop-runner.md),
+  [surrogate](/drivers/surrogate.md) and
+  [closed-loop-bo-design](/concepts/closed-loop-bo-design.md).
 - **created** [contract-engine](/drivers/contract-engine.md): the Phase B
   contract engine — `kits.toml` native kits over stdio MCP (`core/kits.py`'s
   `KitClient`, lock covers only start+scheduling, a generation counter
-  stops a stale failure from closing a respawned server, only a closed
-  connection counts as lost, a timeout keeps the session); the evaluator
+  stops a stale failure from closing a respawned server, a closed
+  connection or any non-MCPError transport failure counts as lost, a
+  timeout keeps the session); the evaluator
   contract (`core/contract.py`'s `NativeKit` — `status`/`results`/`check`/
   `describe` retry 3x with in-attempt respawn, `submit`/`cancel` don't
   retry tool errors — and `check_kits`, the launch gate); `run_steps`

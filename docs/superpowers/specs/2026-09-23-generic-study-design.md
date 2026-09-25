@@ -231,7 +231,7 @@ name | each knob | each objective | each extra metric | extra columns | handles 
 - A v2 row keeps the extra columns.
 - `handles` records each step's handle.
 - `spec_sha` is the SHA-256 of the canonical study JSON.
-- `measure_sha` identifies how the row was measured. It is the SHA-256 of `derive` and `geom` (what a knob vector means), `kits`, each step's `kit`, resolved `entry` template, `files`, `files_from`, `params` and `fixed`, each objective's and extra metric's `metric` and `transform`, and the reported version of each kit a step runs on (the preflight kit gates a point but does not produce its numbers, so only its settings in `kits` are hashed). It leaves out what doesn't change a measurement: `note`, knob bounds, `fmt`, `noise`, `constraints` and `leaderboard`. `spec_sha` is too coarse for this, since editing the note changes it.
+- `measure_sha` identifies how the row was measured. It is the SHA-256 of `derive` and `geom` (what a knob vector means), `kits`, each step's `kit`, resolved `entry` template, `files`, `files_from`, `params` and `fixed`, each objective's `metric` and `transform`, each extra metric's `metric` (an extra metric has no `transform`), and the reported version of each kit a step runs on (the preflight kit gates a point but does not produce its numbers, so only its settings in `kits` are hashed). It leaves out what doesn't change a measurement: `note`, knob bounds, `fmt`, `noise`, `constraints` and `leaderboard`. `spec_sha` is too coarse for this, since editing the note changes it.
 - **A board holds one measurement.** Appending a row whose `measure_sha` differs from the board's rows is an error. Changing how an objective is measured means a new board, never mixed rows: at identical x, Run1Bak and Run1Bap differ by +5% in sob, far beyond the noise (see `wiki/concepts/run1bak-run1bap-sob-shift.md`). A new kit that reproduces the old numbers within noise on archived evaluations may continue a board, but only through an explicit, recorded change to its `measure_sha`.
 - Each step's `state/<step>_results.json` also records the kit and its version, its `params`, its inputs, and the kit's `files` and `metadata`. The kit's environment from `describe` is not recorded in Phase B.
 - v1 boards have no `measure_sha` column; the rule applies from v2.
@@ -365,7 +365,8 @@ Every failure is loud and explained. **A missing number is never replaced by 0.*
 | A metric is missing, not a number, or ≤ 0 under log10 | at score | A failed evaluation naming the metric; no row. |
 | A kit reply outside the contract | kit client | A failed evaluation; never read as success. |
 | Credentials expire | `status` calls fail | Bounded retries, then fail loudly. Launch still requires 4 h of ticket life. |
-| A child or the runner crashes | at restart | Adopted from the state files (`point.json`, `<step>_cluster.txt`, `<step>_results.json`); no second submit, and at most one row. A restarted runner skips every name that has state, rather than adopting its child. |
+| A child crashes; `graph.study_run` is rerun on the same config | at restart | Adopts its state files (`point.json`, `<step>_cluster.txt`, `<step>_results.json`): no second submit, and at most one row. |
+| The runner crashes; `graph.study_loop` is relaunched under the same `--name-prefix` | at restart | Skips every name that already has state (a row, `broken.txt`, `point.json`, or any `<step>_cluster.txt`) rather than adopting its child: a name is never launched twice. |
 
 **No grid-job recoveries:** failed jobs inside a step are never resubmitted.
 
