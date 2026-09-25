@@ -21,6 +21,9 @@ from pathlib import Path
 STALE_PENDING_S = 48 * 3600.0
 PENDING_HEADER = "config\tx\talpha\tsubmitted_at\n"
 
+# v2 rows end in these columns (generic-study design, "Leaderboard rows").
+V2_META = ("handles", "spec_sha", "measure_sha", "time")
+
 
 class LeaderboardError(RuntimeError):
     """Base for all schema/parse failures raised by this module."""
@@ -45,6 +48,24 @@ class RowParseError(LeaderboardError):
     def __init__(self, path: Path, line_no: int, cause: Exception):
         self.path, self.line_no, self.cause = path, line_no, cause
         super().__init__(f"{path}:{line_no}: unparseable row ({cause!r})")
+
+
+class MeasureMismatch(LeaderboardError):
+    def __init__(self, path: Path, found, new: str, quarantined: Path):
+        super().__init__(
+            f"{path}: this row's measure_sha {new[:12]} differs from the "
+            f"board's {sorted(s[:12] for s in found)}.\n"
+            f"  row saved to quarantine: {quarantined}\n"
+            f"  A board holds one measurement: a changed kit setting, step, "
+            f"metric or kit version means a new board (leaderboard.file), "
+            f"never mixed rows.")
+
+
+class DuplicateRow(LeaderboardError):
+    def __init__(self, path: Path, name: str, quarantined: Path):
+        super().__init__(
+            f"{path}: config {name!r} already has a row with different "
+            f"values.\n  row saved to quarantine: {quarantined}")
 
 
 def _lock_path(target: Path) -> Path:
@@ -112,6 +133,7 @@ class Leaderboard:
     context_names: tuple    # runtime values append() must receive
     consts: dict            # visible to extra-column expressions
     archive_path: Path | None = None   # committed read-only priors
+    layout: str = "v1"                 # "v2" adds the V2_META columns
 
     def __post_init__(self):
         if len(self.knob_names) != len(self.knob_fmts):
@@ -134,12 +156,15 @@ class Leaderboard:
                    extra_columns=tuple(study.extra_columns),
                    context_names=tuple(study.context),
                    consts=dict(study.consts),
-                   archive_path=archive_path)
+                   archive_path=archive_path,
+                   layout=study.layout)
 
     # --- history -----------------------------------------------------------
     def header(self) -> str:
         cols = ("config", *self.knob_names, *self.value_names,
                 *(c.name for c in self.extra_columns))
+        if self.layout == "v2":
+            cols += V2_META
         return "\t".join(cols) + "\n"
 
     def quarantine_path(self) -> Path:
@@ -180,7 +205,7 @@ class Leaderboard:
         live = [p for p in self._load_one(self.path) if p.cfg not in seen]
         return archive + live
 
-    def format_line(self, p: Point, context: dict) -> str:
+    def format_line(self, p: Point, context: dict, meta: dict | None = None) -> str:
         """The exact line append() writes. Public so a caller holding the
         only record of a row's x can validate the row before discarding
         that record."""
@@ -194,23 +219,81 @@ class Leaderboard:
                   for fmt, n in zip(self.value_fmts, self.value_names)]
         env = {**self.consts, **p.y, **context}
         extras = [c.fmt.format(c.evaluate(env)) for c in self.extra_columns]
-        return "\t".join([p.cfg, *knobs, *values, *extras]) + "\n"
+        cells = [p.cfg, *knobs, *values, *extras]
+        if self.layout == "v2":
+            if meta is None or set(meta) != set(V2_META):
+                raise LeaderboardError(
+                    f"{self.name}: a v2 row needs meta {list(V2_META)}, got "
+                    f"{None if meta is None else sorted(meta)}")
+            for key in V2_META:
+                v = meta[key]
+                if not isinstance(v, str) or not v or "\t" in v or "\n" in v:
+                    raise LeaderboardError(
+                        f"{self.name}: meta {key!r} must be a non-empty "
+                        f"string without tabs or newlines, got {v!r}")
+            cells += [meta[k] for k in V2_META]
+        elif meta is not None:
+            raise LeaderboardError(f"{self.name}: a v1 row carries no meta")
+        return "\t".join(cells) + "\n"
 
-    def append(self, p: Point, context: dict) -> None:
-        line = self.format_line(p, context)
+    def _raw_rows(self, path: Path | None) -> list[dict]:
+        """Every row of `path` as {column: text}; the caller holds the lock
+        (the live board) or none is needed (the archive)."""
+        if path is None or not path.exists():
+            return []
+        with path.open() as f:
+            first = f.readline()
+            if first.rstrip("\n") != self.header().rstrip("\n"):
+                raise SchemaMismatch(path, self.header(), first)
+            cols = self.header().rstrip("\n").split("\t")
+            return list(csv.DictReader(f, fieldnames=cols, delimiter="\t"))
+
+    def _check_v2(self, rows: list[dict], line: str) -> bool:
+        """False when this exact row (apart from `time`) is already on the
+        board. Raises DuplicateRow or MeasureMismatch, quarantining first."""
+        cols = self.header().rstrip("\n").split("\t")
+        new = dict(zip(cols, line.rstrip("\n").split("\t")))
+
+        def sans_time(row):
+            return {k: v for k, v in row.items() if k != "time"}
+        same = [r for r in rows if r["config"] == new["config"]]
+        if same:
+            if all(sans_time(r) == sans_time(new) for r in same):
+                return False
+            self._append_quarantine(self.header(), line)
+            raise DuplicateRow(self.path, new["config"],
+                               self.quarantine_path())
+        found = {r["measure_sha"] for r in rows}
+        if found and found != {new["measure_sha"]}:
+            self._append_quarantine(self.header(), line)
+            raise MeasureMismatch(self.path, found, new["measure_sha"],
+                                  self.quarantine_path())
+        return True
+
+    def append(self, p: Point, context: dict, meta: dict | None = None) -> bool:
+        """True when a row was written. On a v2 board, False when the same
+        row (apart from `time`) is already there: idempotent by name."""
+        line = self.format_line(p, context, meta)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with _flock_ex(self.path):
+            if self.path.exists():
+                with self.path.open() as f:
+                    first = f.readline()
+                if first.rstrip("\n") != self.header().rstrip("\n"):
+                    self._append_quarantine(self.header(), line)
+                    raise SchemaMismatch(self.path, self.header(), first,
+                                         quarantined=self.quarantine_path())
+            if self.layout == "v2":
+                rows = (self._raw_rows(self.archive_path)
+                        + self._raw_rows(self.path))
+                if not self._check_v2(rows, line):
+                    return False
             if not self.path.exists():
                 self.path.write_text(self.header() + line)
-                return
-            with self.path.open() as f:
-                first = f.readline()
-            if first.rstrip("\n") != self.header().rstrip("\n"):
-                self._append_quarantine(self.header(), line)
-                raise SchemaMismatch(self.path, self.header(), first,
-                                     quarantined=self.quarantine_path())
+                return True
             with self.path.open("a") as f:
                 f.write(line)
+            return True
 
     def _append_quarantine(self, header: str, line: str) -> None:
         qp = self.quarantine_path()
