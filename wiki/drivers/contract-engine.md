@@ -320,9 +320,16 @@ gridphaseA01's real mustops_ce entry. What the Phase C prodtools adapter
 must still handle:
 - P1 part 1 is still needed: `_select_push_params`
   (`prodtools_mcp_write/tools.py:91-94`) refuses an entry with `code` and
-  no `simjob_setup`; `submit_once` needs a Musing `setup` argument for
-  `run_cli`. mubeam also needs `pipeline_templates` on `FHICL_FILE_PATH`
-  at cnf build, and `run_cli` has no hook for it.
+  no `simjob_setup`. Designed 2026-09-25 (prodtools branch
+  `code-entries-run-local`, spec
+  `docs/superpowers/specs/2026-09-25-code-entries-and-run-local-design.md`),
+  with P2 `run_local` in the same spec. **No runner change and no FHiCL
+  hook needed:** a cvmfs Musing's `setup.sh` and a `muse tarball`
+  `Code/setup.sh` are the same five-line script, so passing the unpacked
+  tarball's `Code/setup.sh` as `run_cli`'s `simjob_setup` works as it
+  does for a Musing. Our tarball's `setup_post.sh` already prepends
+  `$CODE_DIR` to `FHICL_FILE_PATH`. Our per-config tarballs are 15 MB
+  (17 MB unpacked).
 - `submit_once`, `run_receipt` and `run_status` exist only in the prodtools
   checkout (commits 623dca6 and 9713171 on mu2e/main, 2026-09-20), not in
   v3.2.0 or cvmfs `current` (v3.3.4); the MCP server runs its own

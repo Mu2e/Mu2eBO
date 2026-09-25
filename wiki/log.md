@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [contract-engine](/drivers/contract-engine.md): the P1
+  code-entry path needs no runner change and no FHiCL hook, because a
+  Musing `setup.sh` and a `muse tarball` `Code/setup.sh` are the same
+  script. The P1 and P2 design is on prodtools branch
+  `code-entries-run-local`.
 - **updated** [pipeline](/drivers/pipeline.md): mustops_ce now sets
   `"sequential_aux": true`, so job i reads staged mubeam file i
   (rolling over when njobs > files). A bare JSON key would have been
