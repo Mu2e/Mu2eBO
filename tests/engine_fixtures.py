@@ -48,3 +48,18 @@ def write_study(doc, directory):
     path = directory / f"{doc['name']}.json"
     path.write_text(json.dumps(doc, indent=1))
     return path
+
+
+def toy_config(state_dir, **overrides):
+    """The repo's toykit KitConfig, with its state under `state_dir` instead
+    of DATA_ROOT, plus any field overrides (e.g. timeouts=...)."""
+    import dataclasses
+    import sys
+    core = str(Path(__file__).resolve().parent.parent / "core")
+    if core not in sys.path:
+        sys.path.insert(0, core)
+    import kit_registry
+    base = kit_registry.NATIVE["toykit"]
+    fields = {"set_env": {"TOYKIT_STATE_DIR": str(state_dir)}}
+    fields.update(overrides)
+    return dataclasses.replace(base, **fields)
