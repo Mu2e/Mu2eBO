@@ -340,6 +340,16 @@ this replaced.
     `test_mustops_ce_sequential_aux_reaches_the_rendered_entry`).
   - Rationale lives in the `core/pipeline.py` mustops_ce.json comment block.
   - Found by the P1 spike, 2026-09-25.
+- **Grid workers run the pinned prodtools, shipped with the job.**
+  `submit.py` `_bundle_prodtools` tars the submitting prodtools' own
+  `utils/` + `bin/` and the worker runs that (`runjob.sh` → `runmu2e.py` →
+  `jobfcl.py` → `job_common.job_aux_inputs`), so a v3.2.0 submit runs v3.2.0
+  on the worker, not cvmfs `current`. v3.2.0 caches the bundle at
+  `/tmp/prodtools-$USER.tar` and reuses it whenever it is newer than every
+  source file: a submit from a different prodtools version on the same host
+  can ship a stale bundle. The prodtools checkout's newer code
+  content-addresses it (`prodtools-<sha12>.tar`, `utils/submit.py:534-555`).
+  `activate.sh` does not set `AUTORESEARCH_PRODTOOLS`; each launch sets it.
 - **A prodtools pin carrying commit 623dca6 breaks this pipeline's grid
   submit.** That commit's `_check_tracking` (`submit.py:430`) refuses a
   ledger combined with outstage outputs, which is exactly what
