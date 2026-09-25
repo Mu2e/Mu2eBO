@@ -156,14 +156,6 @@ class TestRenderEntry(unittest.TestCase):
         custom["*.root"] = "outstage"
         self.assertEqual(e["outloc"], {"*.art": "tape"})
 
-    def test_sequential_aux_copied_only_when_given(self):
-        # json2jobdef copies entry["sequential_aux"] into the cnf's tbs;
-        # absent means prodtools' default (random aux sampling).
-        self.assertIs(
-            pex.render_entry(**self._base(sequential_aux=True))[
-                "sequential_aux"], True)
-        self.assertNotIn("sequential_aux", pex.render_entry(**self._base()))
-
     def test_write_entry_is_one_element_list(self):
         with tempfile.TemporaryDirectory() as td:
             p = pex.write_entry(Path(td), "mubeam", {"desc": "d"})

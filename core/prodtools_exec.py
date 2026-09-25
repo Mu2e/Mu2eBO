@@ -106,10 +106,8 @@ def render_entry(*, dsconf, desc, njobs,
     Caller-supplied `outloc` wins; _DEFAULT_OUTLOC covers only a caller that
     passes none, so editing a stage's JSON outloc actually takes effect
     instead of being silently shadowed here.
-    `sequential_aux` is copied only when given (json2jobdef copies it into
-    the cnf's tbs; see pipeline.py's mustops_ce.json comment block). This
-    function emits only the keys it names, so a stage_entries key with no
-    parameter here never reaches json2jobdef.
+    Only the keys named here reach json2jobdef; `sequential_aux` is copied
+    when given.
     """
     entry = {
         "desc": desc,

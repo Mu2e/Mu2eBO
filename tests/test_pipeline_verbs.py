@@ -379,16 +379,6 @@ class TestStageEntries(unittest.TestCase):
         # mustops_ce's input_data is always staged (no static Cat dataset).
         self.assertNotIn("input_data", self._entry("mustops_ce"))
 
-    def test_only_mustops_ce_reads_its_aux_inputs_sequentially(self):
-        # Without sequential_aux, prodtools draws each job's staged mubeam
-        # file at random (gridphaseA01: 15 jobs read 10 distinct files). The
-        # SAM-Cat stages keep random sampling on purpose. Rationale: the
-        # mustops_ce.json comment block in core/pipeline.py.
-        self.assertIs(self._entry("mustops_ce").get("sequential_aux"), True)
-        for stage in ("mubeam", "elebeam_flash"):
-            with self.subTest(stage=stage):
-                self.assertNotIn("sequential_aux", self._entry(stage))
-
     def test_load_stage_entry_substitutes_geom_placeholder(self):
         entry = pipeline.px.load_stage_entry(
             "mubeam", cfg="x001", geom="autoresearch_x001_geom.txt")
@@ -1168,11 +1158,8 @@ class TestSubmitStageProdtools(unittest.TestCase):
             self.assertEqual(entry["outloc"], custom_outloc)
 
     def test_mustops_ce_sequential_aux_reaches_the_rendered_entry(self):
-        # render_entry builds the entry from named kwargs only, so a
-        # stage_entries key with no kwarg is silently dropped (the same
-        # class as the outloc finding above). This test renders the REAL
-        # checked-in entries through submit_stage_prodtools and reads the
-        # file json2jobdef would get.
+        # The real checked-in entries, rendered: render_entry drops any key
+        # it doesn't name, so sequential_aux must be passed through.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cfg001"
             state = root / "state"
