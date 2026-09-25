@@ -6,6 +6,8 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C split
+  into C1/C2/C3; C1 spec written; sob and flash go to anakit.
 - **created** [poms-chained-workflows](/external/poms-chained-workflows.md):
   POMS stage chaining reviewed against the study JSON while scoping Phase C.
   Edges pass data through SAM lineage, so POMS is not a fit for studies; three

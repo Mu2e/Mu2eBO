@@ -358,6 +358,15 @@ must still handle:
   `submit --force` under the same dsconf is refused.
 - Never set `copy_input`: the worker's local-copy path does a SAM locate.
 
+Phase C split (operator, 2026-09-25): C1 the prodtools kit, C2 foilspf on
+the engine, C3 delete the pipeline. C1 spec:
+`docs/superpowers/specs/2026-09-25-prodtools-kit-design.md` (branch
+`generic-study-phase-c1`). Decided there: `--executor grid|local` is a
+runner flag outside `measure_sha`; below-`quorum` fails the step and
+`quorum` is required; the adapter is in-process (`core/adapters/`);
+prodtools gains P3 `cancel_run`; and the sob and flash analyses go to
+anakit in C2, not local plugins (settles the design's Open question 2).
+
 Phase C follow-ups found in review (2026-09-25):
 - No launch-time check that the board's `measure_sha` matches the study's
   current one — a child runs its steps and is refused only at append.
