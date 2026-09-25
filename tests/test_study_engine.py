@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -85,6 +86,21 @@ class TestMeasureSha(_Tmp):
         with self.assertRaises(ValueError) as cm:
             self.sha(versions={})
         self.assertIn("toykit", str(cm.exception))
+
+    def test_the_basis_sha_is_the_basis_alone(self):
+        """point.json's measure_basis_sha: what measure_sha hashes minus the
+        kit versions, which only a started kit knows."""
+        s = self.load(toy_doc(layout="v2"))
+        self.assertEqual(s.measure_basis_sha, hashlib.sha256(json.dumps(
+            s.measure_basis, sort_keys=True,
+            separators=(",", ":")).encode()).hexdigest())
+        edited = toy_doc(layout="v2")
+        edited["note"] = "edited"
+        self.assertEqual(self.load(edited).measure_basis_sha,
+                         s.measure_basis_sha)
+        edited["evaluate"][0]["fixed"]["delay_s"] = 1.0
+        self.assertNotEqual(self.load(edited).measure_basis_sha,
+                            s.measure_basis_sha)
 
     def test_an_artifact_path_hashes_the_same_for_every_operator(self):
         a = st.load_study_file(DEMO).measure_basis

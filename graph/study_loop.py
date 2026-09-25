@@ -22,6 +22,7 @@ import paths  # noqa: E402
 from boards import board_for  # noqa: E402
 from contract import check_kits, launch_stagger  # noqa: E402
 from pool import next_free_name, run_rolling  # noqa: E402
+from study_run import parse_context  # noqa: E402
 
 
 def state_dir(name: str) -> Path:
@@ -44,8 +45,11 @@ def busy_reason(name: str, board_names: set) -> str | None:
     if (sd / "point.json").exists() or any(sd.glob("*_cluster.txt")):
         return (f"has state in {sd}: a child under this name is in flight or "
                 f"was abandoned. Advancing to the next index. RECOVERY: "
-                f"confirm nothing runs it (pgrep -f 'study_run.*{name}'), then "
-                f"remove {sd} or use another --name-prefix")
+                f"relaunch under another --name-prefix. Removing {sd} is safe "
+                f"only once nothing runs it (pgrep -f 'study_run.*{name}') "
+                f"AND it never held a *_cluster.txt (nothing was submitted): "
+                f"the name would be re-picked with a new x, and the kit "
+                f"refuses the same <config>.<step> handle with other params")
     return None
 
 
@@ -130,6 +134,12 @@ def main(argv=None) -> int:
               f"pipeline kits; use graph.closed_loop until Phase C", flush=True)
         return 2
     study = _modes.STUDIES[args.study]
+    try:
+        # Once here, not by every child refusing until the pool aborts.
+        parse_context(args.context, study)
+    except ValueError as exc:
+        print(f"[study_loop] REFUSED: {exc}", flush=True)
+        return 2
     problems = check_kits(study, campaign=args.name_prefix)
     if problems:
         for problem in problems:

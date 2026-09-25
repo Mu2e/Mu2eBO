@@ -15,9 +15,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
+import kit_registry  # noqa: E402
 import modes as _modes  # noqa: E402
 from boards import board_for  # noqa: E402
 from contract import KitSet  # noqa: E402
+from kits import KitError  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
 
@@ -74,11 +76,24 @@ def main(argv=None) -> int:
     broken = state_dir / "broken.txt"
     if broken.exists():
         return refuse(f"{broken} exists: this point already failed "
-                      f"({broken.read_text().strip()}). Remove {state_dir} to "
-                      f"run it again")
+                      f"({broken.read_text().strip()}). To retry it, delete "
+                      f"{broken}: the rerun adopts the steps already "
+                      f"submitted, so a step the kit itself reported failed "
+                      f"stays failed (its handle <config>.<step> names the "
+                      f"same job). To evaluate this x again from scratch, "
+                      f"use a new config name")
 
     kits = KitSet(args.campaign)
     try:
+        # Start every kit now, through the KitSet the steps reuse: a kit that
+        # won't start is the environment, not this point, so it is refused
+        # before anything is written rather than recorded in broken.txt.
+        for name in sorted(kit_registry.kits_of(study)):
+            try:
+                kits.get(name).tools
+            except (KeyError, KitError) as exc:
+                return refuse(f"kit {name!r} did not start, so nothing ran: "
+                              f"{exc}")
         graph = build_study_graph(
             study, config=args.config, campaign=args.campaign,
             context=context, kits=kits, state_dir=state_dir,

@@ -66,17 +66,28 @@ def map_params(mapping: Dict[str, str], env: Dict[str, Any],
     return out
 
 
+def merge_params(owner: str, mapped: Dict[str, Any],
+                 constant: Dict[str, Any]) -> Dict[str, Any]:
+    """The mapped params plus the constant ones (kit settings, a step's
+    fixed values). The one clash rule for a step and the preflight: a mapped
+    param may not share a name with a constant one, which would silently
+    replace the point's value."""
+    clash = sorted(set(mapped) & set(constant))
+    if clash:
+        raise ValueError(f"{owner}: param(s) {clash} are both mapped from the "
+                         f"point and set in kits/fixed; a mapped param may "
+                         f"not share a name with a kit setting or a fixed "
+                         f"value")
+    return {**mapped, **constant}
+
+
 def step_params(study, step, env, accepts_lists) -> Dict[str, Any]:
     """The mapped params, then the study's settings for the step's kit, then
     the step's fixed values, which win over the settings. A mapped param may
     not share a name with a setting or a fixed value."""
-    mapped = map_params(step.params, env, accepts_lists)
-    constant = {**study.kits.get(step.kit, {}), **step.fixed}
-    clash = sorted(set(mapped) & set(constant))
-    if clash:
-        raise ValueError(f"step {step.step!r}: param(s) {clash} are both "
-                         f"mapped from the point and set in kits/fixed")
-    return {**mapped, **constant}
+    return merge_params(f"step {step.step!r}",
+                        map_params(step.params, env, accepts_lists),
+                        {**study.kits.get(step.kit, {}), **step.fixed})
 
 
 def run_steps(study, *, config: str, state_dir: Path, env, files, kits,

@@ -116,6 +116,12 @@ class ExtraColumn:
         return float(eval_expr(self._compiled, dict(env)))
 
 
+def _sha256(blob) -> str:
+    """SHA-256 of `blob` as canonical JSON (sorted keys, no whitespace)."""
+    return hashlib.sha256(json.dumps(
+        blob, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class Study:
     path: Path
@@ -146,10 +152,16 @@ class Study:
         if missing:
             raise ValueError(f"{self.path}: measure_sha needs the version of "
                              f"kit(s) {missing}")
-        blob = {"basis": self.measure_basis,
-                "kit_versions": {k: kit_versions[k] for k in used}}
-        return hashlib.sha256(json.dumps(
-            blob, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        return _sha256({"basis": self.measure_basis,
+                        "kit_versions": {k: kit_versions[k] for k in used}})
+
+    @property
+    def measure_basis_sha(self) -> str:
+        """SHA-256 of measure_basis alone: the part of measure_sha the study
+        file controls (kit versions are known only once a kit starts).
+        point.json records it, so a resumed child can tell that the study's
+        measurement changed since its point was submitted."""
+        return _sha256(self.measure_basis)
 
     @property
     def knob_names(self) -> Tuple[str, ...]:

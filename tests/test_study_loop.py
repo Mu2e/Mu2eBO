@@ -65,6 +65,18 @@ class TestBusyNames(unittest.TestCase):
                 self.assertIn(needle, study_loop.busy_reason(name, {"pR00_00"}))
         self.assertIsNone(study_loop.busy_reason("pR04_00", {"pR00_00"}))
 
+    def test_the_in_flight_recovery_steers_to_a_new_prefix(self):
+        """Removing the state dir re-picks the name with a new x, and the
+        kit refuses the same <config>.<step> handle with other params: safe
+        only when nothing was ever submitted."""
+        self.touch("pR00_00", "toy_cluster.txt")
+        reason = study_loop.busy_reason("pR00_00", set())
+        self.assertIn("another --name-prefix", reason)
+        self.assertIn("pgrep -f 'study_run.*pR00_00'", reason)
+        self.assertIn("only", reason)
+        self.assertIn("*_cluster.txt", reason)
+        self.assertNotIn("or use another --name-prefix", reason)
+
     def test_the_pick_source_skips_busy_names_and_seeds_by_index(self):
         self.touch("pR00_00", "toy_cluster.txt")
         self.touch("pR01_00", "broken.txt")
@@ -166,6 +178,29 @@ class TestLaunchRefusals(unittest.TestCase):
             self.assertIn("x3", r.stdout)
             self.assertFalse((data / "autoresearch_graph_data"
                               / "closed_loop_logs").exists())
+
+    def test_a_bad_context_launches_nothing(self):
+        """Validated once at launch, not by every child refusing."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            data, studies = tmp / "data", tmp / "studies"
+            doc = toy_doc(name="ctxtoy", layout="v2")
+            doc["leaderboard"]["context"] = ["alpha"]
+            write_study(doc, studies)
+            for study, extra, needle in (
+                    ("ctxtoy", [], "needs --context"),
+                    ("ctxtoy", ["--context", "beta=1"], "'beta'")):
+                with self.subTest(context=extra):
+                    r = subprocess.run(loop_cmd(study, 1, 1, "ctx") + extra,
+                                       cwd=ROOT, env=engine_env(data, studies),
+                                       capture_output=True, text=True,
+                                       timeout=120)
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn("REFUSED", r.stdout)
+                    self.assertIn(needle, r.stdout)
+                    self.assertFalse((data / "autoresearch_graph_data"
+                                      / "closed_loop_logs").exists())
+                    self.assertEqual(submits(data), [])
 
     def test_a_pipeline_study_is_refused(self):
         with tempfile.TemporaryDirectory() as td:

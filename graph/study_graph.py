@@ -20,7 +20,8 @@ from langgraph.graph import END, START, StateGraph  # noqa: E402
 from contract import ContractError  # noqa: E402
 from kits import KitError  # noqa: E402
 from leaderboard import LeaderboardError  # noqa: E402
-from scheduler import map_params, run_steps, write_atomic  # noqa: E402
+from scheduler import (map_params, merge_params, run_steps,  # noqa: E402
+                       write_atomic)
 from score import ScoreError, score  # noqa: E402
 
 
@@ -68,10 +69,27 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
                else dict(zip(study.knob_names, x)))
         state_dir.mkdir(parents=True, exist_ok=True)
         point = {"study": study.name, "config": config, "campaign": campaign,
-                 "x": x, "context": context}
+                 "x": x, "context": context,
+                 "measure_basis_sha": study.measure_basis_sha}
         point_path = state_dir / "point.json"
         if point_path.exists():
+            # A resume adopts the steps already submitted: they were
+            # measured the way the study said THEN, so a changed
+            # measurement must not stamp their numbers with its measure_sha.
             old = json.loads(point_path.read_text())
+            if "measure_basis_sha" not in old:
+                raise PointMismatch(
+                    f"{point_path} has no measure_basis_sha (written before "
+                    f"point.json recorded how its point is measured), so a "
+                    f"resume cannot tell whether the study's measurement "
+                    f"changed since this point was submitted; use a new "
+                    f"config name")
+            was, now = old["measure_basis_sha"], point["measure_basis_sha"]
+            if was != now:
+                raise PointMismatch(
+                    f"{point_path}: the study's measurement changed since "
+                    f"this point was submitted ({was[:12]} -> {now[:12]}); "
+                    f"use a new config name")
             if old != point:
                 raise PointMismatch(
                     f"{point_path} records a different point {old}; refusing "
@@ -99,9 +117,10 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
             return {"broken": False}
         try:
             kit = kits.get(pre["kit"])
-            params = {**map_params(pre["params"], shared["env"],
-                                   kit.accepts_lists),
-                      **study.kits.get(pre["kit"], {})}
+            params = merge_params("preflight",
+                                  map_params(pre["params"], shared["env"],
+                                             kit.accepts_lists),
+                                  study.kits.get(pre["kit"], {}))
             ok, message = kit.check(f"{config}.preflight", params,
                                     [shared["files"][f] for f in pre["files"]],
                                     [], workflow("preflight"))

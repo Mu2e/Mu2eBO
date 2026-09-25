@@ -276,6 +276,18 @@ class TestParams(unittest.TestCase):
             sch.step_params(st_, st_.steps[0], {"x": 1.0}, False)
         self.assertIn("['n']", str(cm.exception))
 
+    def test_the_preflight_shares_the_clash_rule(self):
+        """graph/study_graph.py's preflight merges through the same helper:
+        a kit setting never silently replaces a mapped param."""
+        self.assertEqual(sch.merge_params("preflight", {"p": 1.5}, {"tag": "t"}),
+                         {"p": 1.5, "tag": "t"})
+        with self.assertRaises(ValueError) as cm:
+            sch.merge_params("preflight", {"function": 1.0},
+                             {"function": "branin_currin"})
+        self.assertIn("preflight", str(cm.exception))
+        self.assertIn("['function']", str(cm.exception))
+        self.assertIn("may not share a name", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
