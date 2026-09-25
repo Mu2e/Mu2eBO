@@ -50,6 +50,16 @@ def write_study(doc, directory):
     return path
 
 
+def engine_env(data_root, study_dir):
+    """Environment for an engine subprocess: every runtime root under
+    `data_root` (never the real DATA_ROOT), studies from `study_dir`."""
+    import os
+    env = dict(os.environ)
+    env.update(AUTORESEARCH_DATA_ROOT=str(data_root),
+               AUTORESEARCH_STUDY_PATH=str(study_dir), PYTHONPATH="")
+    return env
+
+
 def toy_config(state_dir, **overrides):
     """The repo's toykit KitConfig, with its state under `state_dir` instead
     of DATA_ROOT, plus any field overrides (e.g. timeouts=...)."""
