@@ -31,6 +31,9 @@ def modespec_from_study(study: Study):
     else:
         from modes import ModeSpec
 
+    _need(study.layout == "v1", study,
+          f"its leaderboard layout is {study.layout!r}; the pipeline writes v1 "
+          f"rows")
     _need(study.geom is not None, study, "it has no geom")
     _need(study.preflight is not None
           and study.preflight["kit"] == "offline_preflight", study,

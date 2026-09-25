@@ -65,9 +65,11 @@ class ModeSpec:
 # under a different sys.modules key, needing a second non-identical ModeSpec
 # class.
 if __package__:
+    from core import kit_registry  # noqa: E402
     from core.study import load_study_dirs  # noqa: E402
     from core.study_compat import modespec_from_study  # noqa: E402
 else:
+    import kit_registry  # noqa: E402
     from study import load_study_dirs  # noqa: E402
     from study_compat import modespec_from_study  # noqa: E402
 
@@ -75,8 +77,28 @@ MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 # Schema-2 studies: the one source. SPECS is today's ModeSpec view of them,
 # kept for pipeline.py/runtime.py/preflight until Phase C deletes both.
 STUDIES = load_study_dirs(MODES_DIR, os.environ.get("AUTORESEARCH_STUDY_PATH"))
+
+
+def runs_on_engine(study) -> bool:
+    """True when every kit the study names runs on the contract engine
+    (graph.study_run), False when none does (the Phase-A pipeline,
+    graph.run). A study mixing the two can run on neither until Phase C
+    moves the pipeline kits onto the engine: refused."""
+    kits = kit_registry.kits_of(study)
+    engine = {k for k in kits if kit_registry.KITS[k].engine}
+    if engine and engine != kits:
+        raise ValueError(
+            f"{study.path}: mixes engine kits {sorted(engine)} with pipeline "
+            f"kits {sorted(kits - engine)}; a study runs on one or the other "
+            f"until Phase C")
+    return bool(engine)
+
+
+# Engine studies run through graph.study_run / graph.study_loop; SPECS is
+# today's ModeSpec view of the pipeline studies only.
+ENGINE = frozenset(n for n, s in STUDIES.items() if runs_on_engine(s))
 SPECS: Dict[str, ModeSpec] = {n: modespec_from_study(s)
-                               for n, s in STUDIES.items()}
+                               for n, s in STUDIES.items() if n not in ENGINE}
 
 # THE fallback for every import-time AUTORESEARCH_MODE reader; single-sourced
 # because per-module literals drift. Pinned by

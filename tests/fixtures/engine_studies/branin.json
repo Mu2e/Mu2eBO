@@ -1,0 +1,24 @@
+{
+ "schema": 2,
+ "name": "branin",
+ "note": "Phase B acceptance: Branin-Currin on toykit, two objectives, Currin constrained.",
+ "knobs": [
+  {"name": "x1", "type": "real", "min": -5.0, "max": 10.0, "unit": "", "fmt": "{:.6f}"},
+  {"name": "x2", "type": "real", "min": 0.0, "max": 15.0, "unit": "", "fmt": "{:.6f}"}
+ ],
+ "derive": {"consts": {}, "exprs": {}, "profiles": {}},
+ "geom": null,
+ "kits": {"toykit": {"function": "branin_currin"}},
+ "preflight": null,
+ "evaluate": [
+  {"step": "toy", "kit": "toykit", "entry": null, "files": [], "files_from": [], "params": {"x1": "x1", "x2": "x2"}, "fixed": {"delay_s": 0.2}}
+ ],
+ "objectives": [
+  {"name": "branin", "metric": "toy.branin", "direction": "min", "transform": "none", "noise": 0.01, "fmt": "{:.6f}"},
+  {"name": "currin", "metric": "toy.currin", "direction": "min", "transform": "log10", "noise": 0.01, "fmt": "{:.6f}"}
+ ],
+ "constraints": [{"name": "currin", "max": 10.0, "k_sigma": 1.0}],
+ "extra_metrics": [],
+ "extra_columns": [],
+ "leaderboard": {"file": "leaderboards/leaderboard_branin.tsv", "layout": "v2", "context": []}
+}
