@@ -41,17 +41,18 @@ are bugs at exactly that hand-made seam.
 autoresearch `core/pipeline.py` (branch `json-modes`):
 
 1. `jobwait` writes `state/<stage>/wait.json`.
-2. `cmd_poll` (`core/pipeline.py:934`) applies the acceptance policy
+2. `cmd_poll` (`core/pipeline.py:883`) applies the acceptance policy
    prodtools does not have: `ok == 0` → fail; `ok < njobs*quorum` → warn and
    proceed; harvest divides by the true ok count.
-3. `cmd_list_outputs` (`:962`) turns `wait.json` + the stage's `output_glob`
+3. `cmd_list_outputs` (`:911`) turns `wait.json` + the stage's `output_glob`
    into `state/mubeam_outputs.txt` (absolute /pnfs or local paths).
-4. `stage_hardlink_farm` (`:530`) hard-links those files into one /pnfs dir
+4. `input_farm` (`:515`) hard-links those files into one dir
    (`input_data` is basename-keyed and `inloc` assumes one dir; hard links,
-   not symlinks, because xrootd doors do not follow /pnfs symlinks).
-   `local_input_farm` (`:548`) is the same for `runlocal`, with an EXDEV copy
-   fallback.
-5. `cmd_submit` (`:810`) renders the consuming entry with
+   not symlinks, because xrootd doors do not follow /pnfs symlinks). One
+   function for both executors — `/pnfs` for the grid, `ROOT/<stage>/
+   local_inputs` for `runlocal` — with an EXDEV copy fallback only the
+   local side can hit.
+5. `cmd_submit` (`:777`) renders the consuming entry with
    `inloc = dir:<farm>` and `input_data = {basename: 1}` and calls
    `submit_entry`. This `dir:` inloc is what `check_inputs` rejects
    (`prodtools-check-inputs-dir-inloc.md`).

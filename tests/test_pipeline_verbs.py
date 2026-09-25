@@ -2,7 +2,7 @@
 list-outputs gating, submit_stage_prodtools state writes, the local
 executor (cmd_submit --local via prodtools runlocal), and the small
 free-standing helpers (_require_local_stage, stamp_local_events,
-sourced_env guards, local scale resolution, local_input_farm).
+sourced_env guards, local scale resolution, input_farm).
 No grid contact: STATE/STAGES/ROOT are patched to tmp dirs and the
 prodtools_exec (px) / subprocess boundary is faked."""
 import contextlib
@@ -120,8 +120,9 @@ class TestListOutputsGating(unittest.TestCase):
 
 
 class TestStageTuning(unittest.TestCase):
-    """core/mode_json.py `run.stage_tuning` -> pipeline.stage_cfg() wiring
-    (I4 in the json-configurable-modes final review; retargeted to
+    """A step's prodtools `fixed` tuning (schema 2, core/study.py; reaches
+    ModeSpec.stage_tuning via core/study_compat.py) -> pipeline.stage_cfg()
+    wiring (I4 in the json-configurable-modes final review; retargeted to
     stage_cfg() in Task 6, which replaced the old module-level
     `_apply_stage_tuning(STAGES, ...)` mutation with a per-call merge --
     `spec.stage_tuning` overrides `stage_entries/<stage>.json`, applied fresh
@@ -158,13 +159,12 @@ class TestStageTuning(unittest.TestCase):
             self.assertEqual(untouched["events"], 2500)
 
     def test_json_spec_stage_tuning_applies_to_real_stages(self):
-        """End-to-end: the foilsflash fixture's run.stage_tuning (mirrors
-        the live JSON foilsflash mode's real values) lands on stage_cfg()'s
-        merged view for its stages."""
+        """End-to-end: the live foilsflash spec's per-step `fixed` tuning
+        lands on stage_cfg()'s merged view for its stages."""
         import modes as _modes  # noqa: E402 (bare, core/ on sys.path)
-        from mode_json import load_mode_file  # noqa: E402 (bare, core/ on sys.path)
-        fixture = Path(__file__).parent / "fixtures" / "modes" / "foilsflash.json"
-        spec = load_mode_file(fixture)
+        from study_compat import load_modespec as load_mode_file  # noqa: E402 (bare, core/ on sys.path)
+        spec = load_mode_file(
+            Path(__file__).resolve().parent.parent / "mode_specs" / "foilsflash.json")
         probe = self._probe_spec(spec.stage_tuning)
         with mock.patch.dict(_modes.SPECS, {probe.name: probe}):
             self.assertEqual(
@@ -181,11 +181,12 @@ class TestStageTuning(unittest.TestCase):
 
 class TestStageTuningModuleLevelWiring(unittest.TestCase):
     """End-to-end, real subprocess: hand-register a throwaway ModeSpec
-    carrying a non-empty run.stage_tuning directly into a fresh
-    subprocess's `modes.SPECS` (bypassing mode_specs/ directory discovery
-    entirely -- core/modes.py's MODES_DIR is a hardcoded path, not
-    overridable via env, and the real mode_specs/ directory must stay
-    clean), then imports core/pipeline.py under that mode and calls
+    carrying a non-empty stage_tuning directly into a fresh
+    subprocess's `modes.SPECS` (bypassing directory discovery entirely --
+    core/modes.py's MODES_DIR is fixed, $AUTORESEARCH_STUDY_PATH only ADDS
+    directories and has its own wiring test in tests/test_modes.py
+    TestModeSpecsDirectoryWiring, and the real mode_specs/ directory is
+    never written by tests), then imports core/pipeline.py under that mode and calls
     pipeline.stage_cfg() -- the ONE place stage_tuning is read now (Task 6;
     was the module-level `_apply_stage_tuning(STAGES, ...)` mutation at
     import). If stage_cfg() ever stops reading spec.stage_tuning, this
@@ -195,10 +196,11 @@ class TestStageTuningModuleLevelWiring(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         mode_name = f"stagetuningprobe{uuid.uuid4().hex[:8]}"
         doc = json.loads(
-            (Path(__file__).parent / "fixtures" / "modes" / "foils.json").read_text())
+            (Path(__file__).parent / "fixtures" / "modes" / "template.json").read_text())
         doc["name"] = mode_name
         doc["leaderboard"]["file"] = f"leaderboards/leaderboard_bo_{mode_name}.tsv"
-        doc["run"]["stage_tuning"] = {"mubeam": {"events_per_job": 424242}}
+        mubeam = next(s for s in doc["evaluate"] if s["step"] == "mubeam")
+        mubeam["fixed"]["events_per_job"] = 424242
 
         with tempfile.TemporaryDirectory() as td:
             tmp_json = Path(td) / f"{mode_name}.json"
@@ -208,7 +210,7 @@ class TestStageTuningModuleLevelWiring(unittest.TestCase):
                 "sys.path.insert(0, 'core')\n"
                 "from pathlib import Path\n"
                 "import modes\n"
-                "from mode_json import load_mode_file\n"
+                "from study_compat import load_modespec as load_mode_file\n"
                 f"spec = load_mode_file(Path({str(tmp_json)!r}))\n"
                 "modes.SPECS[spec.name] = spec\n"
                 "os.environ['AUTORESEARCH_MODE'] = spec.name\n"
@@ -394,7 +396,9 @@ class TestStageEntries(unittest.TestCase):
             geom = Path(tmp) / "autoresearch_x001_geom.txt"
             with mock.patch.object(pipeline, "GEOM_FILE", geom), \
                  mock.patch.object(pipeline, "STATE", Path(tmp)):
-                overrides = pipeline._render_fcl_overrides("mubeam")
+                overrides = pipeline._render_fcl_overrides(
+                    "mubeam", pipeline.px.load_stage_entry(
+                        "mubeam", cfg="x001", geom=geom.name))
         self.assertEqual(overrides["services.GeometryService.inputFile"],
                          "autoresearch_x001_geom.txt")
 
@@ -405,8 +409,10 @@ class TestStageEntries(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
                  mock.patch.object(pipeline, "STATE", Path(tmp)):
-                pipeline._render_fcl_overrides("mubeam")
-                second = pipeline._render_fcl_overrides("mubeam")
+                entry = lambda: pipeline.px.load_stage_entry(
+                    "mubeam", cfg="x001", geom="g.txt")
+                pipeline._render_fcl_overrides("mubeam", entry())
+                second = pipeline._render_fcl_overrides("mubeam", entry())
         self.assertEqual(second["services.GeometryService.inputFile"], "g.txt")
         raw = json.loads(
             (pipeline.px.STAGE_ENTRIES_DIR / "mubeam.json").read_text())
@@ -423,7 +429,10 @@ class TestStageEntries(unittest.TestCase):
             with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \
                  mock.patch.object(pipeline, "STATE", Path(tmp)):
                 self.assertEqual(
-                    pipeline._render_fcl_overrides("mustops_ce")[key], 8000)
+                    pipeline._render_fcl_overrides(
+                        "mustops_ce", pipeline.px.load_stage_entry(
+                            "mustops_ce", cfg="x001", geom="g.txt"))[key],
+                    8000)
 
     def test_stage_extra_files_only_mubeam(self):
         # Derived from the entry's '#include' (bare basenames ship,
@@ -708,8 +717,9 @@ class TestSubmitStageProdtools(unittest.TestCase):
             # normal test run) -- assert against the live STAGES dict, not
             # the module's base literal, same convention as
             # TestCmdSubmitLocalViaRunlocal below. `run` is never
-            # stage_tuning-tunable (not in mode_json._STAGE_TUNING_KEYS) --
-            # it's the static stage_entries/mubeam.json default.
+            # stage_tuning-tunable (not a prodtools `fixed` key in
+            # core/kit_registry.py) -- it's the static
+            # stage_entries/mubeam.json default.
             self.assertEqual(entry["events"],
                              pipeline.stage_cfg("mubeam", pipeline.MODE)["events"])
             self.assertEqual(entry["run"], 1800)
@@ -1232,29 +1242,57 @@ class TestSubmitStageProdtools(unittest.TestCase):
 
 
 class TestCmdSubmitGridConsumingStageStaging(unittest.TestCase):
-    """cmd_submit's grid mustops_ce branch: stage_hardlink_farm is kept
-    verbatim (mocked out here -- its own behavior is untested by this
-    class), but the input_map built around it must give every staged
-    basename a count of 1 (one input file per job)."""
+    """cmd_submit's grid mustops_ce branch: input_farm's own behavior
+    (including one input file per job) is covered by TestInputFarm, so it
+    is mocked out here. What this class pins is the branch around it --
+    every previous-stage output is farmed and the farm's map reaches the
+    submit, and an EMPTY previous-stage outputs list is refused rather
+    than farmed into a cluster with no inputs."""
 
-    def test_mustops_ce_input_map_values_are_all_one(self):
+    def _submit(self, tmp, sources):
+        (Path(tmp) / "mubeam_outputs.txt").write_text(
+            "\n".join(sources) + ("\n" if sources else ""))
+        pipeline.cmd_submit(SimpleNamespace(stage="mustops_ce",
+                                            force=False, dry_run=False))
+
+    def test_every_previous_stage_output_reaches_the_submit(self):
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(pipeline, "STATE", Path(tmp)), \
-             mock.patch.object(pipeline, "GRID_STAGES",
-                               ("mubeam", "mustops_ce")), \
+             mock.patch.object(pipeline, "PNFS_STAGE", Path(tmp) / "pnfs"), \
              mock.patch.object(pipeline, "sourced_env", return_value={}), \
              mock.patch.object(pipeline, "submit_stage_prodtools") as sub, \
-             mock.patch.object(pipeline, "stage_hardlink_farm",
-                               return_value=Path("/pnfs/x/mustops_ce")):
+             mock.patch.object(pipeline, "input_farm") as farm:
             sources = [f"/pnfs/mu2e/x/sim.a{i}.art" for i in range(4)]
-            (Path(tmp) / "mubeam_outputs.txt").write_text(
-                "\n".join(sources) + "\n")
-            pipeline.cmd_submit(SimpleNamespace(stage="mustops_ce",
-                                                force=False, dry_run=False))
+            farm.side_effect = lambda stage, dest, srcs, **kw: (
+                dest, {Path(p).name: 1 for p in srcs})
+            self._submit(tmp, sources)
             _, kwargs = sub.call_args
             _, input_map = kwargs["staged_inputs"]
-            self.assertEqual(set(input_map.values()), {1})
             self.assertEqual(len(input_map), 4)
+
+    def test_an_empty_previous_stage_outputs_file_is_refused(self):
+        # Regression: the local branch raised on an empty file but the grid
+        # branch farmed [] and submitted a cluster with no inputs at all.
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(pipeline, "STATE", Path(tmp)), \
+             mock.patch.object(pipeline, "PNFS_STAGE", Path(tmp) / "pnfs"), \
+             mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(pipeline, "submit_stage_prodtools") as sub:
+            with self.assertRaises(SystemExit) as cm:
+                self._submit(tmp, [])
+            self.assertIn("is empty", str(cm.exception))
+            sub.assert_not_called()
+
+    def test_a_missing_previous_stage_outputs_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(pipeline, "STATE", Path(tmp)), \
+             mock.patch.object(pipeline, "sourced_env", return_value={}), \
+             mock.patch.object(pipeline, "submit_stage_prodtools") as sub:
+            with self.assertRaises(SystemExit) as cm:
+                pipeline.cmd_submit(SimpleNamespace(
+                    stage="mustops_ce", force=False, dry_run=False))
+            self.assertIn("list-outputs", str(cm.exception))
+            sub.assert_not_called()
 
 
 class TestRequireLocalStage(unittest.TestCase):
@@ -1504,12 +1542,18 @@ class TestLocalScaleResolution(unittest.TestCase):
         self.assertEqual((njobs, events), (1, 77))
 
 
-class TestLocalInputFarm(unittest.TestCase):
-    """pipeline.local_input_farm: the local analogue of stage_hardlink_farm
-    (kept verbatim for the grid). Flat farm at ROOT/<stage>/local_inputs,
-    hard-linking a prior local stage's spread-out outputs into one dir so
-    inloc: dir:<farm> can see them. Ported verbatim from
+class TestInputFarm(unittest.TestCase):
+    """pipeline.input_farm, the ONE farm for both executors (the grid's
+    /pnfs hard-link farm and the local ROOT/<stage>/local_inputs farm were
+    the same function written twice). Flat dir, hard links, one input file
+    per job, so inloc: dir:<farm> can see them. Ported from
     tests/test_local_exec.py."""
+
+    @staticmethod
+    def _farm(root, sources, *, allow_copy=True):
+        return pipeline.input_farm(
+            "mustops_ce", Path(root) / "mustops_ce" / "local_inputs", sources,
+            allow_copy=allow_copy)
 
     def test_links_n_files_flat_and_returns_the_basenames_map(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1520,9 +1564,7 @@ class TestLocalInputFarm(unittest.TestCase):
                 f = src_dir / f"sim.x.TargetStops.{i}.art"
                 f.write_text("x")
                 sources.append(f)
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                farm_dir, input_map = pipeline.local_input_farm(
-                    "mustops_ce", sources)
+            farm_dir, input_map = self._farm(Path(tmp) / "root", sources)
             self.assertEqual(farm_dir,
                              Path(tmp) / "root" / "mustops_ce" / "local_inputs")
             self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
@@ -1539,22 +1581,33 @@ class TestLocalInputFarm(unittest.TestCase):
                 f = src_dir / f"sim.x.TargetStops.{i}.art"
                 f.write_text("x")
                 sources.append(f)
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                _, input_map = pipeline.local_input_farm(
-                    "mustops_ce", sources)
+            _, input_map = self._farm(Path(tmp) / "root", sources)
             self.assertEqual(set(input_map.values()), {1})
             self.assertEqual(len(input_map), 5)
+
+    def test_the_grid_farm_refuses_to_copy_across_a_device_boundary(self):
+        # allow_copy=False is the grid caller. EXDEV there means the sources
+        # are not on dCache at all (a stage chained off a --local previous
+        # stage), and copying would duplicate the whole previous stage's
+        # output into /pnfs against the quota that once killed a campaign.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.art"
+            src.write_text("data")
+            with mock.patch.object(
+                    pipeline.os, "link",
+                    side_effect=OSError(errno.EXDEV, "cross-device link")):
+                with self.assertRaises(OSError) as cm:
+                    self._farm(Path(tmp) / "root", [src], allow_copy=False)
+            self.assertEqual(cm.exception.errno, errno.EXDEV)
 
     def test_falls_back_to_copy_across_a_device_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src.art"
             src.write_text("data")
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.object(
-                     pipeline.os, "link",
-                     side_effect=OSError(errno.EXDEV, "cross-device link")):
-                farm_dir, input_map = pipeline.local_input_farm(
-                    "mustops_ce", [src])
+            with mock.patch.object(
+                    pipeline.os, "link",
+                    side_effect=OSError(errno.EXDEV, "cross-device link")):
+                farm_dir, input_map = self._farm(Path(tmp) / "root", [src])
             linked = farm_dir / "src.art"
             self.assertFalse(linked.is_symlink())
             self.assertEqual(linked.read_text(), "data")
@@ -1564,12 +1617,11 @@ class TestLocalInputFarm(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src.art"
             src.write_text("data")
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"), \
-                 mock.patch.object(
-                     pipeline.os, "link",
-                     side_effect=OSError(errno.EACCES, "permission denied")):
+            with mock.patch.object(
+                    pipeline.os, "link",
+                    side_effect=OSError(errno.EACCES, "permission denied")):
                 with self.assertRaises(OSError):
-                    pipeline.local_input_farm("mustops_ce", [src])
+                    self._farm(Path(tmp) / "root", [src])
 
     def test_a_second_call_clears_the_prior_farm_contents(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1577,12 +1629,10 @@ class TestLocalInputFarm(unittest.TestCase):
             src_dir.mkdir()
             a = src_dir / "a.art"
             a.write_text("a")
-            with mock.patch.object(pipeline, "ROOT", Path(tmp) / "root"):
-                farm_dir, _ = pipeline.local_input_farm("mustops_ce", [a])
-                b = src_dir / "b.art"
-                b.write_text("b")
-                farm_dir2, input_map = pipeline.local_input_farm(
-                    "mustops_ce", [b])
+            farm_dir, _ = self._farm(Path(tmp) / "root", [a])
+            b = src_dir / "b.art"
+            b.write_text("b")
+            farm_dir2, input_map = self._farm(Path(tmp) / "root", [b])
             self.assertEqual(farm_dir, farm_dir2)
             self.assertEqual(sorted(p.name for p in farm_dir.iterdir()),
                              ["b.art"])

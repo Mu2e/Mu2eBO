@@ -46,11 +46,6 @@ from sourced_bash import run_sourced_bash  # noqa: E402
 # imports closed_loop only inside function bodies.
 from pool import child_name, run_rolling  # noqa: E402
 
-# cl_min retired per ADR-0001: the closed loop never imports code outside
-# this repo; all pickers route through in-repo botorch_predict.py.
-PICKER_CHOICES = ("qnehvi", "qlnei", "budget_sob", "hybrid")
-DEFAULT_PICKER = "hybrid"
-
 
 def _stop_requested() -> bool:
     return STOP_FLAG.exists()
@@ -181,7 +176,8 @@ def main() -> int:
                          "counting launches (names already resolved or with "
                          "work in flight are skipped -- see "
                          "graph/pool.py::_name_busy_reason)")
-    ap.add_argument("--picker", choices=PICKER_CHOICES, default=DEFAULT_PICKER,
+    ap.add_argument("--picker", choices=_modes.PICKER_CHOICES,
+                    default=_modes.DEFAULT_PICKER,
                     help="batch picker (all subprocess into the picker venv; "
                          "cl_min retired per ADR-0001). hybrid (~60%% qnehvi + "
                          "~40%% qnparego, the default) is recommended for "

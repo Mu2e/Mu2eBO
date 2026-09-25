@@ -11,7 +11,7 @@ status_note: 'SEARCH CLOSED 2026-08-08 on all three axes (shape, box,
   spacing): foilspfbp, bpx, and bpz all stalled best-at-budget at exactly
   4.00. Remaining critical path is full-sim validation of bp04R00_02, not
   more search'
-timestamp: '2026-08-10'
+timestamp: '2026-08-21'
 updated_note: 'foilspfbpz06 (exploit round 3) drained 40/40, 0 failures —
   THE CLIMB STOPPED, exploit line CLOSED. Round mean 4.326 vs bpz05''s
   4.323 (flat to 0.003 = statistically identical at σ=0.006) and NO new
@@ -263,7 +263,8 @@ absorber in the *right* place — something no foilsflash row can claim.
   A-over-B product at every length) survive in both regimes. The old
   corr(stops,extent)=+0.35 across BO rows was shape-confounded. The
   foilspf deck's "Why longer helps → the gain is in stopping" slide is now
-  WRONG — fix at next deck refresh.
+  WRONG — fix at next deck refresh. (`foilspfbp_beamer` + genesis `_081026` decks
+  remade 2026-08-21 against the final 374-row board; `foilspf_beamer.tex` still carries this slide.)
 - **★ REGIME RE-RANKING (2026-08-04, free — all 110 archive rows re-scored
   under the regime-robust FoM `stopping_factor × ce_abs_eff` from
   summary.json):** global Spearman vs sob is 0.946, but the TOP is

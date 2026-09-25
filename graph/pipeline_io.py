@@ -17,10 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "core"))
 import bo_driver as bo  # noqa: E402
 import harvest as hv  # noqa: E402  (canonical outputs.txt reader)
 import modes as _modes  # noqa: E402
-# read_stage_status reads njobs via pipeline.stage_cfg() -- the same function
-# pipeline.py's submit/poll/list-outputs use, not a copy that could drift
-# (wiki/incidents/events-per-job-mid-flight-edit.md). No import cycle.
-import pipeline as _pipeline  # noqa: E402
 import prodtools_exec as _prodtools_exec  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from runtime import (  # noqa: E402
@@ -40,7 +36,7 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     x_override forces that x but still writes the pending row so concurrent
     proposals see it in-flight; seed_idx varies the picker seed so a
     re-propose after preflight failure draws a fresh point. Returns
-    (x_point, geom_path); ValueError on a name collision."""
+    x_point; ValueError on a name collision."""
     mode = bo.MODES[mode_name]
 
     pending = mode.load_pending()
@@ -63,7 +59,7 @@ def propose_one(mode_name: str, config_name: str, alpha: float = DEFAULT_ALPHA,
     mode.append_pending(config_name, x, alpha)
     # Coerce numpy scalars for JSON + TSVs (originally for the retired
     # SqliteSaver, wiki/incidents/langgraph-checkpoint-numpy-int64.md).
-    return bo.to_py_scalars(x), str(geom_path)
+    return bo.to_py_scalars(x)
 
 
 def run_preflight(mode_name: str, config_name: str, timeout_s: int = PREFLIGHT_TIMEOUT_S) -> tuple[str, str]:
@@ -158,19 +154,11 @@ def run_harvest(config_name: str, mode: str | None = None) -> dict:
 def read_stage_status(config_name: str, stage: str) -> dict:
     """Parse state/<stage>_cluster.txt + outputs.txt into a StageStatus dict."""
     state_dir = GRID_DATA_ROOT / config_name / "state"
-    cluster_file = state_dir / f"{stage}_cluster.txt"
-    cid = cluster_file.read_text().strip() if cluster_file.exists() else None
+    cid = (state_dir / f"{stage}_cluster.txt")
+    cid = cid.read_text().strip() if cid.exists() else None
     outputs = hv.read_outputs(state_dir, stage) or []
-    target = _pipeline.stage_cfg(stage, _pipeline.MODE)["njobs"]
-    n_done = len(outputs)
-    status = "done" if (cid and outputs) else ("in_flight" if cid else "pending")
-    return {
-        "cluster_id": cid,
-        "status": status,
-        "n_done": n_done,
-        "n_failed": max(0, target - n_done),
-        "last_poll_ts": time.time(),
-    }
+    return {"status": "done" if (cid and outputs)
+                      else ("in_flight" if cid else "pending")}
 
 
 # Patterns counted per worker log. Order matters only for report column order.
@@ -307,7 +295,7 @@ def scan_worker_logs(config_name: str) -> tuple[dict[str, dict[str, int]], Path,
 def run_evaluate(mode_name: str, config_name: str, metrics: dict,
                  alpha: float = DEFAULT_ALPHA) -> tuple[float | None, str]:
     """Run the driver's evaluate verb on a tmp summary.json; read the
-    objective from the typed result JSON.
+    objective (the study's primary objective) from the typed result JSON.
 
     rc != 0 => driver refused, nothing appended => (None, tail) (a zero_row).
     rc == 0 with missing/unparseable JSON is a HARD error: a run that cannot
@@ -333,7 +321,7 @@ def run_evaluate(mode_name: str, config_name: str, metrics: dict,
     if proc.returncode != 0:
         return None, tail
     try:
-        return float(json.loads(result_path.read_text())["obj"]), tail
+        return float(json.loads(result_path.read_text())["primary"]), tail
     except (FileNotFoundError, json.JSONDecodeError, KeyError,
             TypeError, ValueError) as e:
         raise RuntimeError(

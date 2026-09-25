@@ -1,0 +1,17 @@
+{
+  "budget_sob": {
+    "n_rows": 304,
+    "problem": "Problem(bounds_lo=(50.0, 50.0, 0.002, 0.002, 0.0, 0.0), bounds_hi=(250.0, 250.0, 1.0, 1.0, 0.95, 0.95), int_dims=(), noise=(0.006, 0.01), constraint=Constraint(axis=1, min=6.164028654389739, k_sigma=1.0))",
+    "sha": "bf47391c52b64f374208d7db65edecef07231aeab932001a6e2467196a0788e0"
+  },
+  "qlnei": {
+    "n_rows": 304,
+    "problem": "Problem(bounds_lo=(50.0, 50.0, 0.002, 0.002, 0.0, 0.0), bounds_hi=(250.0, 250.0, 1.0, 1.0, 0.95, 0.95), int_dims=(), noise=(0.006,), constraint=None)",
+    "sha": "9b876e026968192a4939bb52cbd096fa9e5e44c492f83a14c78dd06d271f6355"
+  },
+  "qnehvi": {
+    "n_rows": 304,
+    "problem": "Problem(bounds_lo=(50.0, 50.0, 0.002, 0.002, 0.0, 0.0), bounds_hi=(250.0, 250.0, 1.0, 1.0, 0.95, 0.95), int_dims=(), noise=(0.006, 0.01), constraint=Constraint(axis=1, min=6.164028654389739, k_sigma=1.0))",
+    "sha": "6562be24b8bc43cf95e284a9a35a4bb8d080635192c82aa85886677ae7dcb231"
+  }
+}

@@ -3,13 +3,13 @@ import unittest
 from pathlib import Path
 
 # Bare `core/`-on-sys.path convention (matches tests/test_modes.py,
-# test_mode_json.py, test_json_mode.py, test_json_mode_parity.py): a
+# test_study.py, test_json_mode.py, test_geom_golden_parity.py): a
 # qualified `from core.geom_template import ...` loads a SECOND,
 # non-identical GeomTemplate/ExprError class under the `core.geom_template`
-# sys.modules key alongside the bare one core/mode_json.py itself uses,
+# sys.modules key alongside the bare one core/study.py itself uses,
 # reproducing the two-non-identical-classes bug Task 4 fixed for this exact
 # module (see core/modes.py's tail comment). TestSingleModeSpecClass in
-# tests/test_mode_json.py asserts "core.geom_template" and "core.bo_driver"
+# tests/test_modes.py asserts "core.geom_template" and "core.bo_driver"
 # never land in sys.modules across the whole suite -- this file was the gap.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
@@ -93,15 +93,6 @@ class TestProfile(unittest.TestCase):
         self.assertAlmostEqual(vals[0], 10.0)
         self.assertAlmostEqual(vals[2], 20.0)
         self.assertAlmostEqual(vals[-1], 30.0)
-
-    # test_matches_prodtarget_profile removed 2026-08-08: was a byte-for-byte
-    # parity check of lagrange_profile against ProdTargetMode._profile, the
-    # numpy original it replaced. ProdTargetMode was archived along with the
-    # other four dormant Python-mode adapters (no JSON successor -- the
-    # "prodtarget" line was retired outright), so the reference
-    # implementation no longer exists to compare against. lagrange_profile
-    # itself stays live (foilspf's K=3 control-point profiles) and remains
-    # covered by the other tests in this class.
 
     def test_overshoot_is_real_without_clip(self):
         """(50,250,250) exceeds 250 -- this is why clip is mandatory."""

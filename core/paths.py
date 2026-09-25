@@ -40,6 +40,16 @@ def _root_from_env_or_user(env_var: str, volume: str) -> Path:
 DATA_ROOT = _root_from_env_or_user("AUTORESEARCH_DATA_ROOT", "data")
 ARTIFACT_ROOT = _root_from_env_or_user("AUTORESEARCH_ARTIFACT_ROOT", "app")
 
+# Sibling surrokit checkout (the generic ask/tell engine). Overridable so
+# tests and other operators can point at a different checkout.
+SURROKIT_ROOT = Path(os.environ.get("AUTORESEARCH_SURROKIT")
+                     or REPO_ROOT.parent / "surrokit")
+
+# The surrokit SHA this repo was parity-validated against. The suite
+# asserts the checkout matches; bump DELIBERATELY after re-validating
+# (run a picker smoke + the surrogate tests against the new engine).
+SURROKIT_PIN_SHA = "4884aa662ff9f2bdb3a6ff54b93f0b1ee53e35ab"
+
 
 def _resolve_backing() -> Path | None:
     """A `backing` symlink in the repo root wins over the env var, so the
@@ -103,7 +113,7 @@ def leaderboard_archive(rel: str) -> Path:
 
 def leaderboard_live(rel: str) -> Path:
     """This operator's own appendable board. The live tree is FLAT, so only
-    the basename survives -- why core/mode_json.py enforces basename
+    the basename survives -- why core/study.py enforces basename
     uniqueness."""
     return LEADERBOARD_LIVE / _relative(rel, "leaderboard 'file'").name
 

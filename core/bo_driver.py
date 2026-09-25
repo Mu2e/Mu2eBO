@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Bayesian Optimization driver for Mu2e geometry searches.
 
-Modes are JSON-defined (mode_specs/<name>.json, schema in
-mode_specs/README.md; bounds/facts in modes.SPECS, the registry of record).
+Modes are schema-2 study files (mode_specs/<name>.json; format in
+docs/superpowers/specs/2026-09-23-generic-study-design.md, how-to in
+mode_specs/README.md), loaded by core/study.py into modes.STUDIES.
 
 Subcommands:
   propose   : propose next candidate(s), render geom override file(s)
@@ -48,8 +49,8 @@ DEFAULT_ALPHA = 1.0e5  # mmackenz calo range 4e-8..2.5e-5; alpha=1e5 makes
 
 
 class SpaceDim(NamedTuple):
-    """One search-space dimension (the picker reads bounds from modes.SPECS
-    directly; this exists for the lockstep check and printing)."""
+    """One search-space dimension (the picker reads bounds off the study;
+    this exists for printing)."""
     name: str
     low: float
     high: float
@@ -59,8 +60,8 @@ class SpaceDim(NamedTuple):
 # --- JsonMode: the mode seam. One instance per mode_specs/*.json ----------
 
 class JsonMode:
-    """A BO mode = search space + render + prior loader + leaderboard format,
-    all read from the same modes.SPECS spec (TSV I/O delegated to
+    """A BO mode = search space + render + leaderboard format, all read
+    from the same modes.SPECS spec (TSV I/O delegated to
     core/leaderboard.py via leaderboard_io())."""
     name: str
     leaderboard: Path
@@ -82,12 +83,8 @@ class JsonMode:
     def _geom_text(self, x) -> str:
         return _modes.SPECS[self.name].geom.render(x)
 
-    def load_priors(self) -> list[Point]:
-        """No code-carried priors: Sobol cold-start + leaderboard history."""
-        return []
-
     # --- x recovery at evaluate time (the seam cmd_evaluate calls) ---
-    def x_for_evaluate(self, config_name: str, geom_text: str):
+    def x_for_evaluate(self, config_name: str):
         """Recover x from the pending TSV (written at propose, cleared only
         after this call). An absent config is a HARD refusal: a guessed x
         would train the GP on a point that was never evaluated.
@@ -103,8 +100,9 @@ class JsonMode:
             f"evaluate. Re-running evaluate for an already-recorded config "
             f"hits this. Refusing to append a row rather than guess x.")
 
-    # Row shape (KNOB_NAMES/KNOB_FMTS/metric_cols) reads modes.SPECS, the
-    # single source (ADR-0002 extension) -- no class-attr overrides.
+    # KNOB_NAMES/KNOB_FMTS read modes.SPECS, the single source (ADR-0002
+    # extension) -- no class-attr overrides. The leaderboard row shape
+    # comes from modes.STUDIES via leaderboard_io().
     @property
     def KNOB_NAMES(self) -> tuple:
         return _modes.SPECS[self.name].knob_names
@@ -117,7 +115,8 @@ class JsonMode:
     # never a silently-truncated space.
     def build_space(self) -> list[SpaceDim]:
         spec = _modes.SPECS[self.name]
-        # lockstep enforced at ModeSpec construction (modes.py __post_init__)
+        # names, bounds and int_dims all derive from the study's one knobs
+        # list, so the zip below cannot truncate
         int_dims = set(spec.int_dims or ())
         return [
             SpaceDim(nm, float(lo), float(hi), i in int_dims)
@@ -142,20 +141,17 @@ class JsonMode:
         # the object-cache layer.
         archive = getattr(self, "leaderboard_archive", None)
         if lb is None or lb.path != self.leaderboard or lb.archive_path != archive:
-            spec = _modes.SPECS[self.name]
-            lb = Leaderboard(path=self.leaderboard, name=self.name,
-                             knob_names=tuple(spec.knob_names),
-                             knob_fmts=tuple(spec.knob_fmts),
-                             metric_cols=tuple(spec.metric_cols),
-                             archive_path=archive)
+            lb = Leaderboard.for_study(_modes.STUDIES[self.name],
+                                       path=self.leaderboard,
+                                       archive_path=archive)
             self._lb_cache = lb
         return lb
 
     def load_history(self) -> list[Point]:
         return self.leaderboard_io().load()
 
-    def append_history(self, p: Point, alpha: float):
-        self.leaderboard_io().append(p, alpha)
+    def append_history(self, p: Point, context: dict):
+        self.leaderboard_io().append(p, context)
 
     def pending_path(self) -> Path:
         return self.leaderboard_io().pending_path()
@@ -169,46 +165,19 @@ class JsonMode:
     def remove_pending(self, name: str) -> bool:
         return self.leaderboard_io().pending_remove(name)
 
-    @staticmethod
-    def _resolve_metric(summary: dict, keys) -> tuple:
-        """First candidate key that is present AND non-null wins.
-        Returns (value, key), or (None, None) when none resolves."""
-        for key in keys:
-            if summary.get(key) is not None:
-                return float(summary[key]), key
-        return None, None
+    def extract_metrics(self, summary: dict) -> dict:
+        """summary.json -> {objective/extra-metric name: value or None}.
 
-    def extract_metrics(self, summary: dict) -> tuple[float, float | None]:
-        """Map summary.json onto (sob, second objective).
-
-        UNRESOLVED and RESOLVED-TO-ZERO are deliberately different:
-        unresolved returns None and cmd_evaluate refuses the row with rc=1
-        (raising here made every child of a second-objective-less launch
-        fail after full wall-clock);
-        resolved to zero/negative from a REAL key is refused outright -- a
-        fake zero row at good sob dominates the whole Pareto front at the
-        next GP refit (7 poison rows landed that way 2026-07-10). A missing
-        sob raises KeyError (rc=1); nothing to substitute there.
-        """
-        spec = _modes.SPECS[self.name]
-        sob_col, second_col = spec.metric_cols[0], spec.metric_cols[1]
-        sob, _sob_key = self._resolve_metric(summary, spec.metrics[sob_col])
-        if sob is None:
-            raise KeyError(
-                f"{self.name}: summary.json has none of "
-                f"{list(spec.metrics[sob_col])} for column {sob_col!r}")
-        second, second_key = self._resolve_metric(
-            summary, spec.metrics[second_col])
-        if second is None:
-            return sob, None
-        if second <= 0:
-            raise SystemExit(
-                f"[{self.name}] second-objective column {second_col!r} "
-                f"resolved to {second!r} from summary.json key "
-                f"{second_key!r} -- refusing to append a row; a "
-                f"zero/negative second metric would dominate the Pareto "
-                f"front at the next GP refit")
-        return sob, second
+        Phase A: summary.json is still one flat harvest file, so a metric
+        'step.key' resolves by its key. No fallback between keys: two keys
+        are two different quantities (per-POT vs per-event flash differ by
+        units)."""
+        study = _modes.STUDIES[self.name]
+        out = {}
+        for item in (*study.objectives, *study.extra_metrics):
+            v = summary.get(item.key)
+            out[item.name] = None if v is None else float(v)
+        return out
 
 
 MODES: dict[str, JsonMode] = {}
@@ -345,49 +314,66 @@ def _cmd_propose_locked(args, mode, names):
     return 0
 
 
+# Where each leaderboard.context name gets its value at evaluate time. A
+# study naming a context value with no entry here fails the row
+# pre-validation in cmd_evaluate, before anything is written.
+_CONTEXT_SOURCES = {"alpha": lambda args: args.alpha}
+
+
 def cmd_evaluate(args):
     mode = MODES[args.mode]
+    study = _modes.STUDIES[mode.name]
+    context = {c: f(args) for c, f in _CONTEXT_SOURCES.items()
+               if c in study.context}
     summary = json.loads(Path(args.summary).read_text())
+    values = mode.extract_metrics(summary)
+    # A missing value is NEVER coerced to a number: a fake zero row dominates
+    # the whole Pareto front at the next GP refit
+    # (wiki/incidents/no-run1b-substitution-poisons-flash-modes.md).
+    missing = [n for n, v in values.items() if v is None]
+    if missing:
+        print(f"[{mode.name}] summary.json has no value for {missing} "
+              f"({[i.metric for i in (*study.objectives, *study.extra_metrics) if i.name in missing]}) "
+              f"— refusing to append a row; recover the failed stage first.")
+        return 1
+    for o in study.objectives:
+        if o.transform == "log10" and values[o.name] <= 0:
+            raise SystemExit(
+                f"[{mode.name}] objective {o.name!r} resolved to "
+                f"{values[o.name]!r} from summary.json key {o.key!r} -- "
+                f"refusing to append a row; a zero/negative log10 objective "
+                f"would dominate the Pareto front at the next GP refit")
+    x = mode.x_for_evaluate(args.config_name)
+    p = Point(cfg=args.config_name, x=x, y=values)
+    # Format the row BEFORE clearing pending: the pending row is the ONLY
+    # record of x, so anything the formatter can raise (a missing context
+    # value, an extra-column expression failing on these values) must fire
+    # while that record still exists.
     try:
-        sob, calo = mode.extract_metrics(summary)
-    except (KeyError, TypeError) as e:
-        print(f"summary.json missing metric for {mode.name}: {e}; got {summary}")
-        return 1
-    # A missing second objective is NEVER coerced to a number. Every stage
-    # in every mode chain produces a real second objective, so None means
-    # its producing stage fail-softed; writing 0.0 would land a fake
-    # zero-flash row that dominates the whole Pareto front at the next GP
-    # refit (the 7-poison-row incident, 2026-07-10;
-    # wiki/incidents/no-run1b-substitution-poisons-flash-modes.md).
-    if sob is None or calo is None:
-        print(f"[{mode.name}] summary.json metric is None ({summary}) — "
-              f"refusing to append a row; recover the failed stage first.")
-        return 1
-    geom = mode.proposal_dir / f"{args.config_name}_geom.txt"
-    if not geom.exists():
-        print(f"Proposal geom not found: {geom}", file=sys.stderr)
-        return 1
-    x = mode.x_for_evaluate(args.config_name, geom.read_text())
-    if x is None:
-        print(f"Failed to parse {mode.name} params from {geom}", file=sys.stderr)
-        return 1
-    p = Point(cfg=args.config_name, x=x, sob=float(sob), calo=float(calo))
+        mode.leaderboard_io().format_line(p, context)
+    except Exception as e:
+        raise SystemExit(
+            f"[{mode.name}] cannot format the leaderboard row for "
+            f"{p.cfg!r}: {e!r}. The pending row (the only record of x) is "
+            f"kept; fix the study's extra_columns/context ({study.path}) "
+            f"and re-run evaluate.") from e
     # Clear pending BEFORE appending: a crash in between leaves "missing
     # leaderboard row" (loud, re-runnable) rather than a silent phantom
     # pending row that trips propose_one's collision guard.
     removed = mode.remove_pending(args.config_name)
-    mode.append_history(p, args.alpha)
+    mode.append_history(p, context)
+    primary = study.objectives[0].name
     if getattr(args, "emit_json", None):
         write_json_atomic(Path(args.emit_json), {
             "config": p.cfg,
-            "obj": p.obj(args.alpha),
-            "sob": p.sob,
-            "calo_or_flash": p.calo,
+            "primary": values[primary],
+            "objectives": {o.name: values[o.name] for o in study.objectives},
             "row_appended": True,
         })
     pend_tag = "  (cleared from pending)" if removed else ""
-    print(f"[{mode.name}] recorded {p.cfg}: sob={p.sob:.3f} calo={p.calo:.3e} "
-          f"obj={p.obj(args.alpha):+.3f}  →  {mode.leaderboard}{pend_tag}")
+    shown = ", ".join(f"{o.name}={values[o.name]:.4g}" for o in study.objectives)
+    print(f"[{mode.name}] recorded {p.cfg}: {shown}  →  "
+          f"{mode.leaderboard}{pend_tag}")
     return 0
 
 

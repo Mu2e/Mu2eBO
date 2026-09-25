@@ -1,25 +1,27 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (12 files, 211 tests; test_wal_multiwriter_stress.py
-  is a manual stress script with 0 TestCase), no grid contact; `PYTHONPATH=
-  .venv/bin/python -m unittest discover -s tests -v`; golden parity harness
-  (manual, not in discover): `PYTHONPATH= .venv/bin/python tests/golden_parity.py check`'
+description: '`tests/` regression suite (33 files, 704 tests), no grid contact;
+  `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .`;
+  golden parity harness (manual, not in discover): `PYTHONPATH=
+  "$AUTORESEARCH_PYTHON" tests/golden_parity.py check`'
 status: active
-timestamp: '2026-08-02'
-updated_note: 'slimming round: ChildTracker full-cut + harvest seams + B0
-  batch added STALE_CLUSTER/launch-failed/harvest/lockstep coverage;
-  196 → 211 tests'
+timestamp: '2026-09-24'
+updated_note: 'PR #34 simplification pass, stage 3: suite 726 -> 702;
+  test_json_mode_parity.py renamed test_geom_golden_parity.py,
+  test_evaluate_generic.py folded into test_json_mode.py, the foils/
+  foilsflash mode fixtures deleted (tests read mode_specs/foilsflash.json),
+  golden d stored one line per field'
 ---
 
 # Self-tests (`tests/`)
 
 ## Summary
-Regression tests for the Python drivers in this project. **12 `test_*.py`
-files, 211 tests**, run under the single project `.venv` with no grid contact
+Regression tests for the Python drivers in this project. **33 `test_*.py`
+files, 704 tests** (2026-09-24), run under `$AUTORESEARCH_PYTHON` with no grid contact
 (all mocks/tempdirs) — plus `tests/golden_parity.py`, a manually-run byte/
 tensor-parity harness (not picked up by `unittest discover`, same convention
-as `test_wal_multiwriter_stress.py`). Added 2026-05-29 alongside the
+as `tests/golden_parity.py`). Added 2026-05-29 alongside the
 5-finding `/simplify` audit so future refactors that revert the audit fixes
 fail loudly; grown since with the foils v2 6D round-trip suite, the shared
 env-source helper, the 2026-07-17 reorg, the 2026-07-19 tests/schema/
@@ -28,10 +30,76 @@ tests: ChildTracker `STALE_CLUSTER` + launch-failed coverage, harvest.py
 Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
 
 ## Key facts
-- **Suite size (measured 2026-08-02): 18 `test_*.py`, 432 tests (2 skipped
-  by design), 11.7 s.**
+- **`tests/test_no_hardcoded_paths.py` only sees files git tracks**
+  (`git ls-files`, `tests/test_no_hardcoded_paths.py:57`). A new file
+  carrying a personal path passes the suite until it is staged, then goes
+  red at the commit. So run `git add` BEFORE the full suite, never after.
+  This bit Phase A Task 1 on 2026-09-24: the new golden
+  `spec_dump_baseline.json` held expanded `/exp/mu2e/app/users/<name>/`
+  musing and tarball paths. The fix stores them as `${ARTIFACT}/` tokens.
+- **Suite size (measured 2026-09-22): 31 `test_*.py`, 676 tests
+  (1 skipped by design), ~60 s under `ana 2.8.0`.**
   The per-file breakdown further down is a 2026-07-20 snapshot (12 files /
   211) and has NOT been re-audited — trust these two numbers over it.
+  **Superseded (measured 2026-09-24, Phase A Task 9): 34 `test_*.py`, 712
+  tests (1 skipped)** — the generic-study refactor's Tasks 1-8 landed new
+  test files between 2026-09-22 and today (not re-audited file-by-file
+  here), and this task added `tests/test_generic_core.py` (2 tests, the
+  gate that generic code never names physics quantities).
+  **Superseded again (measured 2026-09-24, Phase A final fix wave): 34
+  `test_*.py`, 735 tests (1 skipped), ~85 s.** +23: per-level
+  unknown/missing-key table, `${ARTIFACT}` == `paths.artifact()` pins,
+  loader edge cases (non-finite numbers, non-string params, relative
+  `AUTORESEARCH_STUDY_PATH`) in `tests/test_study.py`; the
+  removed-env-var tripwire (`tests/test_botorch_predict.py`,
+  `tests/test_surrogate.py`); evaluate keeps the pending row on a format
+  failure (`tests/test_json_mode.py`); the STUDY_PATH wiring test, which
+  replaced the only test that wrote into the real `mode_specs/`
+  (`tests/test_modes.py`); a regex self-test in the gate.
+  **Current (measured 2026-09-24, PR #34 simplification pass): 33
+  `test_*.py`, 704 tests (1 skipped), ~95 s.** Stages 1-2 took 735 -> 726;
+  stage 3 took 726 -> 702 by merging duplicates and deleting checks; the
+  unused-step rule (d95f034) added 2 -> 704
+  that other tests already imply, keeping each distinct assertion:
+  `extract_metrics` is one subTest table
+  (`tests/test_json_mode.py`), `TestAxisValue` and
+  `TestSingleModeSpecClass` are tables, `TestGenericRows`
+  (`tests/test_leaderboard.py`) folded into `TestHistory`.
+  File changes: `test_json_mode_parity.py` is now
+  **`test_geom_golden_parity.py`** (one test,
+  `test_live_spec_renders_the_golden`, is the geometry oracle);
+  `test_evaluate_generic.py` is deleted (its refusal assertions live on
+  the `test_json_mode.py` evaluate tests; its foilspfbpz metric-key
+  mapping is pinned by golden d's `metrics`).
+  **Fixtures:** `tests/fixtures/modes/foilsflash.json` (equal to
+  `mode_specs/foilsflash.json` but for note/comment strings) and
+  `foils.json` are deleted; foilsflash tests load the live
+  `mode_specs/foilsflash.json`, and `template.json` is the only mode
+  fixture left. `tests/test_modes.py` now ends with its `__main__` guard:
+  `TestModeStamping` used to sit after it and never ran under
+  `python tests/test_modes.py`.
+- **`tools/capture_golden_geom.py` was DELETED 2026-08-22** (slim-down
+  audit). Everything below about its skip guard is history, not a live
+  recipe: the guard could no longer return True for any mode, so the tool
+  skipped its only target and reported success while verifying nothing
+  (`--check` → `0 drifted, 0 cosmetic, 1 mode(s) skipped`, rc=0; a bare run
+  wrote zero goldens). `ModeSpec.geom` is non-Optional and
+  `core/study_compat.py` builds it from the study's own required `geom`
+  field (`core/mode_json.py`, which did this before the schema-2 study
+  loader landed, was deleted 2026-09-24; replaced by `core/study.py` +
+  `core/study_compat.py`), so a Python renderer cannot come back without a
+  schema change. **The goldens
+  in `tests/fixtures/golden_geom/` are now permanent and must never be
+  regenerated** — rebuilding one from the JSON spec turns
+  `tests/test_geom_golden_parity.py::test_live_spec_renders_the_golden`
+  into a tautology. That test is the surviving oracle: 2026-09-24 merged
+  `test_same_geometry_as_python_renderer` and
+  `test_production_spec_still_matches_the_golden` into it, since with the
+  fixture copy deleted both rendered the same spec.
+  `test_golden_still_matches_the_live_python_mode` (always skipped) and
+  `test_regeneration_guard_uses_the_registry_not_an_attribute` went with
+  the tool. The bullets below are history and name the file by its old
+  name, `test_json_mode_parity.py`.
 - **`tools/capture_golden_geom.py`'s skip guard was BROKEN and would have
   destroyed the oracle it protects (found + fixed 2026-08-02).** The tool
   re-captures the frozen geometry goldens
@@ -80,20 +148,34 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
   JSON mode — i.e. that an attribute check can never mean "has a Python
   renderer". Nothing had pinned that invariant, which is why it could
   break in silence for a week.
-- **Venv & invocation:** `PYTHONPATH= .venv/bin/python -m unittest discover
-  -s tests -v` (single project venv since the 2026-07-18 consolidation —
-  it carries langgraph AND botorch, so there is no wrong venv anymore).
-- **Golden parity harness:** `PYTHONPATH= .venv/bin/python
-  tests/golden_parity.py check` (capture with `... capture`) — three
-  sections: (a) per-mode `load_history()`→`format_row` round-trip vs the
-  live leaderboards (byte-compared, all 6 modes); (b) a deterministic
+- **Venv & invocation:** `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover
+  -s tests -t .` (the published cvmfs env `ana 2.8.0` since 2026-08-20; it
+  carries langgraph AND botorch, so there is no wrong venv anymore —
+  `AUTORESEARCH_VENV=<path>` still selects a writable dev stack).
+- **Golden parity harness:** `PYTHONPATH= "$AUTORESEARCH_PYTHON"
+  tests/golden_parity.py check [a b c d e]` (capture with `... capture`).
+  Since 2026-09-24 every section is one row of the `SECTIONS` table
+  (label, compute, baseline, capture writer, capture pre-hook, check-time
+  adjustment), and a mismatch prints each differing field (`key.field`).
+  (d) `spec_dump_baseline.json` is stored **one line per ModeSpec field**
+  (767 -> 163 lines, reformatted from the committed file, not
+  re-captured, so its data is still the pre-Phase-A capture);
+  `tests/test_golden_parity_harness.py` pins that layout. (c) was
+  re-captured 2026-09-24 for the `evaluate_result.json` key change
+  (`obj`/`sob`/`calo_or_flash` -> `primary` + `objectives`); `check c`
+  first showed that ONLY those keys moved (appended row, rc and preflight
+  PASS identical). It runs its own muse setup inside `cmd_preflight`, so
+  no muse shell is needed, but it takes ~4 min; the full gate is
+  `check a b c d e`. The original
+  three sections, as first written: (a) per-mode
+  `load_history()`→`format_row` round-trip vs the live leaderboards (byte-compared, all 6 modes); (b) a deterministic
   history-tensor fingerprint on a frozen `leaderboard_bo_foilsflash.tsv`
   copy (redesigned 2026-07-19 from the original fixed-seed-picks plan —
   the picker itself is non-deterministic at production scale, see
   [hybrid-picker-scipy-abnormal-retry-nondeterminism](/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md);
   golden (b) pins the loader seam only, no optimizer in the loop); (c) a
   preflight+evaluate replay (stdout, rc, obj, and the JSON files) on an
-  already-completed config. Not part of the 211 — run manually before/after
+  already-completed config. Not part of the unittest suite — run manually before/after
   refactors that touch the schema or the graph↔driver seam.
 - **Files (12 `test_*.py`, alphabetical, test-method counts via `grep -c
   "def test_"`):**
@@ -154,7 +236,7 @@ Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol tests).
     added a stale-`evaluate_result.json`-not-reused case (symmetric to the
     preflight stale test) and the out-of-domain preflight rc→`ambiguous`
     fallback.
-  - `tests/test_wal_multiwriter_stress.py` (0 `def test_` — a manual WAL
+  - `tests/test_wal_multiwriter_stress.py` REMOVED 2026-08-19 (`be70827`) with the checkpointer (was: 0 `def test_` — a manual WAL
     stress script, tracked but NOT part of the 211; `unittest discover`
     picks up the file but finds no `TestCase`).
 - **Off-tree module import recipe.** `gp_predict_helical.py` lives at

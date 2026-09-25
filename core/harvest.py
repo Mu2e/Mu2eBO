@@ -113,13 +113,19 @@ def run_sensitivity_macro(harvest_dir: Path, nts_path: Path,
         raise SystemExit(f"{e}; see {macro_log}")
 
 
+def outputs_path(state_dir: Path, stage: str) -> Path:
+    """Where a stage's harvested output list lives. The one speller of this
+    basename (mirrors prodtools_exec.wait_json_path)."""
+    return state_dir / f"{stage}_outputs.txt"
+
+
 def read_outputs(state_dir: Path, stage: str) -> Optional[list[Path]]:
     """Non-blank lines of state/<stage>_outputs.txt, or None if absent.
 
     A present-but-blank file (stage-out-lag face) returns [] — callers must
     treat that as a hard error for primary inputs, not as 'stage absent'.
     """
-    p = state_dir / f"{stage}_outputs.txt"
+    p = outputs_path(state_dir, stage)
     if not p.exists():
         return None
     return [Path(ln) for ln in p.read_text().splitlines() if ln.strip()]

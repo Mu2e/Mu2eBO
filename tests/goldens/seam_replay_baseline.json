@@ -2,13 +2,15 @@
   "config": "foilspfbpz07R00_08",
   "evaluate": {
     "rc": 0,
-    "obj": "+3.982",
+    "primary": 4.05,
     "appended_line": "foilspfbpz07R00_08\t51.3062\t120.6312\t56.0054\t0.079773\t0.060886\t0.040028\t0.1549\t0.3108\t0.7060\t117.0122\t4.05000\t6.84181e-07\t100000.000\t3.98158",
     "json": {
       "config": "foilspfbpz07R00_08",
-      "obj": 3.981581856605731,
-      "sob": 4.05,
-      "calo_or_flash": 6.841814339426869e-07,
+      "primary": 4.05,
+      "objectives": {
+        "sob": 4.05,
+        "flash_edep": 6.841814339426869e-07
+      },
       "row_appended": true
     }
   },

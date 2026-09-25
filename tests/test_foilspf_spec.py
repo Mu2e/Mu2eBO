@@ -1,6 +1,6 @@
 """Behavioural tests for the shipped foilspf spec.
 
-Separate from test_mode_json.py on purpose: that module tests the LOADER
+Separate from test_study.py on purpose: that module tests the LOADER
 (schema, rejection paths); this one tests that THIS spec renders the
 geometry the design asked for. A loader bug and a spec bug fail different
 files.

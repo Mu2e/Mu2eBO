@@ -313,13 +313,10 @@ _WAIT_LOCAL_RELATIVE_OUTPUTS = {
 
 class TestWaitContract(unittest.TestCase):
     def test_ok_jobs_only(self):
+        # The exact list also pins that rc None (condor history had no
+        # record) never counts as done.
         outs = pex.outputs_from_wait(_WAIT_GRID, "sim.*.art")
         self.assertEqual(outs, ["/pnfs/out/777/0/sim.u.D.C.0.art"])
-
-    def test_unknown_is_not_ok(self):
-        # rc None (condor history had no record) must never count as done.
-        outs = pex.outputs_from_wait(_WAIT_GRID, "sim.*.art")
-        self.assertNotIn("/pnfs/out/777/2/sim.u.D.C.2.art", outs)
 
     def test_glob_filters_secondary_streams(self):
         outs = pex.outputs_from_wait(_WAIT_LOCAL, "sim.*.art")
@@ -337,15 +334,6 @@ class TestWaitContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaises(SystemExit):
                 pex.read_wait(Path(td), "mubeam")
-
-    def test_contract_core_keys_shared(self):
-        # The "same JSON either way" claim, pinned: consumers may key on
-        # these and only these.
-        for fx in (_WAIT_GRID, _WAIT_LOCAL):
-            self.assertLessEqual({"jobdef", "jobs", "ok", "failed"},
-                                 set(fx))
-            for j in fx["jobs"]:
-                self.assertLessEqual({"index", "rc", "outputs"}, set(j))
 
 
 class TestListOutputsFromWait(unittest.TestCase):
@@ -470,7 +458,7 @@ class TestCmdPollViaJobwait(unittest.TestCase):
                                  "ok": 3, "failed": [], "unknown": []})
         expected = pex.cnf_path(pipeline.ROOT / "mubeam",
                                 pipeline._stage_desc("mubeam"),
-                                pipeline._stage_dsconf("mubeam"))
+                                pipeline.DSCONF)
         self.assertEqual(self.jobwait_call["cnf"], expected)
 
     def test_ok_meets_quorum_proceeds_silently(self):

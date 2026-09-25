@@ -10,15 +10,19 @@ architecture decisions live in `docs/adr/`, operational knowledge in `wiki/`.
 ### Optimization
 
 **Mode**:
-One research line's complete definition — search space, geometry renderer, stage chain, environment, objectives (e.g. `foilsflash`, `ipa`).
-_Avoid_: study, campaign type
+One research line's complete definition — search space, geometry renderer, stage chain, environment, objectives (e.g. `foilsflash`, `foilspfbpz`). Declared by exactly one Study of the same name; "mode" names the running line (`--mode <name>`, `bo_driver.MODES`), "study" the file that defines it.
+_Avoid_: campaign type
+
+**Study**:
+A schema-2 JSON file, `mode_specs/<name>.json` (or in a directory on `$AUTORESEARCH_STUDY_PATH`), loaded and validated by `core/study.py` into `core.modes.STUDIES`: knobs, derive, geom, kits, evaluate steps, objectives, constraint, leaderboard. The single source of every per-Mode fact.
+_Avoid_: spec file, mode config
 
 **ModeSpec**:
-The pure-data half of a Mode (musing, grid tarball, stage chain, harvest verb, stage targets, bounds, preflight policy), declared once in `core/modes.py`.
+The Phase-A compat view of a Study (`core/study_compat.py`), held in `core.modes.SPECS` for the pipeline, runtime and preflight code that still read it; deleted in Phase C.
 _Avoid_: mode config, mode table, per-mode dict
 
-**BOMode**:
-The behavior half of a Mode (render geometry, load priors, format leaderboard rows), a driver class bound to its ModeSpec.
+**JsonMode**:
+The behavior half of a Mode (render geometry, recover x at evaluate time, read and append leaderboard rows), one driver object per ModeSpec (`core/bo_driver.py`). There is exactly one class — the five Python subclasses were archived 2026-08-08 (`4bc54cc`) and the `BOMode` ABC itself collapsed into `JsonMode` 2026-08-19 (`55168e7`).
 
 **Eval**:
 One geometry point evaluated end-to-end; identified by its config name, which keys the state dir, grid dirs, and leaderboard row.
@@ -32,7 +36,17 @@ The campaign parent (`graph/pool.py::run_rolling`): keeps q Children in flight a
 _Avoid_: round, batch, wave (all retired 2026-08-19)
 
 **Picker**:
-The proposal strategy that turns leaderboard history into the next point(s) (`hybrid`, `qnehvi`, `qnparego`, `qlnei`, `pareto_sob`, `budget_sob`). Runs once per replacement launch, in a subprocess, over the current In-flight set as `X_pending`.
+The proposal strategy that turns leaderboard history into the next point(s) — `hybrid`, `qnehvi`, `qlnei`, `budget_sob`, declared once as `core.modes.PICKER_CHOICES` and accepted by both the parent and the picker subprocess. Runs once per replacement launch, in a subprocess, over the current In-flight set as `X_pending`. The Engine-side name for `budget_sob` is `constrained_max`.
+
+**Engine**:
+The physics-agnostic surrogate/optimization core (`surrokit`, extracted from `core/botorch_predict.py`): GP fit, posterior predict, and the Pickers behind a `fit / predict / ask` API. Sees only numbers in math space — every Y axis maximized, axis 0 primary; never learns what "sob" or "flash" means.
+_Avoid_: asktell (rejected name), surrogate library
+
+**Problem**:
+The Engine's search-space declaration — bounds, integer dims, per-axis noise sigmas, optional budget Constraint. The client (autoresearch) builds one per Mode from its Study (`core/botorch_predict.py:build_problem`).
+
+**Adapter**:
+The client bridge that names Problems and serves their history (X, Y, meta) to the Engine's MCP scaffold via `make_server(adapter)`; autoresearch's Adapter wraps Study + Leaderboards.
 
 **Leaderboard**:
 The append-only per-mode TSV of completed evals; the ONLY durable source of truth for BO history. There is no checkpointer (retired 2026-08-19) and no other resume state.
@@ -74,7 +88,7 @@ The `Code.tar.bz2` shipped to grid workers; must be built from the same patched 
 ## Relationships
 
 - A **Campaign** runs a **Pool**; the Pool keeps q **Children** in its **In-flight set** and replaces each one as it exits; each Child performs one **Eval** and ends in one **Outcome**.
-- A **Mode** = one **ModeSpec** (data) + one **BOMode** (behavior); every Eval belongs to exactly one Mode.
+- A **Mode** = one **Study** (`mode_specs/<name>.json`) + one **JsonMode** instance (`core/bo_driver.py`); every Eval belongs to exactly one Mode.
 - An Eval runs its Mode's **Stage chain**; **Preflight** gates the first Stage; harvest appends one **Leaderboard** row.
 - The **Pool** learns a Child's **Outcome** from its exit code plus two artifacts (leaderboard row, `broken.txt`); it never polls, and it never resolves a Child that has not exited.
 - The **Picker** consumes the **Leaderboard** and produces the next point, once per replacement launch.
@@ -84,10 +98,10 @@ The `Code.tar.bz2` shipped to grid workers; must be built from the same patched 
 > **Dev:** "foilspf05R07_00's process died — is the campaign stuck?"
 > **Domain expert:** "No. Its subprocess exited, so the **Pool** has its **Outcome** — nonzero rc, no row — logs it, and launches a replacement. Nothing waits on it. If it had HUNG instead of died, the Pool would still be waiting, and would say so every 15 minutes in the parent log."
 > **Dev:** "And if I add a new **Mode**, where do its stage targets go?"
-> **Domain expert:** "Its **ModeSpec** in `core/modes.py` — every field is required, so forgetting the **Grid tarball** is an import error, not a silent michael fallback."
+> **Domain expert:** "Its **Study** — a new `mode_specs/<name>.json`. Every field is required, so forgetting the **Grid tarball** is a load error, not a silent fallback to another mode's."
 
 ## Flagged ambiguities
 
-- "config" was used for both an Eval's identity and per-mode settings — resolved: an Eval has a *config name*; per-mode settings are the **ModeSpec**.
+- "config" was used for both an Eval's identity and per-mode settings — resolved: an Eval has a *config name*; per-mode settings are the **Study**.
 - "completed" in closed_loop.py mixed done-with-row, done-broken, and died-unresolved — resolved: use the specific **Outcome** reason. (The whole Barrier/ChildTracker/Resolution vocabulary this replaced was deleted 2026-08-19 with the parent rewrite; see `docs/superpowers/specs/2026-08-19-minimal-foilspf-workflow-design.md`.)
-- "mode tables" (the scattered `*_BY_MODE` dicts) — superseded by **ModeSpec** (see ADR-0002).
+- "mode tables" (the scattered `*_BY_MODE` dicts) — superseded by **ModeSpec** (see ADR-0002), itself now the **Study**.

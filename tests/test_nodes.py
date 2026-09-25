@@ -97,8 +97,7 @@ class TestMakeStageNodeLogs(unittest.TestCase):
     def test_no_exception_silent(self):
         node = nd.make_stage_node("mubeam")
         buf = io.StringIO()
-        ok = {"cluster_id": "abc", "status": "succeeded", "n_done": 1,
-              "n_failed": 0, "last_poll_ts": 0.0}
+        ok = {"status": "succeeded"}
         with contextlib.redirect_stdout(buf), \
              mock.patch.object(nd.pio, "run_stage", return_value=ok):
             out = node({"config_name": "fooR00_05", "stages": {}, "errors": []})
@@ -214,8 +213,7 @@ class TestPresubmitOverlapSeam(unittest.TestCase):
     costing it the overlap.
     """
 
-    OK = {"cluster_id": "abc", "status": "succeeded", "n_done": 1,
-          "n_failed": 0, "last_poll_ts": 0.0}
+    OK = {"status": "succeeded"}
 
     def _run(self, stage, presubmit_map, presubmit_side_effect=None):
         node = nd.make_stage_node(stage)

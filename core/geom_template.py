@@ -1,6 +1,6 @@
 """Render a Mu2e geometry overlay from a declarative JSON description.
 
-Used by JSON-defined modes (core/mode_json.py). STDLIB ONLY — core/modes.py
+Used by schema-2 studies (core/study.py). STDLIB ONLY — core/modes.py
 imports this and must stay importable from any venv.
 """
 from __future__ import annotations

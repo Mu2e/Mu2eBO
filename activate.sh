@@ -10,10 +10,14 @@
 #   AUTORESEARCH_VENV=/path/to/venv source activate.sh   # a writable venv
 #   AUTORESEARCH_PYENV="ana 2.9.0"  source activate.sh   # a different release
 #
+# AUTORESEARCH_SURROKIT: path to the surrokit engine checkout
+# (default: the repo's sibling directory ../surrokit; see core/paths.py).
+#
 # Why a published env: a personal /exp venv is one operator's directory, so a
 # second person, a cron job, or a fresh node has nothing to point at.
-# requirements.lock pins WHAT we depend on; this pins the interpreter those
-# pins were verified against.
+# requirements.txt lists WHAT we depend on; the published prefix pins the
+# interpreter AND the resolution, immutably -- which is why this project
+# stopped carrying a lockfile of its own.
 #
 # The version is ALWAYS explicit. `pyenv ana` with no version silently means
 # 2.7.0 (pyenv.sh:40) and `current` is 2.6.1 -- both ship numpy 1.26, which

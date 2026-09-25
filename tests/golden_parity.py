@@ -2,8 +2,8 @@
 """Golden parity harness (manually run; NOT part of unittest discover).
 
 Usage:
-    PYTHONPATH= .venv/bin/python tests/golden_parity.py capture [a b c]
-    PYTHONPATH= .venv/bin/python tests/golden_parity.py check   [a b c]
+    PYTHONPATH= "$AUTORESEARCH_PYTHON" tests/golden_parity.py capture [a b c d e]
+    PYTHONPATH= "$AUTORESEARCH_PYTHON" tests/golden_parity.py check   [a b c d e]
 
 (a) per-mode leaderboard round-trip: parse -> core/leaderboard.py's
     Leaderboard formatter over BOTH boards the archive/live split created
@@ -16,7 +16,7 @@ Usage:
     can differ from the full-precision original in the last decimal
     (3.10825 vs 3.10826). Those entries pin that rounding, they do not
     report corruption.
-(b) loader fingerprint: `botorch_predict._load_history_tensor("foilsflash")`
+(b) loader fingerprint: `botorch_predict.load_history_tensor("foilsflash")`
     on the frozen leaderboard copy, hashed (sha256 of X/Y tensor bytes +
     shapes + bounds + int_dims). Exact-compare only.
     Was: fixed-seed hybrid q=2 picks — abandoned 2026-07-19, proved
@@ -28,15 +28,26 @@ Usage:
     (X, Y, bounds, int_dims) assembly.
 (c) seam replay: evaluate (in-process, tmp leaderboard copy) + preflight
     (real G4, ~2 min) for a completed config of the live line (C_MODE). Baseline = rc,
-    obj, appended line, verdict line — and, once Phase 2 lands, the
-    emitted JSON payloads (re-capture then).
+    primary (the study's primary objective, from the typed JSON payload),
+    appended line, verdict line, and the emitted JSON payload itself.
+(d) spec dump: every live ModeSpec field (all but `geom`) plus sha256 of
+    `geom.render()` at 3 sample points per mode. Pins the schema-2
+    conversion target: the Phase-A pipeline view must rebuild today's
+    ModeSpec exactly. Stored one line per field; the data is still the
+    pre-Phase-A capture, and check applies the one declared change
+    (_drop_per_event_fallback) to the baseline, never to the file.
+(e) ask-input fingerprint: sha256 of the exact arguments compute_explore_
+    picks hands to surrokit.ask, per picker (budget_sob/qnehvi/qlnei), on
+    the frozen foilsflash board. Pick OUTPUTS are not bit-reproducible run
+    to run (wiki/incidents/hybrid-picker-scipy-abnormal-retry-
+    nondeterminism.md); identical INPUTS are what Phase A must preserve.
 Never writes to leaderboards/ — evaluate replays into a tmp copy.
 """
 import contextlib
+import functools
 import hashlib
 import io
 import json
-import re
 import shutil
 import sys
 import tempfile
@@ -54,6 +65,123 @@ FROZEN_LB = GOLDENS / "leaderboard_bo_foilsflash.frozen.tsv"
 B_BASE = GOLDENS / "history_tensor_fingerprint.json"
 A_BASE = GOLDENS / "parity_a_baseline.json"
 C_BASE = GOLDENS / "seam_replay_baseline.json"
+D_BASE = GOLDENS / "spec_dump_baseline.json"
+E_BASE = GOLDENS / "ask_inputs_baseline.json"
+
+# Every ModeSpec field except `geom` (pinned through rendered text below).
+_SPEC_FIELDS = (
+    "name", "musing", "grid_tarball", "grid_stages", "stage_target_overrides",
+    "presubmit_after", "stage_tuning", "bounds_lo", "bounds_hi", "int_dims",
+    "dumps_gdml", "verifies_foil_gdml", "checks_managed_overlap",
+    "require_zero_overlaps", "knob_names", "knob_fmts", "metric_cols",
+    "obs_noise", "metrics", "leaderboard_rel")
+
+
+def _jsonable(v):
+    if isinstance(v, tuple):
+        return [_jsonable(e) for e in v]
+    if isinstance(v, dict):
+        return {k: _jsonable(e) for k, e in sorted(v.items())}
+    return v
+
+
+def _sample_points(spec):
+    lo, hi = spec.bounds_lo, spec.bounds_hi
+    return {"lo": list(lo),
+            "mid": [(a + b) / 2 for a, b in zip(lo, hi)],
+            "q30": [a + 0.3 * (b - a) for a, b in zip(lo, hi)]}
+
+
+def _portable_artifact_path(value: str, mode_name: str, field: str) -> str:
+    """musing/grid_tarball on a live ModeSpec are already-resolved absolute
+    paths (core/study.py's `${ARTIFACT}/` expansion through
+    paths.artifact()), so they carry THIS operator's ARTIFACT_ROOT (or
+    BACKING) baked in -- exactly the personal-path shape
+    tests/test_no_hardcoded_paths.py exists to catch, and it caught it here
+    (commit 90accbc, fix round 1). Undo the expansion for the golden: strip
+    whichever root actually produced the path and put back the
+    `${ARTIFACT}/<rel>` token the spec JSON uses, so the baseline is
+    portable across operators (each has a different ARTIFACT_ROOT) and
+    never stores a real username. No silent fallback: a value matching
+    neither root is a loud ValueError naming the mode and field, never a
+    kept raw path.
+    """
+    p = Path(value)
+    for root in (paths.ARTIFACT_ROOT, paths.BACKING):
+        if root is None:
+            continue
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            continue
+        return f"${{ARTIFACT}}/{rel.as_posix()}"
+    raise ValueError(
+        f"section_d: mode {mode_name!r} field {field!r} = {value!r} matches "
+        f"neither ARTIFACT_ROOT ({paths.ARTIFACT_ROOT}) nor BACKING "
+        f"({paths.BACKING}) -- cannot portabilize this path for the golden. "
+        f"Refusing to record it raw.")
+
+
+def section_d():
+    """Every live ModeSpec, field by field, plus sha256 of geom.render at 3
+    points. Pins the schema-2 conversion: the Phase-A pipeline view must
+    rebuild today's ModeSpec exactly.
+
+    `musing`/`grid_tarball` are recorded in their portable `${ARTIFACT}/<rel>`
+    token form (see _portable_artifact_path) rather than the resolved
+    absolute path, which would bake this operator's personal ARTIFACT_ROOT
+    into a committed golden.
+    """
+    import modes
+    out = {}
+    for name in sorted(modes.SPECS):
+        spec = modes.SPECS[name]
+        rec = {f: _jsonable(getattr(spec, f)) for f in _SPEC_FIELDS}
+        for field in ("musing", "grid_tarball"):
+            rec[field] = _portable_artifact_path(rec[field], name, field)
+        rec["geom_sha"] = {
+            k: hashlib.sha256(spec.geom.render(x).encode()).hexdigest()
+            for k, x in _sample_points(spec).items()}
+        out[name] = rec
+    return out
+
+
+def section_e():
+    """sha256 of the exact arguments compute_explore_picks hands to
+    surrokit.ask, per picker, on the frozen foilsflash board. Pick OUTPUTS
+    are not bit-reproducible run to run (wiki/incidents/hybrid-picker-scipy-
+    abnormal-retry-nondeterminism.md); identical INPUTS are what Phase A must
+    preserve."""
+    import botorch_predict as bp
+    mode = bo.MODES["foilsflash"]
+    spec_lo = list(bp._modes.SPECS["foilsflash"].bounds_lo)
+    spec_hi = list(bp._modes.SPECS["foilsflash"].bounds_hi)
+    pending = [[(a + b) / 2 for a, b in zip(spec_lo, spec_hi)]]
+    captured = {}
+
+    def fake_ask(problem, X, Y, **kw):
+        captured["args"] = {"problem": repr(problem), "X": X, "Y": Y,
+                            **{k: kw[k] for k in sorted(kw)}}
+        return [list(problem.bounds_lo)] * kw["q"]
+
+    orig_ask = bp.surrokit.ask
+    orig, orig_arch = mode.leaderboard, mode.leaderboard_archive
+    mode.leaderboard, mode.leaderboard_archive = FROZEN_LB, None
+    out = {}
+    try:
+        bp.surrokit.ask = fake_ask
+        for picker in ("budget_sob", "qnehvi", "qlnei"):
+            bp.compute_explore_picks("foilsflash", q=2, round_idx=3,
+                                     picker=picker, x_pending=pending)
+            blob = json.dumps(captured["args"], sort_keys=True, default=repr)
+            out[picker] = {"sha": hashlib.sha256(blob.encode()).hexdigest(),
+                           "problem": captured["args"]["problem"],
+                           "n_rows": len(captured["args"]["X"])}
+    finally:
+        bp.surrokit.ask = orig_ask
+        mode.leaderboard, mode.leaderboard_archive = orig, orig_arch
+    return out
+
 
 # Section (c) replays the LIVE line, not the retired one. foilsflash cannot be
 # used: 461 of its 464 stored geoms carry the real TT_MidInner->DS2Vacuum
@@ -75,11 +203,10 @@ def _roundtrip_file(path, lb):
     for i, (row, raw) in enumerate(zip(rows, raw_lines[1:])):
         try:
             p = bo.Point(cfg=row["config"],
-                        x=[float(row[c]) for c in lb.knob_names],
-                        sob=float(row[lb.metric_cols[0]]),
-                        calo=float(row[lb.metric_cols[1]]))
+                         x=[float(row[c]) for c in lb.knob_names],
+                         y={v: float(row[v]) for v in lb.value_names})
             alpha = float(row.get("alpha", bo.DEFAULT_ALPHA))
-            line = lb._format_line(p, alpha)
+            line = lb.format_line(p, {"alpha": alpha})
         except (KeyError, ValueError):
             skipped += 1
             continue
@@ -142,7 +269,7 @@ def section_b():
     mode.leaderboard = FROZEN_LB
     mode.leaderboard_archive = None
     try:
-        X, Y, bounds, int_dims = bp._load_history_tensor("foilsflash")
+        X, Y, bounds, int_dims = bp.load_history_tensor("foilsflash")
     finally:
         mode.leaderboard = orig
         mode.leaderboard_archive = orig_arch
@@ -226,14 +353,19 @@ def section_c():
                                emit_json=str(tmp / "evaluate_result.json"))
         with contextlib.redirect_stdout(buf):
             rc = bo.cmd_evaluate(args)
-        m = re.search(r"obj=([+-]?\d+\.\d+)", buf.getvalue())
+        ej = getattr(args, "emit_json", None)
+        ej_payload = (json.loads(Path(ej).read_text())
+                     if ej and Path(ej).exists() else None)
+        # Task 8: cmd_evaluate's stdout line no longer prints a scalarized
+        # "obj=...": the primary objective is read from the typed JSON
+        # payload instead (also what graph/pipeline_io.run_evaluate reads).
         result["evaluate"] = {
-            "rc": rc, "obj": m.group(1) if m else None,
+            "rc": rc,
+            "primary": ej_payload["primary"] if ej_payload else None,
             "appended_line": lb_copy.read_text().splitlines()[-1],
         }
-        ej = getattr(args, "emit_json", None)
-        if ej and Path(ej).exists():
-            result["evaluate"]["json"] = json.loads(Path(ej).read_text())
+        if ej_payload is not None:
+            result["evaluate"]["json"] = ej_payload
     finally:
         mode.leaderboard = orig
         mode.leaderboard_archive = orig_arch
@@ -249,57 +381,81 @@ def section_c():
     return result
 
 
+def _dump_one_line_per_field(cur):
+    """Golden d's layout: one line per ModeSpec field, so a diff of the
+    baseline names the field that moved. Parses to the same JSON."""
+    blocks = []
+    for mode, rec in sorted(cur.items()):
+        fields = ",\n".join(f"    {json.dumps(k)}: {json.dumps(v, sort_keys=True)}"
+                            for k, v in sorted(rec.items()))
+        blocks.append(f"  {json.dumps(mode)}: {{\n{fields}\n  }}")
+    return "{\n" + ",\n".join(blocks) + "\n}\n"
+
+
+def _freeze_foilsflash_board():
+    if not FROZEN_LB.exists():
+        shutil.copyfile(
+            ROOT / "leaderboards" / "leaderboard_bo_foilsflash.tsv", FROZEN_LB)
+
+
+def _drop_per_event_fallback(base):
+    """Intended Phase-A change (spec, "Changed on purpose"): the flash
+    objective no longer falls back to flash_edep_per_event."""
+    for rec in base.values():
+        flash = rec["metrics"].get(rec["metric_cols"][1])
+        if flash and flash[1:] == ["flash_edep_per_event"]:
+            rec["metrics"][rec["metric_cols"][1]] = flash[:1]
+
+
+_dump = functools.partial(json.dumps, indent=2)
+# key: (label, compute, baseline, capture writer, capture pre-hook,
+#       check-time baseline adjustment)
+SECTIONS = {
+    "a": ("round-trip parity", section_a, A_BASE, _dump, None, None),
+    "b": ("history tensor fingerprint", section_b, B_BASE, _dump,
+          _freeze_foilsflash_board, None),
+    "c": ("seam replay parity", section_c, C_BASE, _dump, None, None),
+    "d": ("parity", section_d, D_BASE, _dump_one_line_per_field, None,
+          _drop_per_event_fallback),
+    "e": ("parity", section_e, E_BASE,
+          functools.partial(_dump, sort_keys=True), None, None),
+}
+
+
+def _print_diff(base, cur):
+    """Each differing top-level key; inside a dict, each differing field."""
+    for k in sorted(set(base) | set(cur)):
+        b, c = base.get(k), cur.get(k)
+        pairs = ([(f"{k}.{f}", b.get(f), c.get(f)) for f in sorted(set(b) | set(c))]
+                 if isinstance(b, dict) and isinstance(c, dict) else [(k, b, c)])
+        for name, bv, cv in pairs:
+            if bv != cv:
+                print(f"    {name}: baseline={json.dumps(bv)}\n"
+                      f"    {'':{len(name)}}  current ={json.dumps(cv)}")
+
+
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else "check"
-    sections = sys.argv[2:] or ["a", "b", "c"]
+    sections = sys.argv[2:] or list(SECTIONS)
     GOLDENS.mkdir(exist_ok=True)
     fails = 0
-    if "a" in sections:
-        cur = section_a()
+    for key, (label, fn, base_path, dump, pre_capture, adjust) in SECTIONS.items():
+        if key not in sections:
+            continue
         if action == "capture":
-            A_BASE.write_text(json.dumps(cur, indent=2))
-            print(f"[a] captured -> {A_BASE}")
-        else:
-            base = json.loads(A_BASE.read_text())
-            ok = cur == base
-            print(f"[a] round-trip parity: {'OK' if ok else 'MISMATCH'}")
-            if not ok:
-                for k in base:
-                    if base[k] != cur.get(k):
-                        print(f"    mode {k}: baseline={base[k]}\n"
-                              f"             current ={cur.get(k)}")
-                fails += 1
-    if "b" in sections:
-        if action == "capture":
-            if not FROZEN_LB.exists():
-                shutil.copyfile(
-                    ROOT / "leaderboards" / "leaderboard_bo_foilsflash.tsv",
-                    FROZEN_LB)
-            B_BASE.write_text(json.dumps(section_b(), indent=2))
-            print(f"[b] captured -> {B_BASE}")
-        else:
-            base, cur = json.loads(B_BASE.read_text()), section_b()
-            ok = cur == base
-            print(f"[b] history tensor fingerprint: {'OK' if ok else 'MISMATCH'}")
-            if not ok:
-                for k in base:
-                    if base[k] != cur.get(k):
-                        print(f"    {k}: baseline={base[k]}\n"
-                              f"          current ={cur.get(k)}")
-                fails += 1
-    if "c" in sections:
-        cur = section_c()
-        if action == "capture":
-            C_BASE.write_text(json.dumps(cur, indent=2))
-            print(f"[c] captured -> {C_BASE}")
-        else:
-            base = json.loads(C_BASE.read_text())
-            ok = cur == base
-            print(f"[c] seam replay parity: {'OK' if ok else 'MISMATCH'}")
-            if not ok:
-                print(f"    baseline={json.dumps(base, indent=2)}\n"
-                      f"    current ={json.dumps(cur, indent=2)}")
-                fails += 1
+            if pre_capture:
+                pre_capture()
+            base_path.write_text(dump(fn()))
+            print(f"[{key}] captured -> {base_path}")
+            continue
+        cur, base = fn(), json.loads(base_path.read_text())
+        if adjust:
+            adjust(base)
+        ok = cur == base
+        print(f"[{key}] {label}: {'OK' if ok else 'MISMATCH'}")
+        if not ok:
+            _print_diff(base, cur)
+            fails += 1
     sys.exit(1 if fails else 0)
 
 

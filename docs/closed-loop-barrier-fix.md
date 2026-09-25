@@ -1,11 +1,14 @@
 # closed-loop barrier-timeout false-positive — fix design
 
-**Status:** implemented 2026-06-12, including the liveness-wait
-simplification (see Addendum) — sections 1/1b below describe the
-adaptive-doubling design as originally approved; the Addendum supersedes
-the ladder part of section 1
+**Status:** SUPERSEDED 2026-08-19 — the barrier this fixes was replaced
+wholesale by the work pool (`graph/pool.py`), which has no rounds and no
+barrier: a child resolves when its subprocess exits. Kept as the record of
+the 2026-06 incident and its fix; the design below no longer describes live
+code. Originally: implemented 2026-06-12 including the liveness-wait
+simplification (see Addendum) — sections 1/1b describe the adaptive-doubling
+design as approved, the Addendum supersedes the ladder part of section 1.
 **Date:** 2026-06-12
-**File:** `graph/closed_loop.py` (lines 491-601 + RoundState TypedDict 130-149)
+**File (as of then):** `graph/closed_loop.py` + its RoundState TypedDict
 **Incident:** `wiki/incidents/closed-loop-barrier-timeout-zero-rows-falsepos.md`
 
 ## Issue

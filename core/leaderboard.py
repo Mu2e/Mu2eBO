@@ -1,4 +1,4 @@
-"""Leaderboard: the schema-owning module for per-mode history + pending TSVs.
+"""Leaderboard: the schema-owning module for per-study history + pending TSVs.
 
 Every read checks the physical header against the spec-derived one and fails
 loudly (never a silent 0-row history — see
@@ -34,7 +34,7 @@ class SchemaMismatch(LeaderboardError):
         saved = (f"\n  row saved to quarantine: {quarantined}"
                  if quarantined else "")
         super().__init__(
-            f"{path}: header does not match the ModeSpec schema.\n"
+            f"{path}: header does not match the study's leaderboard schema.\n"
             f"  expected: {expected.rstrip()!r}\n"
             f"  found:    {found.rstrip()!r}{saved}\n"
             f"  Refusing to proceed — a mismatched header means silent "
@@ -87,14 +87,11 @@ def _flock_sh(target: Path):
 
 @dataclass
 class Point:
-    """Generic BO point: x layout depends on mode."""
+    """One evaluated config: knob vector x plus named values y (the study's
+    objectives and extra metrics, keyed by name)."""
     cfg: str
     x: list
-    sob: float
-    calo: float
-
-    def obj(self, alpha: float) -> float:
-        return self.sob - alpha * self.calo
+    y: dict
 
 
 def to_py_scalars(x) -> list:
@@ -109,35 +106,41 @@ class Leaderboard:
     name: str
     knob_names: tuple
     knob_fmts: tuple
-    metric_cols: tuple   # exactly (sob-like, calo-like, "alpha", "obj")
+    value_names: tuple      # objectives then extra metrics (read back)
+    value_fmts: tuple
+    extra_columns: tuple    # objects with .name/.fmt/.evaluate(env); never read back
+    context_names: tuple    # runtime values append() must receive
+    consts: dict            # visible to extra-column expressions
     archive_path: Path | None = None   # committed read-only priors
 
     def __post_init__(self):
-        if len(self.metric_cols) != 4:
-            raise ValueError(
-                f"{self.name}: metric_cols must be the 4-column tail "
-                f"(sob-like, calo-like, alpha, obj); got {self.metric_cols}")
         if len(self.knob_names) != len(self.knob_fmts):
             raise ValueError(
                 f"{self.name}: knob_names/knob_fmts length mismatch "
                 f"({len(self.knob_names)} vs {len(self.knob_fmts)})")
+        if len(self.value_names) != len(self.value_fmts):
+            raise ValueError(
+                f"{self.name}: value_names/value_fmts length mismatch")
 
     @classmethod
-    def from_spec(cls, spec, *, live_root: Path,
-                  archive_root: Path) -> "Leaderboard":
-        """live_root is this operator's flat board directory; archive_root is
-        the repo, where the committed priors keep their relative path."""
-        rel = Path(spec.leaderboard_rel)
-        return cls(path=live_root / rel.name, name=spec.name,
-                   knob_names=tuple(spec.knob_names),
-                   knob_fmts=tuple(spec.knob_fmts),
-                   metric_cols=tuple(spec.metric_cols),
-                   archive_path=archive_root / rel)
+    def for_study(cls, study, *, path: Path,
+                  archive_path: Path | None) -> "Leaderboard":
+        values = tuple(study.objectives) + tuple(study.extra_metrics)
+        return cls(path=path, name=study.name,
+                   knob_names=tuple(study.knob_names),
+                   knob_fmts=tuple(study.knob_fmts),
+                   value_names=tuple(v.name for v in values),
+                   value_fmts=tuple(v.fmt for v in values),
+                   extra_columns=tuple(study.extra_columns),
+                   context_names=tuple(study.context),
+                   consts=dict(study.consts),
+                   archive_path=archive_path)
 
     # --- history -----------------------------------------------------------
     def header(self) -> str:
-        return ("config\t" + "\t".join(self.knob_names)
-                + "\t" + "\t".join(self.metric_cols) + "\n")
+        cols = ("config", *self.knob_names, *self.value_names,
+                *(c.name for c in self.extra_columns))
+        return "\t".join(cols) + "\n"
 
     def quarantine_path(self) -> Path:
         return self.path.with_name(self.path.name + ".quarantine.tsv")
@@ -155,15 +158,14 @@ class Leaderboard:
             first = f.readline()
             if first.rstrip("\n") != self.header().rstrip("\n"):
                 raise SchemaMismatch(path, self.header(), first)
-            cols = ("config", *self.knob_names, *self.metric_cols)
+            cols = self.header().rstrip("\n").split("\t")
             reader = csv.DictReader(f, fieldnames=cols, delimiter="\t")
             for line_no, row in enumerate(reader, start=2):
                 try:
                     out.append(Point(
                         cfg=row["config"],
                         x=[float(row[c]) for c in self.knob_names],
-                        sob=float(row[self.metric_cols[0]]),
-                        calo=float(row[self.metric_cols[1]])))
+                        y={v: float(row[v]) for v in self.value_names}))
                 except (KeyError, ValueError, TypeError) as e:
                     raise RowParseError(path, line_no, e) from e
         return out
@@ -178,14 +180,24 @@ class Leaderboard:
         live = [p for p in self._load_one(self.path) if p.cfg not in seen]
         return archive + live
 
-    def _format_line(self, p: Point, alpha: float) -> str:
-        knobs = "\t".join(
-            fmt.format(v) for fmt, v in zip(self.knob_fmts, p.x))
-        return (f"{p.cfg}\t{knobs}\t{p.sob:.5f}\t{p.calo:.5e}"
-                f"\t{alpha:.3f}\t{p.obj(alpha):.5f}\n")
+    def format_line(self, p: Point, context: dict) -> str:
+        """The exact line append() writes. Public so a caller holding the
+        only record of a row's x can validate the row before discarding
+        that record."""
+        missing = [c for c in self.context_names if c not in context]
+        if missing:
+            raise LeaderboardError(
+                f"{self.name}: row {p.cfg!r} needs runtime value(s) {missing} "
+                f"(leaderboard.context) and the caller did not pass them")
+        knobs = [fmt.format(v) for fmt, v in zip(self.knob_fmts, p.x)]
+        values = [fmt.format(p.y[n])
+                  for fmt, n in zip(self.value_fmts, self.value_names)]
+        env = {**self.consts, **p.y, **context}
+        extras = [c.fmt.format(c.evaluate(env)) for c in self.extra_columns]
+        return "\t".join([p.cfg, *knobs, *values, *extras]) + "\n"
 
-    def append(self, p: Point, alpha: float) -> None:
-        line = self._format_line(p, alpha)
+    def append(self, p: Point, context: dict) -> None:
+        line = self.format_line(p, context)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with _flock_ex(self.path):
             if not self.path.exists():
@@ -318,7 +330,7 @@ class Leaderboard:
             # appends in "a" mode then wrote the next row straight onto the
             # header line -- the file became a single line forever and
             # load_pending() returned 0 rows, silently. Fatal once the
-            # pending TSV became the ONLY record of x: foilsflash24R00_00
+            # pending TSV became the ONLY record of x: a campaign child
             # lost a finished 3.5 h eval to it (2026-07-26).
             pp.write_text("\n".join([header] + kept) + "\n")
             return True

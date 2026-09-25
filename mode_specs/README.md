@@ -1,78 +1,54 @@
-# JSON-defined optimization modes
+# Studies (schema 2)
 
-One file per optimization line: `mode_specs/<name>.json`, where `<name>`
-matches the `"name"` field. Every file here is loaded at import and merged
-into `core.modes.SPECS`.
+One file per study: `mode_specs/<name>.json`, where `<name>` equals the
+`"name"` field. Every file here, plus every `*.json` in the directories on
+`$AUTORESEARCH_STUDY_PATH` (colon-separated, each entry an ABSOLUTE path;
+a relative entry is a load error), is loaded at import by
+`core/study.py`. `archive/` holds retired specs in the old format and is
+not loaded.
 
-See `docs/superpowers/specs/2026-07-25-json-configurable-modes-design.md` for the
-schema.
+The format, field rules and examples are in
+`docs/superpowers/specs/2026-09-23-generic-study-design.md`
+("The study file (schema 2)").
 
-## Starting a new line
+## Starting a new study
 
-Copy **`tests/fixtures/modes/template.json`** — it is deliberately pointed at a
-non-live leaderboard — and change three things:
+Copy `tests/fixtures/modes/template.json`, not a shipped spec: it points
+at a non-live leaderboard. Then change:
 
-1. `"name"` — must equal the file stem (`mode_specs/<name>.json`).
-2. `"leaderboard": {"file": ...}` — must be a path **no other mode uses**.
-3. the knobs and the `geom` block.
+1. `"name"`: must equal the file stem.
+2. `"leaderboard": {"file": ...}`: a path no other study uses.
+3. the knobs, `derive` and `geom`.
 
-Do **not** start from `tests/fixtures/modes/foils.json` or `foilsflash.json`.
-Those are the reference fixtures that reproduce the live Python lines
-byte-for-byte, so they declare the **live** leaderboards on purpose (the parity
-tests need the real paths). Cloning one and missing the leaderboard line — it
-looks plausible — would append a new line's evals into a live TSV under an
-identical column schema, and the owning mode's `load_history()` would then
-parse them as its own. The loader rejects that now (leaderboard files must be
-unique across JSON specs and against the six Python modes), but the template
-is what you should copy.
+Every key is required and unknown keys are rejected, so a typo fails at
+import, never hours into a campaign.
 
-A file whose name collides with a Python-defined mode (foils, foilsf, foilsflash,
-foilsg, prodtarget, prodtarget6d) is a hard error, not an override. So is a
-leaderboard file already claimed by another mode.
+Keep the shipped files' layout: one knob, profile, geom line, kit, step,
+objective or column per line. Only the parsed JSON matters (`spec_sha`
+hashes it), so the layout is for readable diffs.
 
 ## Gotchas
 
 - **Integer knobs still need a float format.** Write `"fmt": "{:.0f}"`, not
-  `"fmt": "{:d}"`, even for a knob listed in `int_dims`. The loader validates
-  every `fmt` by formatting a float with it (so a format that cannot render the
-  values is caught at load, not on the grid), and `"{:d}"` raises there. This is
-  a loud load error, not a silent one — but it costs a round trip if you don't
-  know it.
-- **`i` and `n` are reserved names.** The geometry renderer injects them into
-  the `per_index` scope, so a knob/const/derived/profile called `i` or `n`
-  would be silently shadowed. Use `n_up`, `n_foils`, etc.
-- **A knob may not be named after a leaderboard column** (`sob`, your second
-  objective, `alpha`, `obj`, `config`) — the TSV header would carry the column
-  twice and history would read the metric back as a coordinate.
-- **`pot_only` is not usable from a JSON mode** unless you also declare
-  prodtarget's `grid_tarball`: `core/pipeline.py` hardcodes that stage's
-  `code_tarball` and it wins over the spec's.
-- **`musing` and `grid_tarball` are written as `${ARTIFACT}/<path>`.** The
-  token expands against this operator's artifact root —
-  `$AUTORESEARCH_ARTIFACT_ROOT`, or `/exp/mu2e/app/users/$USER` by default —
-  falling through to the `backing` link for anything not built locally
+  `"fmt": "{:d}"`, even for a knob with `"type": "int"`. The loader
+  validates every `fmt` by formatting a float with it, and `"{:d}"` raises
+  there: a loud load error, but a round trip if you don't know it.
+- **`i` and `n` are reserved names.** The geometry renderer injects them
+  into the `per_index` scope, so a knob, const, expr or profile called `i`
+  or `n` would be silently shadowed. Use `n_up`, `n_foils`, etc.
+- **A knob may not be named after a leaderboard column** (`config`, an
+  objective, an extra metric or an extra column): the TSV header would carry
+  the column twice and history would read the metric back as a coordinate.
+- **Kit paths are written as `${ARTIFACT}/<path>`**
+  (`kits.prodtools.code_tarball`, `kits.offline_preflight.musing`). The
+  token expands against this operator's artifact root, falling through to
+  the `backing` link for anything not built locally
   (`./setup.sh --backing <path>`). A bare absolute path under a user area is
-  rejected at load: it would make the mode runnable by exactly one account.
+  rejected at load: it would make the study runnable by exactly one account.
 
 ## Why not `modes/`?
 
-This directory is deliberately NOT named `modes/`, even though that would
-read more naturally next to `core/modes.py`. A top-level `modes/` directory
-is an implicit Python namespace package: from the repo root, `import modes`
-would resolve to that empty directory instead of failing loudly, and
-anything that later did `modes.SPECS` (e.g. `graph/config.py`, which puts
-`core/` on `sys.path` before importing `modes`) would get a confusing
-`AttributeError` far from the real cause. Before this directory existed,
-`import modes` was a loud `ModuleNotFoundError` — much easier to diagnose
-than a silently-empty package. If you're tempted to rename this back to
-`modes/` for tidiness, don't: it re-opens that collision with
-`core/modes.py`.
-
-Concretely, this bit in production: a top-level `modes/` directory makes a
-bare `import modes` from the repo root resolve as an implicit namespace
-package instead of finding `core/modes.py` — silently succeeding with an
-empty module (no `SPECS`) instead of raising `ModuleNotFoundError`. That
-silent-wrong-answer failure mode is strictly worse than the loud import
-error it replaces, because it surfaces later, elsewhere, as a confusing
-`AttributeError: module 'modes' has no attribute 'SPECS'` rather than at
-the actual point of the bad import.
+A top-level `modes/` directory would be an implicit namespace package: from
+the repo root, `import modes` would resolve to it instead of `core/modes.py`,
+and `modes.SPECS` would fail with an `AttributeError` far from the cause.
+Don't rename it.

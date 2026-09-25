@@ -1,5 +1,14 @@
 # Publishing the BO stack to a CVMFS `pyenv` env — work plan
 
+**Status: ACHIEVED 2026-08-20.** `ana 2.8.0` was published to
+`/cvmfs/mu2e.opensciencegrid.org/env/ana/2.8.0` on 2026-08-18 and adopted as
+this project's default interpreter on 2026-08-20 (`activate.sh` exports
+`$AUTORESEARCH_PYTHON`; `AUTORESEARCH_VENV` still selects a writable dev
+stack). The unchecked Phase 2/3 boxes below are the route as planned, not
+outstanding work — the outcome arrived by a different path. Kept for the
+measurements and the package-split rationale; the live record is
+`wiki/external/mu2e-cvmfs-python-envs.md`.
+
 **Goal:** stop shipping this project's Python stack as a personal `/exp` venv and
 get its ML core into `/cvmfs/mu2e.opensciencegrid.org/env/`, so a second operator
 needs no build step and past campaigns can be reproduced against an immutable,
@@ -44,7 +53,8 @@ only be rebuilt as a release from a lockfile. We cannot currently produce one.
 
 ## Phase 2 — the ask
 
-Nobody has been contacted, and `pyenv.sh` names no maintainer for `env/`.
+_As written 2026-08-12: nobody had been contacted, and `pyenv.sh` named no
+maintainer for `env/`. Superseded by the outcome above._
 
 - [ ] **Identify the owner.** Start with the EAF/analysis-tools maintainers who
       own the EAF change log `pyenv.sh` points at. Ask for the *slot and

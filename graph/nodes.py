@@ -4,7 +4,6 @@ on-disk artifacts each node writes (cluster.txt, harvest/summary.json, the
 leaderboard row)."""
 from __future__ import annotations
 
-import time
 from typing import Literal
 
 import sys
@@ -65,20 +64,20 @@ def node_propose(state: BOIterationState) -> dict:
     seed_idx = state.get("attempts", {}).get("propose", 0)
 
     try:
-        x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
-                                  seed_idx=seed_idx)
+        x = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
+                            seed_idx=seed_idx)
     except ValueError:
         if caller_pinned:
             # Re-entry under a pinned name: the ValueError is our own prior
             # pending row. Retry under the SAME name -- renaming would break
             # the --name-prefix contract and trip run.py's swap guard.
             bo.MODES[mode].remove_pending(name)
-            x, geom = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
-                                      seed_idx=seed_idx)
+            x = pio.propose_one(mode, name, alpha=alpha, x_override=forced,
+                                seed_idx=seed_idx)
         else:
             retry_name = pio.next_config_name(mode)
-            x, geom = pio.propose_one(mode, retry_name, alpha=alpha,
-                                      x_override=forced, seed_idx=seed_idx)
+            x = pio.propose_one(mode, retry_name, alpha=alpha,
+                                x_override=forced, seed_idx=seed_idx)
             name = retry_name
 
     return {
@@ -86,7 +85,6 @@ def node_propose(state: BOIterationState) -> dict:
         "mode": mode,
         "alpha": alpha,
         "x_point": x,
-        "geom_path": geom,
         "preflight": "pending",
         "stages": {},
         "metrics": None,
@@ -135,10 +133,7 @@ def make_stage_node(stage: str):
         except Exception as exc:  # noqa: BLE001
             print(f"[graph] stage[{stage}/{name}] FAILED: {exc}", flush=True)
             errors.append(f"stage[{stage}/{name}]: {exc}")
-            stages[stage] = {
-                "cluster_id": None, "status": "failed",
-                "n_done": 0, "n_failed": 0, "last_poll_ts": time.time(),
-            }
+            stages[stage] = {"status": "failed"}
         return {"stages": stages, "errors": errors}
     _node.__name__ = f"node_stage_{stage}"
     return _node

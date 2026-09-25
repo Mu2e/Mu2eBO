@@ -69,7 +69,7 @@ def check_kerberos(min_seconds: int, *, klist_text=_klist_text,
     which reads as missing data, sending you to look at SAM instead of at
     your ticket.
     """
-    text = klist_text() if callable(klist_text) else klist_text
+    text = klist_text()
     if not text:
         return "no valid Kerberos ticket -- run kinit first."
     krbtgt = [ln for ln in text.splitlines() if "krbtgt" in ln]
@@ -99,7 +99,8 @@ def boards(data_root: Path = None) -> list[Path]:
     """Every board a config name could already appear in: the live tree
     (leaderboards AND pending files share it, both `*.tsv`) plus the
     committed archive."""
-    live = (data_root or paths.DATA_ROOT) / "autoresearch_leaderboards"
+    live = ((data_root / paths.LEADERBOARD_LIVE.name) if data_root
+            else paths.LEADERBOARD_LIVE)
     return sorted(live.glob("*.tsv")) + sorted(
         (paths.REPO_ROOT / "leaderboards").glob("*.tsv"))
 

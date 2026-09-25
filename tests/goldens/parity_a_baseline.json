@@ -74,7 +74,13 @@
       "header_matches_disk": true,
       "sha256": "e56b2c51d8bb545f4f3380936317134a26f1f072c6b8fa7c05794e97c0f39a7f"
     },
-    "live": null
+    "live": {
+      "rows": 3,
+      "skipped": 0,
+      "mismatch_idx": [],
+      "header_matches_disk": true,
+      "sha256": "4ccd6b74aa34d80bd0403a55ec092db375cf92a0b65e65f22373037fd864fea6"
+    }
   },
   "foilspf2k": {
     "archive": {

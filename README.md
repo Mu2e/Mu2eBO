@@ -11,9 +11,12 @@ Each optimization line is a **mode** — knobs, bounds, geometry rendering, grid
 stages, and objectives in one JSON spec under `mode_specs/`:
 
 ```
-foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw   # BO lines
-ipa625 ipafix ipaovr nominal                                            # fixed A/B reference arms
+foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw
 ```
+
+`mode_specs/archive/` holds retired specs (`ipa625 ipafix ipaovr nominal`,
+the fixed A/B reference arms) as a record only — the loader globs the
+directory flat, so they are not selectable with `--mode`.
 
 ## Setup
 
@@ -94,7 +97,7 @@ The closed loop is a work pool: `q` evaluations in flight, one replacement
 launched per exit, with the GP refit against the leaderboard as it stands.
 
 ```bash
-nohup python -m graph.closed_loop --mode foilspf --picker hybrid \
+nohup "$AUTORESEARCH_PYTHON" -m graph.closed_loop --mode foilspf --picker hybrid \
   --q 20 --max-evals 40 --name-prefix foilspf05 \
   > "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/foilspf05_parent.log" 2>&1 &
 ```
@@ -112,6 +115,6 @@ crashed parents: [wiki/drivers/closed-loop-runner.md](wiki/drivers/closed-loop-r
 PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .
 ```
 
-681 tests, no grid contact.
+675 tests, no grid contact.
 
 More: `wiki/index.md`.

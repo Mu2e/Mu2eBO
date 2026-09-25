@@ -6,8 +6,8 @@ description: '`--picker pareto_sob`: submits the GP-predicted highest-sob points
   calo); by-hand sob-corner exploit; wired 2026-06-22'
 status: superseded
 status_note: code RETIRED 2026-08-19 — subsumed by budget-sob-picker (same corner scan, budget-constrained); unconstrained picks landed +50-70% over the damage budget
-timestamp: '2026-08-19'
-updated_note: picker deleted from botorch_predict.py/PICKER_CHOICES; do NOT re-add — budget_sob with a raised AUTORESEARCH_FLASH_BUDGET reproduces it
+timestamp: '2026-09-24'
+updated_note: picker deleted from botorch_predict.py/PICKER_CHOICES; do NOT re-add — budget_sob with a raised budget reproduces it (since 2026-09-24 the budget is the study's constraints[0].max, edited in place; the AUTORESEARCH_FLASH_BUDGET env var is removed and setting it is fatal)
 ---
 
 # pareto-sob-picker
@@ -16,7 +16,10 @@ updated_note: picker deleted from botorch_predict.py/PICKER_CHOICES; do NOT re-a
 (**CODE RETIRED 2026-08-19** — `_pareto_sob_picks` deleted; [budget-sob-picker](/concepts/budget-sob-picker.md)
 subsumes it: identical Sobol posterior-mean-sob corner scan + min-distance
 spread, plus the flash-budget constraint. An unconstrained corner round is
-`budget_sob` with `AUTORESEARCH_FLASH_BUDGET` raised. History below kept for
+`budget_sob` with the budget raised — since 2026-09-24 by editing the
+study's `constraints[0].max` in place for the round (the
+`AUTORESEARCH_FLASH_BUDGET` env var is removed and setting it is fatal; see
+[budget-sob-picker](/concepts/budget-sob-picker.md)). History below kept for
 the leaderboard rows this picker produced.)
 
 A third closed-loop picker (`--picker pareto_sob`) that submits the **highest-sob

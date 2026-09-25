@@ -4,10 +4,13 @@ title: bo_driver.py — driver
 description: '`propose | evaluate | preflight` (6 modes; michael/helical retired
   2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)'
 status: active
-timestamp: '2026-08-19'
-updated_note: 'fixed recorded drift: KNOB_NAMES/KNOB_FMTS/CALO_COL are registry
-  properties (modes.SPECS) not driver-owned data; preflight/evaluate carry
-  --emit-json; build_space lockstep guard now lives in ModeSpec.__post_init__'
+timestamp: '2026-09-24'
+updated_note: 'Phase A of the generic-study refactor (2026-09-24): specs are
+  schema-2 study files (core/study.py -> modes.STUDIES); extract_metrics/
+  evaluate resolve values BY OBJECTIVE NAME with no per-event fallback;
+  CALO_COL/metric_cols/inlined MODE_SPECS bullets below are SUPERSEDED --
+  those symbols no longer exist in core/bo_driver.py or
+  core/botorch_predict.py, kept here as historical record only'
 ---
 
 # bo_driver.py — driver
@@ -21,6 +24,34 @@ independently runnable. Born 2026-04 as the dedicated driver for
 after the michael mode was retired (2026-07-12).
 
 ## Key facts
+- **Phase A of the generic-study design, complete 2026-09-24 (see the
+  spec at `docs/superpowers/specs/2026-09-23-generic-study-design.md`):
+  schema-2 study files under `mode_specs/` are the ONLY spec format** (the old
+  JSON-loader/`mode_json.py` path was deleted in an earlier task of the same
+  refactor), loaded once into `modes.STUDIES` (`core/study.py`); `modes.SPECS`
+  is now built FROM `STUDIES` (`core/study_compat.py:modespec_from_study`,
+  a compat bridge slated for deletion in Phase C). `JsonMode.extract_metrics`
+  (`core/bo_driver.py:JsonMode.extract_metrics`) resolves every study objective and extra-metric
+  BY NAME, one `summary.get(item.key)` per item, with **no fallback between
+  keys** (a per-POT and a per-event metric are different quantities, never
+  silently substituted — see
+  [no-run1b-substitution-poisons-flash-modes](/incidents/no-run1b-substitution-poisons-flash-modes.md)
+  for the shape of bug this guards against). `cmd_evaluate`
+  (`core/bo_driver.py:cmd_evaluate`) writes `evaluate_result.json` with `primary`
+  (the study's first objective's value) and `objectives` (a `{name: value}`
+  dict over every study objective) — replacing an earlier 2-tuple shape.
+- **`cmd_evaluate` never loses a finished eval's x (fix wave 2026-09-24).**
+  The pending row is the ONLY record of x, and it is cleared just before the
+  append. So `cmd_evaluate` (1) builds the row's context from
+  `study.leaderboard.context` through `_CONTEXT_SOURCES` (today only
+  `alpha` -> `--alpha`), refusing with `SystemExit` before touching
+  anything if the study names a context value the CLI cannot supply; and
+  (2) formats the row first (`JsonMode.format_history_row` ->
+  `Leaderboard.format_line`, which evaluates every extra column), turning
+  any formatter failure (e.g. a divide-by-zero in an extra-column `expr`)
+  into a `SystemExit` while the pending row is still intact. Only then does
+  it clear pending and append. Pinned by
+  `tests/test_json_mode.py::TestJsonModeEvaluateEndToEnd`.
 - **Path:** `core/bo_driver.py` (renamed 2026-07-17 from
   `autoresearch_bo_michael.py`; git history is under the old name pre-rename)
 - **Live-verb map (2026-07-12 survey):** only `preflight` and `evaluate` have
@@ -54,6 +85,10 @@ after the michael mode was retired (2026-07-12).
   `mode_specs/<name>.json`; geometry renders from the spec's geom template;
   history I/O, pending TSV, search space and leaderboard shape all read
   `modes.SPECS`. `MODES` is the registry argparse selects from.
+- **SUPERSEDED 2026-09-24 (Phase A):** `CALO_COL`/`metric_cols` no longer
+  exist anywhere in `core/bo_driver.py`; values resolve by objective NAME
+  from `modes.STUDIES` instead (see the Phase A bullet above). Kept below
+  as the historical record of the 2026-07-19 registry-property fix.
 - **`KNOB_NAMES`/`KNOB_FMTS`/`CALO_COL` are registry-reading PROPERTIES, not
   driver-owned data (since `bd37aa3`, 2026-07-19 — fixes a wiki drift a prior
   round flagged and skipped).** `BOMode.KNOB_NAMES`/`.KNOB_FMTS` read
@@ -94,7 +129,10 @@ after the michael mode was retired (2026-07-12).
 - **Deleted 2026-07-12:** `show-priors` verb + all `print_top` display methods
   (zero callers); the `--strategy` cl_min/mean/max flag (ADR-0001); `F_MAX`/
   `HT_FLOOR` class attrs (their 0.95/0.002 caps live in `modes.SPECS`).
-- **Summary-extraction seam (2026-06-07 for [bo-prodtarget](/projects/bo-prodtarget.md)):**
+- **Summary-extraction seam, historical (SUPERSEDED 2026-09-24 by the Phase A
+  bullet above — `extract_metrics` no longer returns a 2-tuple; it returns a
+  `{name: value}` dict over every study objective/extra-metric).** Original
+  shape (2026-06-07 for [bo-prodtarget](/projects/bo-prodtarget.md)):
   `BOMode.extract_metrics(summary) -> (sob, calo)` with default that reads
   the 4-stage harvest schema (`s_over_sqrt_b`, `calo_per_pot`). Override
   only in modes whose pipeline writes a different schema —
@@ -123,15 +161,13 @@ after the michael mode was retired (2026-07-12).
   7. the off-repo picker shim `gp_predict_<name>.py` in
      [mmackenz-table-plots-dir](/external/mmackenz-table-plots-dir.md) (binds `MODES["<name>"]`, delegates to
      `build_space` so it auto-tracks the dims).
-  8. **qnehvi ONLY:** add the mode to `botorch_predict.py`'s **inlined
-     `MODE_SPECS` dict** (`botorch_predict.py:62`) — `{lo,hi,int_dims}` lists.
-     This is a SECOND, hand-maintained copy of the bounds, deliberately
-     duplicated so `.venv-botorch` (no skopt) needn't import `build_space`;
-     order MUST match `build_space`. Items 1–7 (the cl_min/skopt path) are NOT
-     enough for qnehvi: `--picker qnehvi` shells into `.venv-botorch` to run
-     `botorch_predict.py --mode <name>`, which `raise SystemExit`s at
-     `botorch_predict.py:85` "mode not supported" if the mode is absent from
-     `MODE_SPECS`. Caught 2026-06-04 launching `foilsZ02` (foilsf+qnehvi) —
+  8. **qnehvi, historical (SUPERSEDED — the inlined `MODE_SPECS` dict this
+     step named is gone from `botorch_predict.py`; a new mode's bounds now
+     come from its study file automatically, no second hand-maintained
+     copy):** originally, adding a mode to `botorch_predict.py`'s inlined
+     `MODE_SPECS` dict (`{lo,hi,int_dims}` lists) was a required 8th step,
+     deliberately duplicated so `.venv-botorch` (no skopt) needn't import
+     `build_space`. Caught 2026-06-04 launching `foilsZ02` (foilsf+qnehvi) —
      `foilsf` was in `bo.MODES` and all 7 cl_min places but missing here, so
      qnehvi would have died on arrival every round. `foilsf` spec = `foils`
      spec with the last two dims `f∈[0,0.95]` instead of `rIn∈[0,50]`.
