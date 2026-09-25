@@ -48,14 +48,15 @@ All decided by the operator on 2026-09-25.
 | File | Change |
 |---|---|
 | `core/adapters/__init__.py`, `core/adapters/prodtools.py` | new: `ProdtoolsKit`, registered as the adapter for the kit `prodtools` |
+| `core/adapters/prodtools_entry.py` | new: entry rendering, the code tarball and input staging, as plain functions; `core/prodtools_exec.py` and `core/pipeline.py` call them instead of their own copies |
 | `kits.toml`, `core/kit_config.py` | a new `[servers.<name>]` table: the MCP servers an adapter talks to (`prodtools_read`, `prodtools_write`); a new required `executors` key on each native kit |
 | `core/kit_registry.py` | `KitDecl` gains `pipeline` and `required_fixed`; `prodtools` gains `fatal_log_codes`, a 200-job cap and a required `quorum`; two new value validators |
 | `core/modes.py` | the rule that decides whether a study runs on the engine or the pipeline |
 | `core/contract.py` | retry backoff; `open_kit` and `KitSet` carry the executor and `--parallel`; `check_kits` also checks an adapter's servers |
-| `core/scheduler.py` | cancel the other running steps when one fails |
+| `core/scheduler.py` | cancel the other running steps when one fails; pass a step's resolved stage template as `params["entry"]` |
 | `core/study.py`, `graph/study_graph.py` | zero-knob studies |
 | `graph/study_run.py`, `graph/study_loop.py` | `--executor`, `--parallel`, the ticket check, zero-knob handling |
-| `stage_entries/mustops_ce.json` | `MaxEventsToSkip: 8000` written in the template |
+| `stage_entries/*.json` | `dsconf_fmt: "Run1Bak_{cfg}"` in all three; `MaxEventsToSkip: 8000` written in `mustops_ce` |
 | `mode_specs/*.json` (the 7 live specs) | `quorum: 0.8` on `elebeam_flash`; `fatal_log_codes` under `kits.prodtools` |
 | `tests/fixtures/engine_studies/prodtools_smoke.json` | new: the zero-knob acceptance study |
 | prodtools repo | P3: `cancel_run`, and `cancelled` in `run_status` |
@@ -104,8 +105,11 @@ rule 2.
 
   A `[servers.<name>]` entry has the keys `command`, `env_passthrough`,
   `set` and `timeouts` (per server tool plus `start`), all required. For
-  both prodtools servers, `env_passthrough` is `KRB5CCNAME` and
-  `BEARER_TOKEN_FILE`, and `set` puts `SPACK_USER_CACHE_PATH` off NFS
+  both prodtools servers, `env_passthrough` is `KRB5CCNAME` (the bearer
+  token lives at its default `/run/user/<uid>/bt_u<uid>`, which the
+  servers find without help; `BEARER_TOKEN_FILE` is usually unset), and
+  `set` puts `SPACK_USER_CACHE_PATH` on local disk, `/tmp/spack_cache_${USER}`,
+  the value the pipeline and preflight already use
   (`wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md`). Timeouts:
   `submit_once` 900 s, `run_local` 300 s, `run_status` 120 s, `cancel_run`
   120 s, `start` 120 s.
@@ -139,18 +143,25 @@ params and metric names against the adapter at launch.
 
 ### `submit(name, params, files, inputs)`
 
-1. **Render the entry** from the step's stage template (the step's `entry`),
-   the same way `core/pipeline.py:_render_and_build_cnf` does today:
-   - `desc` is the template's `desc_fmt` with the config name, and `dsconf`
-     is `Run1Bak_<config>`, both as today, so the dry run can compare
-     entries directly. The run name is therefore
+1. **Render the entry** from the step's stage template, the same way
+   `core/pipeline.py:_render_and_build_cnf` does today. The contract's
+   `submit` carries no template, so `run_steps` adds it: for a kit whose
+   `KitDecl.uses_entries` is true, `params["entry"]` is the step's
+   template as the study resolved it at load (the one `measure_sha`
+   hashed). `entry` is therefore a reserved param name for such kits.
+   - `desc` is the template's `desc_fmt` and `dsconf` its new
+     `dsconf_fmt` (`Run1Bak_{cfg}` in all three templates), both with the
+     config name substituted, so the names match today's and no Mu2e
+     naming lives in Python. The run name is therefore
      `cnf.<user>.<desc>.<dsconf>.0`.
    - `njobs`, `events_per_job` (as the entry's `events`) and `memory_mb`
      (as `memory`) come from `params`, which carries the step's `fixed`
      values. The template's own `njobs`, `events` and `memory` are defaults
      used only when `fixed` omits them.
-   - `{geom}` in the template is the basename of the `geom` file in
-     `files`.
+   - `{geom}` in the template is `autoresearch_<config>_geom.txt`, the
+     name the pipeline gives the geometry file inside the code tarball
+     today; a template that names `{geom}` for a step with no `geom` file
+     is refused.
    - `mustops_ce`'s `MaxEventsToSkip` comes from the template, which now
      says 8000 (today Python lowers the template's 100720 to 8000; the
      pipeline keeps doing that until C3, which is now a no-op).
@@ -178,9 +189,11 @@ params and metric names against the adapter at launch.
    `state: "submitting"`. Then:
    - `grid`: take the host-wide submit lock
      (`/tmp/mu2e_submit.<user>.lock`, the same file today's pipeline
-     uses, so the two runners serialize together), refresh the bearer token
-     if it is more than 1 h old (today's `_maybe_refresh_token`), and call
-     `submit_once(json=<entry.json>, desc, dsconf, run_as="self")`.
+     uses, so the two runners serialize together) and call
+     `submit_once(json=<entry.json>, desc, dsconf, run_as="self")`. The
+     adapter does not refresh the bearer token itself: the prodtools write
+     server's `run_as="self"` path already runs `getToken` on every call
+     (`mcp/src/prodtools_mcp_write/runner.py`, `_TOKEN_CLAUSE`).
    - `local`: call `run_local(json=<entry.json>, desc, dsconf,
      run_as="self", parallel=<parallel>)`.
 
@@ -200,7 +213,10 @@ params and metric names against the adapter at launch.
 
 ### `status(handle)`
 
-`run_status(name=<run name>, mine=True)`, mapped:
+`run_status(name=<run name>, user=<user>)`, mapped. The read server
+reports a failure as a normal reply, `{"error": {"kind", "message",
+"remedy"}}`: kind `not_found` means prodtools has no such run; any other
+kind is an error, retried like any read-only call and then raised.
 
 | `run_status` state | contract state |
 |---|---|
@@ -228,7 +244,11 @@ reused by later `status` and `results` calls.
    scan. A failed job with no log is already counted against `quorum` and
    adds nothing here. This replaces the pipeline's `scan_logs` node for
    engine studies.
-4. Otherwise `completed`.
+4. **Outputs.** No output of a successful job matches the template's
+   `output_glob`: `failed`, because a downstream step would get no inputs.
+   A reply with `outputs_truncated` is `failed` too (the 200-job cap
+   should make it impossible).
+5. Otherwise `completed`.
 
 `poll_ms` is 60 000 while `working` on the grid and 10 000 locally.
 
@@ -342,6 +362,8 @@ lacks `run_status`.
 - **`stage_entries/mustops_ce.json`**: `MaxEventsToSkip` 100720 becomes
   8000, with the rationale moved from the `core/pipeline.py` comment into
   the template's `_comment`.
+- **All three stage templates** gain `dsconf_fmt: "Run1Bak_{cfg}"`. The
+  pipeline keeps its own `DSCONF` until C3; the value is the same.
 
 ## P3 in the prodtools repo
 
@@ -353,11 +375,19 @@ only on a go-ahead.
     every job it started. Refused when the receipt's `host` is not this
     host, or when `/proc/<pid>/cmdline` does not name the run's directory
     (the same guard `run_status` uses).
-  - It writes `cancelled_utc` to the receipt atomically. Cancelling a
-    cancelled run returns its state again; cancelling a finished run
-    (`done`, `short`, `failed`) is refused.
-- **`run_status`** reports `state: "cancelled"` for a receipt with
-  `cancelled_utc`, plus the `jobs` block when one can be read.
+  - It sets the receipt's `state` to `cancelled`, with `cancelled_utc`
+    and `cancelled_from` (the state before), atomically. Cancelling a
+    cancelled run returns its receipt again. A local run whose summary
+    exists has finished and is refused. A grid run is not checked against
+    condor first: a cluster that finished just before the cancel still
+    reads `cancelled`, which is harmless for its only caller, a point that
+    has already failed.
+  - It runs as a new prodtools command, `bin/runcancel`
+    (`utils/runcancel.py`), through the write server's usual `run_cli`,
+    so `jobsub_rm` runs in the same environment `jobsub_submit` did.
+- **`run_status`** needs no code change: a receipt whose state is
+  `cancelled` is returned as it is, as `building` and `failed` already
+  are. Its documentation lists the new state.
 - Unit tests in `test/test_unit.py`, run as that repo runs them.
 
 ## Failures
@@ -418,11 +448,14 @@ Command: `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .`
 ## Acceptance
 
 In this order:
-1. **Dry run.** For gridphaseA01's config, the adapter renders the entries
-   for `mubeam`, `mustops_ce` and `elebeam_flash`. Each equals the
-   pipeline's `state/<stage>_entry.json` except for the code tarball path
-   and, for `mustops_ce`, the staged input directory; the `submit_once`
-   arguments (`desc`, `dsconf`, `run_as`) match what the pipeline passed.
+1. **Dry run**, as a unit test. gridphaseA01's three
+   `state/<stage>_entry.json` files are copied into
+   `tests/fixtures/prodtools_parity/` with the personal paths replaced.
+   The adapter's rendering of the same steps (foilspfbpz's `fixed`
+   values, the same 15 staged mubeam files) equals them except for the
+   code tarball path, the staged directory's root, and `sequential_aux`,
+   which the `mustops_ce` template gained after gridphaseA01 ran
+   (a5e991d).
 2. **Local.** `tests/fixtures/engine_studies/prodtools_smoke.json`, a
    zero-knob study: a fixed geometry, `mubeam` with 1 job of 200 events,
    then `mustops_ce` with 1 job reading its output, objective
