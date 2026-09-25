@@ -311,6 +311,30 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
 - Design: `docs/superpowers/specs/2026-09-23-generic-study-design.md`
 
 ## Open questions / TODO
+P1 spike (2026-09-25): a `dir:` staging entry goes through prodtools'
+`submit_once` end to end unchanged (entry parse, cnf build with no SAM
+lookup, `-N njobs`, `dir:` preflight that only stats files, no ledger,
+worker resolves `xroot://…/pnfs/…` literally with `track_parents=False`,
+`run_status` reads only the cnf and exit codes). Checked by a dry run on
+gridphaseA01's real mustops_ce entry. What the Phase C prodtools adapter
+must still handle:
+- P1 part 1 is still needed: `_select_push_params`
+  (`prodtools_mcp_write/tools.py:91-94`) refuses an entry with `code` and
+  no `simjob_setup`; `submit_once` needs a Musing `setup` argument for
+  `run_cli`. mubeam also needs `pipeline_templates` on `FHICL_FILE_PATH`
+  at cnf build, and `run_cli` has no hook for it.
+- `submit_once`, `run_receipt` and `run_status` exist only in the prodtools
+  checkout (commits 623dca6 and 9713171 on mu2e/main, 2026-09-20), not in
+  v3.2.0 or cvmfs `current` (v3.3.4); the MCP server runs its own
+  checkout's `bin/json2jobdef`.
+- Set `"sequential_aux": true` on staged stages, or jobs sample the staged
+  files with replacement (see [pipeline](/drivers/pipeline.md)).
+- The outstage moves to `workflow/<dsconf>/outstage` (no wfproject is
+  passed), so harvest must take the output paths from the receipt.
+- A desc+dsconf pair can be submitted once (`run_receipt.py:75`): today's
+  `submit --force` under the same dsconf is refused.
+- Never set `copy_input`: the worker's local-copy path does a SAM locate.
+
 Phase C follow-ups found in review (2026-09-25):
 - No launch-time check that the board's `measure_sha` matches the study's
   current one — a child runs its steps and is refused only at append.

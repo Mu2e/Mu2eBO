@@ -374,7 +374,7 @@ Every failure is loud and explained. **A missing number is never replaced by 0.*
 
 These go in the operator's repo, alongside Phases A–B, with PRs opened only on the go-ahead.
 
-- **P1:** `submit_once` accepts code-tarball entries: `code` set and no `simjob_setup` (`_select_push_params`, `tools.py:94`). It must also accept entries whose `input_data` is a `dir:` staging area; that part is **unverified and gets checked first.**
+- **P1:** `submit_once` accepts code-tarball entries: `code` set and no `simjob_setup` (`_select_push_params`, `tools.py:94`). It must also accept entries whose `input_data` is a `dir:` staging area; verified 2026-09-25: a `dir:` entry goes through `submit_once` unchanged (see `wiki/drivers/contract-engine.md`, Open questions).
 - **P2:** a `run_local(json, desc, dsconf, nproc)` tool that writes a receipt, plus a local-receipt path in `run_status` so it can report local runs. Today `run_status` depends on condor history.
 - **P0** (install without a clone) is optional and not needed here.
 

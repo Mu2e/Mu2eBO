@@ -6,6 +6,12 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [pipeline](/drivers/pipeline.md) and
+  [contract-engine](/drivers/contract-engine.md) with the prodtools P1
+  spike: a `dir:` entry works through `submit_once` unchanged; staged
+  inputs are drawn at random per job (gridphaseA01 mustops_ce read 10 of
+  15 files) unless `"sequential_aux": true`; a prodtools pin carrying
+  623dca6 breaks the pipeline's ledger+outstage submit.
 - **updated** [contract-engine](/drivers/contract-engine.md) after the
   final Phase B review's fix wave: `point.json` now records
   `measure_basis_sha`, and a resume after the study's measurement changed

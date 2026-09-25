@@ -3,16 +3,8 @@ type: driver
 title: pipeline.py — parametric grid runner
 description: 'per-config runner: job description is checked-in `stage_entries/<stage>.json`, execution shells prodtools (env `AUTORESEARCH_PRODTOOLS`: json2jobdef/submit/jobwait/runlocal) — submits grid or local, harvests'
 status: active
-timestamp: '2026-09-24'
-updated_note: 'prodtools-switch Task 12: page rewritten end-to-end for the
-  final architecture (Tasks 1-14) — job description is now checked-in
-  stage_entries/<stage>.json + mode_specs stage_tuning, execution is shelled
-  to prodtools (json2jobdef/submit/jobwait/runlocal) via core/prodtools_exec.py,
-  mu2ejobdef/mu2ejobsub/local_exec.py/poll_cluster/list_outputs-glob/
-  local-build/local-run/--cap-hours are all deleted; supersedes the
-  mu2ejobdef-era content this page carried through 2026-08-16. 2026-09-24:
-  repointed a stale core/mode_json.py mention (deleted 2026-09-24, Phase A
-  generic-study Task 9) to core/study.py'
+timestamp: '2026-09-25'
+updated_note: 'P1 spike 2026-09-25: resampler aux inputs are drawn at random per job; a prodtools pin carrying 623dca6 breaks the ledger+outstage submit'
 ---
 
 # pipeline.py — parametric grid runner
@@ -317,6 +309,25 @@ this replaced.
   `/cvmfs/*`** (`/exp/mu2e/app` invisible). Replaced by the tarball-shipping
   approach above; the patched lib travels inside `Code.tar.bz2` via `--code`
   staging, so worker mounts don't matter.
+
+- **Staged `dir:` inputs are drawn at random per job, not one file per job.**
+  prodtools picks each job's aux inputs with `_sampled` (seeded by job
+  index, without repetition *within* a job) unless the entry sets
+  `"sequential_aux": true` (`utils/job_common.py:386-398`,
+  `utils/jobdef.py:514`). No stage entry sets it, so a stage reading the
+  previous stage's staged outputs (mustops_ce reading mubeam's) samples
+  them with replacement across jobs: gridphaseA01's 15 mustops_ce jobs
+  read 10 distinct files, one of them four times, 5 never (expected
+  ~9.7 of 15). Unbiased (the choice ignores content) but it discards about
+  a third of the upstream statistics and correlates jobs; the measured
+  σ(sob) already includes it. `"sequential_aux": true` gives one file per
+  job. Found by the P1 spike, 2026-09-25.
+- **A prodtools pin carrying commit 623dca6 breaks this pipeline's grid
+  submit.** That commit's `_check_tracking` (`submit.py:430`) refuses a
+  ledger combined with outstage outputs, which is exactly what
+  `core/prodtools_submit_driver.py:52` passes. The pin is v3.2.0 (no
+  623dca6); cvmfs `current` is v3.3.4. Check before bumping
+  `AUTORESEARCH_PRODTOOLS`.
 
 ## Cross-links
 - Consumed by: [bo-driver](/drivers/bo-driver.md) `evaluate`, [graph-runner](/drivers/graph-runner.md) (per-stage nodes)
