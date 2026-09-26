@@ -49,6 +49,9 @@ DEFAULT_PARALLEL = 4
 UNKNOWN_LIMIT_S = 6 * 3600
 STAGEOUT_LIMIT_S = 30 * 60
 WORKING = ("building", "submitting", "starting", "submitted", "running")
+# Every tool the adapter calls, per server role: each needs a timeout.
+TOOLS = {"write": ("submit_once", "run_local", "cancel_run"),
+         "read": ("run_status",)}
 # The file core/pipeline.py's _submit_lock uses, so both runners serialize
 # their grid submits on a host (wiki/incidents/concurrent-token-contention.md).
 SUBMIT_LOCK = Path(f"/tmp/mu2e_submit.{pe.USER}.lock")
@@ -110,6 +113,33 @@ def _utc_of(value, what, run_name) -> datetime.datetime:
     return t
 
 
+def _check_timeouts(config, tools) -> None:
+    """A server config must time every tool the adapter calls on it; a
+    missing one is refused at construction, not as a KeyError mid-run.
+    Looked up the way _call reads it, `timeouts[tool]`."""
+    missing = []
+    for tool in tools:
+        try:
+            config.timeouts[tool]
+        except KeyError:
+            missing.append(tool)
+    if missing:
+        raise ValueError(f"prodtools: server {config.name!r} has no timeout "
+                         f"for {missing}, which the adapter calls on it; add "
+                         f"them to its kits.toml `timeouts`")
+
+
+def _jobs_without_log(outputs) -> list:
+    """(index, job dir) of each successful job whose dir holds no .log
+    yet; the dir is None for a job that listed no output."""
+    out = []
+    for index, job_paths in sorted(outputs.items()):
+        job_dir = Path(job_paths[0]).parent if job_paths else None
+        if job_dir is None or not any(job_dir.glob("*.log")):
+            out.append((index, job_dir))
+    return out
+
+
 def _local_path(ref, what) -> Path:
     uri = ref.get("uri", "")
     if not uri.startswith("file://"):
@@ -167,6 +197,8 @@ class ProdtoolsKit:
                                        campaign=campaign, trace_dir=trace)
                        for role in ("write", "read")}
         self._write, self._read = clients["write"], clients["read"]
+        for role, client in (("write", self._write), ("read", self._read)):
+            _check_timeouts(client.config, TOOLS[role])
         self._clock, self._pause = clock, pause
         self._grid_root = Path(grid_root or paths.GRID_DATA_ROOT)
         self._pnfs_root = Path(pnfs_root or PNFS_STAGE_ROOT)
@@ -415,18 +447,27 @@ class ProdtoolsKit:
                    for i, p in (reply.get("outputs") or {}).items()}
         every = [p for ps in outputs.values() for p in ps]
         missing = [p for p in every if not os.path.exists(p)]
-        if missing:
+        unlogged = _jobs_without_log(outputs)
+        if missing or unlogged:
+            # A successful job's .log lags on /pnfs like its outputs do.
             since = rec.setdefault("missing_since", self._clock())
             self._save(sdir, rec)
-            if self._clock() - since >= STAGEOUT_LIMIT_S:
+            waited = self._clock() - since >= STAGEOUT_LIMIT_S
+            if waited and missing:
                 return self._decide(
                     sdir, rec, "failed",
                     f"{len(missing)} of {len(every)} outputs still missing "
                     f"{STAGEOUT_LIMIT_S // 60} min after the jobs ended, "
                     f"e.g. {missing[0]}")
-            return self._working(f"waiting for stage-out: {len(missing)} of "
-                                 f"{len(every)} outputs missing", progress)
-        problem = self._scan_logs(rec, reply, outputs)
+            if not waited:
+                what = ([f"{len(missing)} of {len(every)} outputs missing"]
+                        if missing else [])
+                if unlogged:
+                    what.append(f"{len(unlogged)} of {len(outputs)} "
+                                f"successful jobs have no .log")
+                return self._working("waiting for stage-out: "
+                                     + "; ".join(what), progress)
+        problem = self._scan_logs(rec, reply, unlogged)
         if problem:
             return self._decide(sdir, rec, "failed", problem,
                                 progress=progress)
@@ -444,13 +485,12 @@ class ProdtoolsKit:
         return self._decide(sdir, rec, "completed",
                             f"{ok}/{njobs} jobs ok", ok=ok, progress=progress)
 
-    def _scan_logs(self, rec, reply, outputs):
-        for index, job_paths in sorted(outputs.items()):
-            job_dir = Path(job_paths[0]).parent if job_paths else None
-            if job_dir is None or not any(job_dir.glob("*.log")):
-                where = f" in {job_dir}" if job_dir else ""
-                return (f"job {index} succeeded but has no .log file{where}, "
-                        f"so the fatal-log scan could not run")
+    def _scan_logs(self, rec, reply, unlogged):
+        if unlogged:        # still, after the stage-out wait
+            index, job_dir = unlogged[0]
+            where = f" in {job_dir}" if job_dir else ""
+            return (f"job {index} succeeded but has no .log file{where}, "
+                    f"so the fatal-log scan could not run")
         if self.executor == "grid":
             # prodtools' flat <outstage>/<cluster>/<proc>/ layout.
             logs = (Path(reply["outstage"]) / str(reply["cluster_id"])).glob(

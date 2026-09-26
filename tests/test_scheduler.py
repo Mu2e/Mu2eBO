@@ -360,8 +360,11 @@ class TestParams(unittest.TestCase):
 
 class TestCancelOnFailure(_Run):
     def test_a_failure_cancels_the_running_steps(self):
+        # b ends on its own (~0.5 s of 1 ms polls, long after a fails), so a
+        # cancel that regresses fails this test instead of hanging it.
         kit = FakeKit({"a": ["working", "failed"],
-                       "b": ["working"] * 10000}, cancellable=True)
+                       "b": ["working"] * 500 + ["completed"]},
+                      cancellable=True)
         out = self.run_steps(study(step("a"), step("b")), kit)
         self.assertFalse(out["a"].ok)
         self.assertFalse(out["b"].ok)

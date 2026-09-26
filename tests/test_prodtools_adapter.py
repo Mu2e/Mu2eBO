@@ -475,12 +475,27 @@ class TestStatus(_Kit):
         self.assertEqual(s.state, "failed")
         self.assertIn("GeomSolids1001", s.message)
 
-    def test_a_successful_job_without_a_log_fails_the_step(self):
+    def test_a_successful_job_without_a_log_waits_then_fails_the_step(self):
         kit, name = self.submitted()
         self.fake.finish(name, {0: 0, 1: 0}, log=False)
         s = self.state(kit)
+        self.assertEqual(s.state, "working")
+        self.assertIn("waiting for stage-out", s.message)
+        self.assertIn("2 of 2 successful jobs have no .log", s.message)
+        self.assertNotIn("outputs missing", s.message)
+        self.clock[0] += 30 * 60
+        s = self.state(kit)
         self.assertEqual(s.state, "failed")
         self.assertIn("no .log", s.message)
+
+    def test_a_log_that_lands_during_the_wait_completes_the_step(self):
+        kit, name = self.submitted()
+        self.fake.finish(name, {0: 0, 1: 0}, log=False)
+        self.assertEqual(self.state(kit).state, "working")
+        for paths in self.fake.runs[name]["outputs"].values():
+            (Path(paths[0]).parent / "job.log").write_text("ok\n")
+        self.clock[0] += 60
+        self.assertEqual(self.state(kit).state, "completed")
 
     def test_no_output_matching_the_glob_fails(self):
         kit, name = self.submitted()
@@ -543,6 +558,25 @@ class TestCancelAndLaunch(_Kit):
         with self.assertRaises(KitError) as cm:
             self.kit(executor="local").tools
         self.assertIn("run_local", str(cm.exception))
+
+    def test_a_server_config_missing_a_tool_timeout_is_refused(self):
+        toml = self.tmp / "kits.toml"
+        toml.write_text(
+            "[servers.prodtools_write]\n"
+            'command = ["w"]\nenv_passthrough = []\nset = {}\n'
+            "timeouts = { start = 1, submit_once = 1 }\n"
+            "[servers.prodtools_read]\n"
+            'command = ["r"]\nenv_passthrough = []\nset = {}\n'
+            "timeouts = { start = 1, run_status = 1 }\n")
+        servers = kit_config.load_server_configs(toml)
+        with mock.patch.object(pk.kit_config, "load_server_configs",
+                               return_value=servers), \
+                self.assertRaises(ValueError) as cm:
+            pk.ProdtoolsKit("camp", grid_root=self.tmp / "grid")
+        msg = str(cm.exception)
+        for needle in ("prodtools_write", "run_local", "cancel_run"):
+            self.assertIn(needle, msg)
+        self.assertNotIn("submit_once", msg)
 
     def test_describe_and_version(self):
         kit = self.kit()
