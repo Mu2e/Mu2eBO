@@ -7,7 +7,7 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   graph.study_loop; toykit Branin acceptance in 28.7 s; C1 prodtools
   adapter (`core/adapters/`), --executor, zero-knob studies
 status: active
-timestamp: '2026-09-25'
+timestamp: '2026-09-26'
 ---
 
 # Contract engine (Phase B)
@@ -313,14 +313,29 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   `KitClient`s onto the `prodtools_write`/`prodtools_read` MCP servers
   (`kits.toml`'s `[servers.prodtools_write]`/`[servers.prodtools_read]`,
   Task 2). `core/adapters/__init__.py:register_all` registers it (and
-  every future adapter) at import.
+  every future adapter) lazily, from `core/contract.py:_load_adapters`
+  (called first by `open_kit`, `launch_stagger`, `executor_problems` and
+  `requires_kerberos`), not at import — an adapter module imports
+  `core.contract`.
+- **prodtools replies are text only:** its read tools are declared
+  `-> dict` and its write tools have no return annotation, and neither
+  sets `structured_output`, so under mcp 2.x a reply carries no
+  structured content. `KitClient._call` parses a non-error text reply as
+  JSON and requires an object; empty/invalid JSON, a list or a scalar is
+  a `KitError` naming the tool. Structured content, when present, still
+  wins. `tests/textkit.py` registers tools both ways
+  (`TestTextReplies` in `tests/test_kits.py`).
 - **Record file:** `<GRID_DATA_ROOT>/<config>/prodtools/<step>/record.json`,
   written before the submit (`state="submitting"`) and updated after
   (`"submitted"`, then a `verdict`), so a killed child's rerun adopts the
   run by digest instead of resubmitting it. Same params/files/inputs/
   executor → adopt; different → refused; a receipt caught stuck in
   `submitting`/`building` fails loudly (whether the jobs ever reached the
-  grid can't be told).
+  grid can't be told). The record stamps `submitting_utc` (prodtools'
+  receipt format) right before the submit, and `_adopt` takes only a run
+  whose `run_status` `created_utc` is at or after it: an older run means
+  the config name was used before (or `record.json` was lost) and is a
+  loud error, never adopted; a missing timestamp is an error too.
 - **The entry template arrives as `params["entry"]`:** `core/scheduler.py:
   step_params` resolves the step's stage template
   (`study.entry_template`) and hands it to any kit whose `KitDecl.
@@ -337,14 +352,18 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   (`KitDecl.required_fixed`); below it, `_complete` fails the step
   (`{ok}/{njobs} jobs ok, below quorum {quorum}`).
 - **The log scan:** `_scan_logs` requires every successful job to have a
-  `.log` (else fail — the scan couldn't run), then greps every log under
-  the run's outstage (grid) or run dir (local) for each of
-  `kits.prodtools.fatal_log_codes`; the first match fails the step
+  `.log` (a missing one first waits out the same 30-min stage-out window
+  as a missing output, then fails — the scan couldn't run), then greps
+  every log under the run's outstage (grid) or run dir (local) for each
+  of `kits.prodtools.fatal_log_codes`; the first match fails the step
   (foilspf: `GeomSolids1001`).
 - **Timeouts:** `run_status` reporting `unknown` fails the step after
   `UNKNOWN_LIMIT_S = 6 h`; outputs still missing from disk after the jobs
   ended fail it after `STAGEOUT_LIMIT_S = 30 min` (both counted from the
-  first time the condition was seen, stamped in the record).
+  first time the condition was seen, stamped in the record). Every tool
+  the adapter calls needs a timeout in its server's kits.toml table
+  (`TOOLS`: write submit_once/run_local/cancel_run, read run_status);
+  `ProdtoolsKit.__init__` refuses a config missing one.
 - **The submit lock:** a grid `submit_once` is taken under
   `/tmp/mu2e_submit.<user>.lock` (`SUBMIT_LOCK`) — the same file
   `core/pipeline.py`'s `_submit_lock` uses, so both runners serialize
@@ -353,8 +372,22 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
 - **No token refresh in the adapter:** the adapter never renews a
   Kerberos ticket; `graph/study_run.py:launch_refusals` refuses a grid
   launch up front when the study's kit(s) set `REQUIRES_KERBEROS` and
-  under 4 h remain (`core/contract.py:requires_kerberos`), and the write
-  server's own `run_as="self"` path is what actually renews it.
+  under 4 h remain (`core/contract.py:requires_kerberos`). The servers
+  get `KRB5CCNAME` and `XDG_RUNTIME_DIR` (kits.toml `env_passthrough`)
+  and find the bearer token at `$XDG_RUNTIME_DIR/bt_u<uid>` — without
+  the variable they read a stale `/tmp/bt_u<uid>`. The write server's
+  `run_as="self"` path refreshes that token from the Kerberos ticket on
+  write calls; it does not renew the ticket (renewal between writes: C2).
+- **Contract check against the real servers:** `TestRealServers` in
+  `tests/test_prodtools_adapter.py` starts both servers from kits.toml
+  and, read-only, checks every argument dict the adapter sends
+  (`_launch_call`, `_cancel_args`, `_run_status_args`) against the
+  tool's input schema (`KitClient.tool_schemas`) and that `run_status`
+  of a run that cannot exist is None. Skipped unless
+  `AUTORESEARCH_PRODTOOLS` is set AND `AUTORESEARCH_REAL_KIT_TESTS=1`
+  (the second switch keeps the default suite hermetic in a shell that
+  exports the first for the pipeline). A server ignores an argument its
+  schema lacks, so only this check catches that drift.
 - **`--executor`/`--parallel`:** `graph.study_run --executor grid|local`
   and `graph.study_loop --executor ... --parallel N` (local only, 1..16)
   choose `ProdtoolsKit.executor`/`.parallel`, which pick `submit_once`
@@ -394,7 +427,8 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   `core/kits.py`, `core/contract.py`, `core/scheduler.py`,
   `core/study.py`, `core/score.py`, `core/leaderboard.py`, `core/boards.py`,
   `graph/study_graph.py`, `graph/study_run.py`, `graph/study_loop.py`,
-  `graph/pool.py`, `tests/toykit.py`, `core/adapters/__init__.py`,
+  `graph/pool.py`, `tests/toykit.py`, `tests/textkit.py`,
+  `core/adapters/__init__.py`,
   `core/adapters/prodtools.py`, `core/adapters/prodtools_entry.py`,
   `tests/fixtures/engine_studies/prodtools_smoke.json`
 - Design: `docs/superpowers/specs/2026-09-23-generic-study-design.md`

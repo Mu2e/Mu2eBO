@@ -5,6 +5,17 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-09-26
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C1
+  final-review fixes — KitClient reads prodtools' text-only replies as
+  JSON objects; the adapter adopts only a run created at or after the
+  record's `submitting_utc`; both servers get `XDG_RUNTIME_DIR` (bearer
+  token at `$XDG_RUNTIME_DIR/bt_u<uid>`; the write server refreshes the
+  token, not the ticket); an opt-in real-server contract check (needs
+  `AUTORESEARCH_PRODTOOLS` and `AUTORESEARCH_REAL_KIT_TESTS=1`); a missing
+  `.log` waits out the stage-out window; untimed tools are refused;
+  `register_all` runs lazily, not at import.
+
 ## 2026-09-25
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C1
   implemented on branch `generic-study-phase-c1` — the prodtools adapter,
