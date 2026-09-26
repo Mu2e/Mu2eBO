@@ -2,8 +2,8 @@
 type: incident
 title: prodtools tape-input check crashes under a Python 3.10 Musing
 description: since ops-021 (Python 3.12, 2026-09-12) prodtools' pre-submit tape check (`check_tape` -> `import mdh`) runs after the entry's Musing is sourced; under Run1Bak/Run1Bap (Python 3.10) it loads ops' 3.12 cryptography and dies (`_cffi_backend` / pyo3 panic), so no tape-input entry can be submitted through json2jobdef --once; SimJob MDC2025ax (Python 3.12) is immune
-status: open
-status_note: worked around 2026-09-26 by moving the prodtools_smoke study to SimJob MDC2025ax; the prodtools-side fix is not made
+status: dormant
+status_note: not fixed by us (operator, 2026-09-26); our studies avoid it by running on SimJob MDC2025ax
 timestamp: '2026-09-26'
 ---
 
@@ -49,5 +49,9 @@ submit-host check breaks.
   is sourced (prodtools), or use a Python 3.12 Musing (what we did).
 
 ## Open questions / TODO
-- The prodtools-side fix; production Run1B submits with tape inputs hit
-  the same crash.
+- Not fixed here: the operator decided (2026-09-26) not to fix it, since
+  our studies run on MDC2025ax. Production Run1B submits with tape inputs
+  still hit it. The fix, if anyone wants it: record the ops Python before
+  the Musing is sourced and run the mdh lookup under it in a subprocess;
+  also catch `BaseException`, since the pyo3 panic escapes `except
+  Exception`.
