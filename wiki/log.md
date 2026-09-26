@@ -6,6 +6,10 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-26
+- **updated** [contract-engine](/drivers/contract-engine.md): the old pipeline is
+  reference-only (no foilspf campaign planned before C2); kept runnable
+  for C2's parity check; the `desc_fmt`/`dsconf_fmt` -> `desc`/`dsconf`
+  template rename waits for C3.
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C1 local
   acceptance passed — `prodtools_smoke --executor local` (config
   `c1local01`) in 3 min 48 s wall, one v2 row with `ce_jobs_ok=1`; two

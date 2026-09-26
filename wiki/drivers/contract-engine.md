@@ -509,6 +509,18 @@ runner flag outside `measure_sha`; below-`quorum` fails the step and
 prodtools gains P3 `cancel_run`; and the sob and flash analyses go to
 anakit in C2, not local plugins (settles the design's Open question 2).
 
+The pipeline is reference-only from 2026-09-26: the operator plans no
+foilspf campaign before C2. It stays runnable, but only so that C2 can run
+one point both ways (pipeline vs engine + anakit) and match
+`s_over_sqrt_b` and the flash numbers before C3 deletes it. Until then,
+changes to what it reads wait for C3. First among them: rename the stage
+templates' `desc_fmt` / `dsconf_fmt` to `desc` / `dsconf`, so that a
+filled-in template is a prodtools entry key for key
+(`core/pipeline.py:249` still reads `desc_fmt`). Each template's
+`_comment` should also name the production entry it derives from; for
+mubeam that is `data/Run1B/resampler_beam.json` MuBeamFlash/Run1Bak, which
+shares only `fcl`, `resampler_name` and `input_data`.
+
 Phase C follow-ups found in review (2026-09-25):
 - No launch-time check that the board's `measure_sha` matches the study's
   current one — a child runs its steps and is refused only at append.
