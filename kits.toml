@@ -12,7 +12,7 @@ command = ["${PYTHON}", "${REPO_ROOT}/tests/toykit.py"]
 env_passthrough = []
 set = { TOYKIT_STATE_DIR = "${DATA_ROOT}/toykit" }
 study_keys = { function = "string" }
-fixed_keys = { delay_s = "number", fail = "string", submit_sleep_s = "number" }
+fixed_keys = { delay_s = "number", fail = "string", submit_sleep_s = "number", x1 = "number", x2 = "number" }
 accepts_lists = false
 check = true
 executors = ["grid", "local"]

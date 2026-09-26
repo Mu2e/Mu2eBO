@@ -307,8 +307,6 @@ def _metric(v, steps, where):
 
 def _knobs(raw, where):
     raw = _list(raw, f"{where}[knobs]")
-    if not raw:
-        raise ValueError(f"{where}[knobs]: at least one knob is required")
     out = []
     for i, k in enumerate(raw):
         kw = f"{where}[knobs[{i}]]"

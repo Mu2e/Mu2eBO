@@ -147,6 +147,9 @@ def build_problem(mode: str, primary_only: bool = False) -> "surrokit.Problem":
     production path (compute_explore_picks, the MCP adapter) comes through
     here, so it is also where a removed env override is refused."""
     study = _modes.STUDIES[mode]
+    if not study.knobs:
+        raise ValueError(f"study {mode!r} has no knobs: there is nothing to "
+                         f"fit or pick")
     _refuse_removed_env(study)
     return _problem_from(study, primary_only)
 

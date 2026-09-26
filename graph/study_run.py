@@ -2,6 +2,8 @@
 one per child. By hand:
   python -m graph.study_run --study branin --config brn001 --campaign brn --x=-1.5,2.25
 (Write --x=... : argparse reads "--x -1.5,..." as a flag.)
+A study with no knobs runs once, with no --x:
+  python -m graph.study_run --study prodtools_smoke --config smoke01 --campaign smoke --executor local
 Exit 0: the point ran (a leaderboard row, or broken.txt saying why not).
 Exit 2: refused before anything ran. Anything else: a crash.
 Phase C renames this to graph.run when the pipeline path is deleted.
@@ -70,8 +72,9 @@ def main(argv=None) -> int:
                     help="the point's name; state in <GRID_DATA_ROOT>/<config>/state")
     ap.add_argument("--campaign", required=True,
                     help="groups the kit trace: GRAPH_DATA/<campaign>/kit_trace.jsonl")
-    ap.add_argument("--x", required=True,
-                    help="comma-separated knob values, in the study's knob order")
+    ap.add_argument("--x", default=None,
+                    help="comma-separated knob values, in the study's knob "
+                         "order; omit it for a study with no knobs")
     ap.add_argument("--context", action="append", default=[],
                     help="name=value for each leaderboard.context value")
     ap.add_argument("--executor", choices=EXECUTORS, default="grid",
@@ -90,7 +93,15 @@ def main(argv=None) -> int:
                       f"graph.run / graph.closed_loop until Phase C")
     study = _modes.STUDIES[args.study]
     try:
-        x = [float(v) for v in args.x.split(",")]
+        if not study.knobs:
+            if args.x is not None:
+                return refuse(f"study {study.name!r} has no knobs; drop --x")
+            x = []
+        elif args.x is None:
+            return refuse(f"study {study.name!r} has knobs "
+                          f"{list(study.knob_names)}; pass --x=<values>")
+        else:
+            x = [float(v) for v in args.x.split(",")]
         check_x(study, x)
         context = parse_context(args.context, study)
     except ValueError as exc:

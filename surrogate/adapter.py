@@ -47,7 +47,8 @@ def _axis_label(o) -> str:
 
 class AutoresearchAdapter:
     def problems(self) -> dict[str, surrokit.Problem]:
-        return {name: bp.build_problem(name) for name in _modes.STUDIES}
+        return {name: bp.build_problem(name) for name, s in _modes.STUDIES.items()
+                if s.knobs}
 
     def suggest(self, name: str, q: int = 5, picker: str | None = None,
                 round_idx: int = 0, pending: list | None = None):

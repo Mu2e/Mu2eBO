@@ -88,6 +88,11 @@ def runs_on_engine(study) -> bool:
     decls = {k: kit_registry.KITS[k] for k in kits}
     if all(d.engine for d in decls.values()):
         return True
+    if not study.knobs:
+        raise ValueError(
+            f"{study.path}: a study with no knobs runs only on the engine, "
+            f"and kit(s) {sorted(k for k, d in decls.items() if not d.engine)} "
+            f"have no engine implementation yet")
     if all(d.pipeline for d in decls.values()):
         return False
     engine_only = sorted(k for k, d in decls.items() if not d.pipeline)

@@ -143,6 +143,10 @@ def main(argv=None) -> int:
               f"pipeline kits; use graph.closed_loop until Phase C", flush=True)
         return 2
     study = _modes.STUDIES[args.study]
+    if not study.knobs:
+        print(f"[study_loop] REFUSED: study {args.study!r} has no knobs: "
+              f"there is nothing to pick; run graph.study_run", flush=True)
+        return 2
     try:
         # Once here, not by every child refusing until the pool aborts.
         parse_context(args.context, study)
