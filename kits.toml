@@ -30,9 +30,15 @@ timeouts = { start = 60, submit = 30, status = 30, results = 30, check = 30, des
 # calls; it does not renew the ticket. The spack cache goes to local disk,
 # as the pipeline and preflight already do
 # (wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md).
+# The write server also needs the JOBSUB_* site settings a login shell gets
+# from /etc/profile.d/jobsub_lite.sh: without JOBSUB_DROPBOX_SERVER_LIST,
+# jobsub_submit cannot publish the code tarball (NoPublisherHandlerServerError,
+# found in the c1grid02 acceptance run, 2026-09-26).
 [servers.prodtools_write]
 command = ["${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_write_mcp.sh"]
-env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR"]
+env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR", "JOBSUB_DROPBOX_SERVER_LIST",
+                   "JOBSUB_OUTPUT_URL", "JOBSUB_FETCHLOG_URL", "JOBSUB_AUTH_METHODS",
+                   "JOBSUB_POOL_MAP"]
 set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
 timeouts = { start = 120, submit_once = 900, run_local = 300, cancel_run = 120 }
 

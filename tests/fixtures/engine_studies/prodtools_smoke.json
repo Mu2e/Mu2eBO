@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "prodtools_smoke",
- "note": "Phase C1 acceptance, not a measurement: foilspfbpz's geometry at gridphaseA01's point (the knobs as consts), mubeam 1x200 then mustops_ce 1 job reading it, on the prodtools kit.",
+ "note": "Phase C1 acceptance, not a measurement: foilspfbpz's geometry at gridphaseA01's point (the knobs as consts), mubeam 1x200 then mustops_ce 1 job reading it, on the prodtools kit, with the stock SimJob MDC2025ax release (Offline v13_38_00 carries the holeRadii and IPA zStartInMu2e patches upstream; Code_mdc2025ax.tar.bz2 is only a backing link plus setup.sh).",
  "knobs": [],
  "derive": {
   "consts": {
@@ -248,7 +248,7 @@
  },
  "kits": {
   "prodtools": {
-   "code_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2",
+   "code_tarball": "${ARTIFACT}/autoresearch_muse/Code_mdc2025ax.tar.bz2",
    "fatal_log_codes": [
     "GeomSolids1001"
    ]

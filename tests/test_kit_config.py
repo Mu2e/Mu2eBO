@@ -244,9 +244,14 @@ class TestServersAndExecutors(unittest.TestCase):
         self.assertIn("run_status", servers["prodtools_read"].timeouts)
         # The bearer token is found at $XDG_RUNTIME_DIR/bt_u<uid>; without
         # the variable the servers would read a stale /tmp/bt_u<uid>.
-        for srv in servers.values():
-            self.assertEqual(srv.env_passthrough,
-                             ("KRB5CCNAME", "XDG_RUNTIME_DIR"))
+        creds = ("KRB5CCNAME", "XDG_RUNTIME_DIR")
+        self.assertEqual(servers["prodtools_read"].env_passthrough, creds)
+        # jobsub_submit publishes the code tarball only with the site's
+        # JOBSUB_* settings (/etc/profile.d/jobsub_lite.sh).
+        self.assertEqual(servers["prodtools_write"].env_passthrough,
+                         creds + ("JOBSUB_DROPBOX_SERVER_LIST",
+                                  "JOBSUB_OUTPUT_URL", "JOBSUB_FETCHLOG_URL",
+                                  "JOBSUB_AUTH_METHODS", "JOBSUB_POOL_MAP"))
 
     def test_a_kit_client_starts_from_a_server_config(self):
         import kits
