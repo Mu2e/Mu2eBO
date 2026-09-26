@@ -15,6 +15,26 @@ study_keys = { function = "string" }
 fixed_keys = { delay_s = "number", fail = "string", submit_sleep_s = "number" }
 accepts_lists = false
 check = true
+executors = ["grid", "local"]
 launch_stagger_s = 0
 poll_s = [0.1, 2.0]
 timeouts = { start = 60, submit = 30, status = 30, results = 30, check = 30, describe = 30, cancel = 30 }
+
+# Servers an adapter talks to (core/kit_config.py ServerConfig): not kits.
+# The prodtools adapter (core/adapters/prodtools.py) starts both from the
+# checkout $AUTORESEARCH_PRODTOOLS names. KRB5CCNAME is the only credential
+# to pass: the bearer token lives at its default /run/user/<uid>/bt_u<uid>,
+# and the write server refreshes it on every call. The spack cache goes to
+# local disk, as the pipeline and preflight already do
+# (wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md).
+[servers.prodtools_write]
+command = ["${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_write_mcp.sh"]
+env_passthrough = ["KRB5CCNAME"]
+set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
+timeouts = { start = 120, submit_once = 900, run_local = 300, cancel_run = 120 }
+
+[servers.prodtools_read]
+command = ["${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_mcp.sh"]
+env_passthrough = ["KRB5CCNAME"]
+set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
+timeouts = { start = 120, run_status = 120 }

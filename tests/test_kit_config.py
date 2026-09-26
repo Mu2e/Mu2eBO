@@ -24,6 +24,7 @@ study_keys = { mode = "string" }
 fixed_keys = { n = "positive_int" }
 accepts_lists = false
 check = true
+executors = ["grid", "local"]
 launch_stagger_s = 0
 poll_s = [0.5, 5]
 timeouts = { start = 60, submit = 30, status = 30, results = 30, check = 30, describe = 30, cancel = 30 }
@@ -167,6 +168,94 @@ class TestNativeKitInStudies(unittest.TestCase):
         doc = toy_doc()
         doc["evaluate"][0]["entry"] = "toy"
         self.assertRejects(doc, "entry")
+
+
+TOY_ENTRY = '''
+[toy]
+command = ["python3", "toy.py"]
+env_passthrough = []
+set = {}
+study_keys = {}
+fixed_keys = {}
+accepts_lists = false
+check = false
+executors = ["grid", "local"]
+launch_stagger_s = 0
+poll_s = [0.1, 1.0]
+timeouts = { start = 1, submit = 1, status = 1, results = 1, check = 1, describe = 1, cancel = 1 }
+'''
+
+SERVER = '''
+[servers.alpha]
+command = ["${REPO_ROOT}/x.sh"]
+env_passthrough = []
+set = { A = "b" }
+timeouts = { start = 5, do_thing = 7 }
+'''
+
+
+class TestServersAndExecutors(unittest.TestCase):
+    def write(self, text):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        p = Path(td.name) / "kits.toml"
+        p.write_text(text)
+        return p
+
+    def test_a_kit_declares_its_executors(self):
+        cfg = kc.load_kit_configs(self.write(TOY_ENTRY))["toy"]
+        self.assertEqual(cfg.executors, ("grid", "local"))
+
+    def test_executors_are_checked(self):
+        for bad in ('[]', '["cloud"]', '["grid", "grid"]', '"grid"'):
+            text = TOY_ENTRY.replace('executors = ["grid", "local"]',
+                                     f"executors = {bad}")
+            with self.subTest(bad=bad), self.assertRaises(
+                    kc.KitConfigError) as cm:
+                kc.load_kit_configs(self.write(text))
+            self.assertIn("executors", str(cm.exception))
+
+    def test_servers_are_not_kits(self):
+        p = self.write(TOY_ENTRY + SERVER)
+        self.assertEqual(sorted(kc.load_kit_configs(p)), ["toy"])
+        srv = kc.load_server_configs(p)["alpha"]
+        self.assertEqual((srv.timeouts["start"], srv.timeouts["do_thing"]),
+                         (5.0, 7.0))
+        self.assertEqual(srv.resolve_env({})["A"], "b")
+
+    def test_a_server_needs_every_key_and_a_start_timeout(self):
+        for old, new, needle in (
+                ('set = { A = "b" }\n', "", "set"),
+                ("start = 5, ", "", "start"),
+                ('timeouts = { start = 5, do_thing = 7 }',
+                 'timeouts = { start = 5, do_thing = 0 }', "do_thing"),
+                ("[servers.alpha]", "[servers.Alpha]", "lower-case")):
+            with self.subTest(needle=needle), self.assertRaises(
+                    kc.KitConfigError) as cm:
+                kc.load_server_configs(
+                    self.write(SERVER.replace(old, new)))
+            self.assertIn(needle, str(cm.exception))
+
+    def test_the_repo_declares_both_prodtools_servers(self):
+        servers = kc.load_server_configs()
+        self.assertEqual(sorted(servers), ["prodtools_read", "prodtools_write"])
+        self.assertIn("submit_once", servers["prodtools_write"].timeouts)
+        self.assertIn("run_status", servers["prodtools_read"].timeouts)
+
+    def test_a_kit_client_starts_from_a_server_config(self):
+        import kits
+        with tempfile.TemporaryDirectory() as td:
+            srv = kc.ServerConfig(
+                name="toysrv",
+                command=(sys.executable, str(ROOT / "tests" / "toykit.py")),
+                env_passthrough=(), set_env={"TOYKIT_STATE_DIR": td},
+                timeouts={"start": 60.0, "describe": 30.0})
+            client = kits.KitClient(srv, campaign="c", trace_dir=Path(td))
+            try:
+                client.start()
+                self.assertIn("describe", client.tools)
+            finally:
+                client.close()
 
 
 if __name__ == "__main__":
