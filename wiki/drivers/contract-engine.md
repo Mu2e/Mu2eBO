@@ -414,6 +414,25 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   `utils/run_receipt.pid_alive` (one shared `/proc` liveness check); the
   receipt records `cancelled`/`cancelled_from`/`cancelled_utc`;
   `run_status` needed no change.
+- **Local acceptance PASSED (2026-09-26, config `c1local01`,
+  `AUTORESEARCH_DATA_ROOT=/exp/mu2e/data/users/oksuzian/c1accept`,
+  prodtools local main `6640e6e`, so no `cancel_run`):** `graph.study_run
+  --study prodtools_smoke --executor local` exited 0 in **3 min 48 s**
+  wall and landed one v2 row, `ce_jobs_ok=1 mubeam_jobs_ok=1`.
+  Timeline from `kit_trace.jsonl`:
+  - ~46 s from launch to the first `run_local`. This covers the Python
+    start, both server starts (each sources `setupmu2e-art.sh` and runs
+    `muse setup ops`), the code tarball and the entry.
+  - `run_local` itself took 26 s (mubeam) and 22 s (mustops_ce).
+  - `run_status` took 0.006–0.12 s per call, at the local 10 s poll.
+  - Each step then ran about 1.5 min until completed.
+  Two code tarballs of about 15 MB each were built: the steps ship
+  different bare-name `#include`s, so their content keys differ. That
+  bears on the code-cache growth open question.
+  To run the smoke against the `cancel-run` worktree, the worktree first
+  needs its own `mcp/.venv`. The shared venv's editable `.pth` points at
+  main's `mcp/src`, so the servers load main's code whatever
+  `AUTORESEARCH_PRODTOOLS` names.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (the

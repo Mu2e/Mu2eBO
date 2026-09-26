@@ -6,6 +6,12 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-26
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C1 local
+  acceptance passed — `prodtools_smoke --executor local` (config
+  `c1local01`) in 3 min 48 s wall, one v2 row with `ce_jobs_ok=1`; two
+  ~15 MB code tarballs per config (per-step `#include`s); a prodtools
+  worktree needs its own `mcp/.venv` (the shared venv's editable `.pth`
+  pins main's code).
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C1
   final-review fixes — KitClient reads prodtools' text-only replies as
   JSON objects; the adapter adopts only a run created at or after the
