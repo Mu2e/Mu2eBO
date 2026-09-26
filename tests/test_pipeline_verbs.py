@@ -348,7 +348,7 @@ class TestStageEntries(unittest.TestCase):
         overrides = self._entry("mustops_ce")["fcl_overrides"]
         self.assertEqual(
             overrides["physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"],
-            100720)
+            8000)
 
     def test_every_stage_json_carries_the_static_entry_fields(self):
         # resampler_name/input_data/inloc/outloc/run/memory/events: whatever
@@ -423,7 +423,8 @@ class TestStageEntries(unittest.TestCase):
     def test_render_fcl_overrides_mustops_ce_lowers_max_events_to_skip(self):
         # Each mustops_ce job reads ONE mubeam file (~16k events), so the
         # random skip must stay below the smallest plausible file -- the
-        # checked-in 100720 is dropped to 8000 at submit time.
+        # checked-in value is 8000 since Phase C1, and _render_fcl_overrides
+        # sets the same 8000 (a no-op until C3 deletes it).
         key = "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip"
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(pipeline, "GEOM_FILE", Path(tmp) / "g.txt"), \

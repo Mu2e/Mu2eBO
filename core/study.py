@@ -370,6 +370,10 @@ def _steps(raw, has_geom, names, where):
             raise ValueError(f"{sw}[entry]: kit {kit!r} takes no entry; use null")
         fixed = kit_registry.validate(kit, s["fixed"], decl.fixed_keys,
                                       f"{sw}[fixed]", required=False)
+        missing = sorted(decl.required_fixed - set(fixed))
+        if missing:
+            raise ValueError(f"{sw}[fixed]: kit {kit!r} needs {missing} in "
+                             f"every step's fixed")
         out.append(Step(step, kit, entry, _files(s["files"], has_geom, sw),
                         tuple(_list(s["files_from"], f"{sw}[files_from]")),
                         _params(s["params"], names, sw), fixed))

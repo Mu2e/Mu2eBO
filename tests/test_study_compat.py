@@ -22,7 +22,8 @@ class TestView(unittest.TestCase):
         self.assertEqual(s.stage_target_overrides,
                          {"mubeam": 15, "mustops_ce": 15, "elebeam_flash": 100})
         self.assertEqual(s.stage_tuning["elebeam_flash"],
-                         {"events_per_job": 110000, "memory_mb": 2000})
+                         {"events_per_job": 110000, "memory_mb": 2000,
+                          "quorum": 0.8})
         self.assertEqual(s.stage_tuning["mubeam"]["quorum"], 0.8)
         self.assertTrue(s.require_zero_overlaps)
         self.assertTrue(s.musing.endswith("demo/setup_local.sh"))

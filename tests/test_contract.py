@@ -235,9 +235,10 @@ class TestKitSet(unittest.TestCase):
 class TestRegistry(unittest.TestCase):
     def setUp(self):
         decl = kit_registry.KitDecl("fakeadapter", study_keys={},
-                                    fixed_keys={}, uses_entries=False,
-                                    step_kit=True, check_kit=False,
-                                    engine=True)
+                                    fixed_keys={}, required_fixed=frozenset(),
+                                    uses_entries=False, step_kit=True,
+                                    check_kit=False, engine=True,
+                                    pipeline=False)
         for patch in (mock.patch.dict(ct.ADAPTERS, {}, clear=True),
                       mock.patch.dict(kit_registry.KITS,
                                       {"fakeadapter": decl})):

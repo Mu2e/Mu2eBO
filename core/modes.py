@@ -80,18 +80,22 @@ STUDIES = load_study_dirs(MODES_DIR, os.environ.get("AUTORESEARCH_STUDY_PATH"))
 
 
 def runs_on_engine(study) -> bool:
-    """True when every kit the study names runs on the contract engine
-    (graph.study_run), False when none does (the Phase-A pipeline,
-    graph.run). A study mixing the two can run on neither until Phase C
-    moves the pipeline kits onto the engine: refused."""
+    """True when the contract engine can drive every kit the study names
+    (graph.study_run); False when it cannot but the old pipeline can drive
+    every kit (graph.run). A study no single runner can drive whole is
+    refused. Phase C3 deletes the pipeline and with it the second branch."""
     kits = kit_registry.kits_of(study)
-    engine = {k for k in kits if kit_registry.KITS[k].engine}
-    if engine and engine != kits:
-        raise ValueError(
-            f"{study.path}: mixes engine kits {sorted(engine)} with pipeline "
-            f"kits {sorted(kits - engine)}; a study runs on one or the other "
-            f"until Phase C")
-    return bool(engine)
+    decls = {k: kit_registry.KITS[k] for k in kits}
+    if all(d.engine for d in decls.values()):
+        return True
+    if all(d.pipeline for d in decls.values()):
+        return False
+    engine_only = sorted(k for k, d in decls.items() if not d.pipeline)
+    pipeline_only = sorted(k for k, d in decls.items() if not d.engine)
+    raise ValueError(
+        f"{study.path}: no single runner can drive all its kits: "
+        f"{engine_only} run only on the engine and {pipeline_only} only on "
+        f"the pipeline")
 
 
 # Engine studies run through graph.study_run / graph.study_loop; SPECS is

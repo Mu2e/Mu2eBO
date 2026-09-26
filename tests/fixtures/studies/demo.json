@@ -22,14 +22,14 @@
   ]
  },
  "kits": {
-  "prodtools": {"code_tarball": "${ARTIFACT}/demo/Code_demo.tar.bz2"},
+  "prodtools": {"code_tarball": "${ARTIFACT}/demo/Code_demo.tar.bz2", "fatal_log_codes": ["GeomSolids1001"]},
   "offline_preflight": {"musing": "${ARTIFACT}/demo/setup_local.sh", "dumps_gdml": true, "verifies_foil_gdml": true, "checks_managed_overlap": true, "require_zero_overlaps": true}
  },
  "preflight": {"kit": "offline_preflight", "params": {}, "files": ["geom"]},
  "evaluate": [
   {"step": "mubeam", "kit": "prodtools", "entry": "mubeam", "files": ["geom"], "files_from": [], "params": {}, "fixed": {"njobs": 15, "events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}},
   {"step": "mustops_ce", "kit": "prodtools", "entry": "mustops_ce", "files": ["geom"], "files_from": ["mubeam"], "params": {}, "fixed": {"njobs": 15, "events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
-  {"step": "elebeam_flash", "kit": "prodtools", "entry": "elebeam_flash", "files": ["geom"], "files_from": [], "params": {}, "fixed": {"njobs": 100, "events_per_job": 110000, "memory_mb": 2000}},
+  {"step": "elebeam_flash", "kit": "prodtools", "entry": "elebeam_flash", "files": ["geom"], "files_from": [], "params": {}, "fixed": {"njobs": 100, "events_per_job": 110000, "memory_mb": 2000, "quorum": 0.8}},
   {"step": "sob", "kit": "ce_sensitivity", "entry": null, "files": [], "files_from": ["mubeam", "mustops_ce"], "params": {}, "fixed": {}},
   {"step": "flash", "kit": "flash_edep_per_pot", "entry": null, "files": [], "files_from": ["elebeam_flash"], "params": {}, "fixed": {}}
  ],

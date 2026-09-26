@@ -1,3 +1,4 @@
+import dataclasses
 import hashlib
 import json
 import os
@@ -11,6 +12,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
+import kit_registry  # noqa: E402
 import modes  # noqa: E402
 import paths  # noqa: E402
 import study as st  # noqa: E402
@@ -166,7 +168,16 @@ class TestEngineClassification(_Tmp):
                                      "fmt": "{:.3f}"})
         with self.assertRaises(ValueError) as cm:
             modes.runs_on_engine(self.load(doc))
-        self.assertIn("mixes", str(cm.exception))
+        self.assertIn("no single runner", str(cm.exception))
+
+    def test_a_study_both_runners_can_drive_runs_on_the_engine(self):
+        both = dataclasses.replace(kit_registry.KITS["toykit"],
+                                   name="bothkit", pipeline=True)
+        doc = toy_doc()
+        doc["kits"] = {"bothkit": {"function": "branin_currin"}}
+        doc["evaluate"][0]["kit"] = "bothkit"
+        with mock.patch.dict(kit_registry.KITS, {"bothkit": both}):
+            self.assertTrue(modes.runs_on_engine(self.load(doc)))
 
     def test_compat_refuses_a_v2_board(self):
         doc = json.loads(DEMO.read_text())

@@ -627,5 +627,32 @@ class TestDirs(_Tmp):
                 self.assertIn("basename", str(cm.exception))
 
 
+class TestProdtoolsKeys(_Tmp):
+    def test_a_prodtools_step_without_quorum_is_refused(self):
+        doc = _doc()
+        del _step(doc, "mubeam")["fixed"]["quorum"]
+        self.assertRejects(doc, "evaluate[0]", "quorum")
+
+    def test_njobs_over_200_is_refused(self):
+        doc = _doc()
+        _step(doc, "elebeam_flash")["fixed"]["njobs"] = 201
+        self.assertRejects(doc, "njobs", "200")
+
+    def test_fatal_log_codes_must_be_a_list_of_strings(self):
+        for bad in ("GeomSolids1001", [""], [3]):
+            doc = _doc()
+            doc["kits"]["prodtools"]["fatal_log_codes"] = bad
+            with self.subTest(bad=bad):
+                self.assertRejects(doc, "fatal_log_codes")
+
+    def test_the_fixture_carries_the_codes_and_every_quorum(self):
+        s = st.load_study_file(FIXTURE)
+        self.assertEqual(s.kits["prodtools"]["fatal_log_codes"],
+                         ["GeomSolids1001"])
+        for step in s.steps:
+            if step.kit == "prodtools":
+                self.assertIn("quorum", step.fixed, step.step)
+
+
 if __name__ == "__main__":
     unittest.main()

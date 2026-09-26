@@ -34,8 +34,9 @@ Usage:
     `geom.render()` at 3 sample points per mode. Pins the schema-2
     conversion target: the Phase-A pipeline view must rebuild today's
     ModeSpec exactly. Stored one line per field; the data is still the
-    pre-Phase-A capture, and check applies the one declared change
-    (_drop_per_event_fallback) to the baseline, never to the file.
+    pre-Phase-A capture, and check applies the declared changes
+    (`_declared_changes`: the per-event fallback drop, and C1's
+    elebeam_flash quorum) to the baseline, never to the file.
 (e) ask-input fingerprint: sha256 of the exact arguments compute_explore_
     picks hands to surrokit.ask, per picker (budget_sob/qnehvi/qlnei), on
     the frozen foilsflash board. Pick OUTPUTS are not bit-reproducible run
@@ -407,6 +408,21 @@ def _drop_per_event_fallback(base):
             rec["metrics"][rec["metric_cols"][1]] = flash[:1]
 
 
+def _quorum_on_elebeam_flash(base):
+    """Intended Phase-C1 change (prodtools-kit spec, "Registry and data
+    changes"): every prodtools step sets quorum, so elebeam_flash gains the
+    0.8 the other stages use."""
+    for rec in base.values():
+        tuning = rec.get("stage_tuning", {})
+        if "elebeam_flash" in tuning:
+            tuning["elebeam_flash"]["quorum"] = 0.8
+
+
+def _declared_changes(base):
+    _drop_per_event_fallback(base)
+    _quorum_on_elebeam_flash(base)
+
+
 _dump = functools.partial(json.dumps, indent=2)
 # key: (label, compute, baseline, capture writer, capture pre-hook,
 #       check-time baseline adjustment)
@@ -416,7 +432,7 @@ SECTIONS = {
           _freeze_foilsflash_board, None),
     "c": ("seam replay parity", section_c, C_BASE, _dump, None, None),
     "d": ("parity", section_d, D_BASE, _dump_one_line_per_field, None,
-          _drop_per_event_fallback),
+          _declared_changes),
     "e": ("parity", section_e, E_BASE,
           functools.partial(_dump, sort_keys=True), None, None),
 }

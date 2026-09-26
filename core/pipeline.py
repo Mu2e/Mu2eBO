@@ -202,13 +202,10 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
 #
 # mustops_ce.json: G4 on Ce primaries at resampled mu- stops;
 #   geometry-dependent, geom overlay travels via --code.
-#   'physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip' = 100720 --
-#     REQUIRED: the prolog leaves it @nil, art aborts at ResamplingMixer
-#     construction without it. dir:-inloc resampler = no SAM auto-compute,
-#     so it MUST ride fcl_overrides. _render_fcl_overrides drops it to
-#     8000: each job reads ONE mubeam file (~16k events), so the random skip
-#     must stay below the smallest plausible file. The one substitution kept
-#     in Python -- it depends on submit-time state.
+#   'physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip' = 8000 --
+#     REQUIRED (the prolog leaves it @nil); the rationale lives in the
+#     template's _comment since Phase C1. _render_fcl_overrides still sets
+#     the same 8000, a no-op until C3 deletes this module.
 #   'sequential_aux' = true -- job i reads staged mubeam file i (mod N).
 #     Without it prodtools draws each job's file at random, with replacement
 #     across jobs, wasting ~1/3 of mubeam (wiki/drivers/pipeline.md).
