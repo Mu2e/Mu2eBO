@@ -20,9 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes as _modes  # noqa: E402
 import paths  # noqa: E402
 from boards import board_for  # noqa: E402
-from contract import check_kits, launch_stagger  # noqa: E402
+from contract import EXECUTORS, check_kits, launch_stagger  # noqa: E402
 from pool import next_free_name, run_rolling  # noqa: E402
-from study_run import parse_context  # noqa: E402
+from study_run import launch_refusals, parse_context  # noqa: E402
 
 
 def state_dir(name: str) -> Path:
@@ -85,7 +85,7 @@ def surrokit_pick(study):
     return pick
 
 
-def make_run_child(study, campaign, context_args):
+def make_run_child(study, campaign, context_args, executor, parallel):
     """Popen `graph.study_run` and WAIT: the wait is the barrier."""
     def run_child(name, x):
         logs = paths.GRAPH_DATA / "closed_loop_logs"
@@ -96,6 +96,9 @@ def make_run_child(study, campaign, context_args):
                "--x=" + ",".join(repr(float(v)) for v in x)]
         for pair in context_args:
             cmd += ["--context", pair]
+        cmd += ["--executor", executor]
+        if parallel is not None:
+            cmd += ["--parallel", str(parallel)]
         with open(logs / f"{name}.log", "w") as fh:
             proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fh,
                                     stderr=subprocess.STDOUT,
@@ -123,6 +126,12 @@ def main(argv=None) -> int:
                          "launch_stagger_s of the study's kits)")
     ap.add_argument("--context", action="append", default=[],
                     help="name=value, passed to every child")
+    ap.add_argument("--executor", choices=EXECUTORS, default="grid",
+                    help="where the jobs run; recorded in point.json, and a "
+                         "rerun must use the same one; passed to every child")
+    ap.add_argument("--parallel", type=int, default=None,
+                    help="jobs at once on this node, with --executor local "
+                         "only (1..16); passed to every child")
     args = ap.parse_args(argv)
 
     if args.study not in _modes.STUDIES:
@@ -140,7 +149,9 @@ def main(argv=None) -> int:
     except ValueError as exc:
         print(f"[study_loop] REFUSED: {exc}", flush=True)
         return 2
-    problems = check_kits(study, campaign=args.name_prefix)
+    problems = launch_refusals(study, args.executor, args.parallel)
+    problems += check_kits(study, campaign=args.name_prefix,
+                           executor=args.executor, parallel=args.parallel)
     if problems:
         for problem in problems:
             print(f"[study_loop] REFUSED: {problem}", flush=True)
@@ -150,11 +161,12 @@ def main(argv=None) -> int:
     print(f"[study_loop] study={study.name} q={args.q} "
           f"max_evals={args.max_evals} picker={args.picker} "
           f"prefix={args.name_prefix} board={board_for(study).path} "
-          f"stagger={stagger:g}s", flush=True)
+          f"stagger={stagger:g}s executor={args.executor}", flush=True)
     result = run_rolling(
         mode=study.name, picker=args.picker, q=args.q,
         max_evals=args.max_evals, alpha=None, name_prefix=args.name_prefix,
-        run_child=make_run_child(study, args.name_prefix, args.context),
+        run_child=make_run_child(study, args.name_prefix, args.context,
+                                 args.executor, args.parallel),
         next_pick=make_pick_source(study, args.name_prefix,
                                    surrokit_pick(study)),
         stop_flag=stop.exists,

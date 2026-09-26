@@ -114,7 +114,7 @@ class TestRetryPolicy(unittest.TestCase):
 
     def kit(self, script):
         client = FakeClient(script)
-        return ct.NativeKit(self.CFG, client), client
+        return ct.NativeKit(self.CFG, client, pause=lambda s: None), client
 
     def test_status_retries_transport_and_tool_errors(self):
         kit, c = self.kit([KitError("k", "status", "lost"),
@@ -146,6 +146,14 @@ class TestRetryPolicy(unittest.TestCase):
         with self.assertRaises(KitError):
             kit.cancel("h", "w")
         self.assertEqual(len(c.calls), 1)
+
+    def test_pauses_grow_between_attempts(self):
+        pauses = []
+        client = FakeClient([KitError("k", "status", "lost")] * 3)
+        kit = ct.NativeKit(self.CFG, client, pause=pauses.append)
+        with self.assertRaises(KitError):
+            kit.status("h", "w")
+        self.assertEqual(pauses, [5.0, 20.0])
 
 
 class _Toy(unittest.TestCase):
@@ -247,13 +255,17 @@ class TestRegistry(unittest.TestCase):
 
     def test_register_and_open(self):
         class Fake:
+            EXECUTORS = ("grid",)
             LAUNCH_STAGGER_S = 7
 
-            def __init__(self, campaign):
-                self.campaign = campaign
+            def __init__(self, campaign, *, executor, parallel):
+                self.campaign, self.executor, self.parallel = (
+                    campaign, executor, parallel)
 
         ct.register_adapter("fakeadapter", Fake)
-        self.assertEqual(ct.open_kit("fakeadapter", "camp").campaign, "camp")
+        kit = ct.open_kit("fakeadapter", "camp", executor="local", parallel=3)
+        self.assertEqual((kit.campaign, kit.executor, kit.parallel),
+                         ("camp", "local", 3))
         with self.assertRaises(ValueError):
             ct.register_adapter("fakeadapter", Fake)
 
@@ -265,13 +277,53 @@ class TestRegistry(unittest.TestCase):
 
     def test_a_kit_with_neither_is_refused(self):
         with self.assertRaises(KeyError) as cm:
-            ct.open_kit("prodtools", "c")
+            ct.open_kit("offline_preflight", "c")
         self.assertIn("kits.toml", str(cm.exception))
 
     def test_launch_stagger(self):
         with tempfile.TemporaryDirectory() as td:
             study = st.load_study_file(write_study(toy_doc(), Path(td)))
         self.assertEqual(ct.launch_stagger(study), 0.0)
+
+
+class TestExecutors(unittest.TestCase):
+    def setUp(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        self.study = st.load_study_file(write_study(toy_doc(), Path(td.name)))
+
+    def test_toykit_runs_either_way(self):
+        for executor in ("grid", "local"):
+            self.assertEqual(ct.executor_problems(self.study, executor, None),
+                             [])
+
+    def test_parallel_only_with_local_and_bounded(self):
+        self.assertTrue(ct.executor_problems(self.study, "grid", 2))
+        self.assertTrue(ct.executor_problems(self.study, "local", 17))
+        self.assertEqual(ct.executor_problems(self.study, "local", 16), [])
+
+    def test_an_unknown_executor(self):
+        self.assertIn("cloud", ct.executor_problems(self.study, "cloud",
+                                                    None)[0])
+
+    def test_a_kit_that_runs_only_on_the_grid(self):
+        cfg = replace(kit_registry.NATIVE["toykit"], executors=("grid",))
+        with mock.patch.dict(kit_registry.NATIVE, {"toykit": cfg}):
+            (problem,) = ct.executor_problems(self.study, "local", None)
+        self.assertIn("toykit", problem)
+
+    def test_kerberos_only_for_a_grid_adapter_that_asks(self):
+        self.assertFalse(ct.requires_kerberos(self.study, "grid"))
+        doc = toy_doc()
+
+        class Grid:
+            EXECUTORS = ("grid", "local")
+            REQUIRES_KERBEROS = True
+            LAUNCH_STAGGER_S = 0
+
+        with mock.patch.dict(ct.ADAPTERS, {"toykit": Grid}):
+            self.assertTrue(ct.requires_kerberos(self.study, "grid"))
+            self.assertFalse(ct.requires_kerberos(self.study, "local"))
 
 
 class TestCheckKits(_Toy):

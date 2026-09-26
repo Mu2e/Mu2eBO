@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import kit_registry  # noqa: E402
 import modes as _modes  # noqa: E402
 from boards import board_for  # noqa: E402
-from contract import KitSet  # noqa: E402
+from contract import EXECUTORS, KitSet, executor_problems, requires_kerberos  # noqa: E402
 from kits import KitError  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
@@ -27,6 +27,23 @@ from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
 def refuse(message: str) -> int:
     print(f"[study_run] REFUSED: {message}", flush=True)
     return 2
+
+
+def _kerberos():
+    import launch_checks
+    return launch_checks.check_kerberos(launch_checks.GRID_TICKET_SECONDS)
+
+
+def launch_refusals(study, executor, parallel, *, kerberos=None) -> list:
+    """Why this launch must not start, before any kit does: the executor
+    rules, then (a grid launch whose kit asks) a Kerberos ticket with 4 h
+    left."""
+    problems = executor_problems(study, executor, parallel)
+    if not problems and requires_kerberos(study, executor):
+        err = (kerberos or _kerberos)()
+        if err:
+            problems.append(err)
+    return problems
 
 
 def parse_context(pairs, study) -> dict:
@@ -57,6 +74,12 @@ def main(argv=None) -> int:
                     help="comma-separated knob values, in the study's knob order")
     ap.add_argument("--context", action="append", default=[],
                     help="name=value for each leaderboard.context value")
+    ap.add_argument("--executor", choices=EXECUTORS, default="grid",
+                    help="where the jobs run; recorded in point.json, and a "
+                         "rerun must use the same one")
+    ap.add_argument("--parallel", type=int, default=None,
+                    help="jobs at once on this node, with --executor local "
+                         "only (1..16)")
     args = ap.parse_args(argv)
 
     if args.study not in _modes.STUDIES:
@@ -72,6 +95,9 @@ def main(argv=None) -> int:
         context = parse_context(args.context, study)
     except ValueError as exc:
         return refuse(str(exc))
+    problems = launch_refusals(study, args.executor, args.parallel)
+    if problems:
+        return refuse("; ".join(problems))
     state_dir = GRID_DATA_ROOT / args.config / "state"
     broken = state_dir / "broken.txt"
     if broken.exists():
@@ -83,7 +109,8 @@ def main(argv=None) -> int:
                       f"same job). To evaluate this x again from scratch, "
                       f"use a new config name")
 
-    kits = KitSet(args.campaign)
+    kits = KitSet(args.campaign, executor=args.executor,
+                 parallel=args.parallel)
     try:
         # Start every kit now, through the KitSet the steps reuse: a kit that
         # won't start is the environment, not this point, so it is refused
@@ -97,7 +124,7 @@ def main(argv=None) -> int:
         graph = build_study_graph(
             study, config=args.config, campaign=args.campaign,
             context=context, kits=kits, state_dir=state_dir,
-            board=board_for(study)).compile()
+            board=board_for(study), executor=args.executor).compile()
         graph.invoke({"config_name": args.config, "x_point": x})
     except PointMismatch as exc:
         return refuse(str(exc))

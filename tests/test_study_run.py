@@ -256,7 +256,7 @@ class _DeadKit:
 class _DeadKitSet:
     made = []
 
-    def __init__(self, campaign):
+    def __init__(self, campaign, *, executor="grid", parallel=None):
         self.closed = False
         _DeadKitSet.made.append(self)
 
@@ -265,6 +265,64 @@ class _DeadKitSet:
 
     def close(self):
         self.closed = True
+
+
+class TestExecutorFlag(_Point):
+    def run_with(self, study, *flags, config="p1"):
+        return subprocess.run(self.cmd(study, config, (1.0, 2.0)) + list(flags),
+                              cwd=ROOT, env=self.env, capture_output=True,
+                              text=True, timeout=120)
+
+    def test_local_is_recorded_and_a_switch_is_refused(self):
+        s = self.add_study()
+        r = self.run_with(s, "--executor", "local", "--parallel", "2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        point = json.loads((self.state() / "point.json").read_text())
+        self.assertEqual(point["executor"], "local")
+        r = self.run_with(s, "--executor", "grid")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("--executor local", r.stdout)
+
+    def test_parallel_with_grid_is_refused(self):
+        r = self.run_with(self.add_study(), "--parallel", "2")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("--parallel", r.stdout)
+
+    def test_a_point_json_without_an_executor_is_refused(self):
+        s = self.add_study()
+        study = st.load_study_file(self.studies / f"{s}.json")
+        self.state().mkdir(parents=True)
+        (self.state() / "point.json").write_text(json.dumps(
+            {"study": s, "config": "p1", "campaign": "t", "x": [1.0, 2.0],
+             "context": {}, "measure_basis_sha": study.measure_basis_sha}))
+        r = self.run_point(s)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("executor", r.stdout)
+
+
+class TestLaunchRefusals(unittest.TestCase):
+    def test_the_ticket_is_checked_only_when_a_kit_asks(self):
+        study = object()
+        calls = []
+
+        def kerberos():
+            calls.append(1)
+            return "ticket has under 4 h left"
+
+        with mock.patch.object(study_run, "executor_problems",
+                               return_value=[]), \
+                mock.patch.object(study_run, "requires_kerberos",
+                                  return_value=True):
+            self.assertEqual(study_run.launch_refusals(
+                study, "grid", None, kerberos=kerberos),
+                ["ticket has under 4 h left"])
+        with mock.patch.object(study_run, "executor_problems",
+                               return_value=[]), \
+                mock.patch.object(study_run, "requires_kerberos",
+                                  return_value=False):
+            self.assertEqual(study_run.launch_refusals(
+                study, "grid", None, kerberos=kerberos), [])
+        self.assertEqual(calls, [1])
 
 
 class TestKitStartCheck(unittest.TestCase):

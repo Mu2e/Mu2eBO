@@ -49,7 +49,8 @@ def check_x(study, x) -> None:
 
 
 def build_study_graph(study, *, config: str, campaign: str, context: dict,
-                      kits, state_dir: Path, board, log=print) -> StateGraph:
+                      kits, state_dir: Path, board, log=print,
+                      executor: str = "grid") -> StateGraph:
     def workflow(step: str) -> str:
         return f"{campaign}/{config}/{step}"
 
@@ -70,7 +71,8 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
         state_dir.mkdir(parents=True, exist_ok=True)
         point = {"study": study.name, "config": config, "campaign": campaign,
                  "x": x, "context": context,
-                 "measure_basis_sha": study.measure_basis_sha}
+                 "measure_basis_sha": study.measure_basis_sha,
+                 "executor": executor}
         point_path = state_dir / "point.json"
         if point_path.exists():
             # A resume adopts the steps already submitted: they were
@@ -90,6 +92,17 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
                     f"{point_path}: the study's measurement changed since "
                     f"this point was submitted ({was[:12]} -> {now[:12]}); "
                     f"use a new config name")
+            if "executor" not in old:
+                raise PointMismatch(
+                    f"{point_path} has no executor (written before "
+                    f"point.json recorded one), so a resume cannot tell "
+                    f"whether it would switch executors mid-point; use a "
+                    f"new config name")
+            if old["executor"] != executor:
+                raise PointMismatch(
+                    f"{point_path}: this point was started with --executor "
+                    f"{old['executor']}; rerun it with --executor "
+                    f"{old['executor']}, or use a new config name")
             if old != point:
                 raise PointMismatch(
                     f"{point_path} records a different point {old}; refusing "

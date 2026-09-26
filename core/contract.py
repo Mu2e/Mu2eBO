@@ -19,22 +19,46 @@ The Kit interface, which NativeKit and every adapter implement:
 """
 from __future__ import annotations
 
+import functools
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 if __package__:
     from core import kit_registry, paths
+    from core.kit_config import EXECUTORS
     from core.kits import KitClient, KitError, KitToolError
 else:
     import kit_registry
     import paths
+    from kit_config import EXECUTORS
     from kits import KitClient, KitError, KitToolError
 
 STATES = ("working", "completed", "failed", "cancelled")
 REQUIRED_TOOLS = ("submit", "status", "results")
 ATTEMPTS = 3            # bounded retries of the calls safe to repeat
+RETRY_PAUSES_S = (5.0, 20.0)   # after the 1st and the 2nd failed attempt
+MAX_PARALLEL = 16              # prodtools' MAX_LOCAL_PARALLEL
 _URI_SCHEMES = ("file://", "root://")
+
+
+def call_with_retries(fn, *, retry_tool_errors, attempts=ATTEMPTS,
+                      pause=time.sleep):
+    """fn() up to `attempts` times. Transport failures and timeouts are
+    retried; a tool error only when retry_tool_errors (a refused submit --
+    same name, different params -- must never be repeated). Between
+    attempts it pauses RETRY_PAUSES_S: a credential blip lasts seconds."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except KitToolError:
+            if not retry_tool_errors or attempt == attempts:
+                raise
+        except KitError:
+            if attempt == attempts:
+                raise
+        pause(RETRY_PAUSES_S[min(attempt - 1, len(RETRY_PAUSES_S) - 1)])
 
 
 class ContractError(RuntimeError):
@@ -174,12 +198,13 @@ def parse_cancel(reply, kit) -> str:
 class NativeKit:
     """A kit that speaks the contract over MCP: one kits.toml entry."""
 
-    def __init__(self, config, client):
+    def __init__(self, config, client, *, pause=time.sleep):
         self.name = config.name
         self.config = config
         self.client = client
         self.accepts_lists = config.accepts_lists
         self.poll_s = config.poll_s
+        self._pause = pause
 
     def _ensure_started(self) -> None:
         if not self.client.started:
@@ -198,20 +223,13 @@ class NativeKit:
     def _call(self, tool, args, workflow, *, retry_tool_errors,
               attempts=ATTEMPTS):
         """Transport failures and timeouts are retried (the client respawns
-        a lost server before the next call). A tool error is retried only
-        for read-only calls: a refused submit (same name, different params)
-        must never be repeated."""
-        for attempt in range(1, attempts + 1):
-            try:
-                return self.client.call(tool, args,
-                                        timeout_s=self.config.timeouts[tool],
-                                        workflow=workflow)
-            except KitToolError:
-                if not retry_tool_errors or attempt == attempts:
-                    raise
-            except KitError:
-                if attempt == attempts:
-                    raise
+        a lost server before the next call); see call_with_retries."""
+        return call_with_retries(
+            lambda: self.client.call(tool, args,
+                                     timeout_s=self.config.timeouts[tool],
+                                     workflow=workflow),
+            retry_tool_errors=retry_tool_errors, attempts=attempts,
+            pause=self._pause)
 
     def submit(self, name, params, files, inputs, workflow) -> str:
         # Safe to repeat after a timeout: submit is idempotent by name.
@@ -253,11 +271,11 @@ class NativeKit:
         self.client.close()
 
 
-# Kits implemented in Python: Phase C registers prodtools and the three
-# plugins. A factory is a class taking the campaign name, with a
-# LAUNCH_STAGGER_S attribute; its kit needs a kit_registry declaration with
-# engine=True and no kits.toml entry.
-ADAPTERS: Dict[str, Callable[[str], Any]] = {}
+# Kits implemented in Python (core/adapters/). A factory is a class called
+# factory(campaign, executor=..., parallel=...), with LAUNCH_STAGGER_S and
+# EXECUTORS attributes (REQUIRES_KERBEROS optional); its kit needs a
+# kit_registry declaration with engine=True and no kits.toml entry.
+ADAPTERS: Dict[str, Callable[..., Any]] = {}
 
 
 def register_adapter(name: str, factory) -> None:
@@ -270,9 +288,21 @@ def register_adapter(name: str, factory) -> None:
     ADAPTERS[name] = factory
 
 
-def open_kit(name: str, campaign: str):
+def _load_adapters() -> None:
+    """Register core/adapters' kits once per process (idempotent): lazily,
+    because an adapter module imports this one."""
+    if __package__:
+        from core.adapters import register_all
+    else:
+        from adapters import register_all
+    register_all(register_adapter, ADAPTERS)
+
+
+def open_kit(name: str, campaign: str, *, executor: str = "grid",
+             parallel=None):
+    _load_adapters()
     if name in ADAPTERS:
-        return ADAPTERS[name](campaign)
+        return ADAPTERS[name](campaign, executor=executor, parallel=parallel)
     cfg = kit_registry.NATIVE.get(name)
     if cfg is None:
         raise KeyError(f"kit {name!r} has no adapter and no kits.toml entry, "
@@ -285,6 +315,7 @@ def open_kit(name: str, campaign: str):
 def launch_stagger(study) -> float:
     """Seconds between a campaign's child launches: the largest any of the
     study's kits asks for."""
+    _load_adapters()
     gap = 0.0
     for name in kit_registry.kits_of(study):
         if name in ADAPTERS:
@@ -294,13 +325,54 @@ def launch_stagger(study) -> float:
     return gap
 
 
+def _executors_of(name: str) -> tuple:
+    if name in ADAPTERS:
+        return tuple(ADAPTERS[name].EXECUTORS)
+    cfg = kit_registry.NATIVE.get(name)
+    return cfg.executors if cfg is not None else ()
+
+
+def executor_problems(study, executor: str, parallel) -> List[str]:
+    """Why the study cannot run with this --executor / --parallel; an empty
+    list means it can."""
+    if executor not in EXECUTORS:
+        return [f"--executor must be one of {list(EXECUTORS)}, got "
+                f"{executor!r}"]
+    _load_adapters()
+    problems = []
+    if parallel is not None:
+        if executor != "local":
+            problems.append("--parallel applies to --executor local only")
+        elif not 1 <= parallel <= MAX_PARALLEL:
+            problems.append(f"--parallel must be 1..{MAX_PARALLEL}, got "
+                            f"{parallel}")
+    for name in sorted(kit_registry.kits_of(study)):
+        supported = _executors_of(name)
+        if executor not in supported:
+            problems.append(f"kit {name!r} cannot run with --executor "
+                            f"{executor} (it supports {list(supported)})")
+    return problems
+
+
+def requires_kerberos(study, executor: str) -> bool:
+    """True when a grid launch of this study needs a Kerberos ticket: some
+    kit of it says so (the prodtools adapter does)."""
+    if executor != "grid":
+        return False
+    _load_adapters()
+    return any(getattr(ADAPTERS.get(n), "REQUIRES_KERBEROS", False)
+               for n in kit_registry.kits_of(study))
+
+
 class KitSet:
     """The kits one child uses: opened on first use (one server per kit),
     closed together. Thread-safe: run_steps' threads share it."""
 
-    def __init__(self, campaign: str, opener=open_kit):
+    def __init__(self, campaign: str, opener=None, *, executor: str = "grid",
+                parallel=None):
         self.campaign = campaign
-        self._opener = opener
+        self._opener = opener or functools.partial(
+            open_kit, executor=executor, parallel=parallel)
         self._kits: Dict[str, Any] = {}
         self._lock = threading.Lock()
 
@@ -341,12 +413,15 @@ def _needs(study, kit_name):
     return params, metrics, profile_params
 
 
-def check_kits(study, *, campaign: str, opener=open_kit) -> List[str]:
+def check_kits(study, *, campaign: str, opener=None, executor: str = "grid",
+               parallel=None) -> List[str]:
     """The launch check. Every kit the study names must start, offer the
     contract's tools (and `check` when it runs the preflight), and report a
     server version, which measure_sha needs. When a kit offers `describe`,
     the study's params must be ones it accepts and its metrics ones it
     returns. Returns the problems; an empty list means launch."""
+    opener = opener or functools.partial(open_kit, executor=executor,
+                                         parallel=parallel)
     problems = []
     for name in sorted(kit_registry.kits_of(study)):
         try:

@@ -211,5 +211,44 @@ class TestLaunchRefusals(unittest.TestCase):
         self.assertIn("graph.closed_loop", r.stdout)
 
 
+class TestChildFlags(unittest.TestCase):
+    def test_children_get_the_executor_and_parallel(self):
+        seen = {}
+
+        class P:
+            def __init__(self, cmd, **kw):
+                seen["cmd"] = cmd
+
+            def wait(self):
+                return 0
+
+        study = types.SimpleNamespace(name="toy")
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.object(study_loop.subprocess, "Popen", P), \
+                mock.patch.object(study_loop.paths, "GRAPH_DATA", Path(td)):
+            study_loop.make_run_child(study, "camp", [], "local", 3)(
+                "n1", [1.0, 2.0])
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[cmd.index("--executor") + 1], "local")
+        self.assertEqual(cmd[cmd.index("--parallel") + 1], "3")
+
+    def test_grid_children_get_no_parallel(self):
+        seen = {}
+
+        class P:
+            def __init__(self, cmd, **kw):
+                seen["cmd"] = cmd
+
+            def wait(self):
+                return 0
+
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.object(study_loop.subprocess, "Popen", P), \
+                mock.patch.object(study_loop.paths, "GRAPH_DATA", Path(td)):
+            study_loop.make_run_child(types.SimpleNamespace(name="toy"),
+                                      "camp", [], "grid", None)("n1", [1.0])
+        self.assertNotIn("--parallel", seen["cmd"])
+
+
 if __name__ == "__main__":
     unittest.main()
