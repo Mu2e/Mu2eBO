@@ -89,15 +89,68 @@ class Kits:
         return self.kit
 
 
+class RaisingToolsKit:
+    """Wraps a FakeKit but raises KitError from `tools`, like a NativeKit
+    whose MCP server died and could not be restarted (contract.py's
+    NativeKit.tools calls _ensure_started -> client.start())."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.name, self.version = inner.name, inner.version
+        self.accepts_lists, self.poll_s = inner.accepts_lists, inner.poll_s
+
+    @property
+    def tools(self):
+        raise KitError(self.name, "tools", "server lost")
+
+    def submit(self, *a, **kw):
+        return self._inner.submit(*a, **kw)
+
+    def status(self, *a, **kw):
+        return self._inner.status(*a, **kw)
+
+    def results(self, *a, **kw):
+        return self._inner.results(*a, **kw)
+
+    def cancel(self, *a, **kw):
+        return self._inner.cancel(*a, **kw)
+
+    def close(self):
+        self._inner.close()
+
+
+class FlakyKits:
+    """kits.get(name) returns the mapped kit the first time it is asked
+    for a flaky name, then raises KitError on every later call: models a
+    kit whose server was up when its step submitted (kits.get inside
+    _run_one) but is gone by the time cancellation asks for it again
+    (kits.get inside _cancel_running)."""
+
+    def __init__(self, by_name, flaky_names):
+        self.by_name = dict(by_name)
+        self.flaky_names = set(flaky_names)
+        self.calls = {}
+        self._lock = threading.Lock()
+
+    def get(self, name):
+        with self._lock:
+            seen = self.calls.get(name, 0)
+            self.calls[name] = seen + 1
+        if name in self.flaky_names and seen >= 1:
+            raise KitError(name, "get", "kit lost")
+        return self.by_name[name]
+
+
 class _Run(unittest.TestCase):
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
         self.addCleanup(self._td.cleanup)
         self.state = Path(self._td.name) / "state"
 
-    def run_steps(self, st, kit, env=None, sleep=None, state=None, log=None):
+    def run_steps(self, st, kit=None, env=None, sleep=None, state=None,
+                 log=None, kits=None):
         return sch.run_steps(st, config="c", state_dir=state or self.state,
-                             env=env or {}, files={}, kits=Kits(kit),
+                             env=env or {}, files={}, kits=kits or Kits(kit),
                              workflow=lambda s: f"camp/c/{s}",
                              sleep=sleep or (lambda s: time.sleep(0.001)),
                              log=log or (lambda m: None))
@@ -324,6 +377,46 @@ class TestCancelOnFailure(_Run):
                              log=logs.append)
         self.assertTrue(out["b"].ok)
         self.assertTrue(any("cannot cancel" in m for m in logs), logs)
+
+    def test_a_kit_whose_tools_check_raises_still_returns(self):
+        # A step's kit.tools raising (a NativeKit whose MCP server died and
+        # could not respawn) must not escape run_steps: the cancel is
+        # logged as failed and the step runs to completion. "b"'s script
+        # has a terminal state so a regression (the loop never even
+        # attempting cancellation) fails the assertions instead of hanging.
+        kit_a = FakeKit({"a": ["working", "failed"]})
+        kit_b = RaisingToolsKit(FakeKit({"b": ["working"] * 200 + ["completed"]}))
+        logs = []
+        out = self.run_steps(
+            study(step("a", kit="ka"), step("b", kit="kb")),
+            log=logs.append, kits=FlakyKits({"ka": kit_a, "kb": kit_b}, ()))
+        self.assertFalse(out["a"].ok)
+        self.assertTrue(out["b"].ok)
+        self.assertTrue(any("cancel failed" in m for m in logs), logs)
+
+    def test_cancel_running_skips_a_kit_whose_get_raises(self):
+        # kits.get() itself raising for one running step's kit (distinct
+        # from a resolved kit's .tools raising, above) must not stop
+        # _cancel_running from reaching the other running steps. Both "b1"
+        # and "b2" have a terminal state so a regression that never
+        # reaches "b2" fails the assertions instead of hanging.
+        kit_a = FakeKit({"a": ["working", "failed"]})
+        kit_b1 = FakeKit({"b1": ["working"] * 5 + ["completed"]})
+        kit_b2 = FakeKit({"b2": ["working"] * 200 + ["completed"]},
+                         cancellable=True)
+        kits = FlakyKits({"ka": kit_a, "kb1": kit_b1, "kb2": kit_b2},
+                         flaky_names=("kb1",))
+        logs = []
+        out = self.run_steps(
+            study(step("a", kit="ka"), step("b1", kit="kb1"),
+                 step("b2", kit="kb2")),
+            log=logs.append, kits=kits)
+        self.assertFalse(out["a"].ok)
+        self.assertTrue(out["b1"].ok)
+        self.assertFalse(out["b2"].ok)
+        self.assertIn("cancelled", out["b2"].message)
+        self.assertIn(("cancel", "b2"), kit_b2.events)
+        self.assertTrue(any("cancel failed" in m for m in logs), logs)
 
     def test_a_step_not_submitted_yet_never_submits(self):
         kit = FakeKit()

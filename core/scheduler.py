@@ -164,11 +164,16 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
 
 
 def _cancel_one(kit, step, handle, workflow, log) -> None:
-    if "cancel" not in getattr(kit, "tools", ()):
-        log(f"[steps] {step.step}: kit {step.kit} cannot cancel; it runs to "
-            f"completion")
-        return
+    """A KitError/ContractError from the tools check or the cancel call
+    itself (e.g. a NativeKit whose MCP server died and cannot respawn) is
+    logged the same way as a refused cancel: the step runs to completion.
+    Anything else (a kit missing `tools` entirely) is a bug and is not
+    caught here."""
     try:
+        if "cancel" not in kit.tools:
+            log(f"[steps] {step.step}: kit {step.kit} cannot cancel; it "
+                f"runs to completion")
+            return
         state = kit.cancel(handle, workflow)
         log(f"[steps] {step.step}: cancel requested ({state})")
     except (KitError, ContractError) as exc:
@@ -178,14 +183,23 @@ def _cancel_one(kit, step, handle, workflow, log) -> None:
 
 def _cancel_running(study, names, state_dir, kits, workflow, log) -> None:
     """Cancel each running step that has submitted. One that has not yet
-    will see the stop event and never submit."""
+    will see the stop event and never submit. A kit that cannot even be
+    opened/fetched (KitError/ContractError, e.g. a lost server) is logged
+    the same way; it does not stop the other names in `names` from being
+    cancelled."""
     by_name = {s.step: s for s in study.steps}
     for name in sorted(names):
         handle_path = state_dir / f"{name}_cluster.txt"
         if not handle_path.exists():
             continue
         s = by_name[name]
-        _cancel_one(kits.get(s.kit), s, handle_path.read_text().strip(),
+        try:
+            kit = kits.get(s.kit)
+        except (KitError, ContractError) as exc:
+            log(f"[steps] {name}: cancel failed ({exc}); it runs to "
+                f"completion")
+            continue
+        _cancel_one(kit, s, handle_path.read_text().strip(),
                     workflow(name), log)
 
 
