@@ -23,7 +23,7 @@ import json
 import os
 import re
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -286,8 +286,7 @@ class ProdtoolsKit:
             raise KitError(self.name, "cancel",
                            "the prodtools write server has no cancel_run tool")
         reply = self._call(self._write, "cancel_run",
-                           {"name": rec["run_name"], "run_as": "self"},
-                           workflow)
+                           self._cancel_args(rec["run_name"]), workflow)
         return parse_cancel({"state": reply.get("state")}, self.name)
 
     # --- submit ------------------------------------------------------------
@@ -350,15 +349,11 @@ class ProdtoolsKit:
                 "fatal_log_codes": list(params["fatal_log_codes"])}
 
     def _launch(self, rec, workflow) -> None:
-        args = {"json": rec["entry_path"], "desc": rec["desc"],
-                "dsconf": rec["dsconf"], "run_as": "self"}
-        if self.executor == "grid":
-            with _flock(self._submit_lock):
-                receipt = self._call(self._write, "submit_once", args,
-                                     workflow)
-        else:
-            receipt = self._call(self._write, "run_local",
-                                 dict(args, parallel=self.parallel), workflow)
+        tool, args = self._launch_call(rec)
+        lock = (_flock(self._submit_lock) if self.executor == "grid"
+                else nullcontext())
+        with lock:
+            receipt = self._call(self._write, tool, args, workflow)
         if receipt.get("name") != rec["run_name"]:
             raise KitError(self.name, "submit",
                            f"prodtools named the run {receipt.get('name')!r}; "
@@ -483,6 +478,25 @@ class ProdtoolsKit:
                       run_dir=str(Path(reply["receipt"]).parent))
         return md
 
+    # --- call arguments ----------------------------------------------------
+    # Built here only, so the opt-in real-server test in
+    # tests/test_prodtools_adapter.py checks exactly what is sent.
+    def _launch_call(self, rec):
+        """(tool, args) of this executor's submit."""
+        args = {"json": rec["entry_path"], "desc": rec["desc"],
+                "dsconf": rec["dsconf"], "run_as": "self"}
+        if self.executor == "grid":
+            return "submit_once", args
+        return "run_local", dict(args, parallel=self.parallel)
+
+    @staticmethod
+    def _cancel_args(run_name) -> dict:
+        return {"name": run_name, "run_as": "self"}
+
+    @staticmethod
+    def _run_status_args(run_name) -> dict:
+        return {"name": run_name, "user": pe.USER}
+
     # --- plumbing ----------------------------------------------------------
     def _call(self, client, tool, args, workflow):
         return client.call(tool, args, timeout_s=client.config.timeouts[tool],
@@ -497,7 +511,7 @@ class ProdtoolsKit:
         mistaken for this sentinel -- only a dict-shaped "error" is it."""
         def once():
             reply = self._call(self._read, "run_status",
-                               {"name": run_name, "user": pe.USER}, workflow)
+                               self._run_status_args(run_name), workflow)
             err = reply.get("error")
             if isinstance(err, dict) and err.get("kind") != "not_found":
                 raise KitToolError(

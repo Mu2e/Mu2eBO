@@ -22,19 +22,22 @@ timeouts = { start = 60, submit = 30, status = 30, results = 30, check = 30, des
 
 # Servers an adapter talks to (core/kit_config.py ServerConfig): not kits.
 # The prodtools adapter (core/adapters/prodtools.py) starts both from the
-# checkout $AUTORESEARCH_PRODTOOLS names. KRB5CCNAME is the only credential
-# to pass: the bearer token lives at its default /run/user/<uid>/bt_u<uid>,
-# and the write server refreshes it on every call. The spack cache goes to
-# local disk, as the pipeline and preflight already do
+# checkout $AUTORESEARCH_PRODTOOLS names. KRB5CCNAME and XDG_RUNTIME_DIR are
+# the credentials to pass: the servers find the bearer token at
+# $XDG_RUNTIME_DIR/bt_u<uid>, the file the operator's shell, jobsub and the
+# pipeline refresh (without the variable they would read /tmp/bt_u<uid>).
+# The write server refreshes that token from the Kerberos ticket on write
+# calls; it does not renew the ticket. The spack cache goes to local disk,
+# as the pipeline and preflight already do
 # (wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md).
 [servers.prodtools_write]
 command = ["${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_write_mcp.sh"]
-env_passthrough = ["KRB5CCNAME"]
+env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR"]
 set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
 timeouts = { start = 120, submit_once = 900, run_local = 300, cancel_run = 120 }
 
 [servers.prodtools_read]
 command = ["${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_mcp.sh"]
-env_passthrough = ["KRB5CCNAME"]
+env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR"]
 set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
 timeouts = { start = 120, run_status = 120 }

@@ -242,6 +242,11 @@ class TestServersAndExecutors(unittest.TestCase):
         self.assertEqual(sorted(servers), ["prodtools_read", "prodtools_write"])
         self.assertIn("submit_once", servers["prodtools_write"].timeouts)
         self.assertIn("run_status", servers["prodtools_read"].timeouts)
+        # The bearer token is found at $XDG_RUNTIME_DIR/bt_u<uid>; without
+        # the variable the servers would read a stale /tmp/bt_u<uid>.
+        for srv in servers.values():
+            self.assertEqual(srv.env_passthrough,
+                             ("KRB5CCNAME", "XDG_RUNTIME_DIR"))
 
     def test_a_kit_client_starts_from_a_server_config(self):
         import kits

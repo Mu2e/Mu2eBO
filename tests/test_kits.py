@@ -280,6 +280,16 @@ class TestTextReplies(unittest.TestCase):
         self.assertEqual(self.call("structured", {}),
                          {"from": "structured"})
 
+    def test_start_keeps_each_tools_input_schema(self):
+        self.c.start()
+        schema = self.c.tool_schemas["run_status"]
+        self.assertEqual(sorted(schema["properties"]),
+                         ["mine", "name", "user"])
+        self.assertEqual(schema["required"], ["name"])
+        self.assertEqual(set(self.c.tool_schemas), set(self.c.tools))
+        self.c.close()
+        self.assertEqual(self.c.tool_schemas, {})
+
 
 class TestEnvironment(_Client):
     def test_child_env_is_allowlist_plus_passthrough_plus_set(self):

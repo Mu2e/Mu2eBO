@@ -67,6 +67,7 @@ class KitClient:
         self.server_name = None
         self.server_version = None
         self.tools = frozenset()
+        self.tool_schemas = {}      # tool -> its inputSchema, at start
         self._stderr_tail = deque(maxlen=STDERR_TAIL)
         self._pump = None
         self._lock = threading.RLock()
@@ -140,6 +141,8 @@ class KitClient:
                     self.server_version = init.server_info.version
                     listing = await session.list_tools()
                     self.tools = frozenset(t.name for t in listing.tools)
+                    self.tool_schemas = {t.name: t.input_schema
+                                         for t in listing.tools}
                     self._session = session
                     self._generation += 1
                     ready.set_result(None)
@@ -159,6 +162,7 @@ class KitClient:
                 errlog.close()
             self._session = None
             self.tools = frozenset()
+            self.tool_schemas = {}
 
     def _stderr_tee(self):
         """A pipe the child writes to; a pump thread keeps the last lines
@@ -194,6 +198,7 @@ class KitClient:
         loop, thread, task = self._loop, self._thread, self._task
         self._session = None
         self.tools = frozenset()
+        self.tool_schemas = {}
         if task is not None and not task.done():
             # Cancel and await the REAL task on its own loop, so
             # stdio_client's shutdown (close stdin, wait, SIGTERM/SIGKILL)

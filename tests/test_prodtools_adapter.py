@@ -8,6 +8,7 @@ import tarfile
 import tempfile
 import types
 import unittest
+import uuid
 from collections import defaultdict
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,11 +17,12 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 import contract as ct  # noqa: E402
+import kit_config  # noqa: E402
 import kit_registry  # noqa: E402
 import scheduler  # noqa: E402
 from adapters import prodtools as pk  # noqa: E402
 from adapters import prodtools_entry as pe  # noqa: E402
-from kits import KitError, KitTimeout, KitToolError  # noqa: E402
+from kits import KitClient, KitError, KitTimeout, KitToolError  # noqa: E402
 from study import Step  # noqa: E402
 
 USER = "tester"
@@ -585,6 +587,83 @@ class TestWithRunSteps(_Kit):
         mubeam_files = sorted(Path(p).name for p in sum(
             self.fake.runs[self.run_name()]["outputs"].values(), []))
         self.assertEqual(sorted(ce["input_data"]), mubeam_files)
+
+
+REAL_SERVERS = (bool(os.environ.get("AUTORESEARCH_PRODTOOLS"))
+                and os.environ.get("AUTORESEARCH_REAL_KIT_TESTS") == "1")
+
+
+@unittest.skipUnless(REAL_SERVERS, "needs AUTORESEARCH_PRODTOOLS set and "
+                     "AUTORESEARCH_REAL_KIT_TESTS=1 (starts the real "
+                     "prodtools servers)")
+class TestRealServers(unittest.TestCase):
+    """The contract check against the real prodtools servers, started from
+    kits.toml through KitClient. Read-only: tools/list and run_status on
+    a run that cannot exist. It never calls a write tool."""
+
+    WF = "contract-check/real-servers"
+
+    def setUp(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        self.tmp = Path(td.name)
+        servers = kit_config.load_server_configs()
+        self.clients = {role: KitClient(servers[f"prodtools_{role}"],
+                                        campaign="contract-check",
+                                        trace_dir=self.tmp)
+                        for role in ("write", "read")}
+
+    def tearDown(self):
+        for client in self.clients.values():
+            client.close()
+
+    def kit(self, executor):
+        for client in self.clients.values():
+            client.start()
+        return pk.ProdtoolsKit(
+            "contract-check", executor=executor,
+            parallel=2 if executor == "local" else None,
+            clients=self.clients, grid_root=self.tmp / "grid",
+            pnfs_root=self.tmp / "pnfs", submit_lock=self.tmp / "submit.lock")
+
+    def assert_fits(self, role, tool, args):
+        """`args` names only properties `tool`'s input schema declares
+        and every property it requires."""
+        client = self.clients[role]
+        self.assertIn(tool, client.tool_schemas,
+                      f"{client.config.name} has no tool {tool!r}")
+        schema = client.tool_schemas[tool]
+        declared = set(schema.get("properties", {}))
+        self.assertLessEqual(set(args), declared,
+                             f"{tool}: the adapter sends "
+                             f"{sorted(set(args) - declared)}, which its "
+                             f"input schema does not declare")
+        required = set(schema.get("required", ()))
+        self.assertLessEqual(required, set(args),
+                             f"{tool}: the adapter omits required "
+                             f"{sorted(required - set(args))}")
+
+    def no_such_run(self):
+        return (f"cnf.{pe.USER}.autoresearchContractCheck."
+                f"{uuid.uuid4().hex}.0")
+
+    def test_every_argument_dict_fits_its_tools_input_schema(self):
+        name = self.no_such_run()
+        rec = {"entry_path": str(self.tmp / "entry.json"),
+               "desc": "autoresearchContractCheck", "dsconf": "none",
+               "run_name": name}
+        for executor in ("grid", "local"):
+            tool, args = self.kit(executor)._launch_call(rec)
+            with self.subTest(executor=executor, tool=tool):
+                self.assert_fits("write", tool, args)
+        self.assert_fits("write", "cancel_run", pk.ProdtoolsKit._cancel_args(
+            name))
+        self.assert_fits("read", "run_status",
+                         pk.ProdtoolsKit._run_status_args(name))
+
+    def test_run_status_of_a_run_that_cannot_exist_is_none(self):
+        self.assertIsNone(self.kit("grid")._run_status(self.no_such_run(),
+                                                       self.WF))
 
 
 class TestRegistration(unittest.TestCase):
