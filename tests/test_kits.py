@@ -12,6 +12,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
+from kit_config import ServerConfig  # noqa: E402
 from kits import (KitClient, KitError, KitTimeout, KitToolError,  # noqa: E402
                   WORKFLOW_META_KEY)
 from tests.engine_fixtures import toy_config  # noqa: E402
@@ -210,6 +211,74 @@ class TestLeakedLoop(_Client):
 # branch) is implemented per the ruling but is untested against a real
 # server; see task-3-report.md fix round 1 for the probes that established
 # this.
+
+
+class TestTextReplies(unittest.TestCase):
+    """prodtools never sends structured content: its read tools are
+    declared `-> dict`, its write tools have no return annotation, and
+    neither sets structured_output, so each reply is JSON as text only.
+    tests/textkit.py registers its tools both ways."""
+
+    def setUp(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        cfg = ServerConfig(
+            name="textkit",
+            command=(sys.executable, str(ROOT / "tests" / "textkit.py")),
+            env_passthrough=(), set_env={}, timeouts={"start": 60.0})
+        self.c = KitClient(cfg, campaign="camp", trace_dir=Path(td.name))
+        self.addCleanup(self.c.close)
+
+    def call(self, tool, args):
+        return self.c.call(tool, args, timeout_s=30, workflow=WF)
+
+    def raw(self, tool, args):
+        """The server's own CallToolResult, past KitClient's parsing."""
+        self.c.start()
+        return asyncio.run_coroutine_threadsafe(
+            self.c._session.call_tool(tool, args, read_timeout_seconds=30),
+            self.c._loop).result(30)
+
+    SUBMIT = {"json": "/e.json", "desc": "d", "dsconf": "c", "run_as": "self"}
+
+    def test_the_toy_server_replies_in_text_only_like_prodtools(self):
+        for tool, args in (("run_status", {"name": "cnf.x.0"}),
+                           ("submit_once", self.SUBMIT)):
+            with self.subTest(tool=tool):
+                res = self.raw(tool, args)
+                self.assertFalse(res.is_error)
+                self.assertIsNone(res.structured_content)
+
+    def test_a_reply_declared_dict_is_parsed_from_its_text(self):
+        self.assertEqual(
+            self.call("run_status", {"name": "cnf.x.0", "user": "tester"}),
+            {"name": "cnf.x.0", "state": "done",
+             "created_utc": "2026-09-26T00:00:00+00:00", "user": "tester"})
+
+    def test_a_reply_with_no_return_annotation_is_parsed_from_its_text(self):
+        self.assertEqual(self.call("submit_once", self.SUBMIT),
+                         {"name": "cnf.tester.d.c.0", "state": "submitted",
+                          "json": "/e.json", "run_as": "self"})
+
+    def test_a_text_reply_that_is_not_a_json_object_is_refused(self):
+        for text, needle in (("[1, 2]", "JSON list, not an object"),
+                             ("7", "JSON int, not an object"),
+                             ("not json", "not JSON"),
+                             ("", "not JSON"),
+                             ("x" * 500, "not JSON")):
+            with self.subTest(text=text[:20]):
+                with self.assertRaises(KitError) as cm:
+                    self.call("echo_text", {"text": text})
+                self.assertNotIsInstance(cm.exception, KitToolError)
+                self.assertEqual(cm.exception.tool, "echo_text")
+                self.assertIn(needle, cm.exception.message)
+                self.assertIn(repr(text[:200]), cm.exception.message)
+                if len(text) > 200:
+                    self.assertNotIn(text[:201], cm.exception.message)
+
+    def test_structured_content_wins_over_the_text(self):
+        self.assertEqual(self.call("structured", {}),
+                         {"from": "structured"})
 
 
 class TestEnvironment(_Client):

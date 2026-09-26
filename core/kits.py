@@ -275,10 +275,22 @@ class KitClient:
                        if getattr(c, "type", None) == "text")
         if res.is_error:
             raise KitToolError(name, tool, _strip_prefix(text, tool))
-        if res.structured_content is None:
-            raise KitError(name, tool, f"reply has no structured content: "
-                           f"{text[:200]!r}")
-        return res.structured_content
+        if res.structured_content is not None:
+            return res.structured_content
+        # prodtools' tools are declared `-> dict` or not at all and never
+        # set structured_output, so under mcp 2.x their replies are JSON as
+        # text only (tests/textkit.py registers tools both ways).
+        try:
+            reply = json.loads(text)
+        except ValueError as exc:
+            raise KitError(name, tool, f"reply has no structured content and "
+                           f"its text is not JSON ({exc}): "
+                           f"{text[:200]!r}") from None
+        if not isinstance(reply, dict):
+            raise KitError(name, tool, f"reply has no structured content and "
+                           f"its text is JSON {type(reply).__name__}, not an "
+                           f"object: {text[:200]!r}")
+        return reply
 
     def _lost(self, tool, exc, generation):
         """The session is gone or in an unknown state. Close it so the next
