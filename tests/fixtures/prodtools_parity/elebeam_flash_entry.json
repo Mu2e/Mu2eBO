@@ -1,0 +1,34 @@
+[
+ {
+  "desc": "Run1A_EleBeamFlash_gridphaseA01",
+  "dsconf": "Run1Bak_gridphaseA01",
+  "owner": "oksuzian",
+  "fcl": "Production/JobConfig/pileup/EleBeamResampler.fcl",
+  "code": "CODE",
+  "njobs": 100,
+  "outloc": {
+   "*.art": "outstage",
+   "*.root": "outstage"
+  },
+  "events": 110000,
+  "run": 1803,
+  "memory": "2000MB",
+  "input_data": {
+   "sim.mu2e.EleBeamCat.Run1Baa.art": 1
+  },
+  "inloc": "tape",
+  "resampler_name": "beamResampler",
+  "fcl_overrides": {
+   "#include": "Production/JobConfig/pileup/epilog_1b.fcl",
+   "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
+   "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
+   "physics.filters.EarlyPrescaleFilter.nPrescale": 1,
+   "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyEleBeamFlash.version.sequencer.art",
+   "outputs.FlashOutput.fileName": "dts.owner.EleBeamFlash.version.sequencer.art",
+   "services.TFileService.fileName": "nts.owner.elebeamflash.version.sequencer.root",
+   "services.SeedService.baseSeed": 1,
+   "services.GeometryService.inputFile": "autoresearch_gridphaseA01_geom.txt",
+   "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_v01.txt"
+  }
+ }
+]

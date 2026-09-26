@@ -8,12 +8,13 @@ Spec: docs/superpowers/specs/2026-08-16-prodtools-switch-design.md.
 import getpass
 import json
 import os
-import re
 import shutil
 import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
 
+from adapters.prodtools_entry import (  # noqa: F401 -- render_entry: pipeline.py calls px.render_entry
+    render_entry, substitute_placeholders, write_entry_file)
 from paths import REPO_ROOT, prodtools_root
 
 USER = os.environ.get("USER") or getpass.getuser()
@@ -21,39 +22,6 @@ USER = os.environ.get("USER") or getpass.getuser()
 # Checked-in json2jobdef-native entry templates, one per stage; see
 # load_stage_entry.
 STAGE_ENTRIES_DIR = REPO_ROOT / "stage_entries"
-
-# Substitution is closed: ONLY {cfg}/{geom} are recognized. Runtime fields
-# (njobs, tuning overrides, staged inputs) are never templated — pipeline.py
-# merges them in after load_stage_entry returns.
-_STAGE_ENTRY_PLACEHOLDERS = ("cfg", "geom")
-_PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
-
-
-def _substitute_placeholders(value, mapping: dict, where: str):
-    """Recursively substitute {cfg}/{geom} in string values (nested dicts/lists).
-
-    Any other {token} is a loud ValueError naming the key path: a typo must
-    fail at load, not render literally into a submitted FHiCL override.
-    Always builds NEW containers — never mutates in place, so repeated calls
-    over the same cached raw JSON can't alias between callers.
-    """
-    if isinstance(value, str):
-        def repl(m):
-            token = m.group(1)
-            if token not in mapping:
-                raise ValueError(
-                    f"stage_entries: unknown placeholder {{{token}}} at "
-                    f"{where!r} -- only {_STAGE_ENTRY_PLACEHOLDERS} are "
-                    f"substituted")
-            return str(mapping[token])
-        return _PLACEHOLDER_RE.sub(repl, value)
-    if isinstance(value, list):
-        return [_substitute_placeholders(v, mapping, f"{where}[{i}]")
-                for i, v in enumerate(value)]
-    if isinstance(value, dict):
-        return {k: _substitute_placeholders(v, mapping, f"{where}.{k}")
-                for k, v in value.items()}
-    return value
 
 
 def load_stage_entry(stage: str, *, cfg: str, geom: str,
@@ -70,7 +38,7 @@ def load_stage_entry(stage: str, *, cfg: str, geom: str,
         raise SystemExit(
             f"stage_entries: no template for stage {stage!r} at {path}")
     raw = json.loads(path.read_text())
-    return _substitute_placeholders(raw, {"cfg": cfg, "geom": geom}, stage)
+    return substitute_placeholders(raw, {"cfg": cfg, "geom": geom}, stage)
 
 # Same outstage root the mu2ejobsub era used; prodtools computes it as
 # {wftop}/{user}/workflow/{wfproject}/outstage.
@@ -88,58 +56,9 @@ def cluster_worker_logs(cluster_dir) -> list:
     return sorted(Path(cluster_dir).glob("*/*.log"))
 
 
-_DEFAULT_OUTLOC = {"*.art": "outstage", "*.root": "outstage"}
-
-
-def render_entry(*, dsconf, desc, njobs,
-                 code_tarball, fcl_name, events=None, run=None,
-                 memory_mb=None, input_data=None, inloc=None,
-                 resampler_name=None, fcl_overrides=None,
-                 outloc=None, sequential_aux=None) -> dict:
-    """One json2jobdef entry dict for a (config, stage).
-
-    `fcl_name` is the PUBLISHED Production FCL path from
-    stage_entries/<stage>.json; `fcl_overrides` is copied verbatim (prodtools
-    renders it on top of that base FCL). Code-mode for every stage: the
-    per-config tarball ships the geom, so grid and local read identical FCL
-    (the env-divergence incident class is closed by construction).
-    Caller-supplied `outloc` wins; _DEFAULT_OUTLOC covers only a caller that
-    passes none, so editing a stage's JSON outloc actually takes effect
-    instead of being silently shadowed here.
-    Only the keys named here reach json2jobdef; `sequential_aux` is copied
-    when given.
-    """
-    entry = {
-        "desc": desc,
-        "dsconf": dsconf,
-        "owner": USER,
-        "fcl": fcl_name,
-        "code": str(code_tarball),
-        "njobs": njobs,
-        "outloc": dict(outloc) if outloc is not None else dict(_DEFAULT_OUTLOC),
-    }
-    if events is not None:
-        entry["events"] = events
-        entry["run"] = run
-    if memory_mb is not None:
-        entry["memory"] = f"{memory_mb}MB"
-    if input_data is not None:
-        entry["input_data"] = input_data
-        entry["inloc"] = inloc
-    if resampler_name is not None:
-        entry["resampler_name"] = resampler_name
-    if fcl_overrides is not None:
-        entry["fcl_overrides"] = dict(fcl_overrides)
-    if sequential_aux is not None:
-        entry["sequential_aux"] = sequential_aux
-    return entry
-
-
 def write_entry(state_dir: Path, stage: str, entry: dict) -> Path:
     """state/<stage>_entry.json, as the one-element list json2jobdef reads."""
-    out = state_dir / f"{stage}_entry.json"
-    out.write_text(json.dumps([entry], indent=1) + "\n")
-    return out
+    return write_entry_file(state_dir / f"{stage}_entry.json", entry)
 
 
 def wait_json_path(state_dir: Path, stage: str) -> Path:

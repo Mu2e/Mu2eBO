@@ -165,7 +165,8 @@ class TestRenderEntry(unittest.TestCase):
 
 
 class TestLoadStageEntry(unittest.TestCase):
-    """pex.load_stage_entry / pex._substitute_placeholders (Task 14):
+    """pex.load_stage_entry / adapters.prodtools_entry.substitute_placeholders
+    (Task 14; moved to core/adapters/prodtools_entry.py, Phase C1 Task 6):
     stage_entries/<stage>.json -> substituted entry template. Uses a
     throwaway `entries_dir` fixture, not the real stage_entries/ tree --
     the real files are covered end-to-end by
@@ -211,7 +212,7 @@ class TestLoadStageEntry(unittest.TestCase):
         self.assertIn("nope", str(cm.exception))
 
     def test_include_key_stays_first_through_json_load_and_substitution(self):
-        # json.load preserves source key order; _substitute_placeholders'
+        # json.load preserves source key order; substitute_placeholders'
         # dict comprehension must not reshuffle it.
         with tempfile.TemporaryDirectory() as tmp:
             d = self._write(tmp, "x", {

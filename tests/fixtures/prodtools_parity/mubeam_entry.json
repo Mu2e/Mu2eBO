@@ -1,0 +1,50 @@
+[
+ {
+  "desc": "Run1A_MuBeam_gridphaseA01",
+  "dsconf": "Run1Bak_gridphaseA01",
+  "owner": "oksuzian",
+  "fcl": "Production/JobConfig/pileup/MuBeamResampler.fcl",
+  "code": "CODE",
+  "njobs": 15,
+  "outloc": {
+   "*.art": "outstage",
+   "*.root": "outstage"
+  },
+  "events": 200000,
+  "run": 1800,
+  "memory": "2000MB",
+  "input_data": {
+   "sim.mu2e.MuBeamCat.Run1Baa.art": 1
+  },
+  "inloc": "tape",
+  "resampler_name": "beamResampler",
+  "fcl_overrides": {
+   "#include": [
+    "Production/JobConfig/pileup/epilog_1b.fcl",
+    "sim_kept_products_extras.fcl",
+    "mubeam_targetstop_path.fcl"
+   ],
+   "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
+   "physics.producers.compressDetStepMCs.compressionOptions.keepNGenerations": -1,
+   "outputs.EarlyFlashOutput.fileName": "dts.owner.EarlyMuBeamFlash.version.sequencer.art",
+   "outputs.FlashOutput.fileName": "dts.owner.MuBeamFlash.version.sequencer.art",
+   "outputs.IPAStopOutput.fileName": "sim.owner.IPAStops.version.sequencer.art",
+   "outputs.TargetStopOutput.fileName": "sim.owner.TargetStops.version.sequencer.art",
+   "services.TFileService.fileName": "nts.owner.mubeam.version.sequencer.root",
+   "services.SeedService.baseSeed": 1,
+   "physics.filters.TargetStopPrescaleFilter.nPrescale": 1,
+   "services.GeometryService.inputFile": "autoresearch_gridphaseA01_geom.txt",
+   "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_v01.txt",
+   "physics.filters.muminusSelector.module_type": "ParticleCodeFilter",
+   "physics.filters.muminusSelector.SimParticles": "TargetStopFilter",
+   "physics.filters.muminusSelector.ParticleCodes": [
+    [
+     13,
+     "uninitialized",
+     "muMinusCaptureAtRest"
+    ]
+   ],
+   "physics.filters.muminusSelector.PrintLevel": 0
+  }
+ }
+]

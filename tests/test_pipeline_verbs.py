@@ -387,7 +387,7 @@ class TestStageEntries(unittest.TestCase):
         # Substitution is textual over the whole entry, so a stage entry
         # WITHOUT the key is a no-op, not an error.
         self.assertEqual(
-            pipeline.px._substitute_placeholders(
+            pipeline.px.substitute_placeholders(
                 {"fcl": "X.fcl"}, {"cfg": "x001", "geom": "g.txt"}, "entry"),
             {"fcl": "X.fcl"})
 

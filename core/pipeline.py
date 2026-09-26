@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import errno
 import fcntl
 import hashlib
 import json
@@ -79,6 +78,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from sourced_bash import run_sourced_bash  # noqa: E402
 import harvest as hv  # noqa: E402
 import prodtools_exec as px  # noqa: E402
+from adapters import prodtools_entry as pe  # noqa: E402
 
 # Mode-aware muse-built Code.tar.bz2; its Code/setup.sh runs `muse setup
 # $CODE_DIR -q e29 prof p094`, so local patched libs win by Muse link/path
@@ -162,10 +162,7 @@ def _stage_extra_files(entry_tmpl: dict) -> list[Path]:
     fcl_overrides['#include']: a bare basename (no '/') resolves only from
     the tarball's search path so it ships from TEMPLATES_ROOT; a published
     Production/... path resolves from the release and ships nothing."""
-    inc = entry_tmpl.get("fcl_overrides", {}).get("#include", [])
-    if isinstance(inc, str):
-        inc = [inc]
-    return [TEMPLATES_ROOT / name for name in inc if "/" not in name]
+    return pe.include_files(entry_tmpl, TEMPLATES_ROOT)
 
 
 # Per-stage-JSON-key rationale (stage_entries/ JSON carries only a `_comment`
@@ -232,7 +229,7 @@ def _render_fcl_overrides(stage: str, entry_tmpl: dict) -> dict:
 
 # Flash-line stage tuning (mode_specs/<mode>.json, each evaluate step's
 # "fixed", applied by stage_cfg): mubeam 200k ev / 2000 MB / quorum 0.8,
-# mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 / default. WHY:
+# mustops_ce 75k / 2000 / 0.8, elebeam_flash 110k / 2000 / 0.8. WHY:
 # sizes ~30-min payloads (measured per-event: mubeam 9.1 ms, mustops_ce
 # 24.1 ms, elebeam_flash 16.6 ms) so the payload dominates the ~44-s
 # muse/setup overhead (~80% grid efficiency vs ~15-30%). With njobs=100:
@@ -519,21 +516,7 @@ def input_farm(stage: str, dest: Path, sources: list[Path], *,
     /pnfs symlinks. allow_copy: local farm only (EXDEV is expected there);
     on the /pnfs grid farm EXDEV means non-dCache sources and a copy would
     eat the quota (wiki/incidents/data-quota-exhausted-grid-accumulation.md)."""
-    if dest.exists():
-        for p in dest.iterdir():
-            p.unlink()
-    else:
-        dest.mkdir(parents=True, exist_ok=True)
-    input_map = {}
-    for src in sources:
-        src = Path(src)
-        try:
-            os.link(src, dest / src.name)
-        except OSError as e:
-            if e.errno != errno.EXDEV or not allow_copy:
-                raise
-            shutil.copy2(src, dest / src.name)
-        input_map[src.name] = 1
+    input_map = pe.link_inputs(sources, dest, allow_copy=allow_copy)
     print(f"[{stage}] farmed {len(input_map)} file(s) into {dest}")
     return dest, input_map
 
