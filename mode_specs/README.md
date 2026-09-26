@@ -42,11 +42,23 @@ yet: `prodtools`, `offline_preflight`, `ce_sensitivity`,
 
 The rules, as the code enforces them:
 
-- A study's kits are all engine kits or all pipeline kits. One that mixes
-  the two runs on neither and is refused (`core/modes.py:runs_on_engine`).
+- A study runs on the engine when the engine can drive every kit it
+  names, otherwise on the pipeline when the pipeline can; one that
+  neither runner can drive whole is refused, and so is a pipeline study
+  with no knobs (`core/modes.py:runs_on_engine`).
 - A pipeline study must be `"layout": "v1"`: the pipeline writes v1 rows,
   and `core/study_compat.py` refuses a `"v2"` one (along with the
   pipeline's other shape rules there).
+- A prodtools step must set `quorum` in `fixed` (below it the step
+  fails), at most 200 `njobs`, and `kits.prodtools.fatal_log_codes` lists
+  the log codes that fail a step (foilspf: `GeomSolids1001`).
+- A stage template names its prodtools `desc_fmt` and `dsconf_fmt`;
+  `{cfg}` and `{geom}` are substituted.
+- `knobs: []` is a one-shot study: `graph.study_run` without `--x`;
+  `graph.study_loop` refuses it.
+- `--executor grid|local` and `--parallel N` choose where the jobs run;
+  `tests/fixtures/engine_studies/prodtools_smoke.json` is the worked
+  example.
 - Both refusals happen when `core.modes` is imported, so ONE study file
   that breaks either rule, here or anywhere on `$AUTORESEARCH_STUDY_PATH`,
   stops every command for every study — `graph.run`, `graph.closed_loop`,

@@ -25,10 +25,14 @@ rolling pool (`graph/pool.py`). `tests/toykit.py` is both the reference
 kit implementation and the CI engine: a full Branin/Currin acceptance
 campaign (q=2, 8 evaluations) runs end to end from a JSON file alone in
 28.7 s. Design: `docs/superpowers/specs/2026-09-23-generic-study-design.md`.
-As of 2026-09-25 this is the only engine study family — `foilspf` and its
+Phase C1 (2026-09-25, branch `generic-study-phase-c1`) gave `prodtools`
+an adapter (below), so a zero-knob prodtools study —
+`tests/fixtures/engine_studies/prodtools_smoke.json`, the Phase C1
+acceptance study — now runs on the engine too. `foilspf` and its
 siblings still run on the pipeline (`core/bo_driver.py`,
-[closed-loop-runner](/drivers/closed-loop-runner.md)) until Phase C gives
-prodtools an adapter.
+[closed-loop-runner](/drivers/closed-loop-runner.md)), because their
+other kits (`offline_preflight`, `ce_sensitivity`,
+`flash_edep_per_pot`) have no adapter yet — that's Phase C2.
 
 ## Key facts
 
@@ -48,20 +52,25 @@ prodtools an adapter.
   `TOYKIT_STATE_DIR=${DATA_ROOT}/toykit`, `poll_s = [0.1, 2.0]` (grid kits
   are expected at 30 s–10 min), `check = true`, `launch_stagger_s = 0`.
 - `core/kit_registry.py` merges `kits.toml`'s native kits (`engine=True`)
-  with the four pipeline kits (`prodtools`, `offline_preflight`,
-  `ce_sensitivity`, `flash_edep_per_pot`, all `engine=False` until Phase C
-  gives them adapters); a name clash between the two raises at import.
+  with four declared kits — `prodtools` (Phase C1: `engine=True,
+  pipeline=True`, driven by its adapter below) and `offline_preflight`,
+  `ce_sensitivity`, `flash_edep_per_pot` (still `engine=False,
+  pipeline=True` — Phase C2); a name clash between the two raises at
+  import.
 - **`kits.toml` is parsed when `core.kit_registry` is imported**
   (`NATIVE = load_kit_configs()`), and `core.study` and `core.modes` import
   it, so a `kits.toml` error breaks the pipeline's imports too
   (`graph.run`, `graph.closed_loop`, the surrogate MCP server), not just
   the engine's.
-- **Routing, as the code enforces it:** a study's kits are all engine kits
-  or all pipeline kits (a mix is refused, `core/modes.py:runs_on_engine`),
-  and a pipeline study must be layout `"v1"` (`core/study_compat.py`). Both
-  refusals happen at `core.modes` import, so one such study file in
-  `mode_specs/` or on `$AUTORESEARCH_STUDY_PATH` stops every command for
-  every study (`mode_specs/README.md`, "Engine studies").
+- **Routing, as the code enforces it (the three-way rule, Phase C1):** a
+  study runs on the engine when the engine can drive every kit it names,
+  otherwise on the pipeline when the pipeline can; one neither runner can
+  drive whole is refused, and so is a pipeline study with no knobs
+  (`core/modes.py:runs_on_engine`); a pipeline study must also be layout
+  `"v1"` (`core/study_compat.py`). All these refusals happen at
+  `core.modes` import, so one such study file in `mode_specs/` or on
+  `$AUTORESEARCH_STUDY_PATH` stops every command for every study
+  (`mode_specs/README.md`, "Engine studies").
 - **Why `env_passthrough` exists:** the MCP SDK's
   `mcp.client.stdio.get_default_environment()` passes only a short
   allowlist of variables to the child process, so any kit that needs more
@@ -110,7 +119,9 @@ prodtools an adapter.
   retries a `KitToolError` (a refused submit under the same name with
   different params must never be repeated).
 - `cancel` gets exactly 1 attempt, no retries of either kind.
-- No backoff between attempts (see Open questions).
+- **Backoff (Phase C1):** `call_with_retries` pauses `RETRY_PAUSES_S =
+  (5.0, 20.0)` s after the 1st and 2nd failed attempt, so a credential
+  blip lasting seconds doesn't fail the step.
 - **`check_kits(study, campaign)`** is the launch check: it opens every
   kit the study names, confirms it offers `submit`/`status`/`results`
   (plus `check` when it's the preflight kit), that it reports a
@@ -295,6 +306,81 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   --picker budget_sob` ran end to end (all 8 points, real GP picks) in
   **28.7 s** — the design's acceptance bar was "under a minute".
 
+**prodtools kit (Phase C1, `core/adapters/prodtools.py`)**
+- `ProdtoolsKit` is an in-process `Adapter` (`core/contract.py:ADAPTERS`),
+  not a native `kits.toml` entry: it speaks the contract itself, over two
+  `KitClient`s onto the `prodtools_write`/`prodtools_read` MCP servers
+  (`kits.toml`'s `[servers.prodtools_write]`/`[servers.prodtools_read]`,
+  Task 2). `core/adapters/__init__.py:register_all` registers it (and
+  every future adapter) at import.
+- **Record file:** `<GRID_DATA_ROOT>/<config>/prodtools/<step>/record.json`,
+  written before the submit (`state="submitting"`) and updated after
+  (`"submitted"`, then a `verdict`), so a killed child's rerun adopts the
+  run by digest instead of resubmitting it. Same params/files/inputs/
+  executor → adopt; different → refused; a receipt caught stuck in
+  `submitting`/`building` fails loudly (whether the jobs ever reached the
+  grid can't be told).
+- **The entry template arrives as `params["entry"]`:** `core/scheduler.py:
+  step_params` resolves the step's stage template
+  (`study.entry_template`) and hands it to any kit whose `KitDecl.
+  uses_entries` is set (Task 1); `prodtools_entry.entry_for_step`
+  substitutes `{cfg}`/`{geom}` in it and renders the json2jobdef entry.
+- **`dsconf_fmt`:** a stage template's `desc_fmt`/`dsconf_fmt` name the
+  json2jobdef `desc`/`dsconf`; every prodtools template in
+  `stage_entries/` uses `dsconf_fmt: "Run1Bak_{cfg}"`.
+- **200-job cap:** `kit_registry.MAX_JOBS_PER_STEP = 200` refuses a
+  larger `fixed.njobs` at study-load time, because prodtools'
+  `run_status` (`INDEX_CAP` in its `tools/runs.py`) lists at most 200
+  jobs' outputs — a bigger step would read a silently truncated list.
+- **`quorum` is required** in every prodtools step's `fixed`
+  (`KitDecl.required_fixed`); below it, `_complete` fails the step
+  (`{ok}/{njobs} jobs ok, below quorum {quorum}`).
+- **The log scan:** `_scan_logs` requires every successful job to have a
+  `.log` (else fail — the scan couldn't run), then greps every log under
+  the run's outstage (grid) or run dir (local) for each of
+  `kits.prodtools.fatal_log_codes`; the first match fails the step
+  (foilspf: `GeomSolids1001`).
+- **Timeouts:** `run_status` reporting `unknown` fails the step after
+  `UNKNOWN_LIMIT_S = 6 h`; outputs still missing from disk after the jobs
+  ended fail it after `STAGEOUT_LIMIT_S = 30 min` (both counted from the
+  first time the condition was seen, stamped in the record).
+- **The submit lock:** a grid `submit_once` is taken under
+  `/tmp/mu2e_submit.<user>.lock` (`SUBMIT_LOCK`) — the same file
+  `core/pipeline.py`'s `_submit_lock` uses, so both runners serialize
+  their grid submits on a host
+  ([concurrent-token-contention](/incidents/concurrent-token-contention.md)).
+- **No token refresh in the adapter:** the adapter never renews a
+  Kerberos ticket; `graph/study_run.py:launch_refusals` refuses a grid
+  launch up front when the study's kit(s) set `REQUIRES_KERBEROS` and
+  under 4 h remain (`core/contract.py:requires_kerberos`), and the write
+  server's own `run_as="self"` path is what actually renews it.
+- **`--executor`/`--parallel`:** `graph.study_run --executor grid|local`
+  and `graph.study_loop --executor ... --parallel N` (local only, 1..16)
+  choose `ProdtoolsKit.executor`/`.parallel`, which pick `submit_once`
+  (grid) vs `run_local` (local) and the poll cadence
+  (`core/adapters/prodtools.py:_POLL`); recorded in `point.json`, not
+  part of `measure_sha`. Worked example: `python -m graph.study_run
+  --study prodtools_smoke --config smoke01 --campaign smoke --executor
+  local`.
+- **Zero-knob studies:** `tests/fixtures/engine_studies/prodtools_smoke.json`
+  has `"knobs": []` — `graph.study_run` runs it with no `--x`;
+  `graph.study_loop` refuses it (one-shot studies have no campaign to
+  loop); the surrogate skips them (`core/modes.py`, Task 5).
+- **Cancel of the other steps:** `core/scheduler.py:run_steps` cancels
+  every already-submitted sibling of a failed/cancelled step whose kit
+  offers `cancel` (`ProdtoolsKit.cancel` calls the write server's
+  `cancel_run`, offered only when that server has the tool); a step that
+  hasn't submitted yet just sees the stop event and never does; a failed
+  cancel attempt is logged and that step runs to completion.
+- **`cancel_run` (Task 9, P3):** on the prodtools side, a local branch
+  `cancel-run` (worktree off local main `6640e6e`, not merged or pushed)
+  adds the write tool `cancel_run(name, run_as="self")` plus
+  `bin/runcancel`/`utils/runcancel.py`: grid via `jobsub_rm -G mu2e
+  --jobid <cluster>@<schedd>`, local via SIGTERM guarded by
+  `utils/run_receipt.pid_alive` (one shared `/proc` liveness check); the
+  receipt records `cancelled`/`cancelled_from`/`cancelled_utc`;
+  `run_status` needed no change.
+
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (the
   pipeline campaign runner this engine sits alongside, not on top of, in
@@ -307,7 +393,9 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   `core/kits.py`, `core/contract.py`, `core/scheduler.py`,
   `core/study.py`, `core/score.py`, `core/leaderboard.py`, `core/boards.py`,
   `graph/study_graph.py`, `graph/study_run.py`, `graph/study_loop.py`,
-  `graph/pool.py`, `tests/toykit.py`
+  `graph/pool.py`, `tests/toykit.py`, `core/adapters/__init__.py`,
+  `core/adapters/prodtools.py`, `core/adapters/prodtools_entry.py`,
+  `tests/fixtures/engine_studies/prodtools_smoke.json`
 - Design: `docs/superpowers/specs/2026-09-23-generic-study-design.md`
 
 ## Open questions / TODO
@@ -373,12 +461,22 @@ Phase C follow-ups found in review (2026-09-25):
   `graph/study_loop.py`.
 - A resumed child re-runs preflight; a transient `check` failure then
   marks a point broken while its grid job still runs. `graph/study_graph.py`.
-- Sibling steps of a failed step run to completion (the contract's
-  `cancel` is unused) — grid hours spent on a dead point. `core/scheduler.py`.
-- `NativeKit` retries have no backoff; a status failure that lasts seconds
-  (a credential blip) fails the step. `core/contract.py`.
-- No credential renewal / 4 h ticket gate for engine campaigns.
-  `graph/study_loop.py`.
+- ~~Sibling steps of a failed step run to completion (the contract's
+  `cancel` is unused) — grid hours spent on a dead point.
+  `core/scheduler.py`.~~ **Done in C1:** `run_steps` cancels every running
+  sibling of a failed/cancelled step whose kit offers `cancel` (a failed
+  cancel is logged and that step runs to completion); a step that has not
+  submitted yet never does (see "prodtools kit (Phase C1)" above).
+- ~~`NativeKit` retries have no backoff; a status failure that lasts
+  seconds (a credential blip) fails the step. `core/contract.py`.~~
+  **Done in C1:** `call_with_retries` pauses `RETRY_PAUSES_S = (5.0,
+  20.0)` s after the 1st and 2nd failed attempt.
+- ~~No credential renewal / 4 h ticket gate for engine campaigns.
+  `graph/study_loop.py`.~~ **Done in C1:** a grid launch whose kit sets
+  `REQUIRES_KERBEROS` is refused up front (`graph/study_run.py:
+  launch_refusals`, `core/contract.py:requires_kerberos`) unless a
+  ticket with at least 4 h left is held; the adapter itself never
+  refreshes one.
 - After a runner restart, orphaned in-flight children's x are not passed
   to the picker as pending. `graph/study_loop.py`.
 - A leftover `STOP` file makes a relaunch under the same prefix launch

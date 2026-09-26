@@ -22,10 +22,10 @@ The Phase-A compat view of a Study (`core/study_compat.py`), held in `core.modes
 _Avoid_: mode config, mode table, per-mode dict
 
 **Engine study**:
-A Study every one of whose kits is an engine kit (`core.modes.ENGINE`, `core/kit_registry.py`'s `engine=True`); runs through `graph.study_run`/`graph.study_loop` (the contract engine), never the pipeline. `branin` (`tests/fixtures/engine_studies/branin.json`, on `toykit`) is the only one as of Phase B.
+A Study every one of whose kits is an engine kit (`core.modes.ENGINE`, `core/kit_registry.py`'s `engine=True`); runs through `graph.study_run`/`graph.study_loop` (the contract engine), never the pipeline. `branin` (`tests/fixtures/engine_studies/branin.json`, on `toykit`) and `prodtools_smoke` (the Phase C1 acceptance study, on `prodtools`).
 
 **Pipeline study**:
-A Study that still runs through the pipeline (`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`) because none of its kits has an engine adapter yet. `foilspf` and its siblings, until Phase C gives `prodtools` an adapter. A study's kits are all engine kits or all pipeline kits: a mix runs on neither and is refused (`core/modes.py:runs_on_engine`), and a pipeline study must be layout `"v1"` (`core/study_compat.py` refuses `"v2"`). Both refusals happen when `core.modes` is imported, so one such file in `mode_specs/` or on `$AUTORESEARCH_STUDY_PATH` stops every command (`graph.run`, `graph.closed_loop`, the engine, the surrogate MCP server) for every study.
+A Study that still runs through the pipeline (`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`) because none of its kits has an engine adapter yet. `foilspf` and its siblings, until Phase C gives `prodtools` an adapter. A study runs on the engine when the engine can drive every kit it names, otherwise on the pipeline when the pipeline can; one that neither runner can drive whole is refused, and so is a pipeline study with no knobs (`core/modes.py:runs_on_engine`), and a pipeline study must be layout `"v1"` (`core/study_compat.py` refuses `"v2"`). Both refusals happen when `core.modes` is imported, so one such file in `mode_specs/` or on `$AUTORESEARCH_STUDY_PATH` stops every command (`graph.run`, `graph.closed_loop`, the engine, the surrogate MCP server) for every study.
 
 **JsonMode**:
 The behavior half of a Mode (render geometry, recover x at evaluate time, read and append leaderboard rows), one driver object per ModeSpec (`core/bo_driver.py`). There is exactly one class — the five Python subclasses were archived 2026-08-08 (`4bc54cc`) and the `BOMode` ABC itself collapsed into `JsonMode` 2026-08-19 (`55168e7`).
@@ -54,7 +54,7 @@ The Engine's search-space declaration — bounds, integer dims, per-axis noise s
 **Adapter**:
 Two distinct senses, kept apart by context — see Flagged ambiguities.
 (1) The client bridge that names Problems and serves their history (X, Y, meta) to the Engine's MCP scaffold via `make_server(adapter)`; autoresearch's Adapter wraps Study + Leaderboards.
-(2) Python that speaks the evaluator contract (see Kit) for a kit that doesn't speak it natively: a class registered in `core/contract.py`'s `ADAPTERS`, taking the Campaign name, with a `LAUNCH_STAGGER_S` attribute. None is registered yet — Phase C adds `prodtools`.
+(2) Python that speaks the evaluator contract (see Kit) for a kit that doesn't speak it natively: a class registered in `core/contract.py`'s `ADAPTERS`, taking the Campaign name, with a `LAUNCH_STAGGER_S` attribute. `prodtools` (`core/adapters/prodtools.py`, Phase C1) is the first; `core/adapters/__init__.py:register_all` registers them.
 
 **Leaderboard**:
 The append-only per-mode TSV of completed evals; the ONLY durable source of truth for BO history. There is no checkpointer (retired 2026-08-19) and no other resume state.
@@ -70,6 +70,9 @@ An MCP server (or, for a kit with no adapter yet, Python that speaks the same in
 
 **Native kit**:
 A Kit that speaks the evaluator contract over MCP directly: one `kits.toml` entry (`core/kit_config.py`), no Python. The engine drives it through `core/contract.py`'s `NativeKit` and `core/kits.py`'s `KitClient`. `toykit` (`tests/toykit.py`) is the only one as of Phase B; grid kits (`prodtools` from Phase C, `beamkit` from Phase D, `anakit` from Phase E) arrive as Adapters instead.
+
+**Executor**:
+Where a point's jobs run: `grid` (the default) or `local` (this node), chosen by `graph.study_run --executor` / `graph.study_loop --executor` and recorded in the point's `point.json`. Not part of `measure_sha`: the physics is the same. A small test is its own study file with its own board, not a scale-down of a real one.
 
 **Stage**:
 One grid-submission unit in an eval's chain (`mubeam`, `mustops_ce`, `elebeam_flash`) driven by idempotent submit/poll/list-outputs verbs.

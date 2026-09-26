@@ -6,6 +6,9 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-25
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C1
+  implemented on branch `generic-study-phase-c1` — the prodtools adapter,
+  --executor, zero-knob studies, cancel of the other steps.
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C split
   into C1/C2/C3; C1 spec written; sob and flash go to anakit.
 - **created** [poms-chained-workflows](/external/poms-chained-workflows.md):

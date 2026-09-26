@@ -198,7 +198,23 @@ class TestEngineClassification(_Tmp):
                            text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip().splitlines()[-1],
-                         "['branin'] False True")
+                         "['branin', 'prodtools_smoke'] False True")
+
+
+X_GRIDPHASEA01 = [67.7974, 111.1044, 132.7585, 0.140557, 0.027008, 0.107443,
+                  0.4844, 0.95, 0.95, 11.0982]
+
+
+class TestProdtoolsSmoke(unittest.TestCase):
+    def test_it_is_foilspfbpz_at_one_fixed_point(self):
+        smoke = st.load_study_file(ENGINE_STUDIES / "prodtools_smoke.json")
+        bpz = st.load_study_file(ROOT / "mode_specs" / "foilspfbpz.json")
+        self.assertEqual(smoke.knobs, ())
+        self.assertTrue(modes.runs_on_engine(smoke))
+        self.assertEqual(smoke.geom.render([]),
+                         bpz.geom.render(X_GRIDPHASEA01))
+        self.assertEqual([s.step for s in smoke.steps],
+                         ["mubeam", "mustops_ce"])
 
 
 if __name__ == "__main__":
