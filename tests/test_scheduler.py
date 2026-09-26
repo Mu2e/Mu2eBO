@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import sys
 import tempfile
@@ -10,9 +11,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 import scheduler as sch  # noqa: E402
+import study as st_mod  # noqa: E402
 from contract import ContractError, Results, Status  # noqa: E402
 from kits import KitError  # noqa: E402
 from study import Step  # noqa: E402
+
+DEMO = ROOT / "tests" / "fixtures" / "studies" / "demo.json"
 
 
 def step(name, files_from=(), params=None, fixed=None, kit="fake"):
@@ -28,11 +32,15 @@ class FakeKit:
     """A scripted contract kit: each handle walks its step's states, one per
     status call; an exception in the script is raised instead."""
 
-    def __init__(self, scripts=None, poll_s=(0.0, 0.0), poll_ms=0):
+    def __init__(self, scripts=None, poll_s=(0.0, 0.0), poll_ms=0,
+                cancellable=False):
         self.name, self.version, self.accepts_lists = "fake", "f1", False
         self.poll_s, self.poll_ms = poll_s, poll_ms
         self.scripts = scripts or {}
+        self.tools = frozenset({"submit", "status", "results"}
+                               | ({"cancel"} if cancellable else set()))
         self.events, self.submits = [], []
+        self.cancelled = set()
         self._pos = {}
         self._lock = threading.Lock()
 
@@ -44,6 +52,8 @@ class FakeKit:
 
     def status(self, handle, workflow):
         s = handle.split(".", 1)[1]
+        if handle in self.cancelled:
+            return Status("cancelled", f"{s} cancelled", self.poll_ms, None)
         seq = self.scripts.get(s, ["completed"])
         with self._lock:
             i = self._pos.get(handle, 0)
@@ -60,6 +70,12 @@ class FakeKit:
         return Results({"v": 1.0},
                        ({"name": s, "uri": f"file:///tmp/{s}", "kind": "text"},),
                        {})
+
+    def cancel(self, handle, workflow):
+        with self._lock:
+            self.cancelled.add(handle)
+            self.events.append(("cancel", handle.split(".", 1)[1]))
+        return "cancelled"
 
     def close(self):
         pass
@@ -287,6 +303,55 @@ class TestParams(unittest.TestCase):
         self.assertIn("preflight", str(cm.exception))
         self.assertIn("['function']", str(cm.exception))
         self.assertIn("may not share a name", str(cm.exception))
+
+
+class TestCancelOnFailure(_Run):
+    def test_a_failure_cancels_the_running_steps(self):
+        kit = FakeKit({"a": ["working", "failed"],
+                       "b": ["working"] * 10000}, cancellable=True)
+        out = self.run_steps(study(step("a"), step("b")), kit)
+        self.assertFalse(out["a"].ok)
+        self.assertFalse(out["b"].ok)
+        self.assertIn("cancelled", out["b"].message)
+        self.assertIn(("cancel", "b"), kit.events)
+        self.assertIn("step a", (self.state / "broken.txt").read_text())
+
+    def test_a_kit_that_cannot_cancel_runs_to_completion(self):
+        logs = []
+        kit = FakeKit({"a": ["working", "failed"],
+                       "b": ["working"] * 5 + ["completed"]})
+        out = self.run_steps(study(step("a"), step("b")), kit,
+                             log=logs.append)
+        self.assertTrue(out["b"].ok)
+        self.assertTrue(any("cannot cancel" in m for m in logs), logs)
+
+    def test_a_step_not_submitted_yet_never_submits(self):
+        kit = FakeKit()
+        stop = threading.Event()
+        stop.set()
+        out = sch._run_one(study(step("a")), step("a"), "c", self.state, {},
+                           {}, Kits(kit), {}, "camp/c/a",
+                           lambda s: None, lambda m: None, stop)
+        self.assertFalse(out.ok)
+        self.assertIn("not submitted", out.message)
+        self.assertEqual(kit.submits, [])
+
+
+class TestEntryParam(unittest.TestCase):
+    def test_an_entry_kit_gets_the_resolved_template(self):
+        s = st_mod.load_study_file(DEMO)
+        mubeam = next(x for x in s.steps if x.step == "mubeam")
+        params = sch.step_params(s, mubeam, {}, False)
+        self.assertEqual(params["entry"], s.entry_template("mubeam"))
+        self.assertEqual(params["quorum"], 0.8)
+
+    def test_entry_is_reserved_for_an_entry_kit(self):
+        s = st_mod.load_study_file(DEMO)
+        mubeam = next(x for x in s.steps if x.step == "mubeam")
+        clash = dataclasses.replace(mubeam, fixed=dict(mubeam.fixed, entry=1))
+        with self.assertRaises(ValueError) as cm:
+            sch.step_params(s, clash, {}, False)
+        self.assertIn("entry", str(cm.exception))
 
 
 if __name__ == "__main__":

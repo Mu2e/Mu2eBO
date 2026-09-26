@@ -627,6 +627,21 @@ class TestDirs(_Tmp):
                 self.assertIn("basename", str(cm.exception))
 
 
+class TestEntryTemplate(_Tmp):
+    def test_the_resolved_template_is_a_copy(self):
+        s = st.load_study_file(FIXTURE)
+        want = json.loads((Path(__file__).resolve().parent.parent
+                           / "stage_entries" / "mubeam.json").read_text())
+        got = s.entry_template("mubeam")
+        self.assertEqual(got, want)
+        got["njobs"] = -1
+        self.assertEqual(s.entry_template("mubeam")["njobs"], want["njobs"])
+
+    def test_an_unknown_step(self):
+        with self.assertRaises(KeyError):
+            st.load_study_file(FIXTURE).entry_template("nope")
+
+
 class TestProdtoolsKeys(_Tmp):
     def test_a_prodtools_step_without_quorum_is_refused(self):
         doc = _doc()

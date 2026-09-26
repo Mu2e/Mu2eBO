@@ -13,16 +13,18 @@ resumable with no second submit:
   state/<step>_cluster.txt   submitted: poll that handle
   neither                    submit, then write the handle
 A failed or cancelled step, a kit error, or a reply outside the contract
-stops new launches; running steps finish; broken.txt names the first step
-that failed, written the moment that failure is known (not after the other
-steps drain). A failed step is never retried. An exception outside those
-(a bug -- e.g. an OSError from write_atomic) is logged and recorded the
-same way, then re-raised once every already-running step has finished, so
-a programming error still crashes loudly instead of hanging silently.
+stops new launches and cancels the running steps whose kit offers `cancel`
+(the others finish); broken.txt names the first step that failed, written
+the moment that failure is known (not after the other steps drain). A
+failed step is never retried. An exception outside those (a bug -- e.g. an
+OSError from write_atomic) is logged and recorded the same way, then
+re-raised once every already-running step has finished, so a programming
+error still crashes loudly instead of hanging silently.
 """
 from __future__ import annotations
 
 import json
+import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -30,9 +32,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 if __package__:
+    from core import kit_registry
     from core.contract import ContractError
     from core.kits import KitError
 else:
+    import kit_registry
     from contract import ContractError
     from kits import KitError
 
@@ -84,10 +88,19 @@ def merge_params(owner: str, mapped: Dict[str, Any],
 def step_params(study, step, env, accepts_lists) -> Dict[str, Any]:
     """The mapped params, then the study's settings for the step's kit, then
     the step's fixed values, which win over the settings. A mapped param may
-    not share a name with a setting or a fixed value."""
-    return merge_params(f"step {step.step!r}",
-                        map_params(step.params, env, accepts_lists),
-                        {**study.kits.get(step.kit, {}), **step.fixed})
+    not share a name with a setting or a fixed value. A kit that takes stage
+    templates also gets the step's resolved template as `entry`."""
+    params = merge_params(f"step {step.step!r}",
+                          map_params(step.params, env, accepts_lists),
+                          {**study.kits.get(step.kit, {}), **step.fixed})
+    decl = kit_registry.KITS.get(step.kit)
+    if decl is not None and decl.uses_entries:
+        if "entry" in params:
+            raise ValueError(f"step {step.step!r}: 'entry' is reserved for "
+                             f"kit {step.kit!r}, which receives the step's "
+                             f"stage template under that name")
+        params["entry"] = study.entry_template(step.step)
+    return params
 
 
 def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
@@ -104,6 +117,7 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
     pending = [s for s in study.steps if s.step not in outcomes]
     failed: Optional[StepOutcome] = None
     crash: Optional[Exception] = None
+    stop = threading.Event()
     with ThreadPoolExecutor(max_workers=max(1, len(pending))) as pool:
         running = {}
         while True:
@@ -116,7 +130,7 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
                         fut = pool.submit(_run_one, study, s, config,
                                           state_dir, env, files, kits,
                                           upstream, workflow(s.step), sleep,
-                                          log)
+                                          log, stop)
                         running[fut] = s.step
             if not running:
                 break
@@ -141,13 +155,42 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
                     failed = out
                     write_atomic(state_dir / "broken.txt",
                                  f"step {failed.step}: {failed.message}\n")
+                    stop.set()
+                    _cancel_running(study, set(running.values()), state_dir,
+                                    kits, workflow, log)
     if crash is not None:
         raise crash
     return outcomes
 
 
+def _cancel_one(kit, step, handle, workflow, log) -> None:
+    if "cancel" not in getattr(kit, "tools", ()):
+        log(f"[steps] {step.step}: kit {step.kit} cannot cancel; it runs to "
+            f"completion")
+        return
+    try:
+        state = kit.cancel(handle, workflow)
+        log(f"[steps] {step.step}: cancel requested ({state})")
+    except (KitError, ContractError) as exc:
+        log(f"[steps] {step.step}: cancel failed ({exc}); it runs to "
+            f"completion")
+
+
+def _cancel_running(study, names, state_dir, kits, workflow, log) -> None:
+    """Cancel each running step that has submitted. One that has not yet
+    will see the stop event and never submit."""
+    by_name = {s.step: s for s in study.steps}
+    for name in sorted(names):
+        handle_path = state_dir / f"{name}_cluster.txt"
+        if not handle_path.exists():
+            continue
+        s = by_name[name]
+        _cancel_one(kits.get(s.kit), s, handle_path.read_text().strip(),
+                    workflow(name), log)
+
+
 def _run_one(study, step, config, state_dir, env, files, kits, upstream,
-             workflow, sleep, log) -> StepOutcome:
+             workflow, sleep, log, stop) -> StepOutcome:
     try:
         kit = kits.get(step.kit)
         params = step_params(study, step, env, kit.accepts_lists)
@@ -159,10 +202,16 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
             log(f"[steps] {step.step}: polling {handle} (submitted by an "
                 f"earlier run)")
         else:
+            if stop.is_set():
+                return StepOutcome(step.step, False, "cancelled: not "
+                                   "submitted, another step failed first",
+                                   None)
             handle = kit.submit(f"{config}.{step.step}", params, step_files,
                                 inputs, workflow)
             write_atomic(handle_path, handle + "\n")
             log(f"[steps] {step.step}: submitted {handle}")
+            if stop.is_set():   # a step failed while this one submitted
+                _cancel_one(kit, step, handle, workflow, log)
         lo, hi = kit.poll_s
         while True:
             status = kit.status(handle, workflow)

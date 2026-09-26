@@ -7,6 +7,7 @@ Spec: docs/superpowers/specs/2026-09-23-generic-study-design.md
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -186,6 +187,14 @@ class Study:
     @property
     def consts(self) -> Dict[str, Any]:
         return dict(self.derive["consts"])
+
+    def entry_template(self, step: str) -> Dict[str, Any]:
+        """The step's stage template as the study resolved it at load (the
+        one measure_sha hashed), deep-copied so a kit cannot alter it."""
+        for s in self.measure_basis["steps"]:
+            if s["step"] == step:
+                return copy.deepcopy(s["entry"])
+        raise KeyError(f"study {self.name!r} has no step {step!r}")
 
 
 def _obj(d, keys, where):
