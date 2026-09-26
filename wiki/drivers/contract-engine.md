@@ -4,7 +4,8 @@ title: Contract engine (Phase B)
 description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   contract (NativeKit, check_kits), run_steps (one scheduler node,
   state-file resume), v2 rows with measure_sha, graph.study_run /
-  graph.study_loop; toykit Branin acceptance in 28.7 s
+  graph.study_loop; toykit Branin acceptance in 28.7 s; C1 prodtools
+  adapter (`core/adapters/`), --executor, zero-knob studies
 status: active
 timestamp: '2026-09-25'
 ---
