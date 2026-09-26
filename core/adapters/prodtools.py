@@ -15,6 +15,7 @@ completion verdict is kept there too.
 """
 from __future__ import annotations
 
+import datetime
 import fcntl
 import fnmatch
 import hashlib
@@ -91,6 +92,22 @@ def _write_json(path, data) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
     tmp.replace(path)
+
+
+def _utc_of(value, what, run_name) -> datetime.datetime:
+    """An ISO 8601 time with a UTC offset, as prodtools stamps its
+    receipts. Anything else is an error: whose run it is is never
+    guessed."""
+    try:
+        t = datetime.datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        t = None
+    if t is None or t.tzinfo is None:
+        raise KitError("prodtools", "submit",
+                       f"{run_name}: {what} is {value!r}, not an ISO 8601 "
+                       f"time with a UTC offset, so whether prodtools' run "
+                       f"is this step's cannot be told")
+    return t
 
 
 def _local_path(ref, what) -> Path:
@@ -204,7 +221,9 @@ class ProdtoolsKit:
                 return name
         rec = self._prepare(name, config, step, params, files, inputs, sdir,
                             digest)
-        self._save(sdir, rec)          # "submitting", before prodtools acts
+        # "submitting", before prodtools acts; _adopt takes only a run
+        # prodtools created at or after this moment.
+        self._save(sdir, rec, submitting_utc=self._utc_now())
         try:
             self._launch(rec, workflow)
         except KitError:
@@ -347,11 +366,24 @@ class ProdtoolsKit:
 
     def _adopt(self, rec, workflow) -> bool:
         """True when prodtools already has this step's run, past
-        submission; False when it has none. A receipt stuck in submitting
-        or building is an error: whether jobs reached the grid is unknown."""
+        submission; False when it has none. A run created before the
+        record's submitting_utc is not this step's (the config name was
+        used before) and is an error, as is a receipt stuck in submitting
+        or building: whether jobs reached the grid is unknown."""
         reply = self._run_status(rec["run_name"], workflow)
         if reply is None:
             return False
+        created, ours = reply.get("created_utc"), rec.get("submitting_utc")
+        if (_utc_of(created, "run_status's created_utc", rec["run_name"])
+                < _utc_of(ours, "the record's submitting_utc",
+                          rec["run_name"])):
+            config, _step = split_handle(rec["name"])
+            raise KitError(
+                self.name, "submit",
+                f"{rec['run_name']} was created at {created}, before this "
+                f"step started submitting at {ours}, so it is not this "
+                f"step's run: the config name {config!r} was used before. "
+                f"Pick a new config name")
         if reply.get("state") in ("submitting", "building"):
             raise KitError(
                 self.name, "submit",
@@ -476,6 +508,11 @@ class ProdtoolsKit:
         reply = call_with_retries(once, retry_tool_errors=True,
                                   pause=self._pause)
         return None if isinstance(reply.get("error"), dict) else reply
+
+    def _utc_now(self) -> str:
+        """Now, in prodtools' receipt format (utils/run_receipt.py:_now)."""
+        return datetime.datetime.fromtimestamp(
+            self._clock(), datetime.timezone.utc).isoformat(timespec="seconds")
 
     def _save(self, sdir, rec, **fields) -> None:
         rec.update(fields)

@@ -1,4 +1,5 @@
 import copy
+import datetime
 import errno
 import json
 import os
@@ -25,6 +26,12 @@ from study import Step  # noqa: E402
 USER = "tester"
 
 
+def utc(t):
+    """A time as prodtools stamps its receipts (utils/run_receipt.py:_now)."""
+    return datetime.datetime.fromtimestamp(
+        t, datetime.timezone.utc).isoformat(timespec="seconds")
+
+
 class FakeServer:
     def __init__(self, tools, handler):
         self.tools, self.handler = frozenset(tools), handler
@@ -47,8 +54,9 @@ class FakeProdtools:
     """Both prodtools servers over one table of runs, keyed by run name.
     Replies are JSON-shaped: `outputs` is keyed by string indices."""
 
-    def __init__(self, root):
+    def __init__(self, root, clock):
         self.root, self.runs, self.entries = Path(root), {}, {}
+        self.clock = clock
         self.raise_after_submit = None
         self.autofinish = False
         self.write = FakeServer({"submit_once", "run_local"}, self._write)
@@ -68,7 +76,8 @@ class FakeProdtools:
         run_dir = self.root / "runs" / name
         run_dir.mkdir(parents=True, exist_ok=True)
         self.runs[name] = {
-            "name": name, "njobs": entry["njobs"], "cluster_id": 77,
+            "name": name, "created_utc": utc(self.clock()),
+            "njobs": entry["njobs"], "cluster_id": 77,
             "state": "submitted" if tool == "submit_once" else "running",
             "jobid": "77.0@schedd.example",
             "outstage": str(self.root / "outstage"),
@@ -123,8 +132,9 @@ class _Kit(unittest.TestCase):
         td = tempfile.TemporaryDirectory()
         self.addCleanup(td.cleanup)
         self.tmp = Path(td.name)
-        self.fake = FakeProdtools(self.tmp / "prodtools")
         self.clock = [1000.0]
+        self.fake = FakeProdtools(self.tmp / "prodtools",
+                                  lambda: self.clock[0])
         patch = mock.patch.object(pe, "USER", USER)
         patch.start()
         self.addCleanup(patch.stop)
@@ -234,6 +244,70 @@ class TestSubmit(_Kit):
         with self.assertRaises(KitError) as cm:
             self.submit(self.kit())
         self.assertIn("jobsub_q", str(cm.exception))
+
+    def an_older_run(self):
+        """A run of this step's name that prodtools created a minute
+        before this step's submit: a config name used before."""
+        older = utc(self.clock[0] - 60)
+        self.fake.runs[self.run_name()] = {
+            "name": self.run_name(), "created_utc": older, "state": "done",
+            "njobs": 2}
+        return older
+
+    def assert_refused_as_older(self, cm, older, ours):
+        msg = str(cm.exception)
+        for needle in (self.run_name(), older, ours, "used before",
+                       "new config name"):
+            self.assertIn(needle, msg)
+
+    def test_an_older_run_refusing_the_submit_is_not_adopted(self):
+        older = self.an_older_run()
+        with self.assertRaises(KitError) as cm:
+            self.submit(self.kit())
+        self.assertNotIsInstance(cm.exception, KitToolError)
+        self.assert_refused_as_older(cm, older, utc(self.clock[0]))
+        self.assertEqual(self.record()["submitting_utc"], utc(self.clock[0]))
+        self.assertEqual(self.record()["state"], "submitting")
+        self.assertEqual(len(self.fake.write.calls), 1)
+
+    def test_a_rerun_does_not_adopt_an_older_run(self):
+        self.submit(self.kit())
+        ours = self.record()["submitting_utc"]
+        older = self.an_older_run()
+        self.set_record(state="submitting")
+        with self.assertRaises(KitError) as cm:
+            self.submit(self.kit())
+        self.assert_refused_as_older(cm, older, ours)
+        self.assertEqual(self.record()["state"], "submitting")
+        self.assertEqual(len(self.fake.write.calls), 1)
+
+    def test_a_tool_error_after_our_run_was_created_is_adopted(self):
+        self.fake.raise_after_submit = KitToolError(
+            "prodtools-write", "submit_once", "jobsub_submit: rc=1")
+        self.clock[0] += 0.5    # prodtools stamps a moment after we do
+        self.submit(self.kit())
+        self.assertEqual(self.record()["state"], "submitted")
+
+    def test_a_run_status_without_created_utc_is_not_adopted(self):
+        self.fake.raise_after_submit = KitTimeout("prodtools", "submit_once",
+                                                  "timed out")
+        read = self.fake.read.handler
+        self.fake.read.handler = lambda tool, args: {
+            k: v for k, v in read(tool, args).items() if k != "created_utc"}
+        with self.assertRaises(KitError) as cm:
+            self.submit(self.kit())
+        self.assertIn("created_utc", str(cm.exception))
+        self.assertEqual(self.record()["state"], "submitting")
+
+    def test_a_record_without_submitting_utc_is_not_adopted(self):
+        self.submit(self.kit())
+        rec = self.record()
+        del rec["submitting_utc"]
+        rec["state"] = "submitting"
+        self.record_path().write_text(json.dumps(rec))
+        with self.assertRaises(KitError) as cm:
+            self.submit(self.kit())
+        self.assertIn("submitting_utc", str(cm.exception))
 
     def test_a_timeout_whose_run_exists_is_adopted(self):
         self.fake.raise_after_submit = KitTimeout("prodtools", "submit_once",
