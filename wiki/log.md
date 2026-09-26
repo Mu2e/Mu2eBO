@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-26
+- **created** [prodtools-tape-check-musing-python-mismatch](/incidents/prodtools-tape-check-musing-python-mismatch.md):
+  prodtools' tape-input check crashes under a Python 3.10 Musing (ops-021).
+- **updated** [contract-engine](/drivers/contract-engine.md): C1 grid acceptance
+  passed (`c1grid03`, 14 min 36 s, on SimJob MDC2025ax); the write server
+  passes the `JOBSUB_*` site settings.
 - **updated** [contract-engine](/drivers/contract-engine.md): the old pipeline is
   reference-only (no foilspf campaign planned before C2); kept runnable
   for C2's parity check; the `desc_fmt`/`dsconf_fmt` -> `desc`/`dsconf`

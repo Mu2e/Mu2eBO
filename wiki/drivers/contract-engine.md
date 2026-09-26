@@ -433,6 +433,23 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   needs its own `mcp/.venv`. The shared venv's editable `.pth` points at
   main's `mcp/src`, so the servers load main's code whatever
   `AUTORESEARCH_PRODTOOLS` names.
+- **Grid acceptance PASSED (2026-09-26, config `c1grid03`)** on the stock
+  SimJob MDC2025ax release (`Code_mdc2025ax.tar.bz2`: a `backing` link
+  plus `setup.sh`; Offline v13_38_00 has the holeRadii and IPA
+  zStartInMu2e patches upstream). It took 14 min 36 s wall and landed
+  one v2 row. Each `submit_once` took about 2 min, including the RCDS
+  publish. mubeam ran as `30116821.0@jobsub04`; its `TargetStops` file
+  was hard-linked into `/pnfs/.../autoresearch_grid/c1grid03/staged/mustops_ce`
+  and read there by mustops_ce (`86801721.0@jobsub01`). Two earlier tries
+  failed before submitting, and nothing reached the grid:
+  - `c1grid01`: prodtools' tape check crashes under a Python 3.10
+    Musing
+    ([prodtools-tape-check-musing-python-mismatch](/incidents/prodtools-tape-check-musing-python-mismatch.md)).
+  - `c1grid02`: `jobsub_submit` lacked `JOBSUB_DROPBOX_SERVER_LIST`.
+    The kit client starts servers with a minimal environment, so the
+    write server now passes the five `JOBSUB_*` settings from
+    `/etc/profile.d/jobsub_lite.sh` (`kits.toml`).
+  A grid launch needs 4 h of Kerberos ticket, so `kinit -R` came first.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (the
