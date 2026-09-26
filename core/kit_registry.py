@@ -109,7 +109,7 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
                         "memory_mb": _positive_int, "quorum": _fraction},
             required_fixed=frozenset({"quorum"}),
             uses_entries=True, step_kit=True, check_kit=False,
-            engine=False, pipeline=True),
+            engine=True, pipeline=True),
     KitDecl("offline_preflight",
             study_keys={"musing": _path, "dumps_gdml": _flag,
                         "verifies_foil_gdml": _flag,

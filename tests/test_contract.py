@@ -270,7 +270,7 @@ class TestRegistry(unittest.TestCase):
             ct.register_adapter("fakeadapter", Fake)
 
     def test_only_an_engine_kit_without_a_kits_toml_entry_takes_an_adapter(self):
-        for name in ("prodtools", "toykit", "nosuchkit"):
+        for name in ("toykit", "nosuchkit", "offline_preflight"):
             with self.subTest(kit=name):
                 with self.assertRaises(ValueError):
                     ct.register_adapter(name, object)
@@ -362,9 +362,18 @@ class TestCheckKits(_Toy):
         self.assertIn("'toykit'", problems[0])
 
     def test_pipeline_kits_are_refused_without_starting_anything(self):
-        problems = ct.check_kits(st.load_study_file(DEMO), campaign="c")
+        # prodtools is now BOTH an engine kit (an adapter) and a pipeline
+        # kit: its refusal reads differently from the other three, which
+        # still have no adapter and no kits.toml entry. Force
+        # AUTORESEARCH_PRODTOOLS unset regardless of the ambient
+        # environment, so the adapter fails at command resolution (a
+        # string substitution) and never spawns a subprocess either way.
+        with mock.patch.dict(os.environ):
+            os.environ.pop("AUTORESEARCH_PRODTOOLS", None)
+            problems = ct.check_kits(st.load_study_file(DEMO), campaign="c")
         self.assertTrue(problems)
-        self.assertTrue(all("kits.toml" in p for p in problems))
+        self.assertTrue(all("kits.toml" in p or "AUTORESEARCH_PRODTOOLS" in p
+                            for p in problems))
 
 
 if __name__ == "__main__":

@@ -123,10 +123,11 @@ class TestRepoRegistry(unittest.TestCase):
         self.assertFalse(decl.uses_entries)
 
     def test_pipeline_kits_are_not_engine_kits(self):
-        for name in ("prodtools", "offline_preflight", "ce_sensitivity",
+        for name in ("offline_preflight", "ce_sensitivity",
                      "flash_edep_per_pot"):
             with self.subTest(kit=name):
                 self.assertFalse(kit_registry.KITS[name].engine)
+                self.assertTrue(kit_registry.KITS[name].pipeline)
 
 
 class TestNativeKitInStudies(unittest.TestCase):
