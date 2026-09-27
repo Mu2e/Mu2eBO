@@ -19,7 +19,11 @@ MUSING = _SPEC.musing
 GRID_STAGES = list(_SPEC.grid_stages)
 PRESUBMIT_AFTER = {k: list(v) for k, v in _SPEC.presubmit_after.items()}
 
-SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
+# The geometry pre-check owns these two (core/adapters/preflight_checks.py),
+# so the engine's offline_preflight kit reads them without importing this
+# mode-resolving module.
+from adapters.preflight_checks import SETUPMU2E  # noqa: E402
+from adapters.preflight_checks import TIMEOUT_S as PREFLIGHT_TIMEOUT_S  # noqa: E402
 
 BO_DRIVER = REPO_ROOT / "core" / "bo_driver.py"
 PIPELINE_DRIVER = REPO_ROOT / "core" / "pipeline.py"
@@ -41,9 +45,6 @@ DEFAULT_ALPHA = 1.0e5
 
 # Retry policy for preflight-failed proposals (managed-volume overlap).
 MAX_PROPOSE_RETRIES = 3
-
-# Wall-clock cap on a local `mu2e -n 1` preflight (G4 init + surface check).
-PREFLIGHT_TIMEOUT_S = 1200
 
 # Closed-loop (graph/closed_loop.py, graph/pool.py) constants.
 # Number of parallel children in flight at once.

@@ -18,10 +18,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes  # noqa: E402
-from bo_driver import (  # noqa: E402
+from adapters.preflight_checks import (  # noqa: E402
     SURFACE_OVERLAP_MANAGED,
     SURFACE_OVERLAP_RX,
-    _overlap_banner,
+    overlap_banner,
 )
 
 # Verbatim G4 output from bo_work/preflight/foilsflash/foilsflashRUN1BAP01.log
@@ -91,7 +91,9 @@ class TestPassBanner(unittest.TestCase):
     banner drift is why checks_managed_overlap exists at all)."""
 
     def test_banner_reports_strict_policy(self):
-        self.assertEqual(_overlap_banner("foilsflash"),
+        spec = modes.SPECS["foilsflash"]
+        self.assertEqual(overlap_banner(spec.checks_managed_overlap,
+                                        spec.require_zero_overlaps),
                          " and zero surface-check overlaps")
 
     def test_banner_reports_managed_policy(self):

@@ -19,7 +19,6 @@ import argparse
 import fcntl
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -40,9 +39,12 @@ from paths import leaderboard_archive, leaderboard_live
 
 # Explicit-env mode stamp; see core/modes.py::stamp_mode_from_argv.
 os.environ.setdefault("AUTORESEARCH_MODE", _modes.resolve_env_mode())
-from runtime import PREFLIGHT_TIMEOUT_S, SETUPMU2E  # noqa: E402
+from runtime import PREFLIGHT_TIMEOUT_S  # noqa: E402
 sys.path.insert(0, str(ROOT / "graph"))
-from sourced_bash import run_sourced_bash  # noqa: E402
+# The geometry pre-check, shared with the engine's offline_preflight kit
+# (Phase C2a). PREFLIGHT_VERDICTS stays importable from here.
+from adapters import preflight_checks as pc  # noqa: E402
+from adapters.preflight_checks import PREFLIGHT_VERDICTS  # noqa: E402
 
 DEFAULT_ALPHA = 1.0e5  # mmackenz calo range 4e-8..2.5e-5; alpha=1e5 makes
                        # 1e-5 calo cost 1 unit of S/sqrt(B). Override per study.
@@ -377,145 +379,6 @@ def cmd_evaluate(args):
     return 0
 
 
-G4_GEOM_FAIL_RX = re.compile(
-    r"G4Exception.*?(GeomMgt000\d|GeomVol1002|GeomSolids00\d\d|placement|outside mother|overlap)",
-    re.IGNORECASE | re.DOTALL,
-)
-
-# Fatal G4/art aborts that must FAIL preflight regardless of past_init:
-# past_init fires on pre-geometry strings, so a geometry abort AFTER them
-# was misclassified PASS while the grid died on the identical error. See
-# wiki/incidents/preflight-past-init-false-pass.md.
-G4_FATAL_RX = re.compile(
-    r"G4Exception\s*:\s*GeomSolids00\d\d"
-    r"|\*\*\* Fatal Exception \*\*\*"
-    r"|G4Exception.*?Aborting execution",
-    re.IGNORECASE | re.DOTALL,
-)
-
-# Surface-check detects silent volume overlaps that wouldn't fail G4 init
-# (wiki external/mu2e-overlap-check, incidents/tsda-disc-helical-sibling-overlap).
-SURFACE_CHECK_GEOM_OVERLAY = """\
-#include "{base_geom_basename}"
-
-// Activate G4 CheckOverlaps surface sampling.
-bool g4.doSurfaceCheck             = true;
-int  g4.nSurfaceCheckPointsPercmsq = 1;
-int  g4.minSurfaceCheckPoints      = 100;
-int  g4.maxSurfaceCheckPoints      = 10000000;
-"""
-
-SURFACE_CHECK_FCL = """\
-#include "Offline/Mu2eG4/fcl/surfaceCheck.fcl"
-
-services.GeometryService.inputFile : "{geom_basename}"
-{gdml_lines}"""
-
-# GDML geometry assertion (foils family): the dump reflects what G4 ACTUALLY
-# built, catching value-level divergence the holeRadii canary can't see.
-PREFLIGHT_GDML_NAME = "preflight_geom.gdml"
-PREFLIGHT_GDML_FCL_LINES = (
-    'physics.producers.g4run.debug.writeGDML : true\n'
-    f'physics.producers.g4run.debug.GDMLFileName : "{PREFLIGHT_GDML_NAME}"\n'
-)
-
-# G4's GDML writer appends a pointer suffix ("Foil_020x55d1..."). A greedy
-# \d+ would swallow the leading 0 of "0x" and scramble indices (foil 02 ->
-# "20"); non-greedy digits + anchored optional 0x-suffix is exact.
-GDML_FOIL_TUBE_RX = re.compile(r"Foil_(\d+?)(?:0x[0-9a-fA-F]+)?$")
-
-
-def verify_stopping_target_gdml(gdml_path, geom_text, tol_mm=1e-3):
-    """Assert the G4-built stopping-target foils match the geom file.
-
-    Plain XML iterparse -- NOT ROOT TGDMLParse, which segfaults on forward
-    volume refs (wiki/incidents/root-gdml-forward-volume-ref.md). Each foil
-    is a uniquely named G4Tubs "Foil_NN" (constructStoppingTarget.cc:162).
-    Returns mismatch strings; empty == verified.
-    """
-    import xml.etree.ElementTree as ET
-
-    def _vec(key):
-        m = re.search(
-            rf"vector<double>\s+stoppingTarget\.{key}\s*=\s*\{{([^}}]*)\}}",
-            geom_text)
-        return [float(v) for v in m.group(1).split(",")] if m else None
-
-    radii = _vec("radii")
-    if radii is None:
-        return ["geom has no stoppingTarget.radii vector — nothing to verify"]
-    half = _vec("halfThicknesses") or []
-    if half and len(half) < len(radii):
-        # StoppingTargetMaker repeats the last halfThickness entry.
-        half = half + [half[-1]] * (len(radii) - len(half))
-    holes = _vec("holeRadii")
-    if holes is None:
-        m = re.search(r"stoppingTarget\.holeRadius\s*=\s*([0-9.eE+-]+)",
-                      geom_text)
-        holes = [float(m.group(1))] * len(radii) if m else [0.0] * len(radii)
-
-    found = {}
-    for _ev, el in ET.iterparse(str(gdml_path)):
-        if el.tag.split("}")[-1] == "tube":
-            m = GDML_FOIL_TUBE_RX.match(el.get("name", ""))
-            if m:
-                lunit = el.get("lunit", "mm")
-                scale = {"mm": 1.0, "cm": 10.0, "m": 1000.0}.get(lunit)
-                if scale is None:
-                    return [f"GDML tube {el.get('name')} has unknown "
-                            f"lunit={lunit}"]
-                found[int(m.group(1))] = (
-                    float(el.get("rmin", 0.0)) * scale,
-                    float(el.get("rmax")) * scale,
-                    float(el.get("z")) * scale,  # GDML z = FULL length
-                )
-        el.clear()
-
-    errs = []
-    if len(found) != len(radii):
-        errs.append(f"GDML has {len(found)} Foil_* tubes but geom "
-                    f"specifies {len(radii)} foils")
-    missing = [i for i in range(len(radii)) if i not in found]
-    if missing:
-        errs.append(f"foils missing from GDML: {missing[:10]}"
-                    f"{'...' if len(missing) > 10 else ''}")
-    for i, r_out in enumerate(radii):
-        if i not in found:
-            continue
-        rmin, rmax, z_full = found[i]
-        checks = [("rIn", rmin, holes[i]), ("rOut", rmax, r_out)]
-        if half:
-            checks.append(("fullThickness", z_full, 2.0 * half[i]))
-        for label, got, want in checks:
-            if abs(got - want) > tol_mm:
-                errs.append(f"Foil_{i:02d} {label}: GDML={got:.4f} "
-                            f"geom={want:.4f} (Δ={got - want:+.4f} mm)")
-    return errs
-
-# Only overlaps involving BO-managed volumes (StoppingTargetFoil_*) matter:
-# stock Mu2e geometry has ~117 baseline overlap lines (FoilSupportStructure_*,
-# NorthRailDS3/SouthRailDS3, VirtualDetector_EMC_0_Front), whitelisted by
-# volume name.
-SURFACE_OVERLAP_RX = re.compile(r"Overlap is detected for volume\s+(\S+)")
-
-
-def _overlap_banner(mode_name):
-    """PASS-line suffix naming which overlap policy actually ran (kept next
-    to the policy flags so it cannot drift from the gate)."""
-    spec = _modes.SPECS[mode_name]
-    if not spec.checks_managed_overlap:
-        return ""
-    if spec.require_zero_overlaps:
-        return " and zero surface-check overlaps"
-    return " and no managed-volume overlap"
-SURFACE_OVERLAP_MANAGED = re.compile(r"^StoppingTargetFoil_")
-
-
-# Preflight verdict vocabulary — the ONE home of the rc mapping.
-PREFLIGHT_VERDICTS = {0: "pass", 1: "fail_managed", 2: "fail_init",
-                      3: "ambiguous"}
-
-
 def write_json_atomic(path: Path, payload: dict) -> None:
     """Write JSON via tmp+rename (atomic within one filesystem)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -524,15 +387,20 @@ def write_json_atomic(path: Path, payload: dict) -> None:
     tmp.replace(path)
 
 
+_VERDICT_LABELS = {"pass": "PASS", "fail_managed": "FAIL",
+                   "ambiguous": "AMBIGUOUS"}
+_RC_OF_VERDICT = {v: k for k, v in PREFLIGHT_VERDICTS.items()}
+
+
 def _cmd_preflight_impl(args):
     mode = MODES[args.mode]
+    spec = _modes.SPECS[mode.name]
 
     import harvest as _harvest
     import paths as _paths
     # Preflight runs first, so a missing backing surfaces here -- including
     # harvest's Run1BAna artifacts, which no earlier step touches.
-    _paths.verify([_modes.SPECS[mode.name]],
-                  extra=_harvest.REQUIRED_ARTIFACTS, make_dirs=False)
+    _paths.verify([spec], extra=_harvest.REQUIRED_ARTIFACTS, make_dirs=False)
 
     name = args.config_name
     geom = mode.proposal_dir / f"{name}_geom.txt"
@@ -541,188 +409,39 @@ def _cmd_preflight_impl(args):
         return 2
 
     mode.preflight_dir.mkdir(parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(prefix=f"preflight_{name}_", dir="/tmp"))
-    geom_basename = f"autoresearch_{name}_geom.txt"
-    shutil.copyfile(geom, workdir / geom_basename)
-
-    # One G4 init covers both checks: surfacecheck.fcl enables
-    # doSurfaceCheck AND exercises the plain G4-init path (pinned by
-    # test_modes.test_all_modes_use_surfacecheck_preflight).
-    overlay_basename = f"autoresearch_{name}_surfacecheck_geom.txt"
-    (workdir / overlay_basename).write_text(
-        SURFACE_CHECK_GEOM_OVERLAY.format(base_geom_basename=geom_basename))
-    fcl_basename = "surfacecheck.fcl"
-    # foils family: also dump the as-built geometry to GDML.
-    gdml_lines = (PREFLIGHT_GDML_FCL_LINES
-                  if _modes.SPECS[mode.name].dumps_gdml else "")
-    (workdir / fcl_basename).write_text(
-        SURFACE_CHECK_FCL.format(geom_basename=overlay_basename,
-                                 gdml_lines=gdml_lines))
-
+    workdir = GRID_DATA_ROOT / name / "preflight"
     log = mode.preflight_dir / f"{name}.log"
     print(f"[preflight/{mode.name}] cfg={name}  workdir={workdir}  log={log}")
-    print(f"[preflight/{mode.name}] geom: {geom}  fcl: {fcl_basename}")
+    print(f"[preflight/{mode.name}] geom: {geom}  fcl: {pc.FCL_NAME}")
 
-    # SPACK_USER_CACHE_PATH off NFS HOME onto /tmp: under concurrent
-    # preflights the NFS flock on ~/.spack races and self-corrupts ->
-    # [Errno 5] during spack load -> muse undefined -> rc=3 ambiguous. It
-    # MUST be set INSIDE the bash command; export-at-launch did NOT
-    # propagate. See wiki/incidents/foilsx04-all-preflight-ambiguous.md.
-    spack_cache = f"/tmp/spack_cache_{os.environ.get('USER','x')}"
-    # Per-mode Musing, resolved per-call (--mode is a CLI arg).
-    musing = _modes.SPECS[mode.name].musing
-    bash_cmd = (
-        f"export SPACK_USER_CACHE_PATH={spack_cache} && "
-        f"source {SETUPMU2E} >/dev/null && "
-        f"source {musing}    >/dev/null && "
-        f"export MU2E_SEARCH_PATH=\"{workdir}:$MU2E_SEARCH_PATH\" && "
-        f"export FHICL_FILE_PATH=\"{workdir}:$FHICL_FILE_PATH\" && "
-        f"cd {workdir} && "
-        f"mu2e -c {fcl_basename} -n 1"
-    )
-    # Transient env-source flakes ([Errno 5]) leave `mu2e` unsourced -> exit
-    # nonzero with NO output -> misread as rc=3 "ambiguous" (burned 2/3
-    # foilsY02 round-0 children). Retry ONLY when mu2e never started: a
-    # genuine run always emits a Geant4/art banner, and a banner-bearing
-    # result must NOT be retried. `>/dev/null` (not `2>&1`) lets the flake's
-    # stderr reach the log; wiki/incidents/sourced-env-stderr-swallowed.md.
-    def _retry_if_no_banner(p):
-        combined = (p.stdout or "") + (p.stderr or "")
-        started = any(s in combined for s in
-                      ("Geant4", "%MSG", "Art has", "Begin processing",
-                       "G4Exception"))
-        return p.returncode != 0 and not started
-
-    proc = run_sourced_bash(
-        bash_cmd, timeout=PREFLIGHT_TIMEOUT_S,
-        should_retry=_retry_if_no_banner,
-        label=f"preflight/{mode.name}", log=sys.stdout,
-    )
-    out = (proc.stdout or "") + "\n--- STDERR ---\n" + (proc.stderr or "")
-    rc = proc.returncode
-    timed_out = proc.timed_out
-
+    # The code the grid jobs run: the mode's code tarball, unpacked once per
+    # content, so preflight and grid cannot diverge (the prodtarget
+    # env-divergence and foilsg holeRadii incidents).
+    verdict, out = pc.run_preflight(
+        spec.grid_tarball, geom.read_text(), name, workdir,
+        cache_root=GRID_DATA_ROOT / "_code",
+        dumps_gdml=spec.dumps_gdml,
+        verifies_foil_gdml=spec.verifies_foil_gdml,
+        checks_managed_overlap=spec.checks_managed_overlap,
+        require_zero_overlaps=spec.require_zero_overlaps,
+        label=f"preflight/{mode.name}", timeout_s=PREFLIGHT_TIMEOUT_S,
+        log=sys.stdout)
     log.write_text(out)
 
-    past_init = (
-        "BeginRun" in out
-        or "Event::beginEvent" in out
-        or "EndOfEventAction" in out
-        or "Begin processing the 1st record" in out  # art entered event loop
-        or "GenParticle" in out                       # produce() ran, asked for input
-    )
-
-    print(f"[preflight/{mode.name}] return code: {rc}  timed_out={timed_out}")
-
-    # Fatal aborts FAIL unconditionally, before past_init or surface-check
-    # logic can mask them (see G4_FATAL_RX).
-    fatal = G4_FATAL_RX.search(out)
-    if fatal:
-        snippet = out[max(0, fatal.start() - 300): fatal.end() + 400]
-        print(f"[preflight/{mode.name}] FAIL  fatal G4/art abort:\n{snippet}")
-        return 1
-
-    # Env-divergence canary: a geom requesting per-foil holeRadii without
-    # the patched StoppingTargetMaker's announcement means an unpatched
-    # GeometryService silently built the wrong geometry --
-    # wiki/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md.
-    if "stoppingTarget.holeRadii" in Path(geom).read_text() \
-            and "holeRadii vector active" not in out:
-        print(f"[preflight/{mode.name}] FAIL  geom requests "
-              f"stoppingTarget.holeRadii but the env never printed "
-              f"'holeRadii vector active' — unpatched StoppingTargetMaker "
-              f"(scalar fallback). Check modes.py musing / grid tarball.")
-        return 1
-
-    # As-built assertion: G4-constructed foil stack (GDML) vs the geom file,
-    # per foil. Catches value-level divergence the canary can't. HARD gate:
-    # a run whose built geometry differs from x must never reach the grid.
-    if _modes.SPECS[mode.name].verifies_foil_gdml:
-        gdml_path = workdir / PREFLIGHT_GDML_NAME
-        if not gdml_path.exists():
-            print(f"[preflight/{mode.name}] FAIL  GDML dump "
-                  f"{PREFLIGHT_GDML_NAME} not produced — cannot verify "
-                  f"as-built geometry (writeGDML missing from env?)")
-            return 1
-        mismatches = verify_stopping_target_gdml(
-            gdml_path, Path(geom).read_text())
-        if mismatches:
-            print(f"[preflight/{mode.name}] FAIL  as-built geometry differs "
-                  f"from geom file ({len(mismatches)} mismatches):")
-            for line in mismatches[:10]:
-                print(f"    {line}")
-            return 1
-        radii_m = re.search(
-            r"vector<double>\s+stoppingTarget\.radii\s*=\s*\{([^}]*)\}",
-            Path(geom).read_text())
-        n_foils = len(radii_m.group(1).split(",")) if radii_m else 0
-        print(f"[preflight/{mode.name}] geometry assertion: {n_foils} foils "
-              f"verified against as-built GDML (rIn/rOut/thickness)")
-        # Preserve the verified GDML (the /tmp workdir is tmpwatch-cleaned).
+    for note in verdict.notes:
+        print(f"[preflight/{mode.name}] {note}")
+    if verdict.gdml_verified:
+        # Kept where the pipeline has always kept it, only once the as-built
+        # comparison passed.
         keep_dir = GRID_DATA_ROOT / name / "geom"
         keep_dir.mkdir(parents=True, exist_ok=True)
-        keep_path = keep_dir / f"asbuilt_{name}.gdml"
-        shutil.copyfile(gdml_path, keep_path)
-
-    # Surface-check emits advisory GeomVol1002 warnings on every baseline
-    # overlap (~117 in stock geometry), so the geom_fail regex is only
-    # consulted when construction actually aborted (past_init=False).
-    if _modes.SPECS[mode.name].checks_managed_overlap:
-        all_hits = SURFACE_OVERLAP_RX.findall(out)
-        unique_all = sorted(set(all_hits))
-        managed_hits = [v for v in all_hits if SURFACE_OVERLAP_MANAGED.match(v)]
-        unique_managed = sorted(set(managed_hits))
-        baseline_count = len(all_hits) - len(managed_hits)
-        print(f"[preflight/{mode.name}] surface-check "
-              f"total_hits={len(all_hits)} unique_volumes={len(unique_all)} "
-              f"baseline={baseline_count} managed={len(managed_hits)}")
-        def _dump_context(vols):
-            for v in vols[:1]:
-                m = re.search(rf"Overlap is detected for volume\s+{re.escape(v)}.*", out)
-                if m:
-                    ctx = out[max(0, m.start() - 100): m.end() + 400]
-                    print(f"[preflight/{mode.name}] context:\n{ctx}")
-
-        # Strict policy first, so the reported reason is the real one. The
-        # name-based managed/baseline split falsely assumes "not named like
-        # a BO volume" => "independent of BO knobs": IPAsupport_* sits at a
-        # z derived from targetEnd (MECOStyleProtonAbsorberMaker.cc:124-129);
-        # foilsflashRUN1BAP01 introduced 3 such overlaps and still PASSED.
-        # Modes whose Musing can reach zero opt into failing on ANY overlap.
-        if _modes.SPECS[mode.name].require_zero_overlaps and all_hits:
-            print(f"[preflight/{mode.name}] FAIL  zero-overlap policy: "
-                  f"{len(all_hits)} overlap(s) in {len(unique_all)} volume(s):")
-            for v in unique_all:
-                print(f"    {v}{'  [managed]' if SURFACE_OVERLAP_MANAGED.match(v) else ''}")
-            _dump_context(unique_managed or unique_all)
-            return 1
-        if managed_hits:
-            print(f"[preflight/{mode.name}] FAIL  managed-volume overlap detected:")
-            for v in unique_managed:
-                print(f"    {v}")
-            _dump_context(unique_managed)
-            return 1
-        if baseline_count:
-            print(f"[preflight/{mode.name}] (info) {baseline_count} known "
-                  f"stock-geometry overlaps ({len(unique_all)} unique volumes); "
-                  f"ignored — not managed by BO knobs.")
-
-    if not past_init:
-        geom_fail = G4_GEOM_FAIL_RX.search(out)
-        if geom_fail:
-            snippet = out[max(0, geom_fail.start() - 200): geom_fail.end() + 600]
-            print(f"[preflight/{mode.name}] FAIL  Geant4 geometry error:\n{snippet}")
-            return 1
-
-    if timed_out or rc == 0 or past_init:
-        print(f"[preflight/{mode.name}] PASS  init=True; "
-              f"no geom-fail signature"
-              f"{_overlap_banner(mode.name)}.")
-        return 0
-
-    print(f"[preflight/{mode.name}] AMBIGUOUS  rc={rc}, no geom-fail signature. See {log}")
-    print(f"[preflight/{mode.name}] Last 40 lines of log:\n" + "\n".join(out.splitlines()[-40:]))
-    return 3
+        shutil.copyfile(workdir / pc.PREFLIGHT_GDML_NAME,
+                        keep_dir / f"asbuilt_{name}.gdml")
+    print(f"[preflight/{mode.name}] {_VERDICT_LABELS[verdict.code]}  "
+          f"{verdict.reason}")
+    if verdict.code == "ambiguous":
+        print(f"[preflight/{mode.name}] See {log}")
+    return _RC_OF_VERDICT[verdict.code]
 
 
 def cmd_preflight(args):
