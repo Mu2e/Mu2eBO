@@ -23,7 +23,7 @@
  },
  "kits": {
   "prodtools": {"code_tarball": "${ARTIFACT}/demo/Code_demo.tar.bz2", "fatal_log_codes": ["GeomSolids1001"]},
-  "offline_preflight": {"musing": "${ARTIFACT}/demo/setup_local.sh", "dumps_gdml": true, "verifies_foil_gdml": true, "checks_managed_overlap": true, "require_zero_overlaps": true}
+  "offline_preflight": {"code_tarball": "${ARTIFACT}/demo/Code_demo.tar.bz2", "dumps_gdml": true, "verifies_foil_gdml": true, "checks_managed_overlap": true, "require_zero_overlaps": true}
  },
  "preflight": {"kit": "offline_preflight", "params": {}, "files": ["geom"]},
  "evaluate": [

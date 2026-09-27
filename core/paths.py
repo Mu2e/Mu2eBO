@@ -164,7 +164,7 @@ def require(path, what: str, *, tail: str = "") -> Path:
 def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
     """Fail at launch, not three hours into a grid chain.
 
-    `specs`: iterable with .name/.musing/.grid_tarball (pass
+    `specs`: iterable with .name/.grid_tarball (pass
     core.modes.SPECS.values()); `extra`: (path, description) pairs -- both
     injected, not imported, to stay project-import-free. Both
     prodtarget-env-divergence and foilsflash-tarball-mode-key-omission were
@@ -174,7 +174,7 @@ def verify(specs, *, extra=(), make_dirs: bool = True) -> None:
     (stdlib-only rule; SchemaMismatch covers it).
     """
     for spec in specs:
-        for field in ("musing", "grid_tarball"):
+        for field in ("grid_tarball",):
             require(getattr(spec, field), f"mode {spec.name!r}: {field}",
                     tail="\nor build your own (see README, 'Artifacts').")
     for path, what in extra:

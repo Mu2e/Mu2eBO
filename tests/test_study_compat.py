@@ -26,7 +26,7 @@ class TestView(unittest.TestCase):
                           "quorum": 0.8})
         self.assertEqual(s.stage_tuning["mubeam"]["quorum"], 0.8)
         self.assertTrue(s.require_zero_overlaps)
-        self.assertTrue(s.musing.endswith("demo/setup_local.sh"))
+        self.assertFalse(hasattr(s, "musing"))
         self.assertTrue(s.grid_tarball.endswith("demo/Code_demo.tar.bz2"))
 
     def test_leaderboard_fields(self):

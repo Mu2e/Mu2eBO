@@ -183,7 +183,6 @@ class TestFoilspfRegistration(unittest.TestCase):
         # share a leaderboard schema and their rows are compared to each other.
         ff = modes.SPECS["foilsflash"]
         self.assertEqual(s.grid_tarball, ff.grid_tarball)
-        self.assertEqual(s.musing, ff.musing)
 
     def test_leaderboard_is_not_shared_with_any_other_mode(self):
         """Two modes writing one leaderboard interleaves incompatible schemas."""

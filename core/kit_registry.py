@@ -111,7 +111,7 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             uses_entries=True, step_kit=True, check_kit=False,
             engine=True, pipeline=True),
     KitDecl("offline_preflight",
-            study_keys={"musing": _path, "dumps_gdml": _flag,
+            study_keys={"code_tarball": _path, "dumps_gdml": _flag,
                         "verifies_foil_gdml": _flag,
                         "checks_managed_overlap": _flag,
                         "require_zero_overlaps": _flag},
@@ -124,6 +124,30 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             required_fixed=frozenset(), uses_entries=False, step_kit=True,
             check_kit=False, engine=False, pipeline=True),
 )}
+
+# Settings two kits must agree on when a study uses both:
+# (kit, key, other kit, other key, why).
+MATCHING_SETTINGS = (
+    ("offline_preflight", "code_tarball", "prodtools", "code_tarball",
+     "the geometry pre-check must run the code the jobs run, or a geometry "
+     "it passes can build differently on the grid (the env-divergence "
+     "incidents)"),
+)
+
+
+def check_matching_settings(kits: dict, where: str) -> None:
+    """Refuse a study whose kits disagree on a MATCHING_SETTINGS pair.
+    `kits` is study["kits"] as written, so the message names the values
+    the author wrote."""
+    for kit, key, other, other_key, why in MATCHING_SETTINGS:
+        if kit in kits and other in kits:
+            mine, theirs = kits[kit].get(key), kits[other].get(other_key)
+            if mine != theirs:
+                raise ValueError(
+                    f"{where}[kits.{kit}.{key}]: {mine!r} differs from "
+                    f"kits.{other}.{other_key} {theirs!r}; the two must "
+                    f"name the same file: {why}")
+
 
 # Native contract kits: one kits.toml entry each, no Python. The engine calls
 # their MCP tools directly (core/contract.py).

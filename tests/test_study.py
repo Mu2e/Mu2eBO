@@ -206,6 +206,7 @@ class TestArtifactExpansion(_Tmp):
     def _expanded(self, rel):
         doc = _doc()
         doc["kits"]["prodtools"]["code_tarball"] = "${ARTIFACT}/" + rel
+        doc["kits"]["offline_preflight"]["code_tarball"] = "${ARTIFACT}/" + rel
         return self.load(doc).kits["prodtools"]["code_tarball"]
 
     def test_local_then_backing_then_intended_local(self):
@@ -472,12 +473,42 @@ class TestKits(_Tmp):
     def test_unknown_variable_token_refused(self):
         # Ported from the old loader tests: only '${ARTIFACT}/' expands.
         doc = _doc()
-        doc["kits"]["offline_preflight"]["musing"] = "${HOME}/x/setup.sh"
+        doc["kits"]["offline_preflight"]["code_tarball"] = "${HOME}/x/Code.tar.bz2"
         self.assertRejects(doc, "ARTIFACT")
 
     def test_registry_declares_the_zero_overlap_flag(self):
         self.assertIn("require_zero_overlaps",
                       kit_registry.KITS["offline_preflight"].study_keys)
+
+
+class TestMatchingSettings(_Tmp):
+    def test_the_pre_check_and_the_jobs_must_name_one_code_tarball(self):
+        doc = _doc()
+        doc["kits"]["offline_preflight"]["code_tarball"] = \
+            "${ARTIFACT}/demo/Other.tar.bz2"
+        self.assertRejects(doc, "[kits.offline_preflight.code_tarball]",
+                           "${ARTIFACT}/demo/Other.tar.bz2",
+                           "kits.prodtools.code_tarball",
+                           "${ARTIFACT}/demo/Code_demo.tar.bz2")
+
+    def test_the_fixture_names_one_tarball_for_both(self):
+        s = st.load_study_file(FIXTURE)
+        self.assertEqual(s.kits["offline_preflight"]["code_tarball"],
+                         s.kits["prodtools"]["code_tarball"])
+        self.assertNotIn("musing", s.kits["offline_preflight"])
+
+    def test_the_rule_needs_both_kits(self):
+        # A study that doesn't use offline_preflight at all names only one
+        # side of the MATCHING_SETTINGS pair in kits_raw; the rule must not
+        # fire (nothing to compare against), and the lone kit still loads
+        # with its own settings intact.
+        doc = _doc()
+        doc["preflight"] = None
+        del doc["kits"]["offline_preflight"]
+        s = self.load(doc)
+        self.assertEqual(set(s.kits), {"prodtools"})
+        self.assertTrue(
+            s.kits["prodtools"]["code_tarball"].endswith("Code_demo.tar.bz2"))
 
 
 class TestObjectivesAndConstraints(_Tmp):

@@ -1400,38 +1400,53 @@ class TestRequireLocalStage(unittest.TestCase):
 
 class TestSourcedEnvGuards(unittest.TestCase):
     """pipeline.sourced_env: shell-function parsing, the pre-sourced-shell
-    refusal, and the missing-musing guard. Ported (the first three) verbatim
-    from tests/test_local_exec.py."""
+    refusal, and the missing-code-tarball guard. Ported (the first three)
+    verbatim from tests/test_local_exec.py."""
 
     def setUp(self):
-        # sourced_env stats MUSING before shelling out, so point it at a real
-        # file -- these cases are about everything AFTER that check, and the
-        # suite must stay green on a machine with no /exp/mu2e.
+        # sourced_env stats the code tarball and unpacks it before shelling
+        # out, so point both at stand-ins -- these cases are about
+        # everything AFTER that, and the suite must stay green on a machine
+        # with no /exp/mu2e.
         self._td = tempfile.TemporaryDirectory()
         self.addCleanup(self._td.cleanup)
-        musing = Path(self._td.name) / "setup_local.sh"
-        musing.write_text("")
-        patcher = mock.patch.object(pipeline, "MUSING", str(musing))
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.tarball = Path(self._td.name) / "Code.tar.bz2"
+        self.tarball.write_text("")
+        self.code = Path(self._td.name) / "code"
+        for patcher in (
+                mock.patch.object(pipeline, "MUSE_BASE_TARBALL", self.tarball),
+                mock.patch.object(pipeline.pe, "unpacked",
+                                  return_value=self.code)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
-    def test_a_missing_musing_fails_fast_instead_of_retrying(self):
+    def test_a_missing_code_tarball_fails_fast_instead_of_retrying(self):
         # `source <missing>` is rc=1, the same rc as the cvmfs/spack flake the
-        # retry loop exists for -- so this used to burn four retries (~50 s)
-        # and surface as a CalledProcessError naming only the command line.
-        # Reachable by ordinary use: ${ARTIFACT} in the mode spec resolves
-        # under the CALLING operator's app area, so a second operator with no
-        # partial-Offline build and no `./setup.sh --backing` hits it on their
+        # retry loop exists for; a ${ARTIFACT} path resolves under the
+        # CALLING operator's app area, so a second operator hits this on a
         # first direct `pipeline.py ... submit`, which never runs preflight.
         import paths
-        with mock.patch.object(pipeline, "MUSING", "/nonexistent/setup_local.sh"), \
+        with mock.patch.object(pipeline, "MUSE_BASE_TARBALL",
+                               Path("/nonexistent/Code.tar.bz2")), \
              mock.patch.object(pipeline, "run_sourced_bash") as rsb:
             with self.assertRaises(paths.PathsError) as cm:
                 pipeline.sourced_env()
         rsb.assert_not_called()
+        pipeline.pe.unpacked.assert_not_called()
         msg = str(cm.exception)
-        self.assertIn("/nonexistent/setup_local.sh", msg)
+        self.assertIn("/nonexistent/Code.tar.bz2", msg)
         self.assertIn("setup.sh --backing", msg)
+
+    def test_the_prelude_sources_the_code_tarballs_own_setup(self):
+        with mock.patch.object(pipeline, "run_sourced_bash",
+                               return_value=SimpleNamespace(
+                                   returncode=0, stdout="", stderr="")) as rsb:
+            pipeline.sourced_env()
+        pipeline.pe.unpacked.assert_called_once_with(
+            self.tarball, pipeline.DATA_ROOT / "_code")
+        cmd = rsb.call_args[0][0]
+        self.assertIn(f"source {self.code}/Code/setup.sh && muse setup ops",
+                      cmd)
 
     def test_sourced_env_keeps_exported_shell_functions_whole(self):
         # `muse` is a bash FUNCTION, not a binary, and a local job needs it:

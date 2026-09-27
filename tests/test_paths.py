@@ -217,8 +217,8 @@ class TestDataRootsHaveOneDefinition(unittest.TestCase):
 
 
 class FakeSpec:
-    def __init__(self, name, musing, grid_tarball):
-        self.name, self.musing, self.grid_tarball = name, musing, grid_tarball
+    def __init__(self, name, grid_tarball):
+        self.name, self.grid_tarball = name, grid_tarball
 
 
 class TestRequire(unittest.TestCase):
@@ -278,13 +278,13 @@ class TestVerify(unittest.TestCase):
         setup.write_text("")
         tarball.write_text("")
         p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
-        p.verify([FakeSpec("m", str(setup), str(tarball))])
+        p.verify([FakeSpec("m", str(tarball))])
 
     def test_creates_the_three_data_dirs(self):
         setup = self.tmp / "s.sh"
         setup.write_text("")
         p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
-        p.verify([FakeSpec("m", str(setup), str(setup))])
+        p.verify([FakeSpec("m", str(setup))])
         self.assertTrue(p.GRID_DATA_ROOT.is_dir())
         self.assertTrue(p.GRAPH_DATA.is_dir())
         self.assertTrue(p.LEADERBOARD_LIVE.is_dir())
@@ -292,11 +292,10 @@ class TestVerify(unittest.TestCase):
     def test_missing_artifact_names_the_remediation_command(self):
         p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
         with self.assertRaises(paths.PathsError) as cm:
-            p.verify([FakeSpec("m", str(self.tmp / "gone.sh"),
-                               str(self.tmp / "gone.tar.bz2"))])
+            p.verify([FakeSpec("m", str(self.tmp / "gone.tar.bz2"))])
         msg = str(cm.exception)
         self.assertIn("setup.sh --backing", msg)
-        self.assertIn("gone.sh", msg)
+        self.assertIn("gone.tar.bz2", msg)
         self.assertIn("m", msg)
 
     def test_a_missing_extra_artifact_is_caught_too(self):
@@ -307,7 +306,7 @@ class TestVerify(unittest.TestCase):
         setup.write_text("")
         p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
         with self.assertRaises(paths.PathsError) as cm:
-            p.verify([FakeSpec("m", str(setup), str(setup))],
+            p.verify([FakeSpec("m", str(setup))],
                      extra=[(self.tmp / "gone.fcl", "EdepAna FCL (Run1BAna)")],
                      make_dirs=False)
         msg = str(cm.exception)
@@ -318,13 +317,13 @@ class TestVerify(unittest.TestCase):
         setup = self.tmp / "s.sh"
         setup.write_text("")
         p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
-        p.verify([FakeSpec("m", str(setup), str(setup))], make_dirs=False)
+        p.verify([FakeSpec("m", str(setup))], make_dirs=False)
 
     def test_make_dirs_false_does_not_create_anything(self):
         setup = self.tmp / "s.sh"
         setup.write_text("")
         p = reload_with(AUTORESEARCH_DATA_ROOT=str(self.tmp / "d"))
-        p.verify([FakeSpec("m", str(setup), str(setup))], make_dirs=False)
+        p.verify([FakeSpec("m", str(setup))], make_dirs=False)
         self.assertFalse(p.GRID_DATA_ROOT.exists())
 
 

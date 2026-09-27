@@ -73,7 +73,7 @@ os.environ.setdefault("AUTORESEARCH_MODE", _modes.resolve_env_mode())
 # One mode per process; a different mode is a fresh subprocess.
 MODE = _modes.resolve_env_mode()
 from paths import GRID_DATA_ROOT as DATA_ROOT  # noqa: E402
-from runtime import MUSING, SETUPMU2E  # noqa: E402
+from runtime import SETUPMU2E  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "graph"))
 from sourced_bash import run_sourced_bash  # noqa: E402
 import harvest as hv  # noqa: E402
@@ -303,7 +303,7 @@ def run(cmd: list) -> subprocess.CompletedProcess:
 
 
 def sourced_env(extra="", *, with_muse=False) -> dict:
-    """Return an env dict with setupmu2e-art.sh + musing + ops tooling sourced.
+    """Return an env dict with setupmu2e-art.sh + the code tarball's setup + ops tooling sourced.
 
     For invoking mu2e / prodtools binaries from Python. with_muse=True for
     harvest, which needs the EdepAna module built into our own
@@ -350,17 +350,22 @@ def sourced_env(extra="", *, with_muse=False) -> dict:
         # `muse` function undefined; the retry loop below recovers it. See
         # wiki/incidents/sourced-env-stderr-swallowed.md.
         #
-        # Stat MUSING first: `source` on a missing file is rc=1, same rc as
-        # that flake, so an unresolvable musing (any operator without the
-        # partial Offline tree, on a path that never ran preflight's
-        # paths.verify()) would burn all four retries and name only the
-        # command line. SETUPMU2E is deliberately NOT checked: it lives on
-        # cvmfs, where "missing" is usually the transient the retries recover.
+        # The mode's code tarball's own Code/setup.sh, as the grid jobs and
+        # the geometry pre-check source it: json2jobdef needs `mu2e` on PATH
+        # (prodtools' write server builds the same environment for a code
+        # entry). Stat the tarball first: `source` on a missing file is
+        # rc=1, the same rc as that flake, so an unresolvable tarball (any
+        # operator without the artifact, on a path that never ran
+        # preflight's paths.verify()) would burn all four retries and name
+        # only the command line. SETUPMU2E is deliberately NOT checked: it
+        # lives on cvmfs, where "missing" is usually the transient the
+        # retries recover.
         import paths  # see core/paths.py
-        paths.require(MUSING, "the mode's musing setup script")
+        paths.require(MUSE_BASE_TARBALL, "the mode's code tarball")
+        code_dir = pe.unpacked(MUSE_BASE_TARBALL, DATA_ROOT / "_code")
         prelude = (
             f"source {SETUPMU2E} && "
-            f"source {MUSING} && "
+            f"source {code_dir}/Code/setup.sh && "
             f"muse setup ops && "
         )
     # Spack provider cache + flock off NFS HOME -> local /tmp: the nashome

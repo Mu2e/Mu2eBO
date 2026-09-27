@@ -442,6 +442,7 @@ def _kits_and_preflight(doc, steps, has_geom, names, where):
             raise ValueError(f"{where}[kits]: kit {kit!r} is used but has no "
                              f"settings; it needs "
                              f"{sorted(kit_registry.KITS[kit].study_keys)}")
+    kit_registry.check_matching_settings(kits_raw, where)
     return kits, pre
 
 

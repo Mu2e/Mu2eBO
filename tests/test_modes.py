@@ -38,7 +38,8 @@ class TestRegistryCompleteness(unittest.TestCase):
 
     def test_every_fact_populated(self):
         for name, spec in modes.SPECS.items():
-            self.assertTrue(spec.musing.startswith("/"), name)
+            self.assertTrue(spec.grid_tarball.startswith("/"), name)
+            self.assertFalse(hasattr(spec, "musing"), name)
             self.assertTrue(spec.grid_tarball.endswith(".tar.bz2"), name)
             self.assertGreater(len(spec.grid_stages), 0, name)
 

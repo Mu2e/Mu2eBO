@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 class ModeSpec:
     """The pure-data half of a Mode (CONTEXT.md: 'ModeSpec')."""
     name: str
-    musing: str
     grid_tarball: str
     grid_stages: Tuple[str, ...]
     stage_target_overrides: Dict[str, int]

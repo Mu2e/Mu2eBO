@@ -62,7 +62,6 @@ def modespec_from_study(study: Study):
     o0, o1 = study.objectives
     return ModeSpec(
         name=study.name,
-        musing=pre["musing"],
         grid_tarball=study.kits["prodtools"]["code_tarball"],
         grid_stages=tuple(s.step for s in grid),
         stage_target_overrides={s.step: s.fixed["njobs"] for s in grid

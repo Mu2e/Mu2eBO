@@ -35,8 +35,8 @@ Usage:
     conversion target: the Phase-A pipeline view must rebuild today's
     ModeSpec exactly. Stored one line per field; the data is still the
     pre-Phase-A capture, and check applies the declared changes
-    (`_declared_changes`: the per-event fallback drop, and C1's
-    elebeam_flash quorum) to the baseline, never to the file.
+    (`_declared_changes`: the per-event fallback drop, C1's elebeam_flash
+    quorum, and C2a's dropped musing) to the baseline, never to the file.
 (e) ask-input fingerprint: sha256 of the exact arguments compute_explore_
     picks hands to surrokit.ask, per picker (budget_sob/qnehvi/qlnei), on
     the frozen foilsflash board. Pick OUTPUTS are not bit-reproducible run
@@ -71,7 +71,7 @@ E_BASE = GOLDENS / "ask_inputs_baseline.json"
 
 # Every ModeSpec field except `geom` (pinned through rendered text below).
 _SPEC_FIELDS = (
-    "name", "musing", "grid_tarball", "grid_stages", "stage_target_overrides",
+    "name", "grid_tarball", "grid_stages", "stage_target_overrides",
     "presubmit_after", "stage_tuning", "bounds_lo", "bounds_hi", "int_dims",
     "dumps_gdml", "verifies_foil_gdml", "checks_managed_overlap",
     "require_zero_overlaps", "knob_names", "knob_fmts", "metric_cols",
@@ -94,9 +94,9 @@ def _sample_points(spec):
 
 
 def _portable_artifact_path(value: str, mode_name: str, field: str) -> str:
-    """musing/grid_tarball on a live ModeSpec are already-resolved absolute
-    paths (core/study.py's `${ARTIFACT}/` expansion through
-    paths.artifact()), so they carry THIS operator's ARTIFACT_ROOT (or
+    """grid_tarball on a live ModeSpec is an already-resolved absolute
+    path (core/study.py's `${ARTIFACT}/` expansion through
+    paths.artifact()), so it carries THIS operator's ARTIFACT_ROOT (or
     BACKING) baked in -- exactly the personal-path shape
     tests/test_no_hardcoded_paths.py exists to catch, and it caught it here
     (commit 90accbc, fix round 1). Undo the expansion for the golden: strip
@@ -128,7 +128,7 @@ def section_d():
     points. Pins the schema-2 conversion: the Phase-A pipeline view must
     rebuild today's ModeSpec exactly.
 
-    `musing`/`grid_tarball` are recorded in their portable `${ARTIFACT}/<rel>`
+    `grid_tarball` is recorded in its portable `${ARTIFACT}/<rel>`
     token form (see _portable_artifact_path) rather than the resolved
     absolute path, which would bake this operator's personal ARTIFACT_ROOT
     into a committed golden.
@@ -138,7 +138,7 @@ def section_d():
     for name in sorted(modes.SPECS):
         spec = modes.SPECS[name]
         rec = {f: _jsonable(getattr(spec, f)) for f in _SPEC_FIELDS}
-        for field in ("musing", "grid_tarball"):
+        for field in ("grid_tarball",):
             rec[field] = _portable_artifact_path(rec[field], name, field)
         rec["geom_sha"] = {
             k: hashlib.sha256(spec.geom.render(x).encode()).hexdigest()
@@ -418,9 +418,18 @@ def _quorum_on_elebeam_flash(base):
             tuning["elebeam_flash"]["quorum"] = 0.8
 
 
+def _drop_musing(base):
+    """Intended Phase-C2a change (preflight-kit spec, "Settings and
+    registry"): the pre-check runs from the prodtools code tarball, so
+    ModeSpec no longer has a musing."""
+    for rec in base.values():
+        rec.pop("musing", None)
+
+
 def _declared_changes(base):
     _drop_per_event_fallback(base)
     _quorum_on_elebeam_flash(base)
+    _drop_musing(base)
 
 
 _dump = functools.partial(json.dumps, indent=2)

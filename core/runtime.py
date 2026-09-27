@@ -15,7 +15,6 @@ from paths import GRAPH_DATA, REPO_ROOT
 
 _SPEC = _modes.SPECS[_modes.resolve_env_mode()]
 
-MUSING = _SPEC.musing
 GRID_STAGES = list(_SPEC.grid_stages)
 PRESUBMIT_AFTER = {k: list(v) for k, v in _SPEC.presubmit_after.items()}
 
