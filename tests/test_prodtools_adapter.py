@@ -248,6 +248,55 @@ class TestSubmit(_Kit):
             self.submit(self.kit())
         self.assertIn("jobsub_q", str(cm.exception))
 
+    def stick(self, state, error, *, drop_host=False):
+        """The next launch creates its run, leaves its receipt in `state`
+        and raises `error`, as a prodtools that died mid-submit would."""
+        write = self.fake.write.handler
+
+        def handler(tool, args):
+            reply = write(tool, args)
+            run = self.fake.runs[reply["name"]]
+            run["state"] = state
+            if drop_host:
+                del run["host"], run["pid"]
+            raise error
+
+        self.fake.write.handler = handler
+
+    def test_a_stuck_grid_receipt_names_prodtools_error_and_jobsub_q(self):
+        self.stick("submitting", KitToolError(
+            "prodtools-write", "submit_once",
+            "jobsub_submit: rc=1: NoPublisherHandlerServerError"))
+        with self.assertRaises(KitError) as cm:
+            self.submit(self.kit())
+        msg = str(cm.exception)
+        for needle in ("'submitting'", "NoPublisherHandlerServerError",
+                       "jobsub_q", "new config name"):
+            self.assertIn(needle, msg)
+
+    def test_a_stuck_local_receipt_names_its_host_and_pid(self):
+        self.stick("building", KitTimeout("prodtools-write", "run_local",
+                                          "timed out after 300 s"))
+        with self.assertRaises(KitError) as cm:
+            self.submit(self.kit(executor="local"))
+        msg = str(cm.exception)
+        for needle in ("'building'", "timed out after 300 s", "node.example",
+                       "4242"):
+            self.assertIn(needle, msg)
+        self.assertNotIn("jobsub_q", msg)
+
+    def test_a_local_receipt_in_starting_without_a_host_names_its_run_dir(self):
+        self.stick("starting", KitTimeout("prodtools-write", "run_local",
+                                          "timed out after 300 s"),
+                   drop_host=True)
+        with self.assertRaises(KitError) as cm:
+            self.submit(self.kit(executor="local"))
+        msg = str(cm.exception)
+        self.assertIn("'starting'", msg)
+        self.assertIn(str(self.tmp / "prodtools" / "runs" / self.run_name()),
+                      msg)
+        self.assertEqual(self.record()["state"], "submitting")
+
     def an_older_run(self):
         """A run of this step's name that prodtools created a minute
         before this step's submit: a config name used before."""
@@ -559,6 +608,34 @@ class TestStatus(_Kit):
         kit, _ = self.submitted()
         with self.assertRaises(KitError):
             kit.results("cfg1.mubeam", "w")
+
+    def test_starting_is_working_until_ten_minutes_then_failed(self):
+        kit, name = self.submitted(executor="local")
+        self.fake.runs[name]["state"] = "starting"
+        s = self.state(kit)
+        self.assertEqual((s.state, s.message), ("working", "starting"))
+        self.clock[0] += 10 * 60
+        s = self.state(kit)
+        self.assertEqual(s.state, "failed")
+        self.assertIn("10 min", s.message)
+
+    def test_a_run_that_leaves_starting_resets_the_clock(self):
+        kit, name = self.submitted(executor="local")
+        self.fake.runs[name]["state"] = "starting"
+        self.state(kit)
+        self.assertIn("starting_since", self.record())
+        self.fake.runs[name]["state"] = "running"
+        self.assertEqual(self.state(kit).state, "working")
+        self.assertNotIn("starting_since", self.record())
+
+    def test_done_without_a_jobs_block_raises_naming_the_run(self):
+        kit, name = self.submitted()
+        self.fake.runs[name]["state"] = "done"
+        with self.assertRaises(KitError) as cm:
+            self.state(kit)
+        self.assertIn(name, str(cm.exception))
+        self.assertIn("no jobs block", str(cm.exception))
+        self.assertNotIn("verdict", self.record())
 
 
 class TestCancelAndLaunch(_Kit):

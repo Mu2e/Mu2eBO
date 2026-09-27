@@ -47,6 +47,10 @@ METRICS = ("njobs", "njobs_ok")
 DEFAULT_PARALLEL = 4
 UNKNOWN_LIMIT_S = 6 * 3600
 STAGEOUT_LIMIT_S = 30 * 60
+STARTING_LIMIT_S = 10 * 60
+# Receipt states before a run is known to be running: a receipt left in
+# one of them means prodtools died mid-submit or mid-launch.
+STUCK = ("submitting", "building", "starting")
 WORKING = ("building", "submitting", "starting", "submitted", "running")
 # Every tool the adapter calls, per server role: each needs a timeout.
 TOOLS = {"write": ("submit_once", "run_local", "cancel_run"),
@@ -246,8 +250,8 @@ class ProdtoolsKit:
         self._save(sdir, rec, submitting_utc=self._utc_now())
         try:
             self._launch(rec, workflow)
-        except KitError:
-            if not self._adopt(rec, workflow):
+        except KitError as exc:
+            if not self._adopt(rec, workflow, launch_error=exc.message):
                 raise
         self._save(sdir, rec, state="submitted")
         return name
@@ -274,6 +278,19 @@ class ProdtoolsKit:
                     + (f": {note}" if note else ""))
             return self._working(f"unknown: {note or 'no note'}", progress)
         if rec.pop("unknown_since", None) is not None:
+            self._save(sdir, rec)
+        if state == "starting":
+            since = rec.setdefault("starting_since", self._clock())
+            self._save(sdir, rec)
+            if self._clock() - since >= STARTING_LIMIT_S:
+                return self._decide(
+                    sdir, rec, "failed",
+                    f"run_status has said starting for "
+                    f"{STARTING_LIMIT_S // 60} min: prodtools never "
+                    f"launched runlocal for {rec['run_name']} (receipt "
+                    f"{reply.get('receipt')})")
+            return self._working("starting", progress)
+        if rec.pop("starting_since", None) is not None:
             self._save(sdir, rec)
         if state in WORKING:
             return self._working(state, progress)
@@ -383,12 +400,14 @@ class ProdtoolsKit:
                            f"prodtools named the run {receipt.get('name')!r}; "
                            f"expected {rec['run_name']!r}")
 
-    def _adopt(self, rec, workflow) -> bool:
+    def _adopt(self, rec, workflow, launch_error=None) -> bool:
         """True when prodtools already has this step's run, past
         submission; False when it has none. A run created before the
         record's submitting_utc is not this step's (the config name was
-        used before) and is an error, as is a receipt stuck in submitting
-        or building: whether jobs reached the grid is unknown."""
+        used before) and is an error, as is a receipt stuck in a STUCK
+        state: whether jobs reached the grid, or a local run started,
+        cannot be told. `launch_error` is what the launch call raised,
+        when this adopt follows one."""
         reply = self._run_status(rec["run_name"], workflow, call="submit")
         if reply is None:
             return False
@@ -403,14 +422,31 @@ class ProdtoolsKit:
                 f"step started submitting at {ours}, so it is not this "
                 f"step's run: the config name {config!r} was used before. "
                 f"Pick a new config name")
-        if reply.get("state") in ("submitting", "building"):
-            raise KitError(
-                self.name, "submit",
-                f"{rec['run_name']}: its receipt is stuck in "
-                f"{reply['state']!r}, so whether its jobs reached the grid "
-                f"cannot be told. Look for its cluster in jobsub_q; this "
-                f"point needs a new config name")
+        if reply.get("state") in STUCK:
+            raise KitError(self.name, "submit",
+                           self._stuck(rec, reply, launch_error))
         return True
+
+    def _stuck(self, rec, reply, launch_error) -> str:
+        """The refusal for a receipt stuck in a STUCK state: prodtools' own
+        error text when there is one, and where to look for the run."""
+        msg = f"{rec['run_name']}: its receipt is stuck in {reply['state']!r}"
+        errors = [e for e in (launch_error, reply.get("error")) if e]
+        if errors:
+            msg += " (prodtools said: " + "; ".join(errors) + ")"
+        if self.executor == "grid":
+            msg += (", so whether its jobs reached the grid cannot be told. "
+                    "Look for its cluster in jobsub_q")
+        elif reply.get("host") and reply.get("pid"):
+            msg += (f", so whether its local run started cannot be told. "
+                    f"Look on {reply['host']} for pid {reply['pid']}")
+        else:
+            run_dir = Path(reply.get("receipt", "")).parent
+            msg += (f", and it names no host or pid yet, so whether its "
+                    f"local run started cannot be told. Look for a runlocal "
+                    f"or json2jobdef process whose command line names "
+                    f"{run_dir}")
+        return msg + "; this point needs a new config name"
 
     # --- status ------------------------------------------------------------
     def _submitted(self, handle, call):
@@ -423,7 +459,13 @@ class ProdtoolsKit:
         return sdir, rec
 
     def _complete(self, sdir, rec, reply, progress):
-        jobs = reply.get("jobs") or {}
+        jobs = reply.get("jobs")
+        if not isinstance(jobs, dict):
+            raise KitError(self.name, "status",
+                           f"{rec['run_name']}: run_status says "
+                           f"{reply.get('state')!r} but its reply has no "
+                           f"jobs block, so how many jobs succeeded cannot "
+                           f"be told")
         njobs, ok = int(rec["njobs"]), int(jobs.get("ok", 0))
         if reply.get("outputs_truncated") is not None:
             return self._decide(
