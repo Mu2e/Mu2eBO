@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -14,6 +16,7 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import paths  # noqa: E402
 import study_loop  # noqa: E402
+import study as st  # noqa: E402
 from tests import toykit  # noqa: E402
 from tests.engine_fixtures import (ENGINE_STUDIES, engine_env,  # noqa: E402
                                    toy_doc, write_study)
@@ -248,6 +251,36 @@ class TestChildFlags(unittest.TestCase):
             study_loop.make_run_child(types.SimpleNamespace(name="toy"),
                                       "camp", [], "grid", None)("n1", [1.0])
         self.assertNotIn("--parallel", seen["cmd"])
+
+
+class TestNamePrefix(unittest.TestCase):
+    def test_a_prefix_a_kit_cannot_name_launches_nothing(self):
+        with tempfile.TemporaryDirectory() as td:
+            study = st.load_study_file(
+                write_study(toy_doc(name="pfxtoy", layout="v2"), Path(td)))
+        seen = []
+
+        def rule(study_, config):
+            seen.append(config)
+            return [f"kit 'x': config name {config!r} has character(s) '-'"]
+
+        out = io.StringIO()
+        with mock.patch.dict(study_loop._modes.STUDIES, {"pfxtoy": study}), \
+                mock.patch.object(study_loop._modes, "ENGINE",
+                                  frozenset({"pfxtoy"})), \
+                mock.patch.object(study_loop, "config_name_problems",
+                                  side_effect=rule), \
+                mock.patch.object(study_loop, "check_kits", return_value=[]), \
+                mock.patch.object(study_loop, "run_rolling") as rolling, \
+                contextlib.redirect_stdout(out):
+            rc = study_loop.main(["--study", "pfxtoy", "--q", "1",
+                                  "--max-evals", "1", "--name-prefix",
+                                  "smoke-1"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(seen, ["smoke-1R00_00"])
+        rolling.assert_not_called()
+        self.assertIn("REFUSED", out.getvalue())
+        self.assertIn("smoke-1R00_00", out.getvalue())
 
 
 if __name__ == "__main__":

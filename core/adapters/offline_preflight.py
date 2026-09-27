@@ -46,6 +46,7 @@ class OfflinePreflightKit:
     EXECUTORS = ("grid", "local")
     REQUIRES_KERBEROS = False       # no inputs, no grid
     LAUNCH_STAGGER_S = 0
+    config_problem = staticmethod(kit_registry.config_name_problem)
 
     def __init__(self, campaign, *, executor="grid", parallel=None,
                  grid_root=None, runner=None, timeout_s=None):

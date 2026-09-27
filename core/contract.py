@@ -373,6 +373,20 @@ def requires_kerberos(study, executor: str) -> bool:
                for n in kit_registry.kits_of(study))
 
 
+def config_name_problems(study, config: str) -> List[str]:
+    """Why a kit of the study would refuse `config` as a config name: an
+    adapter declares its rule as config_problem(config) -> str | None.
+    Empty means every kit accepts the name."""
+    _load_adapters()
+    problems = []
+    for name in sorted(kit_registry.kits_of(study)):
+        rule = getattr(ADAPTERS.get(name), "config_problem", None)
+        why = rule(config) if rule is not None else None
+        if why:
+            problems.append(f"kit {name!r}: {why}")
+    return problems
+
+
 class KitSet:
     """The kits one child uses: opened on first use (one server per kit),
     closed together. Thread-safe: run_steps' threads share it."""

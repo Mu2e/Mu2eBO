@@ -713,5 +713,21 @@ class TestProdtoolsKeys(_Tmp):
                          "Run1Bak_{cfg}")
 
 
+class TestReservedEntry(_Tmp):
+    def test_entry_is_reserved_for_a_kit_that_takes_templates(self):
+        cases = (
+            ("param", lambda d: _step(d, "mubeam")["params"].update(entry="a"),
+             "[evaluate[0]][params.entry]"),
+            ("fixed", lambda d: _step(d, "mubeam")["fixed"].update(entry=1),
+             "[evaluate[0]][fixed.entry]"),
+            ("setting", lambda d: d["kits"]["prodtools"].update(entry="x"),
+             "[kits.prodtools][entry]"))
+        for label, mutate, field in cases:
+            doc = _doc()
+            mutate(doc)
+            with self.subTest(label):
+                self.assertRejects(doc, field, "reserved")
+
+
 if __name__ == "__main__":
     unittest.main()

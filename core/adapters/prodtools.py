@@ -170,6 +170,7 @@ class ProdtoolsKit:
     EXECUTORS = ("grid", "local")
     REQUIRES_KERBEROS = True
     LAUNCH_STAGGER_S = 90.0
+    config_problem = staticmethod(kit_registry.config_name_problem)
 
     def __init__(self, campaign, *, executor="grid", parallel=None,
                  clients=None, clock=time.time, pause=time.sleep,

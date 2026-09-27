@@ -368,6 +368,13 @@ def _steps(raw, has_geom, names, where):
         step = _name(s["step"], f"{sw}[step]")
         kit = _kit(s["kit"], "step_kit", f"{sw}[kit]")
         decl = kit_registry.KITS[kit]
+        if decl.uses_entries:
+            for part in ("params", "fixed"):
+                if isinstance(s[part], dict) and "entry" in s[part]:
+                    raise ValueError(
+                        f"{sw}[{part}.entry]: 'entry' is reserved for kit "
+                        f"{kit!r}, which receives the step's stage template "
+                        f"under that name")
         entry = s["entry"]
         if decl.uses_entries and not (isinstance(entry, dict)
                                       or (isinstance(entry, str) and entry)):
@@ -433,6 +440,11 @@ def _kits_and_preflight(doc, steps, has_geom, names, where):
         if kit not in used:
             raise ValueError(f"{kw}: kit {kit!r} is configured but unused by "
                              f"any step or the preflight")
+        if (kit_registry.KITS[kit].uses_entries and isinstance(settings, dict)
+                and "entry" in settings):
+            raise ValueError(f"{kw}[entry]: 'entry' is reserved for kit "
+                             f"{kit!r}, which receives each step's stage "
+                             f"template under that name")
         checked = kit_registry.validate(
             kit, settings, kit_registry.KITS[kit].study_keys, kw,
             required=True)

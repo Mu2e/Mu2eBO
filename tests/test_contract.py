@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -436,6 +437,25 @@ class TestCheckKits(_Toy):
         problems = ct.check_kits(study, campaign="c", opener=opener)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("['check']", problems[0])
+
+
+class TestConfigNames(unittest.TestCase):
+    @staticmethod
+    def study(*kits, preflight=None):
+        return types.SimpleNamespace(
+            steps=tuple(types.SimpleNamespace(kit=k) for k in kits),
+            preflight=preflight)
+
+    def test_the_prodtools_rule_covers_its_steps_and_the_pre_check(self):
+        s = self.study("prodtools", preflight={"kit": "offline_preflight"})
+        problems = ct.config_name_problems(s, "smoke-1R00_00")
+        self.assertEqual(len(problems), 2, problems)
+        self.assertTrue(all("'-'" in p for p in problems))
+        self.assertEqual(ct.config_name_problems(s, "smoke1R00_00"), [])
+
+    def test_a_kit_without_a_rule_accepts_any_name(self):
+        self.assertEqual(ct.config_name_problems(self.study("toykit"),
+                                                 "a-b.c"), [])
 
 
 if __name__ == "__main__":

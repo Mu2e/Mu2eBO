@@ -305,12 +305,16 @@ class TestEnvironment(_Client):
 
 
 class TestTrace(_Client):
-    def test_one_line_per_call(self):
+    def test_one_line_per_start_and_per_call(self):
         c = self.client()
         self.call(c, "describe")
         with self.assertRaises(KitToolError):
             self.call(c, "status", {"handle": "nope"})
-        ok, bad = self.trace()
+        start, ok, bad = self.trace()
+        self.assertEqual((start["tool"], start["ok"], start["error"],
+                          start["workflow"]), ("start", True, None, "camp/start"))
+        self.assertEqual(start["server"], {"name": "toykit", "version": "1"})
+        self.assertGreaterEqual(start["duration_s"], 0)
         self.assertEqual((ok["tool"], ok["ok"], ok["error"]),
                          ("describe", True, None))
         self.assertEqual((bad["tool"], bad["ok"]), ("status", False))
@@ -321,6 +325,21 @@ class TestTrace(_Client):
             self.assertEqual(len(line["args_sha256"]), 64)
             self.assertEqual(line["server"], {"name": "toykit", "version": "1"})
             self.assertGreaterEqual(line["duration_s"], 0)
+
+    def test_a_failed_start_is_traced_with_its_error(self):
+        c = self.client(set_env={})       # no TOYKIT_STATE_DIR
+        with self.assertRaises(KitError):
+            self.call(c, "describe")
+        start, call = self.trace()
+        self.assertEqual((start["tool"], start["ok"]), ("start", False))
+        self.assertIn("TOYKIT_STATE_DIR is not set", start["error"])
+        self.assertEqual((call["tool"], call["ok"]), ("describe", False))
+
+    def test_starting_a_started_client_writes_nothing(self):
+        c = self.client()
+        c.start()
+        c.start()
+        self.assertEqual([r["tool"] for r in self.trace()], ["start"])
 
 
 if __name__ == "__main__":

@@ -20,8 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes as _modes  # noqa: E402
 import paths  # noqa: E402
 from boards import board_for  # noqa: E402
-from contract import EXECUTORS, check_kits, launch_stagger  # noqa: E402
-from pool import next_free_name, run_rolling  # noqa: E402
+from contract import (EXECUTORS, check_kits, config_name_problems,  # noqa: E402
+                      launch_stagger)
+from pool import child_name, next_free_name, run_rolling  # noqa: E402
 from study_run import launch_refusals, parse_context  # noqa: E402
 
 
@@ -154,6 +155,10 @@ def main(argv=None) -> int:
         print(f"[study_loop] REFUSED: {exc}", flush=True)
         return 2
     problems = launch_refusals(study, args.executor, args.parallel)
+    # The first child's name, as next_free_name gives it when nothing is
+    # busy: the prefix plus the suffix the pool adds. A later index changes
+    # only digits, so one name covers them all.
+    problems += config_name_problems(study, child_name(args.name_prefix, 0))
     problems += check_kits(study, campaign=args.name_prefix,
                            executor=args.executor, parallel=args.parallel)
     if problems:

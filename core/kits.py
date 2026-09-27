@@ -83,46 +83,61 @@ class KitClient:
 
     # --- lifecycle ---------------------------------------------------------
     def start(self) -> None:
-        name = self.config.name
+        """Start the server, once. Each attempt writes a trace row (tool
+        "start", its duration and any error), as each call does."""
         with self._lock:
             if self._session is not None:
                 return
-            if self._loop is not None:
-                # The serve task ended on its own between calls (the
-                # server died with nobody waiting on it): _session is
-                # already cleared, but its loop and thread are not.
-                # Tear them down before building a fresh one, or the old
-                # `kit-<name>` thread spins forever.
-                self._teardown()
+            t0 = time.monotonic()
+            error = None
             try:
-                from mcp.client.stdio import get_default_environment
-                command = self.config.resolve_command()
-                env = self.config.resolve_env(get_default_environment())
-            except KitConfigError as exc:
-                raise KitError(name, "start", str(exc)) from None
-            self._stderr_tail.clear()
-            self._loop = asyncio.new_event_loop()
-            self._thread = threading.Thread(target=self._loop.run_forever,
-                                            name=f"kit-{name}", daemon=True)
-            self._thread.start()
-            ready = concurrent.futures.Future()
-            self._serve_fut = asyncio.run_coroutine_threadsafe(
-                self._serve(ready, command, env), self._loop)
-            timeout = self.config.timeouts["start"]
-            try:
-                ready.result(timeout)
-            except concurrent.futures.TimeoutError:
-                self._teardown()
-                raise KitError(name, "start", f"server did not start within "
-                               f"{timeout:g} s ({command})") from None
-            except Exception as exc:  # noqa: BLE001 - reported with stderr
-                self._teardown()
-                if self._pump is not None:
-                    self._pump.join(2)
-                tail = " | ".join(self._stderr_tail)
-                raise KitError(name, "start", f"server did not start "
-                               f"({command}): {type(exc).__name__}: {exc}; "
-                               f"child stderr: {tail}") from exc
+                self._start()
+            except BaseException as exc:
+                error = getattr(exc, "message", None) or repr(exc)
+                raise
+            finally:
+                self._trace("start", {}, f"{self.campaign}/start",
+                            time.monotonic() - t0, error)
+
+    def _start(self) -> None:
+        """start()'s body; the caller holds self._lock."""
+        name = self.config.name
+        if self._loop is not None:
+            # The serve task ended on its own between calls (the
+            # server died with nobody waiting on it): _session is
+            # already cleared, but its loop and thread are not.
+            # Tear them down before building a fresh one, or the old
+            # `kit-<name>` thread spins forever.
+            self._teardown()
+        try:
+            from mcp.client.stdio import get_default_environment
+            command = self.config.resolve_command()
+            env = self.config.resolve_env(get_default_environment())
+        except KitConfigError as exc:
+            raise KitError(name, "start", str(exc)) from None
+        self._stderr_tail.clear()
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever,
+                                        name=f"kit-{name}", daemon=True)
+        self._thread.start()
+        ready = concurrent.futures.Future()
+        self._serve_fut = asyncio.run_coroutine_threadsafe(
+            self._serve(ready, command, env), self._loop)
+        timeout = self.config.timeouts["start"]
+        try:
+            ready.result(timeout)
+        except concurrent.futures.TimeoutError:
+            self._teardown()
+            raise KitError(name, "start", f"server did not start within "
+                           f"{timeout:g} s ({command})") from None
+        except Exception as exc:  # noqa: BLE001 - reported with stderr
+            self._teardown()
+            if self._pump is not None:
+                self._pump.join(2)
+            tail = " | ".join(self._stderr_tail)
+            raise KitError(name, "start", f"server did not start "
+                           f"({command}): {type(exc).__name__}: {exc}; "
+                           f"child stderr: {tail}") from exc
 
     async def _serve(self, ready, command, env):
         from mcp import ClientSession, StdioServerParameters
