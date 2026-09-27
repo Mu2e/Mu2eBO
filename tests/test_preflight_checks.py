@@ -185,6 +185,19 @@ class TestClassify(unittest.TestCase):
         self.assertIn("    Foil_00 rIn", v.reason)
         self.assertFalse(v.gdml_verified)
 
+    def test_a_malformed_gdml_dump_fails_with_the_parse_error(self):
+        # A dump cut short by a timeout or a crash mid-write is truncated
+        # XML: ET.iterparse raises ParseError, which must not escape
+        # classify() as an unhandled exception (F2, 2026-09-26).
+        truncated = self.gdml_file('<?xml version="1.0"?>\n<gdml><solids>'
+                                   '<tube name="Foil_00" rmin="10.0"')
+        v = self.classify(CLEAN_LOG, 0, verifies_foil_gdml=True,
+                          gdml_path=truncated)
+        self.assertEqual((v.ok, v.code), (False, "fail_managed"))
+        self.assertIn("could not be parsed", v.reason)
+        self.assertIn("unclosed token", v.reason)
+        self.assertFalse(v.gdml_verified)
+
     def test_a_matching_gdml_passes_and_counts_the_foils(self):
         good = self.gdml_file(gdml_matching(GEOM))
         v = self.classify(CLEAN_LOG, 0, verifies_foil_gdml=True,

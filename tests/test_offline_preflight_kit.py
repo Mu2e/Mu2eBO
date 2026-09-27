@@ -219,6 +219,25 @@ class TestRefusals(_Kit):
         self.assertRefused(str(bare), "Code/setup.sh", code_tarball=str(bare))
 
 
+class TestPreCheckOSError(_Kit):
+    """EDQUOT/ENOSPC in stage_workdir, a failed mkdtemp/rename in
+    pe.unpacked, or a read of the geometry file all surface as a bare
+    OSError from pc.run_preflight. node_preflight (graph/study_graph.py)
+    only catches (KitError, ContractError, KeyError, ValueError), so an
+    unwrapped OSError would crash the engine child instead of breaking the
+    point (F2, 2026-09-26)."""
+
+    def test_an_oserror_in_the_pre_check_is_rewrapped_as_a_valueerror(self):
+        err = OSError(28, "No space left on device")
+        with mock.patch.object(op.pc, "run_preflight", side_effect=err):
+            with self.assertRaises(ValueError) as cm:
+                self.check()
+        msg = str(cm.exception)
+        self.assertIn("cfg1", msg)
+        self.assertIn("No space left on device", msg)
+        self.assertIn(str(self.workdir()), msg)
+
+
 class TestKitInterface(_Kit):
     def test_describe_tools_version_and_launch_attributes(self):
         kit = self.kit()

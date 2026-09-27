@@ -480,6 +480,18 @@ class TestKits(_Tmp):
         self.assertIn("require_zero_overlaps",
                       kit_registry.KITS["offline_preflight"].study_keys)
 
+    def test_zero_overlap_policy_needs_the_managed_overlap_check(self):
+        # classify() (core/adapters/preflight_checks.py) only reads
+        # require_zero_overlaps INSIDE the `if checks_managed_overlap:`
+        # block, so this combination silently never enforces the policy
+        # (F3, 2026-09-26; the same rule already pins the old ModeSpec path
+        # in tests/test_zero_overlap_policy.py).
+        doc = _doc()
+        doc["kits"]["offline_preflight"]["require_zero_overlaps"] = True
+        doc["kits"]["offline_preflight"]["checks_managed_overlap"] = False
+        self.assertRejects(doc, "checks_managed_overlap",
+                           "require_zero_overlaps")
+
 
 class TestMatchingSettings(_Tmp):
     def test_the_pre_check_and_the_jobs_must_name_one_code_tarball(self):

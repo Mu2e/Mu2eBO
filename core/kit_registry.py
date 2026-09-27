@@ -195,6 +195,25 @@ def check_matching_settings(kits: dict, where: str) -> None:
                     f"name the same file: {why}")
 
 
+def check_offline_preflight_overlap_policy(kits: dict, where: str) -> None:
+    """Refuse an offline_preflight study whose settings turn on the
+    zero-overlap policy while the scan that enforces it is off. classify()
+    (core/adapters/preflight_checks.py) reads require_zero_overlaps only
+    INSIDE the `if checks_managed_overlap:` block, so
+    require_zero_overlaps=true with checks_managed_overlap=false is
+    silently never enforced -- a geometry with overlaps passes."""
+    settings = kits.get("offline_preflight")
+    if not isinstance(settings, dict):
+        return
+    if settings.get("require_zero_overlaps") and not settings.get(
+            "checks_managed_overlap"):
+        raise ValueError(
+            f"{where}[kits.offline_preflight]: require_zero_overlaps=true "
+            f"needs checks_managed_overlap=true; with the managed-overlap "
+            f"scan off, classify() never reaches the require_zero_overlaps "
+            f"check, so a geometry with overlaps would silently pass")
+
+
 # Native contract kits: one kits.toml entry each, no Python. The engine calls
 # their MCP tools directly (core/contract.py).
 NATIVE = load_kit_configs()

@@ -15,6 +15,7 @@ import dataclasses
 import re
 import shutil
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
@@ -94,8 +95,6 @@ def verify_stopping_target_gdml(gdml_path, geom_text, tol_mm=1e-3):
     is a uniquely named G4Tubs "Foil_NN" (constructStoppingTarget.cc:162).
     Returns mismatch strings; empty == verified.
     """
-    import xml.etree.ElementTree as ET
-
     def _vec(key):
         m = re.search(
             rf"vector<double>\s+stoppingTarget\.{key}\s*=\s*\{{([^}}]*)\}}",
@@ -320,7 +319,14 @@ def classify(out, rc, timed_out, *, geom_text, gdml_path,
             return fail(f"GDML dump {gdml_path.name} not produced — cannot "
                         f"verify as-built geometry (writeGDML missing from "
                         f"env?)")
-        mismatches = verify_stopping_target_gdml(gdml_path, geom_text)
+        # A dump cut short by a timeout or a crash mid-write is truncated or
+        # unreadable XML; that must FAIL the point, not raise out of
+        # classify() (node_preflight has no ET.ParseError/OSError handler).
+        try:
+            mismatches = verify_stopping_target_gdml(gdml_path, geom_text)
+        except (ET.ParseError, OSError) as exc:
+            return fail(f"GDML dump {gdml_path.name} could not be parsed: "
+                        f"{exc}")
         if mismatches:
             listed = "\n".join(f"    {m}" for m in mismatches[:10])
             return fail(f"as-built geometry differs from geom file "

@@ -87,15 +87,28 @@ class OfflinePreflightKit:
                              f"{[f.get('name') for f in files]}")
         geom = pe.local_path(geoms[0], "offline_preflight: file")
         workdir = self._grid_root / config / "preflight"
-        verdict, _out = pc.run_preflight(
-            params["code_tarball"], geom.read_text(), config, workdir,
-            cache_root=self._grid_root / "_code",
-            dumps_gdml=params["dumps_gdml"],
-            verifies_foil_gdml=params["verifies_foil_gdml"],
-            checks_managed_overlap=params["checks_managed_overlap"],
-            require_zero_overlaps=params["require_zero_overlaps"],
-            label=f"offline_preflight/{config}", timeout_s=self._timeout_s,
-            runner=self._runner)
+        cache_root = self._grid_root / "_code"
+        # EDQUOT/ENOSPC in stage_workdir, a failed mkdtemp/rename in
+        # pe.unpacked, or a failed read of the geometry file all surface as
+        # a bare OSError here; node_preflight (graph/study_graph.py) only
+        # catches (KitError, ContractError, KeyError, ValueError), so an
+        # unwrapped OSError would crash the engine child instead of
+        # breaking the point (as prodtools' adapter already rewraps a
+        # staging OSError -- core/adapters/prodtools.py).
+        try:
+            verdict, _out = pc.run_preflight(
+                params["code_tarball"], geom.read_text(), config, workdir,
+                cache_root=cache_root,
+                dumps_gdml=params["dumps_gdml"],
+                verifies_foil_gdml=params["verifies_foil_gdml"],
+                checks_managed_overlap=params["checks_managed_overlap"],
+                require_zero_overlaps=params["require_zero_overlaps"],
+                label=f"offline_preflight/{config}", timeout_s=self._timeout_s,
+                runner=self._runner)
+        except OSError as exc:
+            raise ValueError(f"offline_preflight: pre-check for {config} "
+                             f"under {workdir} (cache {cache_root}) failed: "
+                             f"{exc}") from exc
         # run_preflight emptied the workdir first, so a dump here is this
         # run's.
         dump = workdir / pc.PREFLIGHT_GDML_NAME
