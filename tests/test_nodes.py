@@ -81,6 +81,18 @@ class TestRouteAfterStageLogs(unittest.TestCase):
 class TestMakeStageNodeLogs(unittest.TestCase):
     """make_stage_node's silent except clause must emit a stage failure line."""
 
+    def setUp(self):
+        # Otherwise a real PRESUBMIT_AFTER["mubeam"] entry (from whatever
+        # mode the ambient environment resolves) fires an unmocked
+        # pio.presubmit_stage -> a real `pipeline.py submit` subprocess that
+        # unpacks the real code tarball into $GRID_DATA_ROOT/_code/. This
+        # class only exercises the stage node's own logging, not the
+        # presubmit-overlap seam (TestPresubmitOverlapSeam does that, with
+        # its own explicit PRESUBMIT_AFTER map).
+        patch = mock.patch.dict(nd.PRESUBMIT_AFTER, {}, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_exception_prints_and_marks_failed(self):
         node = nd.make_stage_node("mubeam")
         buf = io.StringIO()

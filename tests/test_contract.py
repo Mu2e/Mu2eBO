@@ -389,7 +389,8 @@ class TestCheckKits(_Toy):
         # ambient environment, so the prodtools adapter fails at command
         # resolution (a string substitution) and never spawns a subprocess
         # either way.
-        with mock.patch.dict(os.environ):
+        with mock.patch.dict(os.environ), \
+             mock.patch.object(ct.paths, "GRAPH_DATA", self.tmp / "trace"):
             os.environ.pop("AUTORESEARCH_PRODTOOLS", None)
             problems = ct.check_kits(st.load_study_file(DEMO), campaign="c")
         self.assertTrue(problems)
