@@ -45,10 +45,15 @@ updated_note: C2a — the rules moved to core/adapters/preflight_checks.py, shar
 >    "20") — bit the first live run 2026-06-13. Use non-greedy digits +
 >    anchored optional `0x[0-9a-f]+$` suffix, and report missing foil
 >    indices instead of skipping them.
->    On PASS the verified GDML is preserved as
->    `<GRID_DATA_ROOT>/<config>/preflight/asbuilt.gdml` (Phase C2a; this
->    replaced the old node-local, tmpwatch-cleaned /tmp workdir — see the
->    note above).
+>    The old pipeline (`bo_driver.py`) keeps a verified dump at
+>    `<GRID_DATA_ROOT>/<config>/geom/asbuilt_<config>.gdml` (a `copyfile`,
+>    so the raw `<GRID_DATA_ROOT>/<config>/preflight/preflight_geom.gdml`
+>    stays too), written only when the as-built comparison passed. The
+>    engine's `offline_preflight` kit instead keeps
+>    `<GRID_DATA_ROOT>/<config>/preflight/asbuilt.gdml` (a rename, so no
+>    raw `preflight_geom.gdml` is left behind) whenever the check produced
+>    a dump — pass or fail alike (Phase C2a; this replaced the old
+>    node-local, tmpwatch-cleaned /tmp workdir — see the note above).
 >    **`<tube>` name-attribute ordering**: G4's GDML writer does NOT put
 >    `name=` first (`<tube aunit="deg" deltaphi=... name="Foil_NN0x..">`),
 >    so a `grep '<tube name="Foil_'` returns 0 and looks like the foils
