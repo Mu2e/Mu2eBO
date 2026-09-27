@@ -256,7 +256,7 @@ class ProdtoolsKit:
         sdir, rec = self._submitted(handle, "status")
         if "verdict" in rec:
             return self._status_of(rec["verdict"])
-        reply = self._run_status(rec["run_name"], workflow)
+        reply = self._run_status(rec["run_name"], workflow, call="status")
         if reply is None:
             raise KitError(self.name, "status",
                            f"prodtools has no run {rec['run_name']!r}, though "
@@ -305,8 +305,10 @@ class ProdtoolsKit:
         if "cancel_run" not in self._write.tools:
             raise KitError(self.name, "cancel",
                            "the prodtools write server has no cancel_run tool")
-        reply = self._call(self._write, "cancel_run",
-                           self._cancel_args(rec["run_name"]), workflow)
+        reply = call_with_retries(
+            lambda: self._call(self._write, "cancel_run",
+                               self._cancel_args(rec["run_name"]), workflow),
+            call="cancel", retry_tool_errors=False, pause=self._pause)
         return parse_cancel({"state": reply.get("state")}, self.name)
 
     # --- submit ------------------------------------------------------------
@@ -387,7 +389,7 @@ class ProdtoolsKit:
         record's submitting_utc is not this step's (the config name was
         used before) and is an error, as is a receipt stuck in submitting
         or building: whether jobs reached the grid is unknown."""
-        reply = self._run_status(rec["run_name"], workflow)
+        reply = self._run_status(rec["run_name"], workflow, call="submit")
         if reply is None:
             return False
         created, ours = reply.get("created_utc"), rec.get("submitting_utc")
@@ -532,13 +534,15 @@ class ProdtoolsKit:
         return client.call(tool, args, timeout_s=client.config.timeouts[tool],
                            workflow=workflow)
 
-    def _run_status(self, run_name, workflow):
+    def _run_status(self, run_name, workflow, *, call):
         """run_status for one run, or None when prodtools has no such run.
         The read server reports failures as a REPLY of exactly
         {"error": {kind, ...}}; any kind but not_found is raised, after the
         read-only retries. A run's own `error` field (a plain string, set
         alongside state="failed") is a different thing and must not be
-        mistaken for this sentinel -- only a dict-shaped "error" is it."""
+        mistaken for this sentinel -- only a dict-shaped "error" is it.
+        `call` names the contract call it serves, which sets its retry
+        budget (contract.RETRY_PAUSES_S)."""
         def once():
             reply = self._call(self._read, "run_status",
                                self._run_status_args(run_name), workflow)
@@ -549,7 +553,7 @@ class ProdtoolsKit:
                     f"{err.get('kind')}: {err.get('message')} "
                     f"{err.get('remedy') or ''}".strip())
             return reply
-        reply = call_with_retries(once, retry_tool_errors=True,
+        reply = call_with_retries(once, call=call, retry_tool_errors=True,
                                   pause=self._pause)
         return None if isinstance(reply.get("error"), dict) else reply
 

@@ -124,11 +124,23 @@ class TestRetryPolicy(unittest.TestCase):
         self.assertEqual(kit.status("h", "w").state, "completed")
         self.assertEqual(len(c.calls), 3)
 
-    def test_status_gives_up_after_three_attempts(self):
-        kit, c = self.kit([KitError("k", "status", "lost")] * 3)
+    def test_status_gives_up_after_five_attempts(self):
+        kit, c = self.kit([KitError("k", "status", "lost")] * 5)
         with self.assertRaises(KitError):
             kit.status("h", "w")
-        self.assertEqual(len(c.calls), 3)
+        self.assertEqual(len(c.calls), 5)
+
+    def test_status_pauses_about_four_and_a_half_minutes_in_all(self):
+        pauses = []
+        client = FakeClient([KitError("k", "status", "lost")] * 5)
+        kit = ct.NativeKit(self.CFG, client, pause=pauses.append)
+        with self.assertRaises(KitError):
+            kit.status("h", "w")
+        self.assertEqual(pauses, [5.0, 20.0, 60.0, 180.0])
+
+    def test_results_and_cancel_share_the_long_budget(self):
+        for call in ("results", "cancel"):
+            self.assertEqual(ct.RETRY_PAUSES_S[call], (5.0, 20.0, 60.0, 180.0))
 
     def test_submit_retries_a_timeout(self):
         kit, c = self.kit([KitTimeout("k", "submit", "timed out"),
@@ -142,19 +154,24 @@ class TestRetryPolicy(unittest.TestCase):
             kit.submit("c.s", {}, [], [], "w")
         self.assertEqual(len(c.calls), 1)
 
-    def test_cancel_is_never_retried(self):
-        kit, c = self.kit([KitError("k", "cancel", "lost")])
-        with self.assertRaises(KitError):
+    def test_submit_keeps_three_attempts_and_short_pauses(self):
+        pauses = []
+        client = FakeClient([KitTimeout("k", "submit", "timed out")] * 3)
+        kit = ct.NativeKit(self.CFG, client, pause=pauses.append)
+        with self.assertRaises(KitTimeout):
+            kit.submit("c.s", {}, [], [], "w")
+        self.assertEqual(len(client.calls), 3)
+        self.assertEqual(pauses, [5.0, 20.0])
+
+    def test_cancel_retries_a_lost_server_but_never_a_refusal(self):
+        kit, c = self.kit([KitError("k", "cancel", "lost"),
+                           {"state": "cancelled"}])
+        self.assertEqual(kit.cancel("h", "w"), "cancelled")
+        self.assertEqual(len(c.calls), 2)
+        kit, c = self.kit([KitToolError("k", "cancel", "no such handle")])
+        with self.assertRaises(KitToolError):
             kit.cancel("h", "w")
         self.assertEqual(len(c.calls), 1)
-
-    def test_pauses_grow_between_attempts(self):
-        pauses = []
-        client = FakeClient([KitError("k", "status", "lost")] * 3)
-        kit = ct.NativeKit(self.CFG, client, pause=pauses.append)
-        with self.assertRaises(KitError):
-            kit.status("h", "w")
-        self.assertEqual(pauses, [5.0, 20.0])
 
 
 class _Toy(unittest.TestCase):

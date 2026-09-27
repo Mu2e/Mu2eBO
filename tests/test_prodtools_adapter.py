@@ -412,6 +412,16 @@ class TestSubmit(_Kit):
         self.assertIn("'dsconf'", str(cm.exception))
         self.assertEqual(self.fake.write.calls, [])
 
+    def test_adopting_after_a_failed_launch_keeps_the_submit_budget(self):
+        self.fake.raise_after_submit = KitTimeout("prodtools", "submit_once",
+                                                  "timed out")
+        self.fake.read.handler = lambda tool, args: {
+            "error": {"kind": "auth_expired", "message": "token expired",
+                      "remedy": "renew"}}
+        with self.assertRaises(KitToolError):
+            self.submit(self.kit())
+        self.assertEqual(len(self.fake.read.calls), 3)
+
 
 class TestStatus(_Kit):
     def submitted(self, executor="grid", **over):
@@ -542,7 +552,7 @@ class TestStatus(_Kit):
         with self.assertRaises(KitToolError) as cm:
             self.state(kit)
         self.assertIn("auth_expired", str(cm.exception))
-        self.assertEqual(len(self.fake.read.calls), 3)
+        self.assertEqual(len(self.fake.read.calls), 5)
         self.assertEqual(len(self.fake.write.calls), 1)
 
     def test_results_before_completed_are_refused(self):
@@ -563,6 +573,22 @@ class TestCancelAndLaunch(_Kit):
         self.assertEqual([c[0] for c in self.fake.write.calls],
                          ["submit_once", "cancel_run"])
         self.assertEqual(kit.status("cfg1.mubeam", "w").state, "cancelled")
+
+    def test_cancel_retries_a_lost_write_server(self):
+        kit = self.kit(cancel=True)
+        self.submit(kit)
+        write, lost = self.fake.write.handler, []
+
+        def flaky(tool, args):
+            if tool == "cancel_run" and not lost:
+                lost.append(1)
+                raise KitError("prodtools-write", tool, "server lost")
+            return write(tool, args)
+
+        self.fake.write.handler = flaky
+        self.assertEqual(kit.cancel("cfg1.mubeam", "w"), "cancelled")
+        self.assertEqual([c[0] for c in self.fake.write.calls],
+                         ["submit_once", "cancel_run", "cancel_run"])
 
     def test_a_write_server_without_the_executors_tool_is_refused(self):
         self.fake.write.tools = frozenset({"run_local"})
@@ -713,7 +739,7 @@ class TestRealServers(unittest.TestCase):
 
     def test_run_status_of_a_run_that_cannot_exist_is_none(self):
         self.assertIsNone(self.kit("grid")._run_status(self.no_such_run(),
-                                                       self.WF))
+                                                       self.WF, call="status"))
 
 
 class TestRegistration(unittest.TestCase):

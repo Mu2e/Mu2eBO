@@ -37,28 +37,37 @@ else:
 
 STATES = ("working", "completed", "failed", "cancelled")
 REQUIRED_TOOLS = ("submit", "status", "results")
-ATTEMPTS = 3            # bounded retries of the calls safe to repeat
-RETRY_PAUSES_S = (5.0, 20.0)   # after the 1st and the 2nd failed attempt
+# Pauses between attempts, per contract call; a call makes one attempt
+# more than it has pauses. submit, check and describe: a credential blip
+# lasts seconds. status, results and cancel: read-only or idempotent, on a
+# point that may have waited hours, so they ride out a server outage of
+# minutes (5 attempts, about 4.5 min).
+_BRIEF = (5.0, 20.0)
+_PATIENT = (5.0, 20.0, 60.0, 180.0)
+RETRY_PAUSES_S = {"submit": _BRIEF, "check": _BRIEF, "describe": _BRIEF,
+                  "status": _PATIENT, "results": _PATIENT,
+                  "cancel": _PATIENT}
 MAX_PARALLEL = 16              # prodtools' MAX_LOCAL_PARALLEL
 _URI_SCHEMES = ("file://", "root://")
 
 
-def call_with_retries(fn, *, retry_tool_errors, attempts=ATTEMPTS,
-                      pause=time.sleep):
-    """fn() up to `attempts` times. Transport failures and timeouts are
-    retried; a tool error only when retry_tool_errors (a refused submit --
-    same name, different params -- must never be repeated). Between
-    attempts it pauses RETRY_PAUSES_S: a credential blip lasts seconds."""
-    for attempt in range(1, attempts + 1):
+def call_with_retries(fn, *, call, retry_tool_errors, pause=time.sleep):
+    """fn() up to len(RETRY_PAUSES_S[call]) + 1 times, `call` being the
+    contract call it serves. Transport failures and timeouts are retried;
+    a tool error only when retry_tool_errors (a refused submit -- same
+    name, different params -- must never be repeated). Between attempts
+    it pauses RETRY_PAUSES_S[call]."""
+    pauses = RETRY_PAUSES_S[call]
+    for attempt in range(len(pauses) + 1):
         try:
             return fn()
         except KitToolError:
-            if not retry_tool_errors or attempt == attempts:
+            if not retry_tool_errors or attempt == len(pauses):
                 raise
         except KitError:
-            if attempt == attempts:
+            if attempt == len(pauses):
                 raise
-        pause(RETRY_PAUSES_S[min(attempt - 1, len(RETRY_PAUSES_S) - 1)])
+        pause(pauses[attempt])
 
 
 class ContractError(RuntimeError):
@@ -220,15 +229,15 @@ class NativeKit:
         self._ensure_started()
         return self.client.tools
 
-    def _call(self, tool, args, workflow, *, retry_tool_errors,
-              attempts=ATTEMPTS):
+    def _call(self, tool, args, workflow, *, retry_tool_errors):
         """Transport failures and timeouts are retried (the client respawns
-        a lost server before the next call); see call_with_retries."""
+        a lost server before the next call), with the pauses of the call's
+        RETRY_PAUSES_S; see call_with_retries."""
         return call_with_retries(
             lambda: self.client.call(tool, args,
                                      timeout_s=self.config.timeouts[tool],
                                      workflow=workflow),
-            retry_tool_errors=retry_tool_errors, attempts=attempts,
+            call=tool, retry_tool_errors=retry_tool_errors,
             pause=self._pause)
 
     def submit(self, name, params, files, inputs, workflow) -> str:
@@ -264,7 +273,7 @@ class NativeKit:
 
     def cancel(self, handle, workflow) -> str:
         return parse_cancel(self._call("cancel", {"handle": handle}, workflow,
-                                       retry_tool_errors=False, attempts=1),
+                                       retry_tool_errors=False),
                             self.name)
 
     def close(self) -> None:
