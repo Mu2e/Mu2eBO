@@ -133,6 +133,13 @@ class TestRefusals(unittest.TestCase):
             d["evaluate"][1]["files_from"] = ["elebeam_flash"]
         self.assertIn("files_from", self._load(m))
 
+    def test_a_run_label_the_pipeline_would_ignore_is_refused(self):
+        def m(d):
+            d["kits"]["prodtools"]["dsconf"] = "Other_{cfg}"
+        msg = self._load(m)
+        self.assertIn("dsconf", msg)
+        self.assertIn("Run1Bak_{cfg}", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

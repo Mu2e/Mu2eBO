@@ -215,6 +215,7 @@ class TestProdtoolsSmoke(unittest.TestCase):
                          bpz.geom.render(X_GRIDPHASEA01))
         self.assertEqual([s.step for s in smoke.steps],
                          ["mubeam", "mustops_ce"])
+        self.assertEqual(smoke.kits["prodtools"]["dsconf"], "MDC2025ax_{cfg}")
 
 
 if __name__ == "__main__":

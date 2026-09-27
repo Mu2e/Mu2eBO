@@ -38,7 +38,7 @@ class TestParity(unittest.TestCase):
             with mock.patch.object(pe, "USER", want["owner"]):
                 got, facts = pe.entry_for_step(
                     template(step), config="gridphaseA01", fixed=FIXED[step],
-                    code_tarball="CODE",
+                    code_tarball="CODE", dsconf="Run1Bak_{cfg}",
                     geom_name="autoresearch_gridphaseA01_geom.txt",
                     staged=staged)
             # The mustops_ce template gained sequential_aux after
@@ -54,21 +54,36 @@ class TestEntryForStep(unittest.TestCase):
     def test_geom_without_a_geom_file_is_refused(self):
         with self.assertRaises(ValueError) as cm:
             pe.entry_for_step(template("mubeam"), config="c1", fixed={},
-                              code_tarball="CODE")
+                              code_tarball="CODE", dsconf="Run1Bak_{cfg}")
         self.assertIn("{geom}", str(cm.exception))
 
-    def test_a_template_without_dsconf_fmt_is_refused(self):
-        t = template("mubeam")
-        del t["dsconf_fmt"]
+    def test_a_template_still_naming_dsconf_fmt_is_refused(self):
+        t = dict(template("mubeam"), dsconf_fmt="Run1Bak_{cfg}")
         with self.assertRaises(ValueError) as cm:
             pe.entry_for_step(t, config="c1", fixed={}, code_tarball="CODE",
-                              geom_name="g.txt")
+                              dsconf="Run1Bak_{cfg}", geom_name="g.txt")
         self.assertIn("dsconf_fmt", str(cm.exception))
+        self.assertIn("kits.prodtools.dsconf", str(cm.exception))
+
+    def test_the_run_label_is_the_dsconf_setting_with_cfg_filled(self):
+        entry, facts = pe.entry_for_step(
+            template("mubeam"), config="c1", fixed={}, code_tarball="CODE",
+            dsconf="MDC2025ax_{cfg}", geom_name="g.txt")
+        self.assertEqual((entry["dsconf"], facts["dsconf"]),
+                         ("MDC2025ax_c1", "MDC2025ax_c1"))
+
+    def test_a_dsconf_without_cfg_is_refused(self):
+        with self.assertRaises(ValueError) as cm:
+            pe.entry_for_step(template("mubeam"), config="c1", fixed={},
+                              code_tarball="CODE", dsconf="Run1Bak",
+                              geom_name="g.txt")
+        self.assertIn("{cfg}", str(cm.exception))
 
     def test_template_defaults_fill_what_fixed_omits(self):
         entry, facts = pe.entry_for_step(template("elebeam_flash"),
                                          config="c1", fixed={},
                                          code_tarball="CODE",
+                                         dsconf="Run1Bak_{cfg}",
                                          geom_name="g.txt")
         self.assertEqual((entry["njobs"], entry["events"], entry["memory"]),
                          (100, 2500, "3000MB"))

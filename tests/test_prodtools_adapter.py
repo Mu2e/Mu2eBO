@@ -163,6 +163,7 @@ class _Kit(unittest.TestCase):
         entry = json.loads((ROOT / "stage_entries" / f"{step}.json")
                            .read_text())
         p = {"entry": entry, "code_tarball": str(self.base),
+             "dsconf": "Run1Bak_{cfg}",
              "fatal_log_codes": ["GeomSolids1001"], "njobs": 2,
              "events_per_job": 200, "memory_mb": 2000, "quorum": 0.5}
         p.update(over)
@@ -397,6 +398,20 @@ class TestSubmit(_Kit):
             self.kit().submit("cfg1.mubeam", self.params(), [], [], "w")
         self.assertIn("{geom}", str(cm.exception))
 
+    def test_the_run_label_comes_from_the_dsconf_param(self):
+        self.submit(self.kit(), dsconf="MDC2025ax_{cfg}")
+        name = f"cnf.{USER}.Run1A_MuBeam_cfg1.MDC2025ax_cfg1.0"
+        self.assertEqual(self.fake.entries[name]["dsconf"], "MDC2025ax_cfg1")
+        self.assertEqual(self.record()["run_name"], name)
+
+    def test_a_missing_dsconf_is_refused(self):
+        params = self.params()
+        del params["dsconf"]
+        with self.assertRaises(ValueError) as cm:
+            self.kit().submit("cfg1.mubeam", params, self.files(), [], "w")
+        self.assertIn("'dsconf'", str(cm.exception))
+        self.assertEqual(self.fake.write.calls, [])
+
 
 class TestStatus(_Kit):
     def submitted(self, executor="grid", **over):
@@ -592,6 +607,7 @@ class TestWithRunSteps(_Kit):
                                  .read_text())
                    for s in ("mubeam", "mustops_ce")}
         settings = {"code_tarball": str(self.base),
+                    "dsconf": "Run1Bak_{cfg}",
                     "fatal_log_codes": ["GeomSolids1001"]}
         fixed = {"njobs": 2, "events_per_job": 200, "memory_mb": 2000,
                  "quorum": 1.0}

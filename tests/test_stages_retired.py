@@ -28,6 +28,7 @@ class TestStagesRetired(unittest.TestCase):
             self.assertIn("desc_fmt", d, s)
             self.assertIn("output_glob", d, s)
             self.assertIn("njobs", d, s)
+            self.assertNotIn("dsconf_fmt", d, s)
 
     def test_no_duplicated_events_per_job_key(self):
         """`events` is the only spelling. Two files holding one number, with

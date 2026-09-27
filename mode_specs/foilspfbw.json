@@ -62,7 +62,7 @@
   ]
  },
  "kits": {
-  "prodtools": {"code_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2", "fatal_log_codes": ["GeomSolids1001"]},
+  "prodtools": {"code_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2", "dsconf": "Run1Bak_{cfg}", "fatal_log_codes": ["GeomSolids1001"]},
   "offline_preflight": {"code_tarball": "${ARTIFACT}/autoresearch_muse/Code_run1bap_holeradii_ipafix.tar.bz2", "dumps_gdml": true, "verifies_foil_gdml": true, "checks_managed_overlap": true, "require_zero_overlaps": true}
  },
  "preflight": {"kit": "offline_preflight", "params": {}, "files": ["geom"]},

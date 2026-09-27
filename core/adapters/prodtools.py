@@ -41,7 +41,7 @@ else:
     from kits import KitClient, KitError, KitToolError
 
 VERSION = "prodtools-adapter/1"      # bump when a step would measure anew
-PARAMS = ("entry", "code_tarball", "fatal_log_codes", "njobs",
+PARAMS = ("entry", "code_tarball", "dsconf", "fatal_log_codes", "njobs",
           "events_per_job", "memory_mb", "quorum")
 METRICS = ("njobs", "njobs_ok")
 DEFAULT_PARALLEL = 4
@@ -218,7 +218,8 @@ class ProdtoolsKit:
         if unknown:
             raise ValueError(f"prodtools: unknown param(s) {unknown}; it "
                              f"accepts {list(PARAMS)}")
-        for key in ("entry", "code_tarball", "fatal_log_codes", "quorum"):
+        for key in ("entry", "code_tarball", "dsconf", "fatal_log_codes",
+                    "quorum"):
             if key not in params:
                 raise ValueError(f"prodtools: param {key!r} is missing")
         sdir = self._step_dir(config, step)
@@ -355,6 +356,7 @@ class ProdtoolsKit:
                                         "memory_mb") if k in params}
         entry, facts = pe.entry_for_step(template, config=config, fixed=fixed,
                                          code_tarball=str(tarball),
+                                         dsconf=params["dsconf"],
                                          geom_name=geom_name, staged=staged)
         entry_path = pe.write_entry_file(sdir / "entry.json", entry)
         return {"name": name, "digest": digest, "executor": self.executor,

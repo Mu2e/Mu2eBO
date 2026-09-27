@@ -699,6 +699,19 @@ class TestProdtoolsKeys(_Tmp):
             if step.kit == "prodtools":
                 self.assertIn("quorum", step.fixed, step.step)
 
+    def test_dsconf_holds_cfg_and_only_name_characters(self):
+        for bad, needle in (("Run1Bak", "{cfg}"), (7, "{cfg}"),
+                            ("Run1Bak-{cfg}", "'-'"),
+                            ("Run1Bak_{cfg}_{geom}", "'{'")):
+            doc = _doc()
+            doc["kits"]["prodtools"]["dsconf"] = bad
+            with self.subTest(bad=bad):
+                self.assertRejects(doc, "[kits.prodtools][dsconf]", needle)
+
+    def test_the_fixture_names_the_pipelines_run_label(self):
+        self.assertEqual(st.load_study_file(FIXTURE).kits["prodtools"]["dsconf"],
+                         "Run1Bak_{cfg}")
+
 
 if __name__ == "__main__":
     unittest.main()

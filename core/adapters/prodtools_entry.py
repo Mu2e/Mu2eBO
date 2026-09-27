@@ -26,7 +26,7 @@ SETUP_POST = ('export MU2E_SEARCH_PATH="$CODE_DIR:$MU2E_SEARCH_PATH"\n'
               'export FHICL_FILE_PATH="$CODE_DIR:$FHICL_FILE_PATH"\n')
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
 _DEFAULT_OUTLOC = {"*.art": "outstage", "*.root": "outstage"}
-_TEMPLATE_KEYS = ("desc_fmt", "dsconf_fmt", "fcl", "output_glob")
+_TEMPLATE_KEYS = ("desc_fmt", "fcl", "output_glob")
 
 
 def substitute_placeholders(value, mapping: dict, where: str):
@@ -98,19 +98,27 @@ def render_entry(*, dsconf, desc, njobs,
     return entry
 
 
-def entry_for_step(template, *, config, fixed, code_tarball, geom_name=None,
-                   staged=None):
+def entry_for_step(template, *, config, fixed, code_tarball, dsconf,
+                   geom_name=None, staged=None):
     """(entry, facts) for one prodtools step.
 
     `template` is the step's stage template as the study resolved it;
     {cfg} becomes `config`, and {geom} `geom_name` (a template that names
-    {geom} for a step with no geometry file is refused). `fixed` holds the
-    study's njobs / events_per_job / memory_mb when it sets them; the
-    template's njobs / events / memory are the defaults. `staged` is
-    (directory, {basename: 1}) when the step reads upstream outputs.
-    `facts` are what the adapter records: desc, dsconf, njobs,
+    {geom} for a step with no geometry file is refused). `dsconf` is the
+    study's run label (kits.prodtools.dsconf), {cfg} filled the same way.
+    `fixed` holds the study's njobs / events_per_job / memory_mb when it
+    sets them; the template's njobs / events / memory are the defaults.
+    `staged` is (directory, {basename: 1}) when the step reads upstream
+    outputs. `facts` are what the adapter records: desc, dsconf, njobs,
     events_per_job and output_glob.
     """
+    if "dsconf_fmt" in template:
+        raise ValueError("stage template: 'dsconf_fmt' is retired since "
+                         "Phase C2a; the run label is the study setting "
+                         "kits.prodtools.dsconf. Drop it from the template")
+    if "{cfg}" not in dsconf:
+        raise ValueError(f"dsconf {dsconf!r} has no {{cfg}}: every config "
+                         f"needs its own run label")
     mapping = {"cfg": config}
     if geom_name is not None:
         mapping["geom"] = geom_name
@@ -118,13 +126,14 @@ def entry_for_step(template, *, config, fixed, code_tarball, geom_name=None,
     missing = [k for k in _TEMPLATE_KEYS if k not in t]
     if missing:
         raise ValueError(f"stage template: missing key(s) {missing}")
+    label = substitute_placeholders(dsconf, {"cfg": config}, "dsconf")
     njobs = fixed.get("njobs", t.get("njobs"))
     if njobs is None:
         raise ValueError("stage template: no njobs in the step's fixed or "
                          "the template")
     events = fixed.get("events_per_job", t.get("events"))
     entry = render_entry(
-        dsconf=t["dsconf_fmt"], desc=t["desc_fmt"], njobs=njobs,
+        dsconf=label, desc=t["desc_fmt"], njobs=njobs,
         code_tarball=code_tarball, fcl_name=t["fcl"], events=events,
         run=t.get("run"), memory_mb=fixed.get("memory_mb", t.get("memory")),
         input_data=staged[1] if staged else t.get("input_data"),
@@ -132,7 +141,7 @@ def entry_for_step(template, *, config, fixed, code_tarball, geom_name=None,
         resampler_name=t.get("resampler_name"),
         fcl_overrides=t.get("fcl_overrides"), outloc=t.get("outloc"),
         sequential_aux=t.get("sequential_aux"))
-    facts = {"desc": t["desc_fmt"], "dsconf": t["dsconf_fmt"],
+    facts = {"desc": t["desc_fmt"], "dsconf": label,
              "njobs": njobs, "events_per_job": events,
              "output_glob": t["output_glob"]}
     return entry, facts

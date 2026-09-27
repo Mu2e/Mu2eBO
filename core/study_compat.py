@@ -17,6 +17,8 @@ else:
 
 _PIPELINE_TUNING = ("events_per_job", "memory_mb", "quorum")
 _PLUGINS = ("ce_sensitivity", "flash_edep_per_pot")
+# core/pipeline.py names every run with its own DSCONF, never the setting.
+_PIPELINE_DSCONF = "Run1Bak_{cfg}"
 
 
 def _need(cond: bool, study: Study, why: str) -> None:
@@ -57,6 +59,12 @@ def modespec_from_study(study: Study):
         _need(s.files_from in ((), (roots[0],)), study,
               f"step {s.step!r} files_from must be [] or [{roots[0]!r}] "
               f"(the pipeline's only input rule)")
+
+    label = study.kits["prodtools"]["dsconf"]
+    _need(label == _PIPELINE_DSCONF, study,
+          f"its kits.prodtools.dsconf is {label!r}; the pipeline names every "
+          f"run {_PIPELINE_DSCONF!r} (core/pipeline.py DSCONF) and would "
+          f"ignore any other")
 
     pre = study.kits["offline_preflight"]
     o0, o1 = study.objectives

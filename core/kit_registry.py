@@ -107,6 +107,25 @@ def _string_list(v, where):
     return list(v)
 
 
+def _dsconf(v, where):
+    """A prodtools run label (json2jobdef's dsconf): one per config, so it
+    holds {cfg}; with {cfg} filled it goes into prodtools' dot-separated
+    run and file names, so it must pass the same rule as a config name
+    (config_name_problem)."""
+    if not isinstance(v, str) or "{cfg}" not in v:
+        raise ValueError(f"{where}: must be a string containing {{cfg}} "
+                         f"(each config needs its own run label), got {v!r}")
+    filled = v.replace("{cfg}", "cfg")
+    bad = bad_run_name_characters(filled)
+    if bad:
+        raise ValueError(f"{where}: {v!r} has character(s) "
+                         f"{', '.join(repr(c) for c in bad)}; with {{cfg}} "
+                         f"filled in only letters, digits and _ may appear, "
+                         f"because the label is part of prodtools' "
+                         f"dot-separated run and file names")
+    return v
+
+
 # kits.toml names value types by these keys (kit_config.VALUE_TYPES).
 VALIDATORS: Dict[str, Callable] = {
     "string": _string, "number": _number, "positive_int": _positive_int,
@@ -130,7 +149,7 @@ class KitDecl:
 
 KITS: Dict[str, KitDecl] = {d.name: d for d in (
     KitDecl("prodtools",
-            study_keys={"code_tarball": _path,
+            study_keys={"code_tarball": _path, "dsconf": _dsconf,
                         "fatal_log_codes": _string_list},
             fixed_keys={"njobs": _job_count, "events_per_job": _positive_int,
                         "memory_mb": _positive_int, "quorum": _fraction},
