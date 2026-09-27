@@ -5,6 +5,12 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-09-27
+- **updated** [contract-engine](/drivers/contract-engine.md): C2a acceptance
+  passed — the pre-check kit passes the smoke study on MDC2025ax and fails a
+  broken geometry, with the same verdicts as the old pre-check at the C1 tip;
+  this branch's pipeline pre-check still passes on Run1Bap.
+
 ## 2026-09-26
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C2a
   implemented on branch `generic-study-phase-c2a` — the `offline_preflight`

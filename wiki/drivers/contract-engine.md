@@ -486,6 +486,23 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   `start` trace row; `entry` is reserved at load for a kit that takes
   stage templates; `graph.study_loop` checks `<prefix>R00_00` against
   each adapter's `config_problem` before launching.
+- A pre-check that hits an `OSError` (quota, unpack) or a GDML dump it
+  cannot parse now marks the point broken; the loader refuses
+  `require_zero_overlaps: true` without `checks_managed_overlap: true`.
+- **C2a acceptance PASSED (2026-09-26/27, data root
+  `/exp/mu2e/data/users/oksuzian/c2accept`, all local, real G4):**
+  - `prodtools_smoke` on MDC2025ax (`c2alocal01`): pre-check `pass` with
+    zero surface-check overlaps, both steps completed, one row, 7 min 33 s
+    wall (the pre-check's G4 init is about 3 min of that).
+  - The broken geometry (every hole radius 1.2 × its foil's outer radius):
+    the kit on MDC2025ax said `fail_managed` (fatal G4 abort) and nothing
+    was submitted; the old pre-check at the C1 tip (Run1Bap `musing`) also
+    said `fail_managed`.
+  - The passing geometry: the old pre-check at the C1 tip said `pass`, and
+    this branch's pipeline pre-check (Run1Bap code tarball, new shared
+    rules) said `pass`, so the pipeline stays runnable for C2b's parity
+    check.
+  - Overlap counts were 0 in all six logs, on both releases.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (the
