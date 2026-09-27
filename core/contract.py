@@ -416,10 +416,11 @@ def _needs(study, kit_name):
 def check_kits(study, *, campaign: str, opener=None, executor: str = "grid",
                parallel=None) -> List[str]:
     """The launch check. Every kit the study names must start, offer the
-    contract's tools (and `check` when it runs the preflight), and report a
-    server version, which measure_sha needs. When a kit offers `describe`,
-    the study's params must be ones it accepts and its metrics ones it
-    returns. Returns the problems; an empty list means launch."""
+    contract's step tools when it runs a step (and `check` when it runs the
+    preflight), and report a server version, which measure_sha needs. When
+    a kit offers `describe`, the study's params must be ones it accepts and
+    its metrics ones it returns. Returns the problems; an empty list means
+    launch."""
     opener = opener or functools.partial(open_kit, executor=executor,
                                          parallel=parallel)
     problems = []
@@ -430,7 +431,10 @@ def check_kits(study, *, campaign: str, opener=None, executor: str = "grid",
             problems.append(str(exc).strip("\"'"))
             continue
         try:
-            need = set(REQUIRED_TOOLS)
+            # A kit that runs a step needs the step calls; a kit used only
+            # for the preflight needs only `check`.
+            need = (set(REQUIRED_TOOLS)
+                    if any(s.kit == name for s in study.steps) else set())
             if study.preflight is not None and study.preflight["kit"] == name:
                 need.add("check")
             missing = sorted(need - set(kit.tools))

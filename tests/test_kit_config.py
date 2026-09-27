@@ -123,11 +123,33 @@ class TestRepoRegistry(unittest.TestCase):
         self.assertFalse(decl.uses_entries)
 
     def test_pipeline_kits_are_not_engine_kits(self):
-        for name in ("offline_preflight", "ce_sensitivity",
-                     "flash_edep_per_pot"):
+        for name in ("ce_sensitivity", "flash_edep_per_pot"):
             with self.subTest(kit=name):
                 self.assertFalse(kit_registry.KITS[name].engine)
                 self.assertTrue(kit_registry.KITS[name].pipeline)
+
+    def test_the_pre_check_kit_runs_on_both_runners(self):
+        d = kit_registry.KITS["offline_preflight"]
+        self.assertTrue(d.engine and d.pipeline)
+
+
+class TestConfigNameRule(unittest.TestCase):
+    """The one rule for a config name (prodtools' run names carry it)."""
+
+    def test_letters_digits_and_underscore_pass(self):
+        self.assertIsNone(kit_registry.config_name_problem("foilspf_R01_07"))
+
+    def test_other_characters_are_named(self):
+        why = kit_registry.config_name_problem("cfg-1.a-")
+        self.assertIn("'cfg-1.a-'", why)
+        self.assertIn("'-', '.'", why)
+        self.assertIn("only letters, digits and _", why)
+        self.assertEqual(kit_registry.bad_run_name_characters("a-b.c-"),
+                         ["-", "."])
+        self.assertEqual(kit_registry.bad_run_name_characters("a_1"), [])
+
+    def test_an_empty_name(self):
+        self.assertIn("empty", kit_registry.config_name_problem(""))
 
 
 class TestNativeKitInStudies(unittest.TestCase):

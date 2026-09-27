@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 import contract as ct  # noqa: E402
 import kit_registry  # noqa: E402
 import study as st  # noqa: E402
+from adapters import offline_preflight as op  # noqa: E402
 from kits import KitClient, KitError, KitTimeout, KitToolError  # noqa: E402
 from tests.engine_fixtures import toy_config, toy_doc, write_study  # noqa: E402
 
@@ -270,14 +271,14 @@ class TestRegistry(unittest.TestCase):
             ct.register_adapter("fakeadapter", Fake)
 
     def test_only_an_engine_kit_without_a_kits_toml_entry_takes_an_adapter(self):
-        for name in ("toykit", "nosuchkit", "offline_preflight"):
+        for name in ("toykit", "nosuchkit", "ce_sensitivity"):
             with self.subTest(kit=name):
                 with self.assertRaises(ValueError):
                     ct.register_adapter(name, object)
 
     def test_a_kit_with_neither_is_refused(self):
         with self.assertRaises(KeyError) as cm:
-            ct.open_kit("offline_preflight", "c")
+            ct.open_kit("ce_sensitivity", "c")
         self.assertIn("kits.toml", str(cm.exception))
 
     def test_launch_stagger(self):
@@ -362,18 +363,62 @@ class TestCheckKits(_Toy):
         self.assertIn("'toykit'", problems[0])
 
     def test_pipeline_kits_are_refused_without_starting_anything(self):
-        # prodtools is now BOTH an engine kit (an adapter) and a pipeline
-        # kit: its refusal reads differently from the other three, which
-        # still have no adapter and no kits.toml entry. Force
-        # AUTORESEARCH_PRODTOOLS unset regardless of the ambient
-        # environment, so the adapter fails at command resolution (a
-        # string substitution) and never spawns a subprocess either way.
+        # prodtools and offline_preflight are now BOTH engine kits
+        # (adapters) and pipeline kits. The two step kits that still have
+        # no adapter and no kits.toml entry are refused as such; prodtools'
+        # refusal reads differently; offline_preflight starts nothing and
+        # passes. Force AUTORESEARCH_PRODTOOLS unset regardless of the
+        # ambient environment, so the prodtools adapter fails at command
+        # resolution (a string substitution) and never spawns a subprocess
+        # either way.
         with mock.patch.dict(os.environ):
             os.environ.pop("AUTORESEARCH_PRODTOOLS", None)
             problems = ct.check_kits(st.load_study_file(DEMO), campaign="c")
         self.assertTrue(problems)
         self.assertTrue(all("kits.toml" in p or "AUTORESEARCH_PRODTOOLS" in p
                             for p in problems))
+        self.assertFalse([p for p in problems if "offline_preflight" in p])
+
+    def preflight_only(self, doc):
+        doc["kits"]["offline_preflight"] = {
+            "code_tarball": "${ARTIFACT}/Code_x.tar.bz2", "dumps_gdml": False,
+            "verifies_foil_gdml": False, "checks_managed_overlap": True,
+            "require_zero_overlaps": False}
+        doc["preflight"] = {"kit": "offline_preflight", "params": {},
+                            "files": []}
+
+    def test_a_kit_used_only_for_the_preflight_needs_only_check(self):
+        study = self.study(self.preflight_only)
+
+        def opener(name, campaign):
+            if name == "offline_preflight":
+                return op.OfflinePreflightKit(campaign)
+            return self.open(name, campaign)
+
+        self.assertEqual(ct.check_kits(study, campaign="c", opener=opener), [])
+
+    def test_a_preflight_only_kit_without_check_is_refused(self):
+        study = self.study(self.preflight_only)
+
+        class NoCheck:
+            accepts_lists = False
+            tools = frozenset({"describe"})
+            version = "1"
+
+            def describe(self):
+                return None
+
+            def close(self):
+                pass
+
+        def opener(name, campaign):
+            if name == "offline_preflight":
+                return NoCheck()
+            return self.open(name, campaign)
+
+        problems = ct.check_kits(study, campaign="c", opener=opener)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("['check']", problems[0])
 
 
 if __name__ == "__main__":

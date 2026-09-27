@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 USER = os.environ.get("USER") or getpass.getuser()
 TEMPLATES_ROOT = Path(__file__).resolve().parent.parent / "pipeline_templates"
@@ -246,6 +247,17 @@ def unpacked(tarball, cache_root) -> Path:
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return final
+
+
+def local_path(ref, what) -> Path:
+    """The file a contract file ref ({"name", "uri", ...}) names on this
+    node. Only a file:// URI can be staged; anything else is refused,
+    naming `what` (the kit and the ref's role, e.g. "prodtools: input")."""
+    uri = ref.get("uri", "")
+    if not uri.startswith("file://"):
+        raise ValueError(f"{what} {ref.get('name')!r} is {uri!r}; only "
+                         f"file:// URIs can be staged")
+    return Path(unquote(urlparse(uri).path))
 
 
 def link_inputs(sources, dest, *, allow_copy) -> dict:

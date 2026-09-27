@@ -10,6 +10,7 @@ ONLY.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, FrozenSet
 
@@ -54,6 +55,32 @@ def _number(v, where):
             or not math.isfinite(v)):
         raise ValueError(f"{where}: must be a finite number, got {v!r}")
     return float(v)
+
+
+# prodtools builds a run's name from dot-separated parts, the config name
+# among them, and its file names from the run's: a part may hold only
+# letters, digits and _.
+_RUN_NAME_PART = re.compile(r"[A-Za-z0-9_]+")
+
+
+def bad_run_name_characters(text: str) -> list:
+    """The characters of `text` a prodtools run-name part cannot hold
+    (anything but letters, digits and _), sorted; empty when none."""
+    return sorted(set(_RUN_NAME_PART.sub("", text)))
+
+
+def config_name_problem(name: str):
+    """Why `name` cannot be a config name, or None. Every kit that names a
+    run after the config applies this one rule."""
+    if not name:
+        return "config name is empty"
+    bad = bad_run_name_characters(name)
+    if not bad:
+        return None
+    return (f"config name {name!r} has character(s) "
+            f"{', '.join(repr(c) for c in bad)}; only letters, digits and _ "
+            f"may appear, because the config is part of prodtools' "
+            f"dot-separated run name")
 
 
 # prodtools' run_status lists at most this many jobs' outputs (INDEX_CAP in
@@ -116,7 +143,7 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
                         "checks_managed_overlap": _flag,
                         "require_zero_overlaps": _flag},
             fixed_keys={}, required_fixed=frozenset(), uses_entries=False,
-            step_kit=False, check_kit=True, engine=False, pipeline=True),
+            step_kit=False, check_kit=True, engine=True, pipeline=True),
     KitDecl("ce_sensitivity", study_keys={}, fixed_keys={},
             required_fixed=frozenset(), uses_entries=False, step_kit=True,
             check_kit=False, engine=False, pipeline=True),

@@ -21,20 +21,19 @@ import fnmatch
 import hashlib
 import json
 import os
-import re
 import time
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
-from urllib.parse import unquote, urlparse
 
 if __package__ == "core.adapters":
-    from core import kit_config, paths
+    from core import kit_config, kit_registry, paths
     from core.adapters import prodtools_entry as pe
     from core.contract import (Describe, call_with_retries, parse_cancel,
                                parse_results, parse_status)
     from core.kits import KitClient, KitError, KitToolError
 else:
     import kit_config
+    import kit_registry
     import paths
     from adapters import prodtools_entry as pe
     from contract import (Describe, call_with_retries, parse_cancel,
@@ -56,23 +55,19 @@ TOOLS = {"write": ("submit_once", "run_local", "cancel_run"),
 # their grid submits on a host (wiki/incidents/concurrent-token-contention.md).
 SUBMIT_LOCK = Path(f"/tmp/mu2e_submit.{pe.USER}.lock")
 PNFS_STAGE_ROOT = Path(f"/pnfs/mu2e/scratch/users/{pe.USER}/autoresearch_grid")
-_CONFIG = re.compile(r"[A-Za-z0-9_]+")
 _POLL = {"grid": ((30.0, 600.0), 60_000), "local": ((5.0, 60.0), 10_000)}
 
 
 def split_handle(name: str):
     """'<config>.<step>' -> (config, step). The config becomes part of
-    prodtools' dot-separated run name, so only letters, digits and _."""
+    prodtools' dot-separated run name, so it must pass
+    kit_registry.config_name_problem."""
     config, dot, step = name.rpartition(".")
     if not dot or not config or not step:
         raise ValueError(f"prodtools: {name!r} is not <config>.<step>")
-    if not _CONFIG.fullmatch(config):
-        bad = sorted(set(_CONFIG.sub("", config)))
-        raise ValueError(
-            f"prodtools: config name {config!r} has character(s) "
-            f"{', '.join(repr(c) for c in bad)}; only letters, digits and _ "
-            f"may appear, because the config is part of prodtools' "
-            f"dot-separated run name")
+    why = kit_registry.config_name_problem(config)
+    if why:
+        raise ValueError(f"prodtools: {why}")
     return config, step
 
 
@@ -138,14 +133,6 @@ def _jobs_without_log(outputs) -> list:
         if job_dir is None or not any(job_dir.glob("*.log")):
             out.append((index, job_dir))
     return out
-
-
-def _local_path(ref, what) -> Path:
-    uri = ref.get("uri", "")
-    if not uri.startswith("file://"):
-        raise ValueError(f"prodtools: {what} {ref.get('name')!r} is "
-                         f"{uri!r}; only file:// URIs can be staged")
-    return Path(unquote(urlparse(uri).path))
 
 
 @contextmanager
@@ -344,12 +331,13 @@ class ProdtoolsKit:
     def _prepare(self, name, config, step, params, files, inputs, sdir,
                  digest) -> dict:
         geom = [f for f in files if f.get("name") == "geom"]
-        geom_path = _local_path(geom[0], "file") if geom else None
+        geom_path = pe.local_path(geom[0], "prodtools: file") if geom else None
         geom_name = f"autoresearch_{config}_geom.txt" if geom else None
         template = params["entry"]
         staged = None
         if inputs:
-            sources = [_local_path(ref, "input") for ref in inputs]
+            sources = [pe.local_path(ref, "prodtools: input")
+                       for ref in inputs]
             dest = (self._pnfs_root / config / "staged" / step
                     if self.executor == "grid" else sdir / "staged")
             try:
