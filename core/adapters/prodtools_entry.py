@@ -212,6 +212,42 @@ def build_code_tarball(base, *, geom_path, geom_name, extra_files,
     return final
 
 
+def unpacked(tarball, cache_root) -> Path:
+    """The directory holding `tarball`'s Code/, unpacked once into
+    <cache_root>/<sha256 of its bytes>/ (Phase C2a spec, "Files"): every
+    check of the same bytes shares one tree, and a tarball rebuilt in
+    place gets a new one. Built in a private directory and renamed into
+    place, as build_code_tarball does, so concurrent unpackers of one
+    tarball are safe: the first rename wins and every caller uses its
+    tree. A tree counts only once it has Code/setup.sh, the script the
+    geometry pre-check sources."""
+    tarball = Path(tarball)
+    if not tarball.is_file():
+        raise ValueError(f"code_tarball {tarball} does not exist")
+    cache_root = Path(cache_root)
+    final = cache_root / _sha256_file(tarball)
+    setup = Path("Code") / "setup.sh"
+    if (final / setup).is_file():
+        return final
+    cache_root.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix=f".{final.name}.", dir=cache_root))
+    try:
+        _tar(["xjf", str(tarball), "-C", str(work)], f"unpacking {tarball}")
+        if not (work / setup).is_file():
+            raise ValueError(f"code_tarball {tarball} has no Code/setup.sh, "
+                             f"so it is not a muse tarball (build it with "
+                             f"`muse tarball`)")
+        try:
+            os.rename(work, final)
+        except OSError:
+            # Another unpacker renamed the same bytes into place first.
+            if not (final / setup).is_file():
+                raise
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return final
+
+
 def link_inputs(sources, dest, *, allow_copy) -> dict:
     """Hard-link every source into `dest` (emptied first); return
     {basename: 1}, json2jobdef's input_data. Hard, not symbolic, links:

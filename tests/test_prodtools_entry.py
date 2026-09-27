@@ -1,6 +1,8 @@
 import errno
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -165,6 +167,83 @@ class TestCodeTarball(_Tmp):
         self.assertIn("Code/", str(cm.exception))
         with self.assertRaises(ValueError):
             self.build(self.tmp / "missing.tar.bz2")
+
+
+class TestUnpacked(_Tmp):
+    def tarball(self, setup_text="echo hi\n", with_setup=True):
+        """A muse-style tarball at a fixed path: Code/setup.sh and the
+        Code/backing link to a /cvmfs release. Rebuilding overwrites it."""
+        src = self.tmp / "src"
+        if src.exists():
+            shutil.rmtree(src)
+        code = src / "Code"
+        code.mkdir(parents=True)
+        if with_setup:
+            (code / "setup.sh").write_text(setup_text)
+        (code / "backing").symlink_to(
+            "/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/MDC2025ax")
+        path = self.tmp / "Code.tar.bz2"
+        with tarfile.open(path, "w:bz2") as tf:
+            tf.add(code, arcname="Code")
+        return path
+
+    def test_unpacks_once_under_the_digest_of_its_bytes(self):
+        t = self.tarball()
+        cache = self.tmp / "cache"
+        root = pe.unpacked(t, cache)
+        self.assertEqual(root,
+                         cache / hashlib.sha256(t.read_bytes()).hexdigest())
+        self.assertEqual((root / "Code" / "setup.sh").read_text(), "echo hi\n")
+        self.assertTrue((root / "Code" / "backing").is_symlink())
+        mtime = (root / "Code" / "setup.sh").stat().st_mtime_ns
+        self.assertEqual(pe.unpacked(str(t), cache), root)
+        self.assertEqual((root / "Code" / "setup.sh").stat().st_mtime_ns, mtime)
+        self.assertEqual([p.name for p in cache.iterdir()], [root.name])
+
+    def test_a_tarball_rebuilt_in_place_gets_a_new_tree(self):
+        cache = self.tmp / "cache"
+        old = pe.unpacked(self.tarball(), cache)
+        new = pe.unpacked(self.tarball(setup_text="echo rebuilt\n"), cache)
+        self.assertNotEqual(new, old)
+        self.assertEqual((new / "Code" / "setup.sh").read_text(),
+                         "echo rebuilt\n")
+
+    def test_two_unpackers_at_once_share_one_tree(self):
+        t = self.tarball()
+        cache = self.tmp / "cache"
+        got, errors = [], []
+
+        def unpack():
+            try:
+                got.append(pe.unpacked(t, cache))
+            except Exception as exc:  # noqa: BLE001 - reported below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=unpack) for _ in range(2)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(set(got)), 1)
+        self.assertEqual([p.name for p in cache.iterdir()], [got[0].name])
+
+    def test_a_missing_codeless_or_broken_tarball_is_refused_naming_it(self):
+        cache = self.tmp / "cache"
+        with self.assertRaises(ValueError) as cm:
+            pe.unpacked(self.tmp / "gone.tar.bz2", cache)
+        self.assertIn("gone.tar.bz2", str(cm.exception))
+        bare = self.tarball(with_setup=False)
+        with self.assertRaises(ValueError) as cm:
+            pe.unpacked(bare, cache)
+        self.assertIn(str(bare), str(cm.exception))
+        self.assertIn("Code/setup.sh", str(cm.exception))
+        junk = self.tmp / "junk.tar.bz2"
+        junk.write_text("not a tarball")
+        with self.assertRaises(ValueError) as cm:
+            pe.unpacked(junk, cache)
+        self.assertIn(str(junk), str(cm.exception))
+        self.assertEqual(list(cache.iterdir()), [])
 
 
 class TestLinkInputs(_Tmp):
