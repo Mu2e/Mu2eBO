@@ -22,10 +22,10 @@ The Phase-A compat view of a Study (`core/study_compat.py`), held in `core.modes
 _Avoid_: mode config, mode table, per-mode dict
 
 **Engine study**:
-A Study every one of whose kits is an engine kit (`core.modes.ENGINE`, `core/kit_registry.py`'s `engine=True`); runs through `graph.study_run`/`graph.study_loop` (the contract engine), never the pipeline. `branin` (`tests/fixtures/engine_studies/branin.json`, on `toykit`) and `prodtools_smoke` (the Phase C1 acceptance study, on `prodtools`).
+A Study every one of whose kits is an engine kit (`core.modes.ENGINE`, `core/kit_registry.py`'s `engine=True`); runs through `graph.study_run`/`graph.study_loop` (the contract engine), never the pipeline. `branin` (`tests/fixtures/engine_studies/branin.json`, on `toykit`) and `prodtools_smoke` (the Phase C1 acceptance study, on `prodtools`, gated by the `offline_preflight` pre-check since Phase C2a).
 
 **Pipeline study**:
-A Study that still runs through the pipeline (`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`) because at least one of its kits has no engine adapter yet. `foilspf` and its siblings: `prodtools` has an engine adapter since Phase C1, but their other three kits (`offline_preflight`, `ce_sensitivity`, `flash_edep_per_pot`) are pipeline-only. A study runs on the engine when the engine can drive every kit it names, otherwise on the pipeline when the pipeline can; one that neither runner can drive whole is refused, and so is a pipeline study with no knobs (`core/modes.py:runs_on_engine`), and a pipeline study must be layout `"v1"` (`core/study_compat.py` refuses `"v2"`). Both refusals happen when `core.modes` is imported, so one such file in `mode_specs/` or on `$AUTORESEARCH_STUDY_PATH` stops every command (`graph.run`, `graph.closed_loop`, the engine, the surrogate MCP server) for every study.
+A Study that still runs through the pipeline (`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`) because at least one of its kits has no engine adapter yet. `foilspf` and its siblings: `prodtools` (Phase C1) and `offline_preflight` (Phase C2a) have engine adapters, but their other two kits (`ce_sensitivity`, `flash_edep_per_pot`) are pipeline-only until Phase C2b. A study runs on the engine when the engine can drive every kit it names, otherwise on the pipeline when the pipeline can; one that neither runner can drive whole is refused, and so is a pipeline study with no knobs (`core/modes.py:runs_on_engine`), and a pipeline study must be layout `"v1"` (`core/study_compat.py` refuses `"v2"`). Both refusals happen when `core.modes` is imported, so one such file in `mode_specs/` or on `$AUTORESEARCH_STUDY_PATH` stops every command (`graph.run`, `graph.closed_loop`, the engine, the surrogate MCP server) for every study.
 
 **JsonMode**:
 The behavior half of a Mode (render geometry, recover x at evaluate time, read and append leaderboard rows), one driver object per ModeSpec (`core/bo_driver.py`). There is exactly one class — the five Python subclasses were archived 2026-08-08 (`4bc54cc`) and the `BOMode` ABC itself collapsed into `JsonMode` 2026-08-19 (`55168e7`).
@@ -54,7 +54,7 @@ The Engine's search-space declaration — bounds, integer dims, per-axis noise s
 **Adapter**:
 Two distinct senses, kept apart by context — see Flagged ambiguities.
 (1) The client bridge that names Problems and serves their history (X, Y, meta) to the Engine's MCP scaffold via `make_server(adapter)`; autoresearch's Adapter wraps Study + Leaderboards.
-(2) Python that speaks the evaluator contract (see Kit) for a kit that doesn't speak it natively: a class registered in `core/contract.py`'s `ADAPTERS`, taking the Campaign name, with a `LAUNCH_STAGGER_S` attribute. `prodtools` (`core/adapters/prodtools.py`, Phase C1) is the first; `core/adapters/__init__.py:register_all` registers them.
+(2) Python that speaks the evaluator contract (see Kit) for a kit that doesn't speak it natively: a class registered in `core/contract.py`'s `ADAPTERS`, taking the Campaign name, with a `LAUNCH_STAGGER_S` attribute. `prodtools` (`core/adapters/prodtools.py`, Phase C1) and `offline_preflight` (`core/adapters/offline_preflight.py`, Phase C2a) are the first two; an adapter may also declare `config_problem(config)`, its config-name rule, which `graph.study_loop` checks against the first child name before launching; `core/adapters/__init__.py:register_all` registers them.
 
 **Leaderboard**:
 The append-only per-mode TSV of completed evals; the ONLY durable source of truth for BO history. There is no checkpointer (retired 2026-08-19) and no other resume state.
@@ -98,13 +98,13 @@ The explicit, typed product of harvest (`harvest.EvalSummary` → `harvest/summa
 _Avoid_: "the summary dict" (implicit 26-key contract)
 
 **Preflight**:
-The local 1-event G4 feasibility check gating grid submission; verdicts are `pass` / `fail_managed` / `fail_init` / `ambiguous`.
+The local 1-event G4 feasibility check gating a point before anything is submitted: `mu2e -n 1` with G4's surface check, the as-built GDML comparison and the overlap policy, run on this node from the study's code tarball (`kits.offline_preflight.code_tarball`, which must equal `kits.prodtools.code_tarball`). Its rules live in `core/adapters/preflight_checks.py`, shared by the engine's `offline_preflight` kit and the pipeline's `bo_driver preflight`; its workdir is `<GRID_DATA_ROOT>/<config>/preflight/`. Verdicts are `pass` / `fail_managed` / `fail_init` / `ambiguous`; only `pass` passes.
 
 **Musing**:
-The Mu2e Offline environment release (or patched local workdir) sourced for a Mode's preflight and harvest.
+The Mu2e Offline release a code tarball builds against (its `Code/backing` link: SimJob MDC2025ax for engine studies, Run1Bap for the foilspf family). Since Phase C2a no study names one: the pre-check, the pipeline's prodtools calls and the jobs all source the code tarball's own `Code/setup.sh`.
 
 **Grid tarball**:
-The `Code.tar.bz2` shipped to grid workers; must be built from the same patched Offline the Mode's musing sources, or geometry silently diverges (env-divergence).
+The `Code.tar.bz2` shipped to grid workers (`kits.prodtools.code_tarball`). The pre-check unpacks and runs the same file (`prodtools_entry.unpacked`, cached by content under `<GRID_DATA_ROOT>/_code/`), so the geometry it passes is the geometry the jobs build (the env-divergence incidents).
 
 ## Relationships
 

@@ -30,15 +30,14 @@ hashes it), so the layout is for readable diffs.
 ## Engine studies
 
 A study whose kits are ALL engine kits (`core.modes.ENGINE`; a kit is an
-engine kit once it has either a `kits.toml` entry or, from Phase C, a
-registered adapter — `toykit` is the only one today) runs through the
-contract engine — `graph.study_run` per point, `graph.study_loop` for a
+engine kit once it has either a `kits.toml` entry, like `toykit`, or a
+registered adapter, like `prodtools` and `offline_preflight`) runs through
+the contract engine — `graph.study_run` per point, `graph.study_loop` for a
 campaign — instead of the pipeline. Its `leaderboard.layout` should be
 `"v2"`, so its board carries `measure_sha` and refuses an append measured
-a different way. A study whose kits are ALL pipeline kits (no adapter
-yet: `prodtools`, `offline_preflight`, `ce_sensitivity`,
-`flash_edep_per_pot` — Phase C) runs through the pipeline
-(`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`).
+a different way. A study with a kit that has no adapter yet
+(`ce_sensitivity`, `flash_edep_per_pot` — Phase C2b) runs through the
+pipeline (`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`).
 
 The rules, as the code enforces them:
 
@@ -52,8 +51,18 @@ The rules, as the code enforces them:
 - A prodtools step must set `quorum` in `fixed` (below it the step
   fails), at most 200 `njobs`, and `kits.prodtools.fatal_log_codes` lists
   the log codes that fail a step (foilspf: `GeomSolids1001`).
-- A stage template names its prodtools `desc_fmt` and `dsconf_fmt`;
-  `{cfg}` and `{geom}` are substituted.
+- A stage template names its prodtools `desc_fmt` (`{cfg}` and `{geom}`
+  are substituted). The run label is the study setting
+  `kits.prodtools.dsconf`: it must contain `{cfg}` and, filled in, hold
+  only letters, digits and `_`. The foilspf family says `Run1Bak_{cfg}`,
+  the only label the pipeline accepts; `prodtools_smoke` says
+  `MDC2025ax_{cfg}`. A template still carrying `dsconf_fmt` is refused.
+- `"preflight": {"kit": "offline_preflight", ...}` gates each point on
+  `mu2e -n 1` with G4's surface check, run on this node from
+  `kits.offline_preflight.code_tarball`, which must equal
+  `kits.prodtools.code_tarball` when a study has both. A failure (or an
+  `ambiguous` run) marks the point broken before anything is submitted;
+  the log is `<GRID_DATA_ROOT>/<config>/preflight/preflight.log`.
 - `knobs: []` is a one-shot study: `graph.study_run` without `--x`;
   `graph.study_loop` refuses it.
 - `--executor grid|local` and `--parallel N` choose where the jobs run;
@@ -89,7 +98,7 @@ instead of `mode_specs/`.
   objective, an extra metric or an extra column): the TSV header would carry
   the column twice and history would read the metric back as a coordinate.
 - **Kit paths are written as `${ARTIFACT}/<path>`**
-  (`kits.prodtools.code_tarball`, `kits.offline_preflight.musing`). The
+  (`kits.prodtools.code_tarball`, `kits.offline_preflight.code_tarball`). The
   token expands against this operator's artifact root, falling through to
   the `backing` link for anything not built locally
   (`./setup.sh --backing <path>`). A bare absolute path under a user area is

@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "prodtools_smoke",
- "note": "Phase C1 acceptance, not a measurement: foilspfbpz's geometry at gridphaseA01's point (the knobs as consts), mubeam 1x200 then mustops_ce 1 job reading it, on the prodtools kit, with the stock SimJob MDC2025ax release (Offline v13_38_00 carries the holeRadii and IPA zStartInMu2e patches upstream; Code_mdc2025ax.tar.bz2 is only a backing link plus setup.sh).",
+ "note": "Phase C1 acceptance, not a measurement: foilspfbpz's geometry at gridphaseA01's point (the knobs as consts), mubeam 1x200 then mustops_ce 1 job reading it, on the prodtools kit, with the stock SimJob MDC2025ax release (Offline v13_38_00 carries the holeRadii and IPA zStartInMu2e patches upstream; Code_mdc2025ax.tar.bz2 is only a backing link plus setup.sh). Phase C2a adds the geometry pre-check (offline_preflight) from the same code tarball, with foilspfbpz's GDML and overlap policy.",
  "knobs": [],
  "derive": {
   "consts": {
@@ -253,9 +253,22 @@
    "fatal_log_codes": [
     "GeomSolids1001"
    ]
+  },
+  "offline_preflight": {
+   "code_tarball": "${ARTIFACT}/autoresearch_muse/Code_mdc2025ax.tar.bz2",
+   "dumps_gdml": true,
+   "verifies_foil_gdml": true,
+   "checks_managed_overlap": true,
+   "require_zero_overlaps": true
   }
  },
- "preflight": null,
+ "preflight": {
+  "kit": "offline_preflight",
+  "params": {},
+  "files": [
+   "geom"
+  ]
+ },
  "evaluate": [
   {
    "step": "mubeam",

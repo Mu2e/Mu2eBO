@@ -3,21 +3,34 @@ type: driver
 title: preflight — local G4 init feasibility check
 description: local `mu2e -n 1` G4 init feasibility check
 status: active
-timestamp: '2026-07-17'
-updated_note: fatal-abort gate + holeRadii canary + as-built GDML geometry assertion
-  added after the foilsg uniform-hole incident; documented foils-only GDML emission
-  scope
+timestamp: '2026-09-26'
+updated_note: C2a — the rules moved to core/adapters/preflight_checks.py, shared
+  with the engine's offline_preflight kit; runs from the code tarball; holeRadii
+  canary dropped
 ---
 
 # preflight — local G4 init feasibility check
+
+> **2026-09-26 — Phase C2a:** the rules below now live in
+> `core/adapters/preflight_checks.py`, shared by `bo_driver preflight` and
+> the engine's `offline_preflight` kit ([contract-engine](/drivers/contract-engine.md)).
+> Both run from the study's code tarball (unpacked under
+> `<GRID_DATA_ROOT>/_code/<sha256>/`), not a musing, in
+> `<GRID_DATA_ROOT>/<config>/preflight/` rather than a /tmp workdir.
+> Layer 2 (the `holeRadii vector active` canary) is gone: upstream Offline
+> prints no such line and layer 3 checks every hole radius. Tests:
+> `tests/test_preflight_checks.py`.
 
 > **2026-06-13 — preflight is now a 4-layer gate (foils family):**
 > 1. **Fatal-abort check** (`G4_FATAL_RX`): GeomSolids00xx / `*** Fatal
 >    Exception ***` / "Aborting execution" FAIL unconditionally — before
 >    `past_init` can mask them ([preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)).
-> 2. **holeRadii canary**: geom requests `stoppingTarget.holeRadii` but
->    output lacks "holeRadii vector active" → FAIL (unpatched env,
+> 2. **holeRadii canary (DROPPED 2026-09-26, Phase C2a)**: geom requests
+>    `stoppingTarget.holeRadii` but output lacks "holeRadii vector active"
+>    → FAIL (unpatched env,
 >    [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)).
+>    Retired: upstream Offline v13_38_00 prints no such line, and layer 3
+>    below already checks every hole radius against the as-built GDML.
 > 3. **As-built GDML assertion** (foils/foilsf/foilsg): surfacecheck FCL
 >    also sets `physics.producers.g4run.debug.writeGDML` →
 >    `preflight_geom.gdml` in the workdir;
@@ -32,9 +45,10 @@ updated_note: fatal-abort gate + holeRadii canary + as-built GDML geometry asser
 >    "20") — bit the first live run 2026-06-13. Use non-greedy digits +
 >    anchored optional `0x[0-9a-f]+$` suffix, and report missing foil
 >    indices instead of skipping them.
->    On PASS the verified GDML is preserved at
->    `autoresearch_grid/<config>/geom/asbuilt_<config>.gdml` (the /tmp
->    workdir is node-local and tmpwatch-cleaned).
+>    On PASS the verified GDML is preserved as
+>    `<GRID_DATA_ROOT>/<config>/preflight/asbuilt.gdml` (Phase C2a; this
+>    replaced the old node-local, tmpwatch-cleaned /tmp workdir — see the
+>    note above).
 >    **`<tube>` name-attribute ordering**: G4's GDML writer does NOT put
 >    `name=` first (`<tube aunit="deg" deltaphi=... name="Foil_NN0x..">`),
 >    so a `grep '<tube name="Foil_'` returns 0 and looks like the foils

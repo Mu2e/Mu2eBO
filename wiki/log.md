@@ -6,6 +6,13 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-26
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C2a
+  implemented on branch `generic-study-phase-c2a` — the `offline_preflight`
+  adapter (the pre-check from the code tarball, `musing` gone), the run
+  label as `kits.prodtools.dsconf`, retry budgets per call, and C1's other
+  small fixes.
+- **updated** [preflight](/drivers/preflight.md): the rules moved to
+  `core/adapters/preflight_checks.py`; the holeRadii canary is dropped.
 - **created** [prodtools-tape-check-musing-python-mismatch](/incidents/prodtools-tape-check-musing-python-mismatch.md):
   prodtools' tape-input check crashes under a Python 3.10 Musing (ops-021).
 - **updated** [contract-engine](/drivers/contract-engine.md): C1 grid acceptance

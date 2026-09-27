@@ -217,6 +217,21 @@ class TestProdtoolsSmoke(unittest.TestCase):
                          ["mubeam", "mustops_ce"])
         self.assertEqual(smoke.kits["prodtools"]["dsconf"], "MDC2025ax_{cfg}")
 
+    def test_it_gates_on_the_pre_check_with_foilspfbpzs_policy(self):
+        smoke = st.load_study_file(ENGINE_STUDIES / "prodtools_smoke.json")
+        bpz = st.load_study_file(ROOT / "mode_specs" / "foilspfbpz.json")
+        self.assertEqual(smoke.preflight, {"kit": "offline_preflight",
+                                           "params": {}, "files": ["geom"]})
+        pre = smoke.kits["offline_preflight"]
+        self.assertEqual(pre["code_tarball"],
+                         smoke.kits["prodtools"]["code_tarball"])
+        self.assertTrue(pre["code_tarball"].endswith("Code_mdc2025ax.tar.bz2"))
+        for flag in ("dumps_gdml", "verifies_foil_gdml",
+                     "checks_managed_overlap", "require_zero_overlaps"):
+            self.assertEqual(pre[flag], bpz.kits["offline_preflight"][flag],
+                             flag)
+        self.assertTrue(modes.runs_on_engine(smoke))
+
 
 if __name__ == "__main__":
     unittest.main()

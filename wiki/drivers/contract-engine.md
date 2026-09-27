@@ -5,7 +5,9 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   contract (NativeKit, check_kits), run_steps (one scheduler node,
   state-file resume), v2 rows with measure_sha, graph.study_run /
   graph.study_loop; toykit Branin acceptance in 28.7 s; C1 prodtools
-  adapter (`core/adapters/`), --executor, zero-knob studies
+  adapter (`core/adapters/`), --executor, zero-knob studies; C2a
+  offline_preflight adapter (the geometry pre-check from the code
+  tarball), dsconf study setting
 status: active
 timestamp: '2026-09-26'
 ---
@@ -110,22 +112,23 @@ other kits (`offline_preflight`, `ce_sensitivity`,
   `REQUEST_TIMEOUT` raises `KitTimeout` with the session also **kept**
   (the server may still be working on it).
 
-**Retry policy (`core/contract.py:NativeKit`)**
-- `ATTEMPTS = 3`. `status`, `results`, `check` and `describe` retry any
-  `KitError` (transport failure, timeout, "server lost") up to 3 times,
-  and also retry a `KitToolError` (the server explicitly refused the
-  call) since they're read-only and safe to repeat.
-- `submit` retries `KitError` (so a dead server is restarted and the
-  submit resent — safe, since submit is idempotent by name) but never
-  retries a `KitToolError` (a refused submit under the same name with
-  different params must never be repeated).
-- `cancel` gets exactly 1 attempt, no retries of either kind.
-- **Backoff (Phase C1):** `call_with_retries` pauses `RETRY_PAUSES_S =
-  (5.0, 20.0)` s after the 1st and 2nd failed attempt, so a credential
-  blip lasting seconds doesn't fail the step.
+**Retry policy (`core/contract.py:call_with_retries`, Phase C2a)**
+- `RETRY_PAUSES_S` is per contract call: `submit`, `check` and
+  `describe` make 3 attempts, pausing 5 and 20 s; `status`, `results`
+  and `cancel` make 5, pausing 5, 20, 60 and 180 s (about 4.5 min), so a
+  point waiting hours on the grid rides out a server outage of minutes.
+- A `KitError` (transport failure, timeout, "server lost") is always
+  retried. A `KitToolError` (the server refused) is retried for
+  `status`, `results`, `check` and `describe`, which are read-only, and
+  never for `submit` (a refused submit under the same name with
+  different params must never be repeated) or `cancel`.
+- The prodtools adapter's `run_status` polls use the `status` budget
+  from `status` and the `submit` budget when `submit` adopts a run;
+  its `cancel_run` uses the `cancel` budget.
 - **`check_kits(study, campaign)`** is the launch check: it opens every
-  kit the study names, confirms it offers `submit`/`status`/`results`
-  (plus `check` when it's the preflight kit), that it reports a
+  kit the study names, confirms a kit that runs a step offers
+  `submit`/`status`/`results` and the preflight kit `check` (a kit used
+  only for the preflight needs only `check`), that it reports a
   `serverInfo.version` (else `measure_sha` can't fingerprint it), and — if
   it offers `describe` — that the study's params/metrics match what the
   kit accepts/returns. It starts each kit exactly once; any problem is
@@ -341,9 +344,10 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   (`study.entry_template`) and hands it to any kit whose `KitDecl.
   uses_entries` is set (Task 1); `prodtools_entry.entry_for_step`
   substitutes `{cfg}`/`{geom}` in it and renders the json2jobdef entry.
-- **`dsconf_fmt`:** a stage template's `desc_fmt`/`dsconf_fmt` name the
-  json2jobdef `desc`/`dsconf`; every prodtools template in
-  `stage_entries/` uses `dsconf_fmt: "Run1Bak_{cfg}"`.
+- **`dsconf` (Phase C2a):** the run label is the study setting
+  `kits.prodtools.dsconf` (required, holds `{cfg}`, letters/digits/`_`
+  once filled); the stage templates no longer carry `dsconf_fmt`, and
+  `entry_for_step` refuses one that does.
 - **200-job cap:** `kit_registry.MAX_JOBS_PER_STEP = 200` refuses a
   larger `fixed.njobs` at study-load time, because prodtools'
   `run_status` (`INDEX_CAP` in its `tools/runs.py`) lists at most 200
@@ -451,6 +455,38 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
     `/etc/profile.d/jobsub_lite.sh` (`kits.toml`).
   A grid launch needs 4 h of Kerberos ticket, so `kinit -R` came first.
 
+**Geometry pre-check kit and C1's small fixes (Phase C2a)**
+- Spec `docs/superpowers/specs/2026-09-26-c2a-preflight-kit-design.md`,
+  plan `docs/superpowers/plans/2026-09-26-c2a-preflight-kit.md`, branch
+  `generic-study-phase-c2a`.
+- `core/adapters/preflight_checks.py` holds the pre-check's rules
+  (`check_files`, `stage_workdir`, `run_check`, `classify` ->
+  `Verdict(ok, code, reason, notes)`, `verify_stopping_target_gdml`),
+  shared by `OfflinePreflightKit` (`core/adapters/offline_preflight.py`)
+  and `bo_driver preflight`. The `holeRadii vector active` printout
+  check is gone: upstream Offline v13_38_00 prints no such line, and the
+  as-built GDML comparison checks every hole radius.
+- The check runs from the study's code tarball, unpacked once per
+  content into `<GRID_DATA_ROOT>/_code/<sha256>/`
+  (`prodtools_entry.unpacked`), with `MUSE_WORK_DIR` unset as prodtools'
+  runlocal does; workdir `<GRID_DATA_ROOT>/<config>/preflight/`, emptied
+  first, keeps `preflight.log` and `asbuilt.gdml`. `musing` is gone from
+  every study and from `ModeSpec`; the pipeline's `sourced_env` sources
+  the code tarball's `Code/setup.sh` instead.
+- The loader refuses a study whose `kits.offline_preflight.code_tarball`
+  differs from `kits.prodtools.code_tarball`
+  (`kit_registry.MATCHING_SETTINGS`). `check_kits` asks a kit used only
+  for the preflight for `check` alone.
+- The kit's message is `<code>: <reason>`; `ambiguous` fails, with the
+  log's last 40 lines. `node_preflight` was not changed.
+- Fixes: stuck receipts (`submitting`/`building`/`starting`) name
+  prodtools' error and where to look (`jobsub_q`, or the local host and
+  pid); a local run still `starting` after 10 min fails; a `done`/`short`
+  reply with no `jobs` block raises; `KitClient.start` writes a
+  `start` trace row; `entry` is reserved at load for a kit that takes
+  stage templates; `graph.study_loop` checks `<prefix>R00_00` against
+  each adapter's `config_problem` before launching.
+
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (the
   pipeline campaign runner this engine sits alongside, not on top of, in
@@ -466,6 +502,7 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   `graph/pool.py`, `tests/toykit.py`, `tests/textkit.py`,
   `core/adapters/__init__.py`,
   `core/adapters/prodtools.py`, `core/adapters/prodtools_entry.py`,
+  `core/adapters/offline_preflight.py`, `core/adapters/preflight_checks.py`,
   `tests/fixtures/engine_studies/prodtools_smoke.json`
 - Design: `docs/superpowers/specs/2026-09-23-generic-study-design.md`
 
@@ -531,7 +568,7 @@ foilspf campaign before C2. It stays runnable, but only so that C2 can run
 one point both ways (pipeline vs engine + anakit) and match
 `s_over_sqrt_b` and the flash numbers before C3 deletes it. Until then,
 changes to what it reads wait for C3. First among them: rename the stage
-templates' `desc_fmt` / `dsconf_fmt` to `desc` / `dsconf`, so that a
+templates' `desc_fmt` to `desc` (`dsconf_fmt` is gone since C2a), so that a
 filled-in template is a prodtools entry key for key
 (`core/pipeline.py:249` still reads `desc_fmt`). Each template's
 `_comment` should also name the production entry it derives from; for
