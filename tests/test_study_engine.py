@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 import kit_registry  # noqa: E402
 import modes  # noqa: E402
 import paths  # noqa: E402
+import scheduler  # noqa: E402
 import study as st  # noqa: E402
 import study_compat  # noqa: E402
 from tests.engine_fixtures import (ENGINE_STUDIES, toy_doc,  # noqa: E402
@@ -231,6 +232,49 @@ class TestProdtoolsSmoke(unittest.TestCase):
             self.assertEqual(pre[flag], bpz.kits["offline_preflight"][flag],
                              flag)
         self.assertTrue(modes.runs_on_engine(smoke))
+
+
+class TestFixedPaths(_Tmp):
+    """A step's fixed path follows the kit-settings rule: '${ARTIFACT}/'
+    expands when the step's params are built, a personal user area and any
+    other token are refused at load, and measure_basis keeps the raw value
+    (C2b spec, section 4)."""
+
+    RAW = "${ARTIFACT}/c2b/table.tbl"
+
+    def doc(self, value):
+        doc = toy_doc(layout="v2")
+        doc["evaluate"][0]["fixed"]["fail"] = value
+        return doc
+
+    def test_the_raw_value_is_kept_and_expanded_for_the_kit(self):
+        s = self.load(self.doc(self.RAW))
+        self.assertEqual(s.steps[0].fixed["fail"], self.RAW)
+        with mock.patch.multiple(paths, ARTIFACT_ROOT=self.dir / "art",
+                                 BACKING=self.dir / "no_backing"):
+            params = scheduler.step_params(s, s.steps[0],
+                                           {"x1": 1.0, "x2": 2.0}, False)
+        self.assertEqual(params["fail"],
+                         str(self.dir / "art" / "c2b" / "table.tbl"))
+
+    def test_measure_basis_does_not_depend_on_the_artifact_root(self):
+        shas = []
+        for root in ("a", "b"):
+            with mock.patch.object(paths, "ARTIFACT_ROOT", self.dir / root):
+                shas.append(self.load(self.doc(self.RAW)).measure_basis_sha)
+        self.assertEqual(shas[0], shas[1])
+
+    def test_a_personal_user_area_is_refused_at_load(self):
+        with self.assertRaises(ValueError) as cm:
+            self.load(self.doc("/exp/mu2e/app/users/somebody/t.tbl"))  # personal-path-ok: made-up name, exercises the refusal
+        self.assertIn("[fixed][fail]", str(cm.exception))
+        self.assertIn("personal", str(cm.exception))
+
+    def test_another_token_is_refused_at_load(self):
+        with self.assertRaises(ValueError) as cm:
+            self.load(self.doc("${HOME}/t.tbl"))
+        self.assertIn("[fixed][fail]", str(cm.exception))
+        self.assertIn("ARTIFACT", str(cm.exception))
 
 
 if __name__ == "__main__":

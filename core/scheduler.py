@@ -35,10 +35,12 @@ if __package__:
     from core import kit_registry
     from core.contract import ContractError
     from core.kits import KitError
+    from core.study import expand_artifact
 else:
     import kit_registry
     from contract import ContractError
     from kits import KitError
+    from study import expand_artifact
 
 
 @dataclass(frozen=True)
@@ -89,10 +91,13 @@ def step_params(study, step, env, accepts_lists) -> Dict[str, Any]:
     """The mapped params, then the study's settings for the step's kit, then
     the step's fixed values, which win over the settings. A mapped param may
     not share a name with a setting or a fixed value. A kit that takes stage
-    templates also gets the step's resolved template as `entry`."""
+    templates also gets the step's resolved template as `entry`. A fixed
+    '${ARTIFACT}/' value is expanded here (the study keeps it raw)."""
+    fixed = {k: expand_artifact(v, f"step {step.step!r} fixed[{k}]")
+             for k, v in step.fixed.items()}
     params = merge_params(f"step {step.step!r}",
                           map_params(step.params, env, accepts_lists),
-                          {**study.kits.get(step.kit, {}), **step.fixed})
+                          {**study.kits.get(step.kit, {}), **fixed})
     decl = kit_registry.KITS.get(step.kit)
     if decl is not None and decl.uses_entries:
         if "entry" in params:

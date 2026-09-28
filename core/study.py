@@ -279,7 +279,7 @@ def _number(v, where):
     return f
 
 
-def _expand(value, where):
+def expand_artifact(value, where):
     """Only '${ARTIFACT}/' is supported; a bare personal user area is
     refused (it would run only for that account)."""
     if not isinstance(value, str):
@@ -384,6 +384,12 @@ def _steps(raw, has_geom, names, where):
             raise ValueError(f"{sw}[entry]: kit {kit!r} takes no entry; use null")
         fixed = kit_registry.validate(kit, s["fixed"], decl.fixed_keys,
                                       f"{sw}[fixed]", required=False)
+        # A fixed path follows the kit-settings rule ('${ARTIFACT}/' only,
+        # never a personal user area), checked here. It is expanded where
+        # the step's params are built (scheduler.step_params), so Step.fixed
+        # -- and so measure_basis -- keep the raw value.
+        for key, value in fixed.items():
+            expand_artifact(value, f"{sw}[fixed][{key}]")
         missing = sorted(decl.required_fixed - set(fixed))
         if missing:
             raise ValueError(f"{sw}[fixed]: kit {kit!r} needs {missing} in "
@@ -448,7 +454,8 @@ def _kits_and_preflight(doc, steps, has_geom, names, where):
         checked = kit_registry.validate(
             kit, settings, kit_registry.KITS[kit].study_keys, kw,
             required=True)
-        kits[kit] = {k: _expand(v, f"{kw}[{k}]") for k, v in checked.items()}
+        kits[kit] = {k: expand_artifact(v, f"{kw}[{k}]")
+                     for k, v in checked.items()}
     for kit in sorted(used):
         if kit_registry.KITS[kit].study_keys and kit not in kits:
             raise ValueError(f"{where}[kits]: kit {kit!r} is used but has no "
