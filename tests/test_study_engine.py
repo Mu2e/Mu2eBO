@@ -198,8 +198,16 @@ class TestEngineClassification(_Tmp):
                            cwd=str(ROOT / "core"), capture_output=True,
                            text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
+        # C2b: mode_specs/ now also ships the seven foilspf engine twins
+        # (<name>_ax.json), and ENGINE_STUDIES gained the two acceptance
+        # fixtures (foilspfbpz_local, foilspf_nominal) alongside branin and
+        # prodtools_smoke.
         self.assertEqual(r.stdout.strip().splitlines()[-1],
-                         "['branin', 'prodtools_smoke'] False True")
+                         "['branin', 'foilsflash_ax', 'foilspf2k_ax', "
+                         "'foilspf_ax', 'foilspf_nominal', 'foilspfbp_ax', "
+                         "'foilspfbpx_ax', 'foilspfbpz_ax', "
+                         "'foilspfbpz_local', 'foilspfbw_ax', "
+                         "'prodtools_smoke'] False True")
 
 
 X_GRIDPHASEA01 = [67.7974, 111.1044, 132.7585, 0.140557, 0.027008, 0.107443,

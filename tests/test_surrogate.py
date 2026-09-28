@@ -50,11 +50,12 @@ class TestAutoresearchAdapter(unittest.TestCase):
         from surrogate.adapter import AutoresearchAdapter
         import modes as _modes
         probs = AutoresearchAdapter().problems()
-        self.assertEqual(sorted(probs), sorted(_modes.SPECS))
+        self.assertEqual(sorted(probs),
+                         sorted(n for n, s in _modes.STUDIES.items() if s.knobs))
         for name, prob in probs.items():
-            spec = _modes.SPECS[name]
-            self.assertEqual(prob.dim, len(spec.knob_names))
-            self.assertEqual(prob.noise, tuple(spec.obs_noise))
+            study = _modes.STUDIES[name]
+            self.assertEqual(prob.dim, len(study.knobs))
+            self.assertEqual(prob.noise, tuple(o.noise for o in study.objectives))
             self.assertIsNotNone(prob.constraint)
 
     def test_problems_refuse_a_removed_env_override(self):

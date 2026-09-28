@@ -223,14 +223,18 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
             "import json\n"
             "import modes\n"
             "print(json.dumps([str(modes.MODES_DIR), sorted(modes.STUDIES), "
-            "sorted(modes.SPECS)]))\n"
+            "sorted(modes.SPECS), sorted(modes.ENGINE)]))\n"
         )
-        modes_dir, studies, specs = json.loads(
+        modes_dir, studies, specs, engine = json.loads(
             self._fresh_process(script, cwd=self.ROOT / "core").splitlines()[-1])
         want = sorted(p.stem for p in (self.ROOT / "mode_specs").glob("*.json"))
         self.assertEqual(Path(modes_dir), self.ROOT / "mode_specs")
         self.assertEqual(studies, want)
-        self.assertEqual(specs, want)
+        # C2b: each foilspf study has an engine twin <name>_ax (MDC2025ax,
+        # anakit); the twins run on the engine, the originals stay the
+        # pipeline's until C3.
+        self.assertEqual(engine, [n for n in want if n.endswith("_ax")])
+        self.assertEqual(specs, [n for n in want if not n.endswith("_ax")])
 
     def test_a_study_on_the_study_path_becomes_a_runnable_mode(self):
         name = "wiringprobe" + uuid.uuid4().hex[:8]
@@ -267,7 +271,13 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
     # conscious act, which is exactly the review checkpoint we want.
     SHIPPED_SPECS = {"foilsflash.json", "foilspf.json", "foilspf2k.json",
                      "foilspfbp.json", "foilspfbw.json", "foilspfbpx.json",
-                     "foilspfbpz.json"}
+                     "foilspfbpz.json",
+                     # C2b: engine twins of the seven above (MDC2025ax,
+                     # anakit); see mode_specs/README.md "Engine studies".
+                     "foilsflash_ax.json", "foilspf_ax.json",
+                     "foilspf2k_ax.json", "foilspfbp_ax.json",
+                     "foilspfbw_ax.json", "foilspfbpx_ax.json",
+                     "foilspfbpz_ax.json"}
 
     def test_mode_specs_directory_holds_only_the_readme(self):
         """The real directory holds the README plus exactly the shipped specs:

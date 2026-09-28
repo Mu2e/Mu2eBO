@@ -35,9 +35,12 @@ registered adapter, like `prodtools` and `offline_preflight`) runs through
 the contract engine — `graph.study_run` per point, `graph.study_loop` for a
 campaign — instead of the pipeline. Its `leaderboard.layout` should be
 `"v2"`, so its board carries `measure_sha` and refuses an append measured
-a different way. A study with a kit that has no adapter yet
-(`ce_sensitivity`, `flash_edep_per_pot` — Phase C2b) runs through the
-pipeline (`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`).
+a different way. Each foilspf study also has an engine twin, `<name>_ax.json`
+(Phase C2b): the same knobs and geometry on SimJob MDC2025ax, with sob and
+flash from the `anakit` kit and its own v2 board. The originals keep the
+`ce_sensitivity` / `flash_edep_per_pot` kits and run only on the pipeline
+(`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`) until Phase
+C3 deletes it.
 
 The rules, as the code enforces them:
 
