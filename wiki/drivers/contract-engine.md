@@ -615,8 +615,11 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   compares against the pipeline's printed `s_over_sqrt_b` (`sob_matches`:
   within half the macro's last printed digit, plus anakit's own 0.01%
   convolution-change tolerance); `level2` runs both `sob` and `flash` on
-  one archived point's real output files and compares five quantities
-  (`compare_level2`), four of them EXACT integer counts; `level3-setup`/
+  one archived point's real output files and compares seven quantities
+  (`compare_level2`): four EXACT counts (`muminus_stops`,
+  `mubeam_sim_total`, `ce_seen`, `ce_simulated_events`), `ce_abs_eff` and
+  `flash_edep_per_pot` at ≤1e-6 relative, and `s_over_sqrt_b` by the Level 1
+  rule (`sob_matches`); `level3-setup`/
   `level3-check` hand-write `<step>_results.json` records for
   `graph.study_run` to adopt, so a point can be re-scored end to end
   through the real engine (not just the adapter), then diff the engine's
