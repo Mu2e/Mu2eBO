@@ -16,6 +16,7 @@ The Kit interface, which NativeKit and every adapter implement:
   describe() -> Describe | None
   cancel(handle, workflow) -> state
   close()
+  step_problems(study, step) -> [str]   (optional; the launch check)
 """
 from __future__ import annotations
 
@@ -436,6 +437,17 @@ def _needs(study, kit_name):
     return params, metrics, profile_params
 
 
+def kit_step_problems(kit, study, name: str) -> List[str]:
+    """What kit `name`'s optional step_problems(study, step) hook says about
+    each step of the study that uses it: an adapter's per-step launch check
+    (a wrong analysis name or parameter, refused before any job runs). A kit
+    without the hook has nothing to say."""
+    hook = getattr(kit, "step_problems", None)
+    if hook is None:
+        return []
+    return [p for s in study.steps if s.kit == name for p in hook(study, s)]
+
+
 def check_kits(study, *, campaign: str, opener=None, executor: str = "grid",
                parallel=None) -> List[str]:
     """The launch check. Every kit the study names must start, offer the
@@ -487,6 +499,7 @@ def check_kits(study, *, campaign: str, opener=None, executor: str = "grid",
                     problems.append(f"kit {name!r} does not return metric(s) "
                                     f"{absent} (it returns "
                                     f"{list(described.metrics)})")
+            problems.extend(kit_step_problems(kit, study, name))
         except (KitError, ContractError) as exc:
             problems.append(str(exc))
         finally:

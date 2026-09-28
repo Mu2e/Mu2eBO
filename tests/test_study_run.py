@@ -267,6 +267,32 @@ class _DeadKitSet:
         self.closed = True
 
 
+class _HookedKit:
+    """A kit that starts but whose step hook finds a problem."""
+    accepts_lists, poll_s, version = False, (0.0, 0.0), "1"
+    tools = frozenset({"submit", "status", "results"})
+
+    def __init__(self, name):
+        self.name = name
+
+    def step_problems(self, study, step):
+        return [f"step {step.step!r}: no analysis 'nosuch'"]
+
+
+class _HookedKitSet:
+    made = []
+
+    def __init__(self, campaign, *, executor="grid", parallel=None):
+        self.closed = False
+        _HookedKitSet.made.append(self)
+
+    def get(self, name):
+        return _HookedKit(name)
+
+    def close(self):
+        self.closed = True
+
+
 class TestExecutorFlag(_Point):
     def run_with(self, study, *flags, config="p1"):
         return subprocess.run(self.cmd(study, config, (1.0, 2.0)) + list(flags),
@@ -298,6 +324,30 @@ class TestExecutorFlag(_Point):
         r = self.run_point(s)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("executor", r.stdout)
+
+    def test_a_step_hook_problem_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            study = st.load_study_file(write_study(
+                toy_doc(name="hooktoy", layout="v2"), tmp / "studies"))
+            grid = tmp / "grid"
+            out = io.StringIO()
+            _HookedKitSet.made = []
+            with mock.patch.dict(modes.STUDIES, {"hooktoy": study}), \
+                    mock.patch.object(modes, "ENGINE",
+                                      modes.ENGINE | {"hooktoy"}), \
+                    mock.patch.object(study_run, "KitSet", _HookedKitSet), \
+                    mock.patch.object(study_run, "GRID_DATA_ROOT", grid), \
+                    mock.patch.object(study_run, "board_for", mock.Mock()), \
+                    contextlib.redirect_stdout(out):
+                rc = study_run.main(["--study", "hooktoy", "--config", "p1",
+                                     "--campaign", "t", "--x=1.0,2.0"])
+            self.assertEqual(rc, 2, out.getvalue())
+            self.assertIn("REFUSED", out.getvalue())
+            self.assertIn("no analysis 'nosuch'", out.getvalue())
+            self.assertFalse((grid / "p1").exists(),
+                             "state written for a point that never ran")
+            self.assertTrue(_HookedKitSet.made[0].closed)
 
 
 class TestLaunchRefusals(unittest.TestCase):

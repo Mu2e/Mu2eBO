@@ -20,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import kit_registry  # noqa: E402
 import modes as _modes  # noqa: E402
 from boards import board_for  # noqa: E402
-from contract import EXECUTORS, KitSet, executor_problems, requires_kerberos  # noqa: E402
+from contract import (ContractError, EXECUTORS, KitSet, executor_problems,  # noqa: E402
+                      kit_step_problems, requires_kerberos)
 from kits import KitError  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
@@ -132,6 +133,17 @@ def main(argv=None) -> int:
             except (KeyError, KitError) as exc:
                 return refuse(f"kit {name!r} did not start, so nothing ran: "
                               f"{exc}")
+        # The per-step half of the launch check (check_kits runs it for a
+        # campaign): an adapter that can tell a step is wrong says so before
+        # anything is written.
+        problems = []
+        for name in sorted(kit_registry.kits_of(study)):
+            try:
+                problems += kit_step_problems(kits.get(name), study, name)
+            except (KeyError, KitError, ContractError) as exc:
+                problems.append(f"kit {name!r}: {exc}")
+        if problems:
+            return refuse("; ".join(problems))
         graph = build_study_graph(
             study, config=args.config, campaign=args.campaign,
             context=context, kits=kits, state_dir=state_dir,

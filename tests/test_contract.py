@@ -439,6 +439,34 @@ class TestCheckKits(_Toy):
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("['check']", problems[0])
 
+    def test_a_kit_with_a_step_hook_is_asked_about_each_of_its_steps(self):
+        study = self.study()
+        asked = []
+
+        class Hooked:
+            def __init__(self, inner):
+                self.inner = inner
+
+            def __getattr__(self, attr):
+                return getattr(self.inner, attr)
+
+            def step_problems(self, study_, step):
+                asked.append(step.step)
+                return [f"step {step.step!r}: wrong analysis"]
+
+        def opener(name, campaign):
+            return Hooked(self.open(name, campaign))
+
+        problems = ct.check_kits(study, campaign="c", opener=opener)
+        self.assertEqual(asked, [s.step for s in study.steps
+                                 if s.kit == "toykit"])
+        self.assertIn("step 'toy': wrong analysis", problems)
+
+    def test_a_kit_without_the_hook_reports_nothing_from_it(self):
+        study = self.study()
+        kit = types.SimpleNamespace()
+        self.assertEqual(ct.kit_step_problems(kit, study, "toykit"), [])
+
 
 class TestConfigNames(unittest.TestCase):
     @staticmethod
