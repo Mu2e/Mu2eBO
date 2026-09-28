@@ -627,10 +627,48 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   Every analysis in the tool runs through `AnakitKit` with
   `foilspfbpz_ax`'s own settings (`study_params`), so the parity check
   covers the adapter and the study file, not only the two anakit analyses.
-- **Acceptance: pending.** Parity levels 1–3, the local run, the grid run,
-  and the budget commit (replacing the seven twins' `constraints.max` with
-  the measured `flash_edep_per_pot` baseline) have not run yet; results go
-  here and in `wiki/log.md` once they do.
+- **Acceptance PASSED (2026-09-27/28).** Fork `3561c79`..`60cb434`,
+  Mu2eOptAna `9b197e2`, autoresearch through `3820ea5`.
+  - **Parity Level 1:** 495 archived `foilspf*` harvests found, 495
+    compared, 0 mismatched or failed, 0 skipped. The plan's fact sheet
+    said 497; it counted `nts` files, not summaries.
+  - **Parity Level 2**, all 7/7 on three points, with counts exact:
+    - `gridphaseA01`: sob 1.69 → 1.69218.
+    - `foilspfbpz07R11_00`: sob 4.15 → 4.15067.
+    - `foilspfbpz07R19_00`: sob 4.03 → 4.02725.
+    - `ce_abs_eff` and flash agree to ~1e-15 relative, float rounding only.
+  - **Parity Level 3** (`gridphaseA01`, sandbox
+    `c2b_sandbox/l3`): `graph.study_run` adopted the three hand-written
+    grid records, ran `flash` and `sob` through `AnakitKit` and appended a
+    row. Primary 1.6921788498091483. `level3-check` exited 0 on 7/7 plus
+    the board row.
+  - **Local** (`c2blocal01`, `foilspfbpz_local`, `--executor local
+    --parallel 4`): the pre-check passed, 5/5 steps completed and a row
+    landed, in about 10 min. At 20000 mubeam, 4000 CE and 40000 elebeam
+    events its numbers (sob 4.167, flash 4.24e-7) are not physics.
+  - **Grid** on SimJob MDC2025ax against Run1Bap:
+
+    | point | sob (Run1Bap) | flash_edep_per_pot (Run1Bap) | wall |
+    |---|---|---|---|
+    | `c2bnom01` (`foilspf_nominal`, the deployed 37-foil stack) | 3.25997 (3.26, −0.0%) | 6.50684e-07 (6.854e-07, −5.1%) | 3 h 04 min |
+    | `c2bR11ax01` (`foilspfbpz_ax`, R11_00's x) | 4.14258 (4.15, −0.2%) | 7.25485e-07 (6.695e-07, +8.4%) | 3 h 28 min |
+
+    Both changes are under the plan's 20% investigation line. The two
+    grid runs overlapped; mustops_ce's tail jobs dominated the wall time.
+  - **New damage budget on MDC2025ax: 6.50684e-07**, c2bnom01's flash at 6
+    significant figures. It is in the seven `_ax` twins' `constraints`
+    (commit `0326130`). The originals and the two acceptance fixtures
+    keep Run1Bap's 6.85443e-07.
+    - **Consequence:** R11_00 sat 2.3% under budget on Run1Bap but sits
+      11.5% over it on MDC2025ax. Its flash-to-nominal ratio went from
+      0.977 to 1.115. That is ~1.5σ at the archive's ~4.5% flash noise per
+      point, so a `budget_sob` round on the `_ax` boards will not treat
+      R11_00 as feasible.
+    - c2bR11ax01's row carries the pre-budget `spec_sha`: the study was
+      loaded before the commit. `spec_sha` is recorded, never checked,
+      and `measure_sha` does not see `constraints`.
+  - Rows: `leaderboards/leaderboard_bo_foilspfbpz_ax.tsv` (c2bR11ax01) and
+    `leaderboard_foilspf_nominal.tsv` (c2bnom01) under the real data root.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (the

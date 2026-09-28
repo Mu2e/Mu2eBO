@@ -6,6 +6,13 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-28
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C2b
+  acceptance PASSED. Parity: Level 1 495/495; Level 2 7/7 on three points;
+  Level 3 exit 0. Local `c2blocal01` landed a row. Grid on MDC2025ax:
+  `c2bnom01` sob 3.25997 / flash 6.50684e-07 (Run1Bap 3.26 / 6.854e-07),
+  `c2bR11ax01` sob 4.14258 / flash 7.25485e-07 (Run1Bap 4.15 / 6.695e-07).
+  New `_ax` damage budget 6.50684e-07 (`0326130`); R11_00 is 11.5% over it
+  on MDC2025ax, though it was 2.3% under on Run1Bap.
 - **updated** [anakit](/external/anakit.md): C2b final-fix wave (F6) —
   corrected the 9b197e2 rationale (fixes EdepAna's own 6-sig-fig summary
   print, not the macro's `%.3g`), corrected the `edep.fcl` v40 naming
