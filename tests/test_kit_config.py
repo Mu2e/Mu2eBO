@@ -261,7 +261,8 @@ class TestServersAndExecutors(unittest.TestCase):
 
     def test_the_repo_declares_both_prodtools_servers(self):
         servers = kc.load_server_configs()
-        self.assertEqual(sorted(servers), ["prodtools_read", "prodtools_write"])
+        self.assertEqual(sorted(servers),
+                         ["anakit", "prodtools_read", "prodtools_write"])
         self.assertIn("submit_once", servers["prodtools_write"].timeouts)
         self.assertIn("run_status", servers["prodtools_read"].timeouts)
         # The bearer token is found at $XDG_RUNTIME_DIR/bt_u<uid>; without
@@ -274,6 +275,16 @@ class TestServersAndExecutors(unittest.TestCase):
                          creds + ("JOBSUB_DROPBOX_SERVER_LIST",
                                   "JOBSUB_OUTPUT_URL", "JOBSUB_FETCHLOG_URL",
                                   "JOBSUB_AUTH_METHODS", "JOBSUB_POOL_MAP"))
+
+    def test_the_repo_declares_the_anakit_server(self):
+        anakit = kc.load_server_configs()["anakit"]
+        self.assertEqual(anakit.command[1:6],
+                         ("-P", "-m", "analysis_mcp_server", "--transport",
+                          "stdio"))
+        self.assertEqual(anakit.set_env["PYTHONPATH"], "${AUTORESEARCH_ANAKIT}")
+        self.assertEqual(anakit.timeouts, {"start": 120.0,
+                                           "list_analyses": 120.0,
+                                           "run_analysis": 3600.0})
 
     def test_a_kit_client_starts_from_a_server_config(self):
         import kits

@@ -7,12 +7,15 @@ kit up."""
 def register_all(register, adapters) -> None:
     """Register every adapter this package holds that `adapters` lacks."""
     if __package__ == "core.adapters":
+        from core.adapters.anakit import AnakitKit
         from core.adapters.offline_preflight import OfflinePreflightKit
         from core.adapters.prodtools import ProdtoolsKit
     else:
+        from adapters.anakit import AnakitKit
         from adapters.offline_preflight import OfflinePreflightKit
         from adapters.prodtools import ProdtoolsKit
     for name, factory in (("prodtools", ProdtoolsKit),
-                          ("offline_preflight", OfflinePreflightKit)):
+                          ("offline_preflight", OfflinePreflightKit),
+                          ("anakit", AnakitKit)):
         if name not in adapters:
             register(name, factory)

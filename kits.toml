@@ -47,3 +47,18 @@ command = ["${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_mcp.sh"]
 env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR"]
 set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
 timeouts = { start = 120, run_status = 120 }
+
+# The anakit adapter (core/adapters/anakit.py) starts one of these per step,
+# from the anakit checkout $AUTORESEARCH_ANAKIT (our fork of M. MacKenzie's
+# analysis MCP server), under ana 2.7.0: anakit's server imports
+# mcp.server.fastmcp, which mcp 2 (ana 2.8.0) no longer has. -P keeps the
+# working directory off sys.path, so this repo's tools/ cannot shadow
+# anakit's `tools` package. The adapter appends --work-area <the study's
+# kits.anakit.work_area>, so anakit's own fallback (its author's work area)
+# is never used. anakit runs an analysis synchronously and one at a time per
+# server; the adapter stops a run at 3000 s, so run_analysis must allow more.
+[servers.anakit]
+command = ["/cvmfs/mu2e.opensciencegrid.org/env/ana/2.7.0/bin/python", "-P", "-m", "analysis_mcp_server", "--transport", "stdio"]
+env_passthrough = []
+set = { PYTHONPATH = "${AUTORESEARCH_ANAKIT}", SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
+timeouts = { start = 120, list_analyses = 120, run_analysis = 3600 }
