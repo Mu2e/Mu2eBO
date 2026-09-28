@@ -107,7 +107,8 @@ class _Kit(unittest.TestCase):
         factory = lambda cfg: FakeClient(cfg, self.log, reply, catalogue, gate)
         return ak.AnakitKit("camp", server=kw.pop("server", server()),
                             client_factory=factory,
-                            grid_root=self.tmp / "grid", fork=self.fork, **kw)
+                            grid_root=kw.pop("grid_root", self.tmp / "grid"),
+                            fork=self.fork, **kw)
 
     def params(self, **over):
         p = {"work_area": str(self.wa), "analysis": "ce_sensitivity",
@@ -151,6 +152,22 @@ class TestOpen(_Kit):
             with self.assertRaises(KitError) as cm:
                 self.kit(server=bad)
             self.assertIn(needle, str(cm.exception))
+
+    def test_a_git_timeout_when_opening_is_a_kit_error(self):
+        with mock.patch.object(
+                ak.subprocess, "run",
+                side_effect=subprocess.TimeoutExpired("git", 60)):
+            with self.assertRaises(KitError) as cm:
+                self.kit()
+        self.assertIn("timed out", str(cm.exception))
+
+    def test_a_missing_git_binary_when_opening_is_a_kit_error(self):
+        with mock.patch.object(
+                ak.subprocess, "run",
+                side_effect=OSError("no such file or directory")):
+            with self.assertRaises(KitError) as cm:
+                self.kit()
+        self.assertIn("could not run", str(cm.exception))
 
     def test_it_is_a_registered_engine_adapter(self):
         decl = kit_registry.KITS["anakit"]
@@ -232,12 +249,33 @@ class TestSubmit(_Kit):
         self.assertFalse((self.sdir() / "nts.stale.root").exists())
         self.assertTrue((self.sdir() / ak.RESULT_NAME).exists())
 
+    def test_an_oserror_preparing_the_step_directory_is_a_value_error(self):
+        # GRID_DATA_ROOT sits on a quota-limited volume (EDQUOT has
+        # happened); the resulting OSError must become a ValueError, one of
+        # the exception types core/scheduler.py's run_steps catches, not
+        # crash the engine child. A grid_root that is itself a regular file
+        # makes sdir.mkdir(parents=True) fail with a real OSError.
+        grid_root = self.tmp / "not_a_dir"
+        grid_root.write_text("x\n")
+        kit = self.kit(grid_root=grid_root)
+        with self.assertRaises(ValueError) as cm:
+            kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
+        self.assertIn("step directory", str(cm.exception))
+
     def test_two_steps_at_once_use_two_servers_and_two_directories(self):
         gate = threading.Barrier(2)
+        clients = []
 
         def reply(args):
             return {**SUCCESS, "message": args["output_dir"]}
-        kit = self.kit(reply=reply, gate=gate)
+
+        def factory(cfg):
+            client = FakeClient(cfg, self.log, reply, CATALOGUE, gate)
+            clients.append(client)
+            return client
+
+        kit = ak.AnakitKit("camp", server=server(), client_factory=factory,
+                           grid_root=self.tmp / "grid", fork=self.fork)
         threads = [threading.Thread(
             target=kit.submit,
             args=(f"cfg1.{step}", self.params(), [], self.inputs, "w"))
@@ -246,6 +284,10 @@ class TestSubmit(_Kit):
             t.start()
         for t in threads:
             t.join(10)
+        # Two SEPARATE clients (anakit runs one analysis at a time per
+        # server), not just two closes of the same one.
+        self.assertEqual(len(clients), 2)
+        self.assertEqual(len({id(c) for c in clients}), 2)
         self.assertEqual(sum(1 for e in self.log if e == ("close",)), 2)
         for step in ("sob", "flash"):
             rec = json.loads((self.sdir(step=step) / ak.RESULT_NAME).read_text())
@@ -257,6 +299,35 @@ class TestSubmit(_Kit):
             kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
         self.assertEqual(self.log[-1], ("close",))
         self.assertFalse((self.sdir() / ak.RESULT_NAME).exists())
+
+    def test_a_catalogue_entry_missing_metrics_is_a_kit_error(self):
+        catalogue = {"ce_sensitivity": {k: v for k, v in
+                                        CATALOGUE["ce_sensitivity"].items()
+                                        if k != "metrics"}}
+        kit = self.kit(catalogue=catalogue)
+        with self.assertRaises(KitError) as cm:
+            kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
+        self.assertIn("metrics", str(cm.exception))
+
+    def test_a_fork_commit_that_moved_since_open_refuses_submit(self):
+        kit = self.kit()
+        (self.fork / "analysis_mcp_server" / "extra.py").write_text("y\n")
+        run = lambda *a: subprocess.run(["git", "-C", str(self.fork), *a],
+                                        check=True, capture_output=True)
+        run("add", ".")
+        run("-c", "user.name=t", "-c", "user.email=t@example.org", "commit",
+            "-q", "-m", "second")
+        with self.assertRaises(KitError) as cm:
+            kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
+        self.assertIn("moved", str(cm.exception))
+
+    def test_a_fork_left_dirty_after_open_refuses_submit(self):
+        kit = self.kit()
+        (self.fork / "analysis_mcp_server" / "__main__.py").write_text(
+            "changed\n")
+        with self.assertRaises(KitError) as cm:
+            kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
+        self.assertIn("uncommitted changes", str(cm.exception))
 
 
 class TestStatusAndResults(_Kit):
@@ -295,9 +366,13 @@ class TestStatusAndResults(_Kit):
         self.assertIn(ak.RESULT_NAME, st.message)
 
     def test_results_refuses_a_missing_or_non_number_metric(self):
-        for meta, needle in (({"s_over_sqrt_b": 4.15}, "ce_abs_eff"),
-                             ({"s_over_sqrt_b": "4.15", "ce_abs_eff": 1e-4},
-                              "s_over_sqrt_b")):
+        # The second case's needle names both the key AND its (non-number)
+        # value, so it can only match if ce_abs_eff -- not s_over_sqrt_b,
+        # which stays a valid number here -- is the actual offender.
+        cases = (({"s_over_sqrt_b": 4.15}, "ce_abs_eff"),
+                ({"s_over_sqrt_b": 4.15, "ce_abs_eff": "6.67e-4"},
+                 "'ce_abs_eff': '6.67e-4'"))
+        for meta, needle in cases:
             kit = self.submitted({**SUCCESS, "metadata": meta})
             with self.subTest(needle=needle):
                 with self.assertRaises(ContractError) as cm:

@@ -72,8 +72,21 @@ def fork_root() -> Path:
 
 
 def _git(root, *args, call) -> str:
-    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True,
-                       text=True, timeout=60)
+    # A quota-limited or flaky filesystem under `root`, or a missing git
+    # binary, must not crash the engine child: core/scheduler.py's run_steps
+    # only catches (KitError, ContractError, KeyError, ValueError), so both
+    # failures are rewrapped as KitError, naming the git command (as the
+    # sibling adapters rewrap OSError -- core/adapters/offline_preflight.py
+    # check(), core/adapters/prodtools.py _prepare()).
+    try:
+        r = subprocess.run(["git", "-C", str(root), *args],
+                           capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired as exc:
+        raise _error(call, f"git {' '.join(args)} in {root} timed out after "
+                     f"60 s") from exc
+    except OSError as exc:
+        raise _error(call, f"git {' '.join(args)} in {root} could not run: "
+                     f"{exc}") from exc
     if r.returncode != 0:
         raise _error(call, f"git {' '.join(args)} in {root} failed: "
                      f"{r.stderr.strip()}")
@@ -169,8 +182,11 @@ class AnakitKit:
             raise ValueError(f"anakit: executor must be one of "
                              f"{list(self.EXECUTORS)}, got {executor!r}")
         self.campaign = campaign
-        root = Path(fork) if fork is not None else fork_root()
-        self._version = f"{VERSION}+anakit-{fork_commit(root)}"
+        self._fork_root = Path(fork) if fork is not None else fork_root()
+        # Read again at the start of every submit (measure_sha must label
+        # the build that actually ran; a step can run hours after open).
+        self._open_commit = fork_commit(self._fork_root)
+        self._version = f"{VERSION}+anakit-{self._open_commit}"
         if server is None:
             servers = kit_config.load_server_configs()
             if SERVER not in servers:
@@ -201,6 +217,18 @@ class AnakitKit:
         pass            # each server is closed by the call that started it
 
     def submit(self, name, params, files, inputs, workflow) -> str:
+        # The fork's commit is read once at open (self._version); a step can
+        # run hours later, so re-check it here rather than trust a stale
+        # label. fork_commit itself raises when the checkout has gone dirty
+        # since open; a clean checkout on a DIFFERENT commit is caught below.
+        current = fork_commit(self._fork_root)
+        if current != self._open_commit:
+            raise _error("submit", f"the anakit checkout {self._fork_root} "
+                         f"moved from commit {self._open_commit} (read when "
+                         f"this campaign's kit opened) to {current}: "
+                         f"measure_sha must label the build that actually "
+                         f"ran, so submit refuses; restart the campaign to "
+                         f"pick up the new commit")
         config, step = split_handle(name)
         if files:
             raise ValueError(f"anakit: takes no step files, got "
@@ -216,18 +244,34 @@ class AnakitKit:
         data = [str(pe.local_path(ref, "anakit: input")) for ref in inputs]
         code = code_commit(work_area)
         sdir = self._step_dir(config, step)
-        if sdir.exists():
-            shutil.rmtree(sdir)     # this step's own directory, from a rerun
-        sdir.mkdir(parents=True)
+        # GRID_DATA_ROOT sits on a quota-limited volume (EDQUOT has
+        # happened); an OSError here must not crash the engine child (see
+        # the note on _git).
+        try:
+            if sdir.exists():
+                shutil.rmtree(sdir)  # this step's own directory, from a rerun
+            sdir.mkdir(parents=True)
+        except OSError as exc:
+            raise ValueError(f"anakit: preparing step directory {sdir} "
+                             f"failed: {exc}") from exc
         client = self._client(work_area)
         try:
             spec = self._analyses(client, workflow).get(analysis)
             if spec is None:
                 raise ValueError(f"anakit: no analysis {analysis!r} in "
                                  f"{work_area}")
+            # No silent fallback: a catalogue entry missing either field is
+            # anakit's list_analyses reply breaking the contract, not a
+            # reasonable default to assume.
+            if "takes_data_files" not in spec:
+                raise _error("list_analyses", f"anakit's reply for analysis "
+                             f"{analysis!r} has no 'takes_data_files'")
+            if "metrics" not in spec:
+                raise _error("list_analyses", f"anakit's reply for analysis "
+                             f"{analysis!r} has no 'metrics'")
             args = {"analysis": analysis, "output_dir": str(sdir),
                     "parameters": params, "timeout_s": RUN_TIMEOUT_S}
-            if spec.get("takes_data_files", True):
+            if spec["takes_data_files"]:
                 args["data_files"] = data
             elif len(data) == 1:
                 args["data_file"] = data[0]
@@ -237,10 +281,16 @@ class AnakitKit:
             reply = self._call(client, "run_analysis", args, workflow)
         finally:
             client.close()
-        _write_json(sdir / RESULT_NAME, {
-            "handle": name, "analysis": analysis, "work_area": str(work_area),
-            "code": code, "version": self._version,
-            "metrics": list(spec.get("metrics", [])), "reply": reply})
+        result_path = sdir / RESULT_NAME
+        try:
+            _write_json(result_path, {
+                "handle": name, "analysis": analysis,
+                "work_area": str(work_area), "code": code,
+                "version": self._version, "metrics": list(spec["metrics"]),
+                "reply": reply})
+        except OSError as exc:
+            raise ValueError(f"anakit: writing {result_path} failed: "
+                             f"{exc}") from exc
         return name
 
     def status(self, handle, workflow):
@@ -308,11 +358,18 @@ class AnakitKit:
                         if p.get("required") and n not in sent)
         if needed:
             problems.append(f"{where}: {analysis} needs {needed}")
+        if "metrics" not in spec:
+            # No silent fallback: a catalogue entry with no 'metrics' is
+            # anakit's list_analyses reply breaking the contract, not an
+            # analysis that returns nothing.
+            problems.append(f"{where}: anakit's list_analyses reply for "
+                            f"analysis {analysis!r} has no 'metrics'")
+            return problems
         wanted = sorted({m.metric.split(".", 1)[1]
                          for m in tuple(study.objectives)
                          + tuple(study.extra_metrics)
                          if m.metric.split(".", 1)[0] == step.step})
-        absent = [m for m in wanted if m not in spec.get("metrics", [])]
+        absent = [m for m in wanted if m not in spec["metrics"]]
         if absent:
             problems.append(f"{where}: {analysis} does not return {absent}")
         return problems
@@ -357,7 +414,11 @@ class AnakitKit:
         path = self._step_dir(config, step) / RESULT_NAME
         if not path.exists():
             return None
-        rec = json.loads(path.read_text())
+        try:
+            text = path.read_text()
+        except OSError as exc:
+            raise ValueError(f"anakit: reading {path} failed: {exc}") from exc
+        rec = json.loads(text)
         if rec.get("handle") != handle:
             raise ContractError(self.name, "status", f"{path} holds "
                                 f"{rec.get('handle')!r}, not {handle!r}")
