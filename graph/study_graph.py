@@ -6,10 +6,12 @@ durability, so a killed child re-run on the same point adopts its steps.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import unquote, urlparse
 
 from typing_extensions import TypedDict
 
@@ -46,6 +48,37 @@ def check_x(study, x) -> None:
         if not knob.min <= v <= knob.max:
             raise ValueError(f"x: knob {knob.name!r} = {v!r} is outside its "
                              f"bounds [{knob.min}, {knob.max}]")
+
+
+def preflight_basis(pre, settings, env, files) -> dict:
+    """What a pre-check verdict depends on: the kit, its settings, the
+    point's values the pre-check maps, and the content of every file it
+    reads (a file:// file by SHA-256; any other ref by its URI).
+    JSON-normalized, so it compares equal to the copy read back from
+    preflight_verdict.json."""
+    def ident(ref):
+        uri = ref["uri"]
+        if uri.startswith("file://"):
+            data = Path(unquote(urlparse(uri).path)).read_bytes()
+            return {"sha256": hashlib.sha256(data).hexdigest()}
+        return {"uri": uri}
+    basis = {"kit": pre["kit"], "settings": settings,
+             "mapped": {k: env[v] for k, v in pre["params"].items()},
+             "files": {ref["name"]: ident(ref) for ref in files}}
+    return json.loads(json.dumps(basis, sort_keys=True))
+
+
+def reusable_pass(path: Path, basis: dict) -> bool:
+    """True when `path` holds a PASSING verdict for exactly this basis. A
+    failure is never reused: retrying a point (deleting broken.txt) checks
+    it again."""
+    if not path.exists():
+        return False
+    try:
+        saved = json.loads(path.read_text())
+    except ValueError:
+        return False
+    return saved.get("ok") is True and saved.get("basis") == basis
 
 
 def build_study_graph(study, *, config: str, campaign: str, context: dict,
@@ -128,19 +161,32 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
         pre = study.preflight
         if pre is None:
             return {"broken": False}
+        verdict_path = state_dir / "preflight_verdict.json"
+        basis = None
         try:
+            files = [shared["files"][f] for f in pre["files"]]
+            basis = preflight_basis(pre, study.kits.get(pre["kit"], {}),
+                                    shared["env"], files)
+            # A resumed point already checked: a transient failure on a
+            # second run must not break a point whose jobs are running.
+            if reusable_pass(verdict_path, basis):
+                log(f"[study_run] {config}: preflight passed earlier with "
+                    f"the same settings and files; reusing that verdict")
+                return {"broken": False}
             kit = kits.get(pre["kit"])
             params = merge_params("preflight",
                                   map_params(pre["params"], shared["env"],
                                              kit.accepts_lists),
                                   study.kits.get(pre["kit"], {}))
-            ok, message = kit.check(f"{config}.preflight", params,
-                                    [shared["files"][f] for f in pre["files"]],
-                                    [], workflow("preflight"))
-        except (KitError, ContractError, KeyError, ValueError) as exc:
+            ok, message = kit.check(f"{config}.preflight", params, files, [],
+                                    workflow("preflight"))
+        except (KitError, ContractError, KeyError, ValueError,
+                OSError) as exc:
             ok, message = False, f"{type(exc).__name__}: {exc}"
-        write_atomic(state_dir / "preflight_verdict.json",
-                     json.dumps({"ok": ok, "message": message}, indent=1))
+        record = {"ok": ok, "message": message}
+        if basis is not None:
+            record["basis"] = basis
+        write_atomic(verdict_path, json.dumps(record, indent=1))
         return {"broken": False} if ok else broken(f"preflight: {message}")
 
     def node_run_steps(state):

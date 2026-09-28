@@ -114,7 +114,13 @@ class OfflinePreflightKit:
         dump = workdir / pc.PREFLIGHT_GDML_NAME
         if dump.exists():
             dump.replace(workdir / ASBUILT_NAME)
-        return verdict.ok, f"{verdict.code}: {verdict.reason}"
+        # The notes say what the check actually verified (foils against the
+        # GDML, overlap hits, the return code); a message without them
+        # hides that from the point's log and broken.txt.
+        message = f"{verdict.code}: {verdict.reason}"
+        if verdict.notes:
+            message += "\n" + "\n".join(f"  {n}" for n in verdict.notes)
+        return verdict.ok, message
 
     # --- plumbing ----------------------------------------------------------
     @staticmethod

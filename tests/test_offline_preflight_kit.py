@@ -94,6 +94,15 @@ class TestCheck(_Kit):
                          (self.workdir(), "surfacecheck.fcl", pc.TIMEOUT_S))
         self.assertIn("cfg1", label)
 
+    def test_the_message_carries_the_verdicts_notes(self):
+        ok, message = self.check()
+        self.assertTrue(ok, message)
+        first, *notes = message.split("\n")
+        self.assertTrue(first.startswith("pass: init=True"), first)
+        self.assertIn("  return code: 0  timed_out=False", notes)
+        self.assertTrue(any(n.startswith("  surface-check total_hits=")
+                            for n in notes), notes)
+
     def test_the_timeout_is_the_kits(self):
         self.check(self.kit(timeout_s=7))
         self.assertEqual(self.runs[0][3], 7)
