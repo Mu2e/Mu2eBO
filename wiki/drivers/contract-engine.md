@@ -7,9 +7,10 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   graph.study_loop; toykit Branin acceptance in 28.7 s; C1 prodtools
   adapter (`core/adapters/`), --executor, zero-knob studies; C2a
   offline_preflight adapter (the geometry pre-check from the code
-  tarball), dsconf study setting
+  tarball), dsconf study setting; C2b anakit adapter (one server per
+  step), step_problems launch hook, <study>_ax engine twins on MDC2025ax
 status: active
-timestamp: '2026-09-26'
+timestamp: '2026-09-28'
 ---
 
 # Contract engine (Phase B)
@@ -31,11 +32,13 @@ campaign (q=2, 8 evaluations) runs end to end from a JSON file alone in
 Phase C1 (2026-09-25, branch `generic-study-phase-c1`) gave `prodtools`
 an adapter (below), so a zero-knob prodtools study —
 `tests/fixtures/engine_studies/prodtools_smoke.json`, the Phase C1
-acceptance study — now runs on the engine too. `foilspf` and its
+acceptance study — now runs on the engine too. `foilspf` and its six
 siblings still run on the pipeline (`core/bo_driver.py`,
-[closed-loop-runner](/drivers/closed-loop-runner.md)), because their
-other kits (`offline_preflight`, `ce_sensitivity`,
-`flash_edep_per_pot`) have no adapter yet — that's Phase C2.
+[closed-loop-runner](/drivers/closed-loop-runner.md)) — the seven
+original study files are not modified, a global constraint of Phase
+C2 — but each now has an engine twin, `<name>_ax` (Phase C2b, below),
+that runs the same geometry through the engine's `anakit` adapter
+instead of the pipeline's harvest.
 
 ## Key facts
 
@@ -504,6 +507,128 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
     check.
   - Overlap counts were 0 in all six logs, on both releases.
 
+**anakit kit and the foilspf engine twins (Phase C2b)**
+- Spec: `docs/superpowers/specs/2026-09-27-c2b-anakit-analyses-design.md`,
+  branch `generic-study-phase-c2b`. See [anakit](/external/anakit.md) for
+  the fork itself (commits, the work area, the build).
+- `AnakitKit` (`core/adapters/anakit.py`, another in-process
+  `core/contract.py:ADAPTERS` entry) drives M. MacKenzie's analysis MCP
+  server for the `sob`/`flash` steps: `ce_sensitivity` and
+  `flash_edep_per_pot`, run by our fork under
+  `kits.toml[servers.anakit]`. It offers no `describe` (its params/metrics
+  are per-analysis, checked instead by `step_problems`, below) and no
+  `cancel` (a failed sibling step still lets an in-flight anakit analysis
+  run to completion — `core/scheduler.py:run_steps` only cancels a step
+  whose kit offers the tool).
+- **One server per step:** FastMCP 1.28 calls a sync tool on its own event
+  loop, so one anakit server runs one analysis at a time; `submit` starts a
+  fresh server on the study's `kits.anakit.work_area`, runs the analysis to
+  completion, and closes it (`AnakitKit._client`/`_call`). The reply lands
+  at `<GRID_DATA_ROOT>/<config>/anakit/<step>/anakit_result.json`
+  (`AnakitKit._step_dir`); `status`/`results` only read that file, so a
+  point resumed after a crash mid-analysis has no handle yet and the
+  analysis reruns from scratch (no partial-progress resume, unlike a grid
+  job's `run_status`).
+- **Version = adapter + fork commit:** the reported `version` is
+  `anakit-adapter/1+anakit-<commit>`, the fork's short commit read once
+  when the campaign's `KitSet` opens the kit (`fork_commit`). **`submit`
+  re-checks the fork on every call** and refuses (`KitError`) if it has
+  gone dirty, or moved to a different commit, since open — `measure_sha`
+  must label the build that actually ran, not a stale label captured at
+  open; restarting the campaign picks up the new commit.
+- **`RUN_TIMEOUT_S = 3000`** is the adapter's own budget for one
+  `run_analysis` call (`timeout_s` in the call args);
+  `kits.toml[servers.anakit].timeouts.run_analysis` must be at least
+  `RUN_TIMEOUT_S + CALL_MARGIN_S` (300 s) so anakit reports its own timeout
+  rather than the MCP call being cut off first (`AnakitKit._check_timeouts`);
+  it is set to 3600 s.
+- **OSError and git failures are wrapped, not left to crash the engine
+  child:** a quota-limited or otherwise flaky `GRID_DATA_ROOT` (the step
+  directory's `mkdir`/`rmtree` in `submit`), and a hung or missing `git`
+  binary in the fork checkout (`_git`, used by `fork_commit` and
+  `code_commit`), both raise a `KitError`/`ValueError` naming the failing
+  command — matching the sibling adapters' OSError-wrapping
+  (`core/adapters/offline_preflight.py:check`,
+  `core/adapters/prodtools.py:_prepare`), so a full disk or a wedged `git`
+  breaks only the point, not the whole engine child.
+- **A catalogue entry missing `metrics` or `takes_data_files` is an error,
+  not a default:** anakit's `list_analyses` reply is checked for both keys
+  explicitly in `submit` and in `step_problems` — a broken reply is a loud
+  `KitError`/`ContractError`, never assumed (e.g. that every analysis takes
+  a list of files).
+- **`step_problems` (`core/contract.py:kit_step_problems`):** the optional
+  per-step half of the launch check — a kit may say what's wrong with one
+  of its steps before any job runs. `check_kits` (used by
+  `graph.study_loop`) calls it for every step of every kit the study
+  names; `graph.study_run` runs the same per-step check itself, not the
+  full `check_kits`, right after starting its kits and before writing
+  anything for the point (`graph/study_run.py`, after the kit-start loop).
+  `AnakitKit.step_problems` uses it to check the work area is a directory,
+  the code tarball's `backing` link matches it, the step's `analysis`
+  exists in anakit's catalogue, every sent param is one the analysis
+  declares (and every required one is sent), and the study's
+  objectives/extra metrics sourced from that step are all in the
+  analysis's `metrics`.
+- **`${ARTIFACT}/` in a step's `fixed`:** a fixed value like
+  `sob.fixed.dio_table` follows the same rule as a kit setting — only the
+  `${ARTIFACT}/` token is allowed, never a bare personal path
+  (`core/study.py:expand_artifact`), checked at study load but left RAW
+  there, so `measure_basis` (and `measure_sha`) hashes the unexpanded
+  string identically for every operator; it is expanded to a real path
+  only where a step's params are actually built
+  (`core/scheduler.py:step_params`).
+- **The seven `<name>_ax` twins** (`mode_specs/foilsflash_ax.json`,
+  `foilspf_ax`, `foilspf2k_ax`, `foilspfbp_ax`, `foilspfbpx_ax`,
+  `foilspfbpz_ax`, `foilspfbw_ax`) are new engine studies, not edits to the
+  seven originals, which stay pipeline-only and untouched. They must: the
+  pipeline's `core/modes.py:DEFAULT_MODE = "foilspf"` has to remain a live
+  pipeline `SPECS` entry (`ENGINE`/`SPECS` partition every study by
+  `runs_on_engine`, and `DEFAULT_MODE` is asserted to be in `SPECS`) — it's
+  the fallback every module-level `AUTORESEARCH_MODE` reader uses. A twin
+  keeps its original's knobs, `derive`/`geom` and the original's `note` for
+  the geometry explanation, but points `kits.prodtools`/
+  `kits.offline_preflight.code_tarball` at `Code_mdc2025ax.tar.bz2`
+  (`dsconf: MDC2025ax_{cfg}`), adds `kits.anakit.work_area`, and replaces
+  the `sob`/`flash` steps' `kit: ce_sensitivity|flash_edep_per_pot` with
+  `kit: anakit` plus an `analysis` fixed value and that analysis's own
+  fixed params (`input_correction`, `cosmic_rate_per_s_per_mev`,
+  `dio_fraction`, `dio_table` for `sob`; `pot_per_electron` for `flash`).
+  Each twin gets its own, empty v2 leaderboard
+  (`leaderboards/leaderboard_bo_<name>_ax.tsv`) — rows measured on a
+  different release can't be mixed onto the original's v1 board.
+- **Pre-check reuse on resume:** `graph/study_graph.py:preflight_basis`
+  fingerprints what a PASSING verdict depends on (the kit, its settings,
+  the point's mapped values, and each read file's content — SHA-256 for a
+  `file://` ref, else its URI), JSON-normalized so it round-trips through
+  `preflight_verdict.json`; `reusable_pass` reuses a saved verdict only
+  when it says `ok: true` for exactly that basis, so a resumed point whose
+  settings and files haven't changed skips the pre-check outright instead
+  of re-running G4 init. A saved FAILURE is never reused — retrying a point
+  (deleting `broken.txt`) always checks again. The verdict's message also
+  now ends with the check's own notes (foils verified, overlap-hit count,
+  return code), not just the classified code (commit `bc37a48`). This
+  closes the "resumed child re-runs preflight" follow-up below.
+- **`tools/c2b_parity.py`** (manual, outside `unittest discover`, deleted
+  with the pipeline in C3) is the sob/flash parity check against the old
+  pipeline's harvest: `level1` runs `approx_ce_sensitivity` alone over
+  every archived `foilspf*/harvest/summary.json` + `nts.ce.root` pair and
+  compares against the pipeline's printed `s_over_sqrt_b` (`sob_matches`:
+  within half the macro's last printed digit, plus anakit's own 0.01%
+  convolution-change tolerance); `level2` runs both `sob` and `flash` on
+  one archived point's real output files and compares five quantities
+  (`compare_level2`), four of them EXACT integer counts; `level3-setup`/
+  `level3-check` hand-write `<step>_results.json` records for
+  `graph.study_run` to adopt, so a point can be re-scored end to end
+  through the real engine (not just the adapter), then diff the engine's
+  own state files and its v2 board row against the archived summary.
+  Every analysis in the tool runs through `AnakitKit` with
+  `foilspfbpz_ax`'s own settings (`study_params`), so the parity check
+  covers the adapter and the study file, not only the two anakit analyses.
+- **Acceptance: pending.** Parity levels 1–3, the local run, the grid run,
+  and the budget commit (replacing the seven twins' `constraints.max` with
+  the measured `flash_edep_per_pot` baseline) have not run yet; results go
+  here and in `wiki/log.md` once they do.
+
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (the
   pipeline campaign runner this engine sits alongside, not on top of, in
@@ -511,7 +636,8 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   the same v2 boards through `core/botorch_predict.py`),
   [tests](/drivers/tests.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
   (the pipeline's load-bearing constraints — the engine reuses its rolling
-  pool but not its checkpointing or barrier logic)
+  pool but not its checkpointing or barrier logic), [anakit](/external/anakit.md)
+  (the fork the C2b kit drives)
 - Source files: `kits.toml`, `core/kit_config.py`, `core/kit_registry.py`,
   `core/kits.py`, `core/contract.py`, `core/scheduler.py`,
   `core/study.py`, `core/score.py`, `core/leaderboard.py`, `core/boards.py`,
@@ -520,8 +646,11 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`)**
   `core/adapters/__init__.py`,
   `core/adapters/prodtools.py`, `core/adapters/prodtools_entry.py`,
   `core/adapters/offline_preflight.py`, `core/adapters/preflight_checks.py`,
-  `tests/fixtures/engine_studies/prodtools_smoke.json`
-- Design: `docs/superpowers/specs/2026-09-23-generic-study-design.md`
+  `core/adapters/anakit.py`,
+  `tests/fixtures/engine_studies/prodtools_smoke.json`,
+  `mode_specs/foilspf_ax.json` and its six siblings, `tools/c2b_parity.py`
+- Design: `docs/superpowers/specs/2026-09-23-generic-study-design.md`,
+  `docs/superpowers/specs/2026-09-27-c2b-anakit-analyses-design.md`
 
 ## Open questions / TODO
 P1 spike (2026-09-25): a `dir:` staging entry goes through prodtools'
@@ -596,8 +725,16 @@ Phase C follow-ups found in review (2026-09-25):
 - No launch-time check that the board's `measure_sha` matches the study's
   current one — a child runs its steps and is refused only at append.
   `graph/study_loop.py`.
-- A resumed child re-runs preflight; a transient `check` failure then
-  marks a point broken while its grid job still runs. `graph/study_graph.py`.
+- ~~A resumed child re-runs preflight; a transient `check` failure then
+  marks a point broken while its grid job still runs. `graph/study_graph.py`.~~
+  **Done in C2b:** `preflight_basis`/`reusable_pass` record what a PASSING
+  verdict depended on (kit, settings, mapped params, file content hashes)
+  in `preflight_verdict.json`; a resumed point whose basis is unchanged
+  reuses that saved pass and skips the pre-check outright, so a transient
+  `check` failure on a second run can no longer break a point whose grid
+  job is already running. A saved FAILURE is never reused — retrying a
+  point (deleting `broken.txt`) always checks again (see "anakit kit and
+  the foilspf engine twins (Phase C2b)" above, commit `bc37a48`).
 - ~~Sibling steps of a failed step run to completion (the contract's
   `cancel` is unused) — grid hours spent on a dead point.
   `core/scheduler.py`.~~ **Done in C1:** `run_steps` cancels every running

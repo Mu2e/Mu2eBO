@@ -5,6 +5,19 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-09-28
+- **created** [anakit](/external/anakit.md): our fork of M. MacKenzie's
+  analysis MCP server (`$AUTORESEARCH_ANAKIT`, branch `autoresearch` on
+  `039e969`) — the work area, the Task 1 GenEventCount gate, and the
+  approx_ce_sensitivity spot check against the macro's printed sob.
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C2b —
+  the `anakit` adapter (one server per step, version = adapter + fork
+  commit, dirty/moved fork refused at submit, OSError/git wrapped), the
+  `step_problems` launch hook, the seven `<name>_ax` engine twins and why
+  they're twins (`DEFAULT_MODE` must stay a pipeline `SPECS` entry), the
+  preflight-reuse fix (closes the "resumed child re-runs preflight"
+  follow-up), and `tools/c2b_parity.py`; acceptance marked pending.
+
 ## 2026-09-27
 - **updated** [contract-engine](/drivers/contract-engine.md): C2a acceptance
   passed — the pre-check kit passes the smoke study on MDC2025ax and fails a
