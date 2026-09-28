@@ -81,7 +81,7 @@
   {"name": "flash_edep", "metric": "flash.flash_edep_per_pot", "direction": "min", "transform": "log10", "noise": 0.01, "fmt": "{:.5e}"}
  ],
  "constraints": [
-  {"name": "flash_edep", "max": 6.85443e-07, "k_sigma": 1.0}
+  {"name": "flash_edep", "max": 6.50684e-07, "k_sigma": 1.0}
  ],
  "extra_metrics": [],
  "extra_columns": [
