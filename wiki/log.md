@@ -6,6 +6,14 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-28
+- **updated** [anakit](/external/anakit.md): C2b final-fix wave (F6) —
+  corrected the 9b197e2 rationale (fixes EdepAna's own 6-sig-fig summary
+  print, not the macro's `%.3g`), corrected the `edep.fcl` v40 naming
+  (already upstream, not our change), and added the fact that
+  `EdepAna::GetDIOSpectrum()` hardcodes M. MacKenzie's personal-area path
+  to the DIO table in every job (weight applies only to `mu2eFlateMinus`
+  events, so `ce_sensitivity`/`flash_edep_per_pot` numbers don't depend on
+  it, but the file must exist on disk regardless).
 - **created** [anakit](/external/anakit.md): our fork of M. MacKenzie's
   analysis MCP server (`$AUTORESEARCH_ANAKIT`, branch `autoresearch` on
   `039e969`) — the work area, the Task 1 GenEventCount gate, and the

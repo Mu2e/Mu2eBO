@@ -141,15 +141,18 @@ def study_params(step_name: str) -> dict:
 
 
 def analyze(kit, handle, params, refs):
-    """(metrics, None) or (None, why)."""
+    """(metrics, None) or (None, why). Every call into the kit -- submit,
+    status, results -- is guarded: a bad point must become a per-point
+    error in the report, never an exception out of pool.map that kills
+    the whole run."""
     try:
         kit.submit(handle, params, [], refs, f"{WORKFLOW}/{handle}")
+        status = kit.status(handle, WORKFLOW)
+        if status.state != "completed":
+            return None, status.message
+        return kit.results(handle, WORKFLOW).metrics, None
     except Exception as exc:      # noqa: BLE001 - reported per point
         return None, f"{type(exc).__name__}: {exc}"
-    status = kit.status(handle, WORKFLOW)
-    if status.state != "completed":
-        return None, status.message
-    return kit.results(handle, WORKFLOW).metrics, None
 
 
 def _kit(sub):
@@ -165,8 +168,15 @@ def _write_report(name, report) -> Path:
 
 
 def level1(args) -> int:
-    summaries = sorted(paths.GRID_DATA_ROOT.glob("foilspf*/harvest/summary.json"))
+    root = paths.GRID_DATA_ROOT
+    summaries = sorted(root.glob("foilspf*/harvest/summary.json"))
     rows, skipped = level1_inputs(summaries)
+    if not rows:
+        print(f"level1: no foilspf*/harvest/summary.json under {root} has "
+              f"both 'ce_abs_eff' and 's_over_sqrt_b' plus a sibling "
+              f"nts.ce.root ({len(summaries)} summary.json found, "
+              f"{len(skipped)} skipped); nothing to compare")
+        return 2
     if args.limit:
         rows = rows[:args.limit]
     sob = study_params("sob")
@@ -185,11 +195,13 @@ def level1(args) -> int:
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         results = list(pool.map(one, rows))
     bad = [r for r in results if not r["ok"]]
-    path = _write_report("level1", {"compared": len(results),
+    path = _write_report("level1", {"summary_files": len(summaries),
+                                    "compared": len(results),
                                     "mismatched": len(bad), "results": results,
                                     "skipped": skipped})
-    print(f"level1: {len(results)} compared, {len(bad)} mismatched or failed, "
-          f"{len(skipped)} skipped; report {path}")
+    print(f"level1: {len(summaries)} summary file(s) found, {len(results)} "
+          f"compared, {len(bad)} mismatched or failed, {len(skipped)} "
+          f"skipped; report {path}")
     for r in bad:
         print(f"  {r['config']}: old {r['old']} new {r['new']} {r['error'] or ''}")
     return 1 if bad else 0

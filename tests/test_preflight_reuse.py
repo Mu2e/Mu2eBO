@@ -63,6 +63,14 @@ class TestBasis(unittest.TestCase):
         path.write_text("{not json")
         self.assertFalse(reusable_pass(path, basis))
 
+    def test_an_oserror_reading_the_verdict_is_not_reusable(self):
+        # A directory where a file is expected makes Path.read_text() raise
+        # IsADirectoryError (an OSError), not the ValueError the code used to
+        # catch alone; the point must be re-checked, not crash.
+        path = self.tmp / "preflight_verdict.json"
+        path.mkdir()
+        self.assertFalse(reusable_pass(path, self.basis()))
+
 
 class CountingKit:
     """Passes (or fails) the pre-check and counts it; its steps never

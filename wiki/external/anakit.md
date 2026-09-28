@@ -8,6 +8,10 @@ description: 'our fork of M. MacKenzie''s analysis MCP server ($AUTORESEARCH_ANA
   EdepAna)'
 status: active
 timestamp: '2026-09-28'
+updated_note: corrected the 9b197e2 rationale (EdepAna's own summary
+  precision, not the macro's %.3g) and the edep.fcl v40 attribution
+  (upstream, not our change); added the DIO-table personal-path fact
+  (final-fix wave, F6)
 ---
 
 # anakit — our fork of M. MacKenzie's analysis MCP server
@@ -65,10 +69,13 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   `kits.prodtools.code_tarball`).
 - Mu2eOptAna: local branch `autoresearch` on upstream base `3d8ba5a`, plus
   one commit: `9b197e2` — "EdepAna summary: print at full precision" (Task
-  1) — the macro previously printed `s_over_sqrt_b` at 3 significant
-  figures, which is why the parity check's `sob_matches` tolerates only
-  half a unit of that last digit plus anakit's own 0.01% convolution
-  change.
+  1) — fixes EdepAna's OWN summary block: at the default 6 significant
+  figures the per-gen-event tracker average (flash per POT) is off by up
+  to 5e-6 relative, and an event count above 1e6 prints in scientific
+  notation (`src/EdepAna_module.cc`, around the `endJob` summary print).
+  This is unrelated to the macro's `%.3g`, which is why the parity check's
+  `sob_matches` separately tolerates only half a unit of that digit plus
+  anakit's own 0.01% convolution change.
 - The rebuilt module:
   `build/al9-prof-e29-p107/Mu2eOptAna/lib/libmu2eoptana_EdepAna_module.so`
   (Task 1, Step 6 build recipe).
@@ -80,13 +87,28 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   `code_commit(work_area)` (`core/adapters/anakit.py`) records Mu2eOptAna's
   commit in each step's `anakit_result.json` for the record only, and
   `backing_problem` catches a work area backed by the wrong release.
-- `geom_run1_b_v06.txt` is gone from Offline v13_38_00; Mu2eOptAna's
-  `edep.fcl` now names `geom_run1_b_v40.txt`.
+- `geom_run1_b_v06.txt` is gone from Offline v13_38_00. Upstream
+  Mu2eOptAna's `edep.fcl` already names `geom_run1_b_v40.txt` (verified:
+  the only commit ever touching `fcl/edep.fcl` is the upstream import,
+  before either of our two commits on top of `3d8ba5a`) — we did not
+  change this. `geom_run1_b_v06.txt` is what Run1BAna's own `edep.fcl`
+  names, on the mmackenz side.
 - The macro's cosmic rate `2e4/1.1e7` (`0.0018181818181818182`,
   global-constraints.md) is **141.8×** anakit's own default `10/7.8e5`; the
   `foilspf*_ax` studies pass theirs explicitly as
   `kits.evaluate[sob].fixed.cosmic_rate_per_s_per_mev`
   (`mode_specs/foilspfbpz_ax.json`), never anakit's default.
+- **EdepAna's `GetDIOSpectrum()` (`src/EdepAna_module.cc:206`) hardcodes a
+  path in M. MacKenzie's personal area** —
+  `/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/data/heeck_finer_binning_2016_szafron.tbl`
+  — and reads it in EVERY job (the ctor calls it unconditionally), not just
+  ones that care about DIO. The resulting weight
+  (`h_dio_spectrum_->Interpolate(...)`, `:449`) only multiplies events whose
+  `creationCode() == ProcessCode::mu2eFlateMinus` (`:447`), so `ce_sensitivity`
+  and `flash_edep_per_pot`'s own numbers do not depend on it — but every job
+  still needs that file present on disk or the module fails to construct.
+  Open question: make it an fcl parameter on our branch (mirroring
+  `approx_ce_sensitivity`'s own `dio_table`) and tell M. MacKenzie upstream.
 
 **GenEventCount and the Task 1 gate (measured on gridphaseA01's archived
 files, first file per stage)**
@@ -130,3 +152,7 @@ files, first file per stage)**
 - Acceptance (parity levels 1–3, local, grid, the budget commit) has not
   run yet; see [contract-engine](/drivers/contract-engine.md)'s Phase C2b
   section, marked pending.
+- `EdepAna::GetDIOSpectrum()` hardcodes M. MacKenzie's personal-area path to
+  the DIO table in every job (see above); worth turning into an fcl
+  parameter on our branch and telling him, rather than leaving every job
+  dependent on his personal area staying in place.

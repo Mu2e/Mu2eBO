@@ -34,12 +34,14 @@ if __package__ == "core.adapters":
     from core.adapters import prodtools_entry as pe
     from core.contract import ContractError, parse_results, parse_status
     from core.kits import KitClient, KitError
+    from core.study import expand_artifact
 else:
     import kit_config
     import paths
     from adapters import prodtools_entry as pe
     from contract import ContractError, parse_results, parse_status
     from kits import KitClient, KitError
+    from study import expand_artifact
 
 VERSION = "anakit-adapter/1"          # bump when a step would measure anew
 SERVER = "anakit"                      # kits.toml [servers.anakit]
@@ -120,7 +122,10 @@ def backing_problem(work_area, code_tarball):
     link = Path(work_area) / "backing"
     if not link.is_symlink():
         return f"work area {work_area} has no backing link"
-    mine = os.path.normpath(os.readlink(link))
+    try:
+        mine = os.path.normpath(os.readlink(link))
+    except OSError as exc:
+        return f"cannot read backing link {link}: {exc}"
     try:
         with tarfile.open(code_tarball) as tf:
             member = tf.getmember("Code/backing")
@@ -312,6 +317,11 @@ class AnakitKit:
         if rec is None or rec["reply"].get("status") != "success":
             raise ContractError(self.name, "results",
                                 f"{handle} has no successful result")
+        if rec["version"] != self._version:
+            raise ContractError(self.name, "results", f"{handle}'s result "
+                                f"was written by build {rec['version']!r}, "
+                                f"not this campaign's {self._version!r}: "
+                                f"rerun the step")
         reply = rec["reply"]
         meta = dict(reply.get("metadata") or {})
         missing = [m for m in rec["metrics"] if m not in meta]
@@ -358,6 +368,30 @@ class AnakitKit:
                         if p.get("required") and n not in sent)
         if needed:
             problems.append(f"{where}: {analysis} needs {needed}")
+        # Two cheap, generic launch checks on the step's literal (fixed)
+        # values -- generic because they only compare against the
+        # catalogue's own declared kind/bounds, never anakit's physics, so
+        # the adapter stays physics-free. step.params values are knob names
+        # resolved only at run time, so only fixed values can be checked here.
+        for pname, value in sorted(step.fixed.items()):
+            if pname in OWN_PARAMS or pname not in declared:
+                continue
+            decl = declared[pname]
+            if decl.get("kind") == "text":
+                if not isinstance(value, str):
+                    continue
+                expanded = expand_artifact(value, f"{where}[{pname}]")
+                if os.path.isabs(expanded) and not Path(expanded).exists():
+                    problems.append(f"{where}: {pname}={expanded!r} does "
+                                    f"not exist")
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                minimum, maximum = decl.get("minimum"), decl.get("maximum")
+                if minimum is not None and value < minimum:
+                    problems.append(f"{where}: {pname}={value!r} is below "
+                                    f"the minimum {minimum!r}")
+                elif maximum is not None and value > maximum:
+                    problems.append(f"{where}: {pname}={value!r} is above "
+                                    f"the maximum {maximum!r}")
         if "metrics" not in spec:
             # No silent fallback: a catalogue entry with no 'metrics' is
             # anakit's list_analyses reply breaking the contract, not an

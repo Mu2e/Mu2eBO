@@ -1,11 +1,16 @@
 """tools/c2b_parity.py's pure parts: the comparison rules, the Level 1
 input scan, and the hand-written prodtools record the engine adopts."""
+import argparse
+import contextlib
 import importlib.util
+import io
 import json
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("c2b_parity",
@@ -96,6 +101,77 @@ class TestAdoptedRecord(unittest.TestCase):
             "uri": "file:///pnfs/a/sim.x.TargetStops.y.0.art", "kind": "art"}])
         self.assertEqual(rec["metadata"]["events_per_job"], 200000)
         self.assertTrue(rec["kit_version"].startswith("prodtools-adapter/"))
+
+
+class TestLevel1Refusal(unittest.TestCase):
+    def test_level1_refuses_loudly_when_nothing_matches(self):
+        # An empty (or otherwise non-matching) grid root must not report a
+        # vacuous "0 compared, 0 mismatched" success; it must refuse,
+        # name the root, and exit 2.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(cp.paths, "GRID_DATA_ROOT", root):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    rc = cp.level1(argparse.Namespace(limit=0, workers=4))
+        self.assertEqual(rc, 2)
+        self.assertIn(str(root), buf.getvalue())
+
+    def test_level1_reports_the_total_summary_count_on_success(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            d = root / "foilspfA" / "harvest"
+            d.mkdir(parents=True)
+            (d / "summary.json").write_text(json.dumps(
+                {"ce_abs_eff": 6.6e-4, "s_over_sqrt_b": 4.15}))
+            (d / "nts.ce.root").write_text("")
+            with mock.patch.object(cp.paths, "GRID_DATA_ROOT", root), \
+                 mock.patch.object(cp, "study_params",
+                                   return_value={"work_area": "/wa",
+                                                 "cosmic_rate_per_s_per_mev": 1.0,
+                                                 "dio_fraction": 0.39,
+                                                 "dio_table": "/t.tbl"}), \
+                 mock.patch.object(cp, "_kit", return_value=None), \
+                 mock.patch.object(cp, "analyze",
+                                   return_value=({"sensitivity": 4.15}, None)), \
+                 mock.patch.object(cp, "_write_report",
+                                   return_value=root / "level1.json"):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    rc = cp.level1(argparse.Namespace(limit=0, workers=4))
+        self.assertEqual(rc, 0)
+        self.assertIn("1 summary file", buf.getvalue())
+
+
+class TestAnalyzeCatchesEveryCall(unittest.TestCase):
+    class FakeKit:
+        def __init__(self, status_exc=None, results_exc=None):
+            self.status_exc, self.results_exc = status_exc, results_exc
+
+        def submit(self, *a, **kw):
+            return None
+
+        def status(self, *a, **kw):
+            if self.status_exc:
+                raise self.status_exc
+            return types.SimpleNamespace(state="completed", message="ok")
+
+        def results(self, *a, **kw):
+            if self.results_exc:
+                raise self.results_exc
+            return types.SimpleNamespace(metrics={"x": 1.0})
+
+    def test_a_status_exception_is_a_per_point_error(self):
+        kit = self.FakeKit(status_exc=ValueError("status boom"))
+        metrics, why = cp.analyze(kit, "cfg.sob", {}, [])
+        self.assertIsNone(metrics)
+        self.assertIn("status boom", why)
+
+    def test_a_results_exception_is_a_per_point_error(self):
+        kit = self.FakeKit(results_exc=OSError("disk full"))
+        metrics, why = cp.analyze(kit, "cfg.sob", {}, [])
+        self.assertIsNone(metrics)
+        self.assertIn("disk full", why)
 
 
 if __name__ == "__main__":

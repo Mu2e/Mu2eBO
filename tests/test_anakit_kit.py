@@ -365,6 +365,21 @@ class TestStatusAndResults(_Kit):
         self.assertEqual(st.state, "failed")
         self.assertIn(ak.RESULT_NAME, st.message)
 
+    def test_results_refuses_a_result_written_by_another_build(self):
+        # A step directory can outlive the kit that wrote it (a resumed
+        # campaign that re-opened on a newer anakit commit); adopting that
+        # stale result would label a new build's row with the old one's
+        # measure_sha.
+        kit = self.submitted()
+        path = self.sdir() / ak.RESULT_NAME
+        rec = json.loads(path.read_text())
+        rec["version"] = "anakit-adapter/1+anakit-deadbeefcafe"
+        path.write_text(json.dumps(rec))
+        with self.assertRaises(ContractError) as cm:
+            kit.results("cfg1.sob", "w")
+        self.assertIn("anakit-adapter/1+anakit-deadbeefcafe", str(cm.exception))
+        self.assertIn(kit.version, str(cm.exception))
+
     def test_results_refuses_a_missing_or_non_number_metric(self):
         # The second case's needle names both the key AND its (non-number)
         # value, so it can only match if ce_abs_eff -- not s_over_sqrt_b,
@@ -447,6 +462,61 @@ class TestStepProblems(_Kit):
         self.assertIsNone(ak.backing_problem(self.wa, self.tarball(MDC + "/")))
         self.assertIn("no Code/backing",
                       ak.backing_problem(self.wa, self._no_backing()))
+
+    # Catalogues enriched with the `minimum`/`maximum`/`kind` fields the real
+    # catalogue carries (ParamSpec.describe in analysis-mcp-server's
+    # tools/spec.py) but the module-level CATALOGUE fixture above does not,
+    # so these two checks stay isolated to the tests that exercise them.
+    NUMERIC_CATALOGUE = {
+        "ce_sensitivity": {
+            **CATALOGUE["ce_sensitivity"],
+            "parameters": {
+                **CATALOGUE["ce_sensitivity"]["parameters"],
+                "input_correction": {"required": True, "kind": "number",
+                                     "minimum": 0.0, "maximum": 1.0},
+            },
+        },
+    }
+    TEXT_CATALOGUE = {
+        "ce_sensitivity": {
+            **CATALOGUE["ce_sensitivity"],
+            "parameters": {
+                **CATALOGUE["ce_sensitivity"]["parameters"],
+                "dio_table": {"required": True, "kind": "text"},
+            },
+        },
+    }
+
+    def test_a_numeric_parameter_outside_its_bounds_is_named(self):
+        study, step = self.study({**self.GOOD, "input_correction": 5.0},
+                                 self.tarball(MDC))
+        problems = self.kit(catalogue=self.NUMERIC_CATALOGUE).step_problems(
+            study, step)
+        self.assertTrue(any("input_correction" in p and "5" in p and "1" in p
+                            for p in problems), problems)
+
+    def test_a_text_parameter_expanding_to_a_missing_path_is_named(self):
+        # GOOD's dio_table is the '${ARTIFACT}/' token study.py's own step
+        # loader leaves raw in Step.fixed; ARTIFACT_ROOT is patched to an
+        # empty temp dir so the expansion is guaranteed not to exist, rather
+        # than trusting the real filesystem under the real ARTIFACT_ROOT.
+        with mock.patch.object(paths, "ARTIFACT_ROOT", self.tmp), \
+             mock.patch.object(paths, "BACKING", None):
+            study, step = self.study(self.GOOD, self.tarball(MDC))
+            problems = self.kit(catalogue=self.TEXT_CATALOGUE).step_problems(
+                study, step)
+        expanded = str(self.tmp / "t.tbl")
+        self.assertTrue(any(expanded in p for p in problems), problems)
+
+    def test_backing_problem_an_unreadable_link_is_named(self):
+        # is_symlink() can pass and os.readlink() still fail (permissions, or
+        # the link vanishing between the two calls); that OSError must become
+        # a problem string, not an exception out of step_problems.
+        with mock.patch.object(ak.os, "readlink",
+                               side_effect=OSError("permission denied")):
+            problem = ak.backing_problem(self.wa, self.tarball(MDC))
+        self.assertIn(str(self.wa / "backing"), problem)
+        self.assertIn("permission denied", problem)
 
     def _no_backing(self):
         path = self.tmp / "Code_empty.tar.bz2"

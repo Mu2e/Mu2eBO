@@ -76,7 +76,7 @@ def reusable_pass(path: Path, basis: dict) -> bool:
         return False
     try:
         saved = json.loads(path.read_text())
-    except ValueError:
+    except (ValueError, OSError):
         return False
     return saved.get("ok") is True and saved.get("basis") == basis
 
