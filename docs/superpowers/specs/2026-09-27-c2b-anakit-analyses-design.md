@@ -56,6 +56,7 @@ noted.
 | Boards | New v2 boards; the old ones stay as frozen history. |
 | Damage budget | Re-measured on MDC2025ax from the deployed target at acceptance, then written into the study files. |
 | C2a leftovers | A resumed point reuses a saved pre-check pass; the pre-check's notes reach its message. |
+| Edit the seven study files in place, or add engine twins? | Twins, `<study>_ax` (ruling while planning, 2026-09-27). Editing in place would move all seven off the pipeline, but the pipeline's code and about 30 test files use `foilspf` as their reference mode (`core/modes.py` asserts `DEFAULT_MODE = "foilspf"` is a pipeline study). The originals stay as the pipeline's frozen reference until C3 deletes both. |
 
 ## 1. The analyses, on our anakit fork
 
@@ -159,7 +160,9 @@ collections the early-flash files may not hold).
   analyses take (`input_correction`, `cosmic_rate_per_s_per_mev`,
   `dio_fraction`, `dio_table`, `pot_per_electron`).
 - **kits.toml:** `[servers.anakit]`: the ana 2.7.0 python with
-  `-m analysis_mcp_server --transport stdio`; `set` `PYTHONPATH` to the
+  `-P -m analysis_mcp_server --transport stdio` (`-P` keeps the working
+  directory off `sys.path`, so our repo's `tools/` can never shadow
+  anakit's `tools` package); `set` `PYTHONPATH` to the
   fork and `SPACK_USER_CACHE_PATH`; timeouts `start` 120,
   `list_analyses` 120, `run_analysis` 3600. The adapter appends
   `--work-area <work_area>` when it starts a server, so anakit's silent
@@ -170,10 +173,16 @@ collections the early-flash files may not hold).
   `<config>.<step>`. The adapter
   1. converts every input FileRef to a local path (`file://` only, via
      `prodtools_entry.local_path`; a `root://` ref is an error);
-  2. empties the step's directory `<GRID_DATA_ROOT>/<config>/<step>/`;
-  3. starts its own anakit server for this step;
-  4. calls `run_analysis(analysis, output_dir=<step dir>, data_files=…,
-     parameters=<params minus work_area and analysis>, timeout_s=3600)`;
+  2. empties the step's directory `<GRID_DATA_ROOT>/<config>/anakit/<step>/`
+     (beside the prodtools adapter's `<config>/prodtools/<step>/`, so a step
+     named `state` or `preflight` cannot collide with the point's own
+     directories);
+  3. starts its own anakit server for this step and calls `list_analyses`
+     for the analysis' declared metrics and whether it takes a file list;
+  4. calls `run_analysis(analysis, output_dir=<step dir>, data_files=…`
+     (or `data_file` for an analysis that takes one ROOT file)`,
+     parameters=<params minus work_area and analysis>, timeout_s=3000)`:
+     anakit's own limit, kept under the 3600 s MCP call timeout;
   5. writes the reply to `<step dir>/anakit_result.json`, closes the
      server, and returns `name`.
 
@@ -208,12 +217,16 @@ reports:
   prodtools `code_tarball` (read from the tarball's `Code/backing` link,
   without unpacking).
 
-So a wrong study is refused before any grid job, not after hours of it.
+The hook runs from `check_kits` (`graph.study_loop`) and from
+`graph.study_run`'s launch, once its kits have started, so a wrong study is
+refused before any grid job, not after hours of it.
 
 ## 4. The foilspf studies
 
-All seven foilspf-family studies (`foilsflash`, `foilspf`, `foilspf2k`,
-`foilspfbp`, `foilspfbpx`, `foilspfbpz`, `foilspfbw`) get the same edits:
+Each of the seven foilspf-family studies (`foilsflash`, `foilspf`,
+`foilspf2k`, `foilspfbp`, `foilspfbpx`, `foilspfbpz`, `foilspfbw`) gets an
+engine twin, `mode_specs/<study>_ax.json`: the same knobs, derive, geometry,
+objectives and columns, with these differences:
 - `kits.prodtools.code_tarball` and `kits.offline_preflight.code_tarball`:
   `${ARTIFACT}/autoresearch_muse/Code_mdc2025ax.tar.bz2`;
   `kits.prodtools.dsconf`: `MDC2025ax_{cfg}`.
@@ -226,34 +239,41 @@ All seven foilspf-family studies (`foilsflash`, `foilspf`, `foilspf2k`,
   "flash_edep_per_pot", "pot_per_electron": 11.536718606512062}`.
 - Objective metrics are unchanged (`sob.s_over_sqrt_b`,
   `flash.flash_edep_per_pot`).
-- The loader expands `${ARTIFACT}/` in a step's `fixed` string values, as
-  it already does in kit settings (`core/study.py` `_expand`; today only
-  `kits` values are expanded), and refuses a personal user area there
-  too. `measure_basis` keeps hashing the raw, unexpanded values.
+- The loader checks a step's `fixed` string values by the same rule as
+  kit settings (`core/study.py` `_expand`: only `${ARTIFACT}/` expands, a
+  personal user area is refused) at load, and `scheduler.step_params`
+  expands them when it builds a step's params. `Step.fixed` keeps the raw
+  values, so `measure_basis` hashes them unexpanded, as it does kit
+  settings.
 - Leaderboard: `leaderboards/leaderboard_bo_<study>_ax.tsv`, layout `v2`,
   starting empty. The old boards stay as frozen history: a new release
   moves sob (Run1Bak to Run1Bap moved it +5%), so their rows cannot be
   mixed in.
-- The `ce_sensitivity` and `flash_edep_per_pot` KitDecls stay
-  pipeline-only until C3, but no study names them any more, so no foilspf
-  study runs on the pipeline after this phase.
+- The originals are unchanged: they keep the `ce_sensitivity` and
+  `flash_edep_per_pot` kits and stay the pipeline's frozen reference, with
+  no campaigns, until C3 deletes the pipeline, those KitDecls and the
+  originals together. Tests that assert every shipped study is a pipeline
+  study are updated to exclude the twins.
 
-Only foilspfbpz gets acceptance runs; the other six get the edits and a
-load test. Their searches are closed and no campaigns are planned.
+Only `foilspfbpz_ax` gets acceptance runs; the other six twins get a load
+test. Their searches are closed and no campaigns are planned.
 
 The damage budget (`constraints` `flash_edep max 6.85443e-07`, the flash
 of the deployed target `nominalAB01` on Run1Bap) is replaced after the
-grid acceptance by the deployed target's flash on MDC2025ax, in a
-separate commit.
+grid acceptance by the deployed target's flash on MDC2025ax, in the
+seven twins only, in a separate commit.
 
 New fixtures under `tests/fixtures/engine_studies/`:
-- `foilspfbpz_local.json`: foilspfbpz's five steps at small scale for the
+- `foilspfbpz_local.json`: `foilspfbpz_ax`'s five steps at small scale for the
   local acceptance. The flash step is sized so the early-flash output
   holds events: at 1×200 it would hold none (about 78 of 110000 events
   pass) and the step would correctly fail. The plan measures the size.
-- `foilspf_nominal.json`: zero knobs, the deployed target's geometry
-  (from `autoresearch_grid/nominalAB01/geom/autoresearch_nominalAB01_geom.txt`),
-  foilspfbpz's five steps at full scale.
+- `foilspf_nominal.json`: zero knobs; `foilspfbpz_ax`'s geometry template
+  with the deployed stack as constants (37 foils, rOut 75, halfThickness
+  0.0528, hole radius 21.5, extent 800 so the pitch is 22.2222 and the
+  IPA distance is 625), matching
+  `autoresearch_grid/nominalAB01/geom/autoresearch_nominalAB01_geom.txt`'s
+  stack; `foilspfbpz_ax`'s five steps at full scale.
 
 ## 5. Leftovers from C2a's review
 
@@ -306,7 +326,8 @@ foilspfbpz07R19_00.**
   - `s_over_sqrt_b`: the Level 1 rule.
 - Two known differences could break it: the new EdepAna (Offline
   v13_38_00) reads files written by Run1Bap (v13_32_10), and Mu2eOptAna's
-  `edep.fcl` names geometry `geom_run1_b_v40.txt` where ours names `v06`.
+  `edep.fcl` names geometry `geom_run1_b_v40.txt` where ours names `v06`
+  (which v13_38_00 no longer ships).
   A mismatch is investigated, never absorbed by loosening a tolerance.
 
 **Level 3: the engine end to end, on gridphaseA01.**
@@ -314,7 +335,7 @@ foilspfbpz07R19_00.**
   `<step>_results.json` are written by hand, pointing at the archived
   files, so the scheduler adopts them. `graph.study_run` then runs the
   pre-check, the `sob` and `flash` steps, and the scoring for
-  gridphaseA01's point under the new foilspfbpz study.
+  gridphaseA01's point under `foilspfbpz_ax`.
 - Pass: the sandbox board's row matches `summary.json` under the Level 2
   rules.
 
@@ -345,8 +366,8 @@ foilspfbpz07R19_00.**
   adapter has it and ignores adapters that do not.
 - Registry and loader: the `anakit` KitDecl; `${ARTIFACT}/` expansion and
   the personal-area refusal in step `fixed` values, with `measure_basis`
-  unchanged by the expansion; all seven foilspf studies load and resolve
-  to the engine.
+  unchanged by the expansion; the seven twins load and resolve to the
+  engine, the seven originals still to the pipeline.
 - `tests/test_study_graph*`: the pre-check reuse rules (pass reused;
   failure, changed params, changed file each re-run) and the notes in the
   message.
@@ -356,14 +377,14 @@ foilspfbpz07R19_00.**
 2. `foilspfbpz_local` runs locally on MDC2025ax on the engine: the
    pre-check passes, all five steps complete, a row lands on a sandbox
    board.
-3. Grid, full scale, under the new studies: `foilspf_nominal` (the
-   deployed target) and foilspfbpz at bpz07R11_00's point both land rows.
+3. Grid, full scale: `foilspf_nominal` (the deployed target) and
+   `foilspfbpz_ax` at bpz07R11_00's point both land rows.
    The report gives both points' sob and flash next to their Run1Bap
    values (3.26 / 6.854e-7 and 4.15 / 6.695e-7). There is no pass or fail
    on the values; a change of more than 20% is investigated before the
    budget is written.
 4. The deployed target's MDC2025ax flash replaces `6.85443e-07` in the
-   seven studies' `constraints`, as its own commit.
+   seven twins' `constraints`, as its own commit.
 
 ## Out of scope
 - Pushing the anakit fork or the Mu2eOptAna patch, or opening pull
