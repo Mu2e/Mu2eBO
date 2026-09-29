@@ -142,6 +142,15 @@ class TestRetryPolicy(unittest.TestCase):
         for call in ("results", "cancel"):
             self.assertEqual(ct.RETRY_PAUSES_S[call], (5.0, 20.0, 60.0, 180.0))
 
+    def test_every_timed_call_but_start_has_a_retry_budget(self):
+        # kits.toml times each contract call (kit_config.TIMEOUT_KEYS) plus
+        # "start", the server launch, which is not a retried call. A call
+        # added to one table and not the other would surface only as a
+        # KeyError the first time a kit makes it.
+        import kit_config
+        self.assertEqual(set(ct.RETRY_PAUSES_S),
+                         set(kit_config.TIMEOUT_KEYS) - {"start"})
+
     def test_submit_retries_a_timeout(self):
         kit, c = self.kit([KitTimeout("k", "submit", "timed out"),
                            {"handle": "c.s"}])

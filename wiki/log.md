@@ -6,6 +6,10 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** (post-C3 cleanup) new test
+  `tests/test_contract.py:TestRetryPolicy.
+  test_every_timed_call_but_start_has_a_retry_budget` pins
+  `set(contract.RETRY_PAUSES_S) == set(kit_config.TIMEOUT_KEYS) - {"start"}`.
 - **updated** (post-C3 cleanup) the prodtools and anakit adapters write
   `record.json` / `anakit_result.json` through `core/scheduler.py:
   write_atomic` instead of private `_write_json` copies (same `.tmp` +
