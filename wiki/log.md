@@ -6,6 +6,8 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** (post-C3 cleanup) `core/contract.py` imports `_is_number`
+  from `core/kit_config.py` instead of carrying an identical copy.
 - **updated** (post-C3 cleanup) deleted the unused `Objective.step`,
   `Objective.key` and `ExtraMetric.key` properties from `core/study.py`:
   no reader outside one test assertion (now on `.metric`); `core/score.py`

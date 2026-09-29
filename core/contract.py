@@ -30,12 +30,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 if __package__:
     from core import kit_registry, paths
-    from core.kit_config import EXECUTORS
+    from core.kit_config import EXECUTORS, _is_number
     from core.kits import KitClient, KitError, KitToolError
 else:
     import kit_registry
     import paths
-    from kit_config import EXECUTORS
+    from kit_config import EXECUTORS, _is_number
     from kits import KitClient, KitError, KitToolError
 
 STATES = ("working", "completed", "failed", "cancelled")
@@ -113,10 +113,6 @@ def _fields(reply, keys, kit, call) -> dict:
 
 def _is_int(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
-
-
-def _is_number(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 def parse_file_ref(v, kit, call) -> dict:
