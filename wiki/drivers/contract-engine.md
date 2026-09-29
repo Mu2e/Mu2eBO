@@ -11,7 +11,7 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   step), step_problems launch hook, <study>_ax engine twins on MDC2025ax;
   C3 (2026-09-28) deletes the pipeline — the engine is the only runner
 status: active
-timestamp: '2026-09-28'
+timestamp: '2026-09-29'
 ---
 
 # Contract engine (Phase B)
@@ -786,7 +786,22 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   `load_dotenv()` predates the rename and is stale — neither file imports
   `python-dotenv`; a `.env` with `LANGCHAIN_*`/`LANGSMITH_*` keys is now
   inert.
-- **Acceptance: pending (local run + surrogate MCP).**
+- **Acceptance PASSED (2026-09-29).**
+  - **Suite:** green at the branch tip, 729 tests OK (skipped=4).
+  - **Grep gates:** clean.
+  - **Measurement:** the seven `_ax` studies' `measure_basis_sha` values
+    are unchanged.
+  - **Local run under the new name:** `graph.run --study foilspfbpz_local`,
+    `--executor local --parallel 4`, sandbox `c3_sandbox/local`.
+    - `c3local01` ran at `dc8a176`, `c3local02` at `f38f649`.
+    - Both passed the pre-check, completed 5/5 steps and landed a row.
+    - sob 4.167405887555443 and flash 4.24058e-07, bit-identical to C2b's
+      `c2blocal01` at the same x before C3.
+  - **Surrogate MCP:** a fresh `surrogate/mcp_server.py` lists exactly the
+    seven `_ax` studies (`foilspfbpz_ax`: 1 row, `c2bR11ax01`; the others
+    0) and none of the originals.
+  - **No grid run:** the engine changed only by renames, by losing
+    fallbacks it never used, and by the new `AUTORESEARCH_LOCAL` refusal.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded

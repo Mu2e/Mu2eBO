@@ -5,6 +5,15 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-09-29
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C3
+  acceptance PASSED:
+  - suite 729 OK (skipped=4) at the branch tip;
+  - `measure_basis_sha` unchanged for the seven `_ax` studies;
+  - local `graph.run` runs `c3local01`/`c3local02` landed rows whose
+    sob/flash are bit-identical to pre-C3 `c2blocal01`;
+  - a fresh surrogate MCP lists only the seven `_ax` studies.
+
 ## 2026-09-28
 - **updated** [contract-engine](/drivers/contract-engine.md) (final fix
   wave, review of the Phase C3 docs pass): fixed "unknown or non-engine
