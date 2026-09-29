@@ -6,7 +6,7 @@ from pathlib import Path
 ENGINE_STUDIES = Path(__file__).resolve().parent / "fixtures" / "engine_studies"
 
 
-def toy_doc(name="toystudy", layout="v1"):
+def toy_doc(name="toystudy", layout="v2"):
     """One toykit step, Branin and Currin as the two objectives, Currin
     constrained. Tests mutate the returned dict freely."""
     return {

@@ -15,7 +15,8 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
-# v2 rows end in these columns (generic-study design, "Leaderboard rows").
+# Every row ends in these columns (generic-study design, "Leaderboard
+# rows"); "v2" is the only layout a study may declare since 2026-09-29.
 V2_META = ("handles", "spec_sha", "measure_sha", "time")
 
 
@@ -121,7 +122,6 @@ class Leaderboard:
     context_names: tuple    # runtime values append() must receive
     consts: dict            # visible to extra-column expressions
     archive_path: Path | None = None   # committed read-only priors
-    layout: str = "v1"                 # "v2" adds the V2_META columns
 
     def __post_init__(self):
         if len(self.knob_names) != len(self.knob_fmts):
@@ -144,15 +144,12 @@ class Leaderboard:
                    extra_columns=tuple(study.extra_columns),
                    context_names=tuple(study.context),
                    consts=dict(study.consts),
-                   archive_path=archive_path,
-                   layout=study.layout)
+                   archive_path=archive_path)
 
     # --- history -----------------------------------------------------------
     def header(self) -> str:
         cols = ("config", *self.knob_names, *self.value_names,
-                *(c.name for c in self.extra_columns))
-        if self.layout == "v2":
-            cols += V2_META
+                *(c.name for c in self.extra_columns), *V2_META)
         return "\t".join(cols) + "\n"
 
     def quarantine_path(self) -> Path:
@@ -217,21 +214,17 @@ class Leaderboard:
                   for fmt, n in zip(self.value_fmts, self.value_names)]
         env = {**self.consts, **p.y, **context}
         extras = [c.fmt.format(c.evaluate(env)) for c in self.extra_columns]
-        cells = [p.cfg, *knobs, *values, *extras]
-        if self.layout == "v2":
-            if meta is None or set(meta) != set(V2_META):
+        if meta is None or set(meta) != set(V2_META):
+            raise LeaderboardError(
+                f"{self.name}: a row needs meta {list(V2_META)}, got "
+                f"{None if meta is None else sorted(meta)}")
+        for key in V2_META:
+            v = meta[key]
+            if not isinstance(v, str) or not v or "\t" in v or "\n" in v:
                 raise LeaderboardError(
-                    f"{self.name}: a v2 row needs meta {list(V2_META)}, got "
-                    f"{None if meta is None else sorted(meta)}")
-            for key in V2_META:
-                v = meta[key]
-                if not isinstance(v, str) or not v or "\t" in v or "\n" in v:
-                    raise LeaderboardError(
-                        f"{self.name}: meta {key!r} must be a non-empty "
-                        f"string without tabs or newlines, got {v!r}")
-            cells += [meta[k] for k in V2_META]
-        elif meta is not None:
-            raise LeaderboardError(f"{self.name}: a v1 row carries no meta")
+                    f"{self.name}: meta {key!r} must be a non-empty "
+                    f"string without tabs or newlines, got {v!r}")
+        cells = [p.cfg, *knobs, *values, *extras, *(meta[k] for k in V2_META)]
         return "\t".join(cells) + "\n"
 
     def _raw_rows(self, path: Path | None) -> list[dict]:
@@ -244,7 +237,7 @@ class Leaderboard:
             cols = self.header().rstrip("\n").split("\t")
             return list(csv.DictReader(f, fieldnames=cols, delimiter="\t"))
 
-    def _check_v2(self, rows: list[dict], line: str) -> bool:
+    def _is_new_row(self, rows: list[dict], line: str) -> bool:
         """False when this exact row (apart from `time`) is already on the
         board. Raises DuplicateRow or MeasureMismatch, quarantining first."""
         cols = self.header().rstrip("\n").split("\t")
@@ -267,8 +260,8 @@ class Leaderboard:
         return True
 
     def append(self, p: Point, context: dict, meta: dict | None = None) -> bool:
-        """True when a row was written. On a v2 board, False when the same
-        row (apart from `time`) is already there: idempotent by name."""
+        """True when a row was written; False when the same row (apart
+        from `time`) is already there: idempotent by name."""
         line = self.format_line(p, context, meta)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with _flock_ex(self.path):
@@ -276,11 +269,10 @@ class Leaderboard:
                 with self.path.open() as f:
                     first = f.readline()
                 self._check_header(self.path, first, quarantine_line=line)
-            if self.layout == "v2":
-                rows = (self._raw_rows(self.archive_path)
-                        + self._raw_rows(self.path))
-                if not self._check_v2(rows, line):
-                    return False
+            rows = (self._raw_rows(self.archive_path)
+                    + self._raw_rows(self.path))
+            if not self._is_new_row(rows, line):
+                return False
             if not self.path.exists():
                 self.path.write_text(self.header() + line)
                 return True

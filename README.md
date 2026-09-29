@@ -61,7 +61,8 @@ engine twins: `foilsflash_ax`, `foilspf_ax`, `foilspf2k_ax`, `foilspfbp_ax`,
 `mode_specs/archive/` is unloaded history: the four schema-1 fixed A/B specs
 (`ipa625`, `ipafix`, `ipaovr`, `nominal`) plus, since Phase C3, the seven
 original (Run1Bap) foilspf studies that ran on the now-deleted pipeline. Their
-v1 leaderboards stay in `leaderboards/` as plain files; nothing loads them.
+v1 leaderboards stay in `leaderboards/` as plain files; nothing loads them
+(a study may declare only layout `"v2"` since 2026-09-29).
 See `mode_specs/README.md` for the field reference and how to add a study.
 
 ## Run one point

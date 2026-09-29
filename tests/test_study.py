@@ -65,7 +65,7 @@ class TestFixtureLoads(_Tmp):
         self.assertEqual(s.objectives[1].step, "flash")
         self.assertEqual(s.objectives[1].key, "flash_edep_per_pot")
         self.assertEqual(s.constraints[0].bound, "max")
-        self.assertEqual(s.layout, "v1")
+        self.assertEqual(s.layout, "v2")
         self.assertEqual(s.context, ("alpha",))
         self.assertEqual(s.consts, {"n_el": 5, "z0": 100.0})
         self.assertEqual([x.step for x in s.steps],

@@ -218,9 +218,10 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
 - A kit's version is its `serverInfo.version` at MCP `initialize`
   (`core/kits.py:KitClient._serve`); `check_kits` refuses launch if any
   kit reports none.
-- `core/leaderboard.py:Leaderboard._check_v2` refuses an append whose
-  `measure_sha` differs from what's already on a v2 board, quarantining
-  the row (`<board>.quarantine.tsv`) rather than mixing measurements.
+- `core/leaderboard.py:Leaderboard._is_new_row` (`_check_v2` until
+  2026-09-29) refuses an append whose `measure_sha` differs from what's
+  already on the board, quarantining the row (`<board>.quarantine.tsv`)
+  rather than mixing measurements.
 - **A resume is guarded too, one step earlier:** `point.json` records
   `measure_basis_sha` (`core/study.py:Study.measure_basis_sha`, the
   SHA-256 of `measure_basis` alone — the part of `measure_sha` the study
@@ -240,8 +241,10 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
 - `handles` is `step=handle` pairs, comma-joined and sorted by step name
   (`core/score.py:row_meta`), e.g. a one-step `toykit` study's point `p1`
   records `toy=p1.toy`.
-- A v1 board has none of the `V2_META` columns; `append()` refuses to
-  attach `meta` to a v1 row and refuses a v2 row missing any of them.
+- `append()` refuses a row missing any of the `V2_META` columns. Since
+  2026-09-29 `"v2"` is the only layout: a study declaring `"v1"` is
+  refused at load (`core/study.py:_leaderboard`), and `Leaderboard` has no
+  `layout` field any more (see "Pipeline deleted (Phase C3)", ruling 3).
 
 **`graph.run`**
 - One point end to end: `derive → render → preflight → run_steps → score`
@@ -750,9 +753,24 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   2. `core/pipeline_templates/` keeps its name: the engine reads it
      (`prodtools_entry.py`), and renaming it would also touch
      `measure_basis`.
-  3. v1 leaderboard-layout support stays in `core/leaderboard.py`: nothing
-     loaded uses it any more (only the archived boards are v1), but
-     removing it is extra work with nothing gained.
+  3. ~~v1 leaderboard-layout support stays in `core/leaderboard.py`:
+     nothing loaded uses it any more (only the archived boards are v1),
+     but removing it is extra work with nothing gained.~~ **Reversed on
+     2026-09-29 (operator-approved cleanup):** `"v2"` is the only layout.
+     `core/study.py` refuses `leaderboard.layout: "v1"` at load (the key
+     stays required), `core/leaderboard.py` lost its v1 branches (and the
+     `Leaderboard.layout` field; `_check_v2` became `_is_new_row`), and
+     `core/score.py` always builds the row's meta. The archived studies in
+     `mode_specs/archive/` are untouched and still say `"v1"`, so running
+     one again now also needs its layout set to `"v2"` and a new board;
+     their committed v1 boards stay in `leaderboards/` as plain files.
+     `tests/test_leaderboard.py:TestByteIdenticalOnARealBoard` (which
+     appended through a `layout="v1"` twin) was rewritten as
+     `TestFormatsMatchARealBoard`: `format_line` on the real
+     `leaderboard_bo_foilspfbpz.tsv` last row gives that row plus the
+     `V2_META` tail, and the board's header is `foilspfbpz_ax`'s minus
+     that tail. `measure_basis_sha` is unchanged for all seven `_ax`
+     studies (layout is not in `measure_basis`).
 - **`measure_basis_sha` is unchanged** for all seven `_ax` studies —
   renaming modules and deleting dead code around them touched none of
   `derive`, `geom`, `kits`, the steps or the objectives:

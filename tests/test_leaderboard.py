@@ -20,40 +20,44 @@ from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
 
 _DEMO = Path(__file__).parent / "fixtures" / "studies" / "demo.json"
 
+META = {"handles": "toy=c1.toy", "spec_sha": "s" * 64,
+        "measure_sha": "m" * 64, "time": "2026-09-24T00:00:00Z"}
+# META's cells as they end a row, tab-led.
+META_TAIL = "".join("\t" + META[k] for k in lbm.V2_META)
 
-class TestByteIdenticalOnARealBoard(unittest.TestCase):
-    """Appending to a copy of a real board adds exactly the line today's
-    writer would have produced. The board is the archived study's committed
-    v1 board; the archived study file names kits deleted in Phase C3, so its
-    columns come from the twin foilspfbpz_ax (same knobs, objectives and
-    columns) with the v1 layout."""
 
-    def test_foilspfbpz_last_row_rewritten_identically(self):
-        import dataclasses
+class TestFormatsMatchARealBoard(unittest.TestCase):
+    """A real row's cells come out of the writer byte for byte as the board
+    that holds them has them. The board is the archived foilspfbpz study's
+    committed one, written in layout "v1" (retired 2026-09-29): the same
+    columns without the V2_META tail. The archived study file names kits
+    deleted in Phase C3, so the columns come from its twin foilspfbpz_ax
+    (same knobs, objectives and columns)."""
+
+    def test_foilspfbpz_last_row_formats_identically(self):
         import modes
-        root = Path(__file__).resolve().parent.parent
-        src = root / "leaderboards" / "leaderboard_bo_foilspfbpz.tsv"
+        src = ROOT / "leaderboards" / "leaderboard_bo_foilspfbpz.tsv"
         study = modes.STUDIES["foilspfbpz_ax"]
+        lines = src.read_text().splitlines(keepends=True)
+        head, last = lines[0], lines[-1]
         with tempfile.TemporaryDirectory() as td:
-            lines = src.read_text().splitlines(keepends=True)
-            head, last = lines[:-1], lines[-1]
-            copy = Path(td) / src.name
-            copy.write_text("".join(head))
-            lb = dataclasses.replace(
-                lbm.Leaderboard.for_study(study, path=copy, archive_path=None),
-                layout="v1")
+            lb = lbm.Leaderboard.for_study(study, path=Path(td) / src.name,
+                                           archive_path=None)
+            self.assertEqual(head.rstrip("\n") + "\t"
+                             + "\t".join(lbm.V2_META) + "\n", lb.header())
             cells = last.rstrip("\n").split("\t")
             n = len(study.knob_names)
             p = lbm.Point(cfg=cells[0], x=[float(v) for v in cells[1:1 + n]],
                           y={"sob": float(cells[1 + n]),
                              "flash_edep": float(cells[2 + n])})
-            lb.append(p, {"alpha": float(cells[3 + n])})
-            self.assertEqual(copy.read_text().splitlines(keepends=True)[-1], last)
+            line = lb.format_line(p, {"alpha": float(cells[3 + n])}, META)
+            self.assertEqual(line, last.rstrip("\n") + META_TAIL + "\n")
 
 
 def demo_lb(path: Path, archive_path: Path | None = None) -> Leaderboard:
     """The demo study's board (knobs a, b; objectives sob, flash_edep;
-    extra columns alpha, obj; context alpha) at a scratch path."""
+    extra columns alpha, obj; the V2_META tail; context alpha) at a
+    scratch path."""
     return Leaderboard.for_study(st.load_study_file(_DEMO), path=path,
                                  archive_path=archive_path)
 
@@ -69,7 +73,8 @@ class TestHistory(unittest.TestCase):
 
     def test_header_line(self):
         self.assertEqual(self.lb.header(),
-                         "config\ta\tb\tsob\tflash_edep\talpha\tobj\n")
+                         "config\ta\tb\tsob\tflash_edep\talpha\tobj"
+                         "\thandles\tspec_sha\tmeasure_sha\ttime\n")
 
     def test_missing_file_loads_empty(self):
         self.assertEqual(self.lb.load(), [])
@@ -77,7 +82,7 @@ class TestHistory(unittest.TestCase):
     def test_append_load_roundtrip(self):
         p = Point(cfg="t01", x=[1.5, 2.5],
                   y={"sob": 3.14159, "flash_edep": 6.85e-7})
-        self.lb.append(p, {"alpha": 1.0e5})
+        self.lb.append(p, {"alpha": 1.0e5}, META)
         first = self.lb.path.read_text().splitlines()[0] + "\n"
         self.assertEqual(first, self.lb.header())
         [got] = self.lb.load()
@@ -89,15 +94,15 @@ class TestHistory(unittest.TestCase):
 
     def test_append_formats_like_today(self):
         p = Point(cfg="c1", x=[2.0, 0.5], y={"sob": 3.88, "flash_edep": 5.95893e-07})
-        self.lb.append(p, {"alpha": 1.0e5})
+        self.lb.append(p, {"alpha": 1.0e5}, META)
         line = self.lb.path.read_text().splitlines()[1]
         self.assertEqual(line, "c1\t2.0000\t0.5000\t3.88000\t5.95893e-07"
-                               "\t100000.000\t3.82041")
+                               "\t100000.000\t3.82041" + META_TAIL)
 
     def test_missing_context_is_an_error(self):
         p = Point(cfg="c1", x=[2.0, 0.5], y={"sob": 1.0, "flash_edep": 1e-6})
         with self.assertRaises(lbm.LeaderboardError):
-            self.lb.append(p, {})
+            self.lb.append(p, {}, META)
 
     def test_headerless_board_refused(self):
         self.lb.path.write_text("c1\t2\t0.5\t3\t1e-6\t1e5\t2.9\n")
@@ -114,16 +119,19 @@ class TestHistory(unittest.TestCase):
     def test_fused_header_is_loud(self):
         # the remove_pending fusion shape: header and row 1 on one line.
         self.lb.path.write_text(
-            "config\ta\tb\tsob\tflash_edep\talpha\tobj"
-            "t01\t1.0000\t2.0000\t3.00000\t1.00000e-07\t1.000\t3.00000\n")
+            self.lb.header().rstrip("\n")
+            + "t01\t1.0000\t2.0000\t3.00000\t1.00000e-07\t1.000\t3.00000"
+            + META_TAIL + "\n")
         with self.assertRaises(SchemaMismatch):
             self.lb.load()
 
     def test_malformed_row_is_loud_with_line_number(self):
         self.lb.append(Point("t01", [1.0, 2.0],
-                             {"sob": 3.0, "flash_edep": 1e-7}), {"alpha": 1.0})
+                             {"sob": 3.0, "flash_edep": 1e-7}), {"alpha": 1.0},
+                       META)
         with self.lb.path.open("a") as f:
-            f.write("t02\tnot_a_number\t2.0000\t3.00000\t1.0e-07\t1.000\t3.00000\n")
+            f.write("t02\tnot_a_number\t2.0000\t3.00000\t1.0e-07\t1.000"
+                    "\t3.00000" + META_TAIL + "\n")
         with self.assertRaises(RowParseError) as cm:
             self.lb.load()
         self.assertEqual(cm.exception.line_no, 3)
@@ -132,7 +140,7 @@ class TestHistory(unittest.TestCase):
         self.lb.path.write_text("config\twrong\theader\n")
         p = Point(cfg="t01", x=[1.0, 2.0], y={"sob": 3.0, "flash_edep": 1e-7})
         with self.assertRaises(SchemaMismatch):
-            self.lb.append(p, {"alpha": 1.0})
+            self.lb.append(p, {"alpha": 1.0}, META)
         q = self.lb.quarantine_path()
         self.assertTrue(q.exists())
         lines = q.read_text().splitlines()
@@ -177,9 +185,11 @@ class TestArchivePlusLive(unittest.TestCase):
         lb = self._lb()
         self.archive.write_text(
             lb.header()
-            + "old1\t1.0000\t0.5000\t3.10000\t1.00000e-06\t0.000\t3.10000\n")
+            + "old1\t1.0000\t0.5000\t3.10000\t1.00000e-06\t0.000\t3.10000"
+            + META_TAIL + "\n")
         lb.append(Point(cfg="new1", x=[2.0, 0.5],
-                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0})
+                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0},
+                  META)
         got = [p.cfg for p in lb.load()]
         self.assertEqual(got, ["old1", "new1"])
 
@@ -187,7 +197,8 @@ class TestArchivePlusLive(unittest.TestCase):
         lb = self._lb()
         self.assertFalse(self.live.parent.exists())
         lb.append(Point(cfg="new1", x=[2.0, 0.5],
-                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0})
+                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0},
+                  META)
         self.assertTrue(self.live.exists())
 
     def test_append_never_writes_to_the_archive(self):
@@ -195,7 +206,8 @@ class TestArchivePlusLive(unittest.TestCase):
         self.archive.write_text(lb.header())
         before = self.archive.read_text()
         lb.append(Point(cfg="new1", x=[2.0, 0.5],
-                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0})
+                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0},
+                  META)
         self.assertEqual(self.archive.read_text(), before)
 
     def test_a_promoted_row_is_not_counted_twice(self):
@@ -203,10 +215,12 @@ class TestArchivePlusLive(unittest.TestCase):
         # left behind in the live file must not enter the GP twice.
         lb = self._lb()
         lb.append(Point(cfg="dup", x=[2.0, 0.5],
-                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0})
+                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0},
+                  META)
         self.archive.write_text(
             lb.header()
-            + "dup\t2.0000\t0.5000\t4.00000\t2.00000e-06\t0.000\t4.00000\n")
+            + "dup\t2.0000\t0.5000\t4.00000\t2.00000e-06\t0.000\t4.00000"
+            + META_TAIL + "\n")
         got = [p.cfg for p in lb.load()]
         self.assertEqual(got, ["dup"])
 
@@ -219,7 +233,8 @@ class TestArchivePlusLive(unittest.TestCase):
     def test_no_archive_configured_behaves_as_before(self):
         lb = demo_lb(self.live, archive_path=None)
         lb.append(Point(cfg="only", x=[2.0, 0.5],
-                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0})
+                        y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0},
+                  META)
         self.assertEqual([p.cfg for p in lb.load()], ["only"])
 
     def test_a_read_only_archive_dir_still_loads(self):
@@ -236,7 +251,8 @@ class TestArchivePlusLive(unittest.TestCase):
         lb = demo_lb(self.live, archive_path=archive)
         archive.write_text(
             lb.header()
-            + "prior\t2.0000\t0.5000\t4.00000\t2.00000e-06\t0.000\t4.00000\n")
+            + "prior\t2.0000\t0.5000\t4.00000\t2.00000e-06\t0.000\t4.00000"
+            + META_TAIL + "\n")
         mode = repo.stat().st_mode
         repo.chmod(0o500)                      # r-x: readable, NOT writable
         try:
@@ -245,10 +261,6 @@ class TestArchivePlusLive(unittest.TestCase):
                              "reading the archive must not write to the repo")
         finally:
             repo.chmod(mode)                   # else tearDown cannot remove it
-
-
-META = {"handles": "toy=c1.toy", "spec_sha": "s" * 64,
-        "measure_sha": "m" * 64, "time": "2026-09-24T00:00:00Z"}
 
 
 class TestV2Rows(unittest.TestCase):
@@ -281,14 +293,6 @@ class TestV2Rows(unittest.TestCase):
     def test_meta_may_not_hold_a_tab(self):
         with self.assertRaises(lbm.LeaderboardError):
             self.lb.append(self.pt(), {}, dict(META, handles="a\tb"))
-
-    def test_a_v1_row_carries_no_meta(self):
-        v1 = st.load_study_file(write_study(toy_doc(name="v1toy"),
-                                            self.tmp / "studies"))
-        lb = Leaderboard.for_study(v1, path=self.tmp / "v1.tsv",
-                                   archive_path=None)
-        with self.assertRaises(lbm.LeaderboardError):
-            lb.append(self.pt(), {}, META)
 
     def test_append_then_load(self):
         self.assertTrue(self.lb.append(self.pt(), {}, META))

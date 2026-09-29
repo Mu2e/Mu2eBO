@@ -85,7 +85,7 @@ def score(study, *, config: str, x, records, context, board,
     refusal propagates for the caller to record."""
     try:
         y = collect(study, records)
-        meta = row_meta(study, records, now) if study.layout == "v2" else None
+        meta = row_meta(study, records, now)
     except ScoreError as exc:
         write_atomic(state_dir / "broken.txt", f"score: {exc}\n")
         raise

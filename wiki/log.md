@@ -6,6 +6,16 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
+  cleanup, operator-approved): C3 ruling 3 REVERSED — `"v2"` is the only
+  leaderboard layout. `core/study.py` refuses `"v1"` at load (key still
+  required), `core/leaderboard.py` lost its v1 branches and the
+  `Leaderboard.layout` field (`_check_v2` → `_is_new_row`), `core/score.py`
+  always builds the row meta. Archived studies untouched (still say
+  `"v1"`, so re-running one needs a v2 layout and a new board).
+  `TestByteIdenticalOnARealBoard` rewritten as `TestFormatsMatchARealBoard`
+  (`format_line` on the real foilspfbpz last row = that row + the
+  `V2_META` tail). Also `mode_specs/README.md`, `README.md`, `CONTEXT.md`.
 - **updated** [tests](/drivers/tests.md) (post-C3 cleanup): suite now 35
   files, 718 tests OK (skipped=3), ~250 s — was 729 (skipped=4); the
   seven `_ax` studies' `measure_basis_sha` values are unchanged. Also:

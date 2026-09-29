@@ -37,9 +37,12 @@ class TestLayout(_Tmp):
         self.assertEqual(self.load(toy_doc(layout="v2")).layout, "v2")
 
     def test_other_layouts_are_refused(self):
-        with self.assertRaises(ValueError) as cm:
-            self.load(toy_doc(layout="v3"))
-        self.assertIn("leaderboard.layout", str(cm.exception))
+        # "v1" included: retired on 2026-09-29, when nothing loaded used it.
+        for layout in ("v1", "v3"):
+            with self.subTest(layout=layout):
+                with self.assertRaises(ValueError) as cm:
+                    self.load(toy_doc(layout=layout))
+                self.assertIn("leaderboard.layout", str(cm.exception))
 
     def test_the_branin_fixture_loads(self):
         s = st.load_study_file(ENGINE_STUDIES / "branin.json")

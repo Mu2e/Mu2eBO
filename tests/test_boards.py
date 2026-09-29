@@ -41,7 +41,6 @@ class TestBoardFor(unittest.TestCase):
         self.assertEqual(board.path, self.tmp / "live" / "leaderboard_histtoy.tsv")
         self.assertEqual(board.archive_path,
                          self.tmp / "arch" / "leaderboard_histtoy.tsv")
-        self.assertEqual(board.layout, "v2")
 
     def test_an_engine_study_trains_on_its_board(self):
         boards.board_for(self.study).append(

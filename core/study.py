@@ -553,7 +553,8 @@ def _leaderboard(raw, where):
     if ".." in Path(rel).parts:
         raise ValueError(f"{where}[leaderboard.file]: must not contain '..' "
                          f"(got {rel!r})")
-    _one_of(lb["layout"], ("v1", "v2"), f"{where}[leaderboard.layout]")
+    _one_of(lb["layout"], ("v2",), f"{where}[leaderboard.layout]",
+            " (layout 'v1' was retired on 2026-09-29)")
     context = tuple(_name(c, f"{where}[leaderboard.context]")
                     for c in _list(lb["context"], f"{where}[leaderboard.context]"))
     return Path(rel).as_posix(), lb["layout"], context

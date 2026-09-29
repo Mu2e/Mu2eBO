@@ -46,5 +46,5 @@
   {"name": "alpha", "expr": "alpha", "fmt": "{:.3f}"},
   {"name": "obj", "expr": "sob - alpha * flash_edep", "fmt": "{:.5f}"}
  ],
- "leaderboard": {"file": "leaderboards/leaderboard_demo_study.tsv", "layout": "v1", "context": ["alpha"]}
+ "leaderboard": {"file": "leaderboards/leaderboard_demo_study.tsv", "layout": "v2", "context": ["alpha"]}
 }

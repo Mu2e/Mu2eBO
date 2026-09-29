@@ -31,8 +31,8 @@ class _Score(unittest.TestCase):
         self.state = self.tmp / "state"
         self.state.mkdir()
 
-    def study(self, mutate=lambda d: None, layout="v2", name="scoretoy"):
-        doc = toy_doc(name=name, layout=layout)
+    def study(self, mutate=lambda d: None, name="scoretoy"):
+        doc = toy_doc(name=name)
         mutate(doc)
         return st.load_study_file(write_study(doc, self.tmp / "studies"))
 
@@ -78,13 +78,6 @@ class TestRows(_Score):
         board = self.board(study)
         self.score(study, {"toy": rec(GOOD)}, board)
         self.assertEqual(board.load()[0].y["n_in"], 0.0)
-
-    def test_a_v1_study_writes_a_v1_row(self):
-        study = self.study(layout="v1", name="scorev1")
-        board = self.board(study)
-        self.score(study, {"toy": rec(GOOD)}, board)
-        self.assertEqual(len(board.path.read_text().splitlines()[1]
-                             .split("\t")), 5)
 
 
 class TestFailedEvaluations(_Score):

@@ -35,10 +35,9 @@ hashes it), so the layout is for readable diffs.
 Every loaded study runs on the contract engine — `graph.run` per point,
 `graph.closed_loop` for a campaign. There is no other runner: the pipeline
 and its `--mode` dispatch were deleted in Phase C3 (2026-09-28). A study's
-`"leaderboard.layout"` should be `"v2"`, so its board carries `measure_sha`
-and refuses an append measured a different way; `"v1"` layout support stays
-in `core/leaderboard.py` only to read the archived boards (below), not for
-a new study.
+`"leaderboard.layout"` must be `"v2"`, so its board carries `measure_sha`
+and refuses an append measured a different way; `"v1"` is refused at load
+since 2026-09-29 (only the archived studies below still say it).
 
 Each foilspf line has an engine twin, `<name>_ax.json` (Phase C2b): the same
 knobs and geometry on SimJob MDC2025ax, with sob and flash from the `anakit`
@@ -98,9 +97,10 @@ routing rules above. Two different things live here:
   `foilspf.json`, `foilspf2k.json`, `foilspfbp.json`, `foilspfbpx.json`,
   `foilspfbpz.json`, `foilspfbw.json` — archived in Phase C3 (2026-09-28)
   when the pipeline that ran them was deleted. These are schema-2, layout
-  `"v1"` (the pipeline's shape, not a stale format); they are archived
-  rather than deleted because their leaderboards, `leaderboards/
-  leaderboard_bo_<name>.tsv`, stay as plain files. Their engine twins,
+  `"v1"` (the pipeline's shape), which the loader refuses since
+  2026-09-29 — running one again needs its layout set to `"v2"` and a new
+  board. They are archived rather than deleted because their leaderboards,
+  `leaderboards/leaderboard_bo_<name>.tsv`, stay as plain files. Their engine twins,
   `<name>_ax.json`, live in this directory's parent, `mode_specs/`, and are
   loaded normally.
 
