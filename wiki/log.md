@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [tests](/drivers/tests.md) (post-C3 cleanup, second batch):
+  suite now 35 files, 713 tests OK (skipped=3), 386 s — was 718: −2 v1
+  tests, −4 pool renew tests, +1 retry-budget pin. The seven `_ax`
+  studies' `measure_basis_sha` values are unchanged after all seven
+  commits. Index line updated.
 - **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
   cleanup): deleted `graph/pool.py:run_rolling`'s `renew` hook (parameter,
   default, the pre-launch and at-resolution calls) and its 4 tests

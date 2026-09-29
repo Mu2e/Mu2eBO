@@ -1,7 +1,7 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (35 files, 718 tests, 3 skipped), no
+description: '`tests/` regression suite (35 files, 713 tests, 3 skipped), no
   grid contact; `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s
   tests -t .`; the manual golden parity harness (`tests/golden_parity.py`)
   was deleted in Phase C3 (2026-09-28) with the pipeline it checked'
@@ -10,7 +10,11 @@ timestamp: '2026-09-29'
 updated_note: 'Post-C3 cleanup (2026-09-29, branch cleanup-c3): 729 -> 718
   tests, 4 -> 3 skipped -- the pending-TSV API and its 10 tests were
   deleted, a duplicate test_geom_template case went, and the managed-policy
-  banner test asserts instead of skipping. Phase C3 (2026-09-28) deleted
+  banner test asserts instead of skipping. Second cleanup batch (same
+  day): 718 -> 713 -- two v1-layout tests went with layout v1 (the
+  real-board byte test was rewritten, not deleted), the 4 pool renew-hook
+  tests went with the hook, and one test pins RETRY_PAUSES_S to
+  TIMEOUT_KEYS minus start; full run 386 s. Phase C3 (2026-09-28) deleted
   every pipeline-only test file and tests/golden_parity.py, and renamed
   test_study_run.py/test_study_loop.py to test_run.py/test_closed_loop.py.
   Measured post-cut (verified by a full
@@ -30,7 +34,7 @@ updated_note: 'Post-C3 cleanup (2026-09-29, branch cleanup-c3): 729 -> 718
 
 ## Summary
 Regression tests for the Python drivers in this project. **35 `test_*.py`
-files, 718 tests (3 skipped)** (2026-09-29, post-C3 cleanup),
+files, 713 tests (3 skipped)** (2026-09-29, post-C3 cleanup, second batch),
 run under
 `$AUTORESEARCH_PYTHON` with no grid contact (all mocks/tempdirs, or a temp
 `AUTORESEARCH_DATA_ROOT` for the engine's subprocess tests). The manual
@@ -52,7 +56,8 @@ re-audited file-by-file here; C3 on 2026-09-28 deleted every pipeline-only
 test file plus `tests/golden_parity.py`, and renamed
 `test_study_run.py`/`test_study_loop.py` to `test_run.py`/`test_closed_loop.py`),
 landing at 35 files / 729 tests / 4 skipped after the C3 final-fix
-review, then 718 tests / 3 skipped after the post-C3 cleanup (2026-09-29).
+review, then 718 tests / 3 skipped after the post-C3 cleanup (2026-09-29),
+then 713 / 3 skipped after its second batch the same day.
 
 ## Key facts
 - **`tests/test_no_hardcoded_paths.py` only sees files git tracks**
