@@ -767,9 +767,14 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
      stays required), `core/leaderboard.py` lost its v1 branches (and the
      `Leaderboard.layout` field; `_check_v2` became `_is_new_row`), and
      `core/score.py` always builds the row's meta. The archived studies in
-     `mode_specs/archive/` are untouched and still say `"v1"`, so running
-     one again now also needs its layout set to `"v2"` and a new board;
-     their committed v1 boards stay in `leaderboards/` as plain files.
+     `mode_specs/archive/` are untouched and still say `"v1"` — but the
+     layout is not the only thing stopping them: each also names the
+     `ce_sensitivity`/`flash_edep_per_pot` kits, which C3 deleted from
+     `kits.toml` (those analyses now live only as `analysis` params under
+     the `anakit` kit), so they'd fail to load/evaluate on layout alone.
+     Re-running one for real means using its `_ax` twin, or porting its
+     kits to anakit as well as switching the layout to `"v2"` and a new
+     board; their committed v1 boards stay in `leaderboards/` as plain files.
      `tests/test_leaderboard.py:TestByteIdenticalOnARealBoard` (which
      appended through a `layout="v1"` twin) was rewritten as
      `TestFormatsMatchARealBoard`: `format_line` on the real

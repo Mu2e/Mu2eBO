@@ -98,8 +98,13 @@ routing rules above. Two different things live here:
   `foilspfbpz.json`, `foilspfbw.json` — archived in Phase C3 (2026-09-28)
   when the pipeline that ran them was deleted. These are schema-2, layout
   `"v1"` (the pipeline's shape), which the loader refuses since
-  2026-09-29 — running one again needs its layout set to `"v2"` and a new
-  board. They are archived rather than deleted because their leaderboards,
+  2026-09-29. Re-running one is NOT just a layout flip, though: each also
+  names the `ce_sensitivity`/`flash_edep_per_pot` kits, which C3 deleted
+  from `kits.toml` (see e.g. `mode_specs/archive/foilspfbpz.json`'s `sob`/
+  `flash` steps) — those analyses now live only as `analysis` params under
+  the `anakit` kit. Re-running one for real means using its `_ax` twin, or
+  porting its kits to anakit as well as switching the layout to `"v2"`.
+  They are archived rather than deleted because their leaderboards,
   `leaderboards/leaderboard_bo_<name>.tsv`, stay as plain files. Their engine twins,
   `<name>_ax.json`, live in this directory's parent, `mode_specs/`, and are
   loaded normally.
