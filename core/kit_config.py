@@ -45,28 +45,32 @@ class KitConfigError(ValueError):
     resolved in this environment."""
 
 
-def _resolve_command(name: str, command) -> list:
-    return [resolve(v, name, f"command[{i}]") for i, v in enumerate(command)]
+class _Launch:
+    """How to start a kits.toml entry or a [servers.<name>] table; the
+    subclass supplies the fields name, command, env_passthrough and set_env."""
 
+    def resolve_command(self) -> list:
+        return [resolve(v, self.name, f"command[{i}]")
+                for i, v in enumerate(self.command)]
 
-def _resolve_env(name: str, passthrough, set_env, base) -> Dict[str, str]:
-    """`base` (the MCP SDK's short default allowlist) plus every
-    env_passthrough variable, which must be set, plus `set`."""
-    env = dict(base)
-    for var in passthrough:
-        value = os.environ.get(var)
-        if not value:
-            raise KitConfigError(
-                f"kit {name!r}: env_passthrough names ${var}, which is not "
-                f"set in this environment")
-        env[var] = value
-    for key, value in set_env.items():
-        env[key] = resolve(value, name, f"set.{key}")
-    return env
+    def resolve_env(self, base: Dict[str, str]) -> Dict[str, str]:
+        """`base` (the MCP SDK's short default allowlist) plus every
+        env_passthrough variable, which must be set, plus `set`."""
+        env = dict(base)
+        for var in self.env_passthrough:
+            value = os.environ.get(var)
+            if not value:
+                raise KitConfigError(
+                    f"kit {self.name!r}: env_passthrough names ${var}, which "
+                    f"is not set in this environment")
+            env[var] = value
+        for key, value in self.set_env.items():
+            env[key] = resolve(value, self.name, f"set.{key}")
+        return env
 
 
 @dataclass(frozen=True)
-class KitConfig:
+class KitConfig(_Launch):
     name: str
     command: Tuple[str, ...]
     env_passthrough: Tuple[str, ...]
@@ -80,16 +84,9 @@ class KitConfig:
     poll_s: Tuple[float, float]     # clamp on the kit's poll_ms hint
     timeouts: Dict[str, float]      # seconds, per contract call and "start"
 
-    def resolve_command(self) -> list:
-        return _resolve_command(self.name, self.command)
-
-    def resolve_env(self, base: Dict[str, str]) -> Dict[str, str]:
-        return _resolve_env(self.name, self.env_passthrough, self.set_env,
-                             base)
-
 
 @dataclass(frozen=True)
-class ServerConfig:
+class ServerConfig(_Launch):
     """An MCP server an adapter talks to (kits.toml [servers.<name>]): how
     to start it, and a timeout per tool it is called with plus "start"."""
     name: str
@@ -97,13 +94,6 @@ class ServerConfig:
     env_passthrough: Tuple[str, ...]
     set_env: Dict[str, str]
     timeouts: Dict[str, float]
-
-    def resolve_command(self) -> list:
-        return _resolve_command(self.name, self.command)
-
-    def resolve_env(self, base: Dict[str, str]) -> Dict[str, str]:
-        return _resolve_env(self.name, self.env_passthrough, self.set_env,
-                             base)
 
 
 def resolve(value: str, kit: str, field: str) -> str:
@@ -157,17 +147,29 @@ def _launch_fields(raw, where: str) -> Tuple[list, list, dict]:
     return command, passthrough, set_env
 
 
-def _entry(name: str, raw, where: str) -> KitConfig:
+def _table(name: str, raw, where: str, keys,
+           kind: str) -> Tuple[list, list, dict]:
+    """The checks a kit entry and a `[servers.<name>]` table share: the
+    name, the table shape, exactly `keys`, then the launch fields."""
     _need(_KIT_NAME.fullmatch(name), where,
-          "a kit name is a lower-case identifier")
+          f"a {kind} name is a lower-case identifier")
     _need(isinstance(raw, dict), where, "must be a table")
-    missing = [k for k in KEYS if k not in raw]
+    missing = [k for k in keys if k not in raw]
     _need(not missing, where, f"missing required key(s) {missing}")
-    unknown = sorted(set(raw) - set(KEYS))
+    unknown = sorted(set(raw) - set(keys))
     _need(not unknown, where,
-          f"unknown key(s) {unknown}; accepted keys are {sorted(KEYS)}")
+          f"unknown key(s) {unknown}; accepted keys are {sorted(keys)}")
+    return _launch_fields(raw, where)
 
-    command, passthrough, set_env = _launch_fields(raw, where)
+
+def _positive_timeouts(timeouts: dict, where: str) -> None:
+    for k, v in timeouts.items():
+        _need(_is_number(v) and v > 0, f"{where}.timeouts.{k}",
+              "must be a number of seconds > 0")
+
+
+def _entry(name: str, raw, where: str) -> KitConfig:
+    command, passthrough, set_env = _table(name, raw, where, KEYS, "kit")
     for key in ("study_keys", "fixed_keys"):
         table = raw[key]
         _need(isinstance(table, dict), f"{where}.{key}", "must be a table")
@@ -194,9 +196,7 @@ def _entry(name: str, raw, where: str) -> KitConfig:
     timeouts = raw["timeouts"]
     _need(isinstance(timeouts, dict) and set(timeouts) == set(TIMEOUT_KEYS),
           f"{where}.timeouts", f"must set exactly {list(TIMEOUT_KEYS)}")
-    for k, v in timeouts.items():
-        _need(_is_number(v) and v > 0, f"{where}.timeouts.{k}",
-              "must be a number of seconds > 0")
+    _positive_timeouts(timeouts, where)
     return KitConfig(
         name=name, command=tuple(command), env_passthrough=tuple(passthrough),
         set_env=dict(set_env), study_keys=dict(raw["study_keys"]),
@@ -208,21 +208,12 @@ def _entry(name: str, raw, where: str) -> KitConfig:
 
 
 def _server(name: str, raw, where: str) -> ServerConfig:
-    _need(_KIT_NAME.fullmatch(name), where,
-          "a server name is a lower-case identifier")
-    _need(isinstance(raw, dict), where, "must be a table")
-    missing = [k for k in SERVER_KEYS if k not in raw]
-    _need(not missing, where, f"missing required key(s) {missing}")
-    unknown = sorted(set(raw) - set(SERVER_KEYS))
-    _need(not unknown, where, f"unknown key(s) {unknown}; accepted keys are "
-          f"{sorted(SERVER_KEYS)}")
-    command, passthrough, set_env = _launch_fields(raw, where)
+    command, passthrough, set_env = _table(name, raw, where, SERVER_KEYS,
+                                           "server")
     timeouts = raw["timeouts"]
     _need(isinstance(timeouts, dict) and "start" in timeouts,
           f"{where}.timeouts", "must be a table with a 'start' timeout")
-    for k, v in timeouts.items():
-        _need(_is_number(v) and v > 0, f"{where}.timeouts.{k}",
-              "must be a number of seconds > 0")
+    _positive_timeouts(timeouts, where)
     return ServerConfig(name=name, command=tuple(command),
                         env_passthrough=tuple(passthrough),
                         set_env=dict(set_env),
