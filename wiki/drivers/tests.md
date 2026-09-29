@@ -1,41 +1,47 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (43 files, 856 tests, 1 skipped), no
+description: '`tests/` regression suite (35 files, 721 tests, 4 skipped), no
   grid contact; `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s
-  tests -t .`; golden parity harness (manual, not in discover): `PYTHONPATH=
-  "$AUTORESEARCH_PYTHON" tests/golden_parity.py check`'
+  tests -t .`; the manual golden parity harness (`tests/golden_parity.py`)
+  was deleted in Phase C3 (2026-09-28) with the pipeline it checked'
 status: active
-timestamp: '2026-09-25'
-updated_note: 'generic-study Phase B (contract engine) landed 10 new test
-  files (704 -> 856 tests): test_kit_config.py, test_toykit.py,
-  test_kits.py, test_contract.py, test_scheduler.py, test_score.py,
-  test_study_engine.py, test_boards.py, test_study_run.py,
-  test_study_loop.py. The engine subprocess tests (test_study_run.py,
-  test_study_loop.py) set AUTORESEARCH_DATA_ROOT to a temp dir per
-  test and add about 2 minutes to the suite (measured full run:
-  ~270s / 4m30s under ana 2.8.0).'
+timestamp: '2026-09-28'
+updated_note: 'Phase C3 (2026-09-28) deleted every pipeline-only test file
+  and tests/golden_parity.py, and renamed test_study_run.py/test_study_loop.py
+  to test_run.py/test_closed_loop.py. Measured post-cut (verified by a full
+  run at commit dc8a176): 35 files, 721 tests (4 skipped), ~249s under ana
+  2.8.0. The per-file growth history in Key facts below runs only through
+  generic-study Phase B (2026-09-25, 856 tests) and was never re-audited
+  file-by-file through Phase C1/C2a/C2b -- trust the two headline numbers in
+  this note over that narrative for anything after 2026-09-25.'
 ---
 
 # Self-tests (`tests/`)
 
 ## Summary
-Regression tests for the Python drivers in this project. **43 `test_*.py`
-files, 856 tests (1 skipped)** (2026-09-25), run under `$AUTORESEARCH_PYTHON`
-with no grid contact (all mocks/tempdirs, or a temp `AUTORESEARCH_DATA_ROOT`
-for the engine's subprocess tests) — plus `tests/golden_parity.py`, a
-manually-run byte/tensor-parity harness (not picked up by `unittest
-discover`, same convention as `tests/golden_parity.py`). Added 2026-05-29
+Regression tests for the Python drivers in this project. **35 `test_*.py`
+files, 721 tests (4 skipped)** (2026-09-28, post Phase C3), run under
+`$AUTORESEARCH_PYTHON` with no grid contact (all mocks/tempdirs, or a temp
+`AUTORESEARCH_DATA_ROOT` for the engine's subprocess tests). The manual
+byte/tensor-parity harness, `tests/golden_parity.py` (not picked up by
+`unittest discover`), was deleted in Phase C3 (2026-09-28) along with the
+pipeline it checked. Added 2026-05-29
 alongside the 5-finding `/simplify` audit so future refactors that revert
 the audit fixes fail loudly; grown since with the foils v2 6D round-trip
 suite, the shared env-source helper, the 2026-07-17 reorg, the 2026-07-19
 tests/schema/ protocol round (156 → 196 tests), the same-day slimming round
 (196 → 211 tests: ChildTracker `STALE_CLUSTER` + launch-failed coverage,
 harvest.py Steps 1+4 runner-seam tests, and B0-batch lockstep/seam-protocol
-tests), and the generic-study refactor (704 → 856 tests: Phase A landed the
+tests), the generic-study refactor (704 → 856 tests: Phase A landed the
 study loader/leaderboard/build_problem tests, Phase B — the [contract-engine](/drivers/contract-engine.md)
 — added 10 files for `kits.toml`/`KitClient`/the evaluator contract/
-`run_steps`/`score`/v2 boards/`graph.study_run`/`graph.study_loop`/`toykit`).
+`run_steps`/`score`/v2 boards/`graph.run`/`graph.closed_loop`/`toykit`), and
+Phase C (C1/C2a/C2b added kit-adapter and study-engine coverage, not
+re-audited file-by-file here; C3 on 2026-09-28 deleted every pipeline-only
+test file plus `tests/golden_parity.py`, and renamed
+`test_study_run.py`/`test_study_loop.py` to `test_run.py`/`test_closed_loop.py`),
+landing at the current 35 files / 721 tests / 4 skipped.
 
 ## Key facts
 - **`tests/test_no_hardcoded_paths.py` only sees files git tracks**
@@ -86,7 +92,7 @@ study loader/leaderboard/build_problem tests, Phase B — the [contract-engine](
   fixture left. `tests/test_modes.py` now ends with its `__main__` guard:
   `TestModeStamping` used to sit after it and never ran under
   `python tests/test_modes.py`.
-  **Current (measured 2026-09-25, generic-study Phase B, the
+  **Superseded (measured 2026-09-25, generic-study Phase B, the
   [contract-engine](/drivers/contract-engine.md)): 43 `test_*.py`, 856
   tests (1 skipped), ~270 s (4m30s) under `ana 2.8.0`.** +152 over the
   704 baseline, from 10 new files: `tests/test_kit_config.py` (`kits.toml`
@@ -104,7 +110,29 @@ study loader/leaderboard/build_problem tests, Phase B — the [contract-engine](
   (`test_study_run.py`, `test_study_loop.py`) set `AUTORESEARCH_DATA_ROOT`
   to a per-test temp dir (`tests/engine_fixtures.py:engine_env`) so no
   engine test writes under the real `DATA_ROOT`, and together add roughly
-  2 minutes to the suite's wall time.
+  2 minutes to the suite's wall time. (These two files became
+  `test_run.py`/`test_closed_loop.py` in Phase C3, below.)
+  **Current (measured 2026-09-28, Phase C3, commit `dc8a176`, verified by a
+  full run): 35 `test_*.py`, 721 tests (4 skipped), 248.8 s under
+  `ana 2.8.0`.** Net -8 files / -135 tests from the 856 baseline, from two
+  changes NOT individually re-audited against each other here: Phase
+  C1/C2a/C2b (2026-09-25 to 2026-09-27, between the 856 measurement and
+  C3) added several kit-adapter/study-engine files (e.g.
+  `test_prodtools_adapter.py`, `test_offline_preflight_kit.py`,
+  `test_anakit_kit.py`, `test_c2b_studies.py`); then C3 (2026-09-28)
+  deleted every pipeline-only file — `test_closed_loop`/`test_study_loop`
+  under their OLD pipeline meaning (the names were then reused by the
+  rename below), `test_foilspf_spec`, `test_golden_parity_harness`,
+  `test_harvest`, `test_json_mode`, `test_nodes`, `test_no_mock_mode`,
+  `test_pipeline_verbs`, `test_seam_protocol`, `test_stages_retired`,
+  `test_prodtools_exec`, `test_launch_checks`, `test_mode_archive`,
+  `test_c2b_parity`, `test_runtime_constants` — plus `tests/golden_parity.py`
+  and its fixtures (`tests/fixtures/modes/`, `tests/goldens/`), and renamed
+  `test_study_run.py` → `test_run.py`, `test_study_loop.py` →
+  `test_closed_loop.py` (`git mv`, history follows). `test_geom_golden_parity.py`
+  was kept and retargeted to `foilsflash_ax` (`tests/fixtures/golden_geom/`
+  stayed). The skip count moved from 1 to 4; not independently re-audited
+  here which tests newly skip or why.
 - **`tools/capture_golden_geom.py` was DELETED 2026-08-22** (slim-down
   audit). Everything below about its skip guard is history, not a live
   recipe: the guard could no longer return True for any mode, so the tool
@@ -179,7 +207,10 @@ study loader/leaderboard/build_problem tests, Phase B — the [contract-engine](
   -s tests -t .` (the published cvmfs env `ana 2.8.0` since 2026-08-20; it
   carries langgraph AND botorch, so there is no wrong venv anymore —
   `AUTORESEARCH_VENV=<path>` still selects a writable dev stack).
-- **Golden parity harness:** `PYTHONPATH= "$AUTORESEARCH_PYTHON"
+- **Golden parity harness — DELETED in Phase C3 (2026-09-28) with the
+  pipeline it checked.** Everything below in this bullet is history, not a
+  live recipe: `tests/golden_parity.py` and its capture baselines no
+  longer exist. `PYTHONPATH= "$AUTORESEARCH_PYTHON"
   tests/golden_parity.py check [a b c d e]` (capture with `... capture`).
   Since 2026-09-24 every section is one row of the `SECTIONS` table
   (label, compute, baseline, capture writer, capture pre-hook, check-time
@@ -313,27 +344,31 @@ study loader/leaderboard/build_problem tests, Phase B — the [contract-engine](
   trap will recur for any future mode addition.
 
 ## Cross-links
-- Related: [contract-engine](/drivers/contract-engine.md) (the Phase B
-  engine tests: `test_kit_config.py`, `test_toykit.py`, `test_kits.py`,
+- Related: [contract-engine](/drivers/contract-engine.md) (the engine tests:
+  `test_kit_config.py`, `test_toykit.py`, `test_kits.py`,
   `test_contract.py`, `test_scheduler.py`, `test_score.py`,
-  `test_study_engine.py`, `test_boards.py`, `test_study_run.py`,
-  `test_study_loop.py`), [closed-loop-runner](/drivers/closed-loop-runner.md), [graph-runner](/drivers/graph-runner.md),
-  [bo-driver](/drivers/bo-driver.md), [pipeline](/drivers/pipeline.md),
+  `test_study_engine.py`, `test_boards.py`, `test_run.py`,
+  `test_closed_loop.py`, plus the Phase C1/C2a/C2b adapter tests
+  `test_prodtools_adapter.py`, `test_offline_preflight_kit.py`,
+  `test_anakit_kit.py`), [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded), [graph-runner](/drivers/graph-runner.md) (superseded),
+  [bo-driver](/drivers/bo-driver.md) (superseded), [pipeline](/drivers/pipeline.md) (superseded),
   [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md),
   [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md),
   [hybrid-picker-scipy-abnormal-retry-nondeterminism](/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md)
-  (golden (b) design context)
-- Pins fixes for: [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md) (poll+list-outputs
+  (golden (b) design context, historical: golden (b) and the harness that
+  ran it were deleted in Phase C3)
+- Pins fixes for (historical — these tests and the pipeline code they pinned
+  were deleted in Phase C3, 2026-09-28; kept as the incident record):
+  [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md) (poll+list-outputs
   SHA-check extension), [scan-broken-codes-too-narrow](/incidents/scan-broken-codes-too-narrow.md) (broken-unknown
   parse exception), [closed-loop-stale-cluster-silent-no-launch](/incidents/closed-loop-stale-cluster-silent-no-launch.md)
-  (`test_child_tracker.py` STALE_CLUSTER tests, `test_closed_loop.py`
-  all-stale-round tests)
+  (`test_child_tracker.py` STALE_CLUSTER tests, the OLD `test_closed_loop.py`'s
+  all-stale-round tests — both gone; `test_child_tracker.py` in 2026-08-19's
+  pool rewrite, the pipeline `test_closed_loop.py` in Phase C3)
 - Related: [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md)
-- Source files: `tests/test_closed_loop.py`, `tests/test_child_tracker.py`,
-  `tests/test_audit_fixes.py`,
-  `tests/test_flock.py`, `tests/test_pipeline_verbs.py`,
-  `tests/test_botorch_predict.py`, `tests/test_seam_protocol.py`,
-  `tests/test_harvest.py`, `tests/golden_parity.py`
+- Source files (current): `tests/test_run.py`, `tests/test_closed_loop.py`,
+  `tests/test_audit_fixes.py`, `tests/test_flock.py`,
+  `tests/test_botorch_predict.py`, `tests/test_pool.py`
 - Off-tree under test:
   `/exp/mu2e/data/users/oksuzian/autoresearch_grid/mmackenz_table_plots/gp_predict_helical.py:158`
 

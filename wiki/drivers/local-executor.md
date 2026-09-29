@@ -3,14 +3,16 @@ type: driver
 title: local executor — the grid-free path
 description: '(**SUPERSEDED 2026-08-16** by the prodtools switch: `core/local_exec.py` deleted, `submit --local` now shells prodtools `runlocal`) `AUTORESEARCH_LOCAL=1`/`--local` still activate a grid-free run (no jobsub, but NOT offline: resampler inputs stream from /pnfs over xrootd, and `AUTORESEARCH_PRODTOOLS` is now required even locally); `$AUTORESEARCH_DATA_ROOT` is the sandbox seam that keeps toy rows off the live board; ~33 s/stage at 1×200 events under prodtools runlocal (was ~20 s pre-switch), and a flash mode cannot land a row at that scale by design'
 status: superseded
-status_note: 'superseded 2026-08-16 by the prodtools switch: core/local_exec.py deleted, execution moved to prodtools runlocal via pipeline.py submit --local'
-timestamp: '2026-09-25'
+status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
+timestamp: '2026-09-28'
 updated_note: 'SUPERSEDED (prodtools-switch Task 12): core/local_exec.py, the local-build/local-run verbs, cmd_local_build/cmd_local_run were all deleted 2026-08-16 (Task 9). AUTORESEARCH_LOCAL=1 / --local still activate a grid-free run, but pipeline.py submit --local now shells prodtools runlocal (core/prodtools_exec.py:run_runlocal) instead of running the machinery this page describes. See wiki/drivers/pipeline.md, "Execution: submit/poll shell prodtools" for the current mechanism. This page is kept for its still-true operational facts (activation-vs-detection rule, AUTORESEARCH_LOCAL_* scale knobs, flash-mode zero-row math, backing requirement) that were NOT rewritten by the switch, but any fact naming core/local_exec.py, cmd_local_run, or local-build/local-run as live code is now historical.'
 ---
 
 # local executor — the grid-free path (SUPERSEDED)
 
 ## Summary
+Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record.
+
 **Superseded 2026-08-16 by the prodtools switch.** `core/local_exec.py` and
 the `local-build`/`local-run` verbs described on this page were deleted; the
 current grid-free path is `pipeline.py --config CFG submit <stage> --local`

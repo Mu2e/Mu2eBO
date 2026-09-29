@@ -4,8 +4,8 @@ One file per study: `mode_specs/<name>.json`, where `<name>` equals the
 `"name"` field. Every file here, plus every `*.json` in the directories on
 `$AUTORESEARCH_STUDY_PATH` (colon-separated, each entry an ABSOLUTE path;
 a relative entry is a load error), is loaded at import by
-`core/study.py`. `archive/` holds retired specs in the old format and is
-not loaded.
+`core/study.py`. `archive/` holds retired studies and is not loaded — see
+below.
 
 The format, field rules and examples are in
 `docs/superpowers/specs/2026-09-23-generic-study-design.md`
@@ -27,66 +27,79 @@ Keep the shipped files' layout: one knob, profile, geom line, kit, step,
 objective or column per line. Only the parsed JSON matters (`spec_sha`
 hashes it), so the layout is for readable diffs.
 
-## Engine studies
+## Studies run on the engine
 
-A study whose kits are ALL engine kits (`core.modes.ENGINE`; a kit is an
-engine kit once it has either a `kits.toml` entry, like `toykit`, or a
-registered adapter, like `prodtools` and `offline_preflight`) runs through
-the contract engine — `graph.study_run` per point, `graph.study_loop` for a
-campaign — instead of the pipeline. Its `leaderboard.layout` should be
-`"v2"`, so its board carries `measure_sha` and refuses an append measured
-a different way. Each foilspf study also has an engine twin, `<name>_ax.json`
-(Phase C2b): the same knobs and geometry on SimJob MDC2025ax, with sob and
-flash from the `anakit` kit and its own v2 board. The originals keep the
-`ce_sensitivity` / `flash_edep_per_pot` kits and run only on the pipeline
-(`core/bo_driver.py`, `graph/run.py`, `graph/closed_loop.py`) until Phase
-C3 deletes it.
+Every loaded study runs on the contract engine — `graph.run` per point,
+`graph.closed_loop` for a campaign. There is no other runner: the pipeline
+and its `--mode` dispatch were deleted in Phase C3 (2026-09-28). A study's
+`"leaderboard.layout"` should be `"v2"`, so its board carries `measure_sha`
+and refuses an append measured a different way; `"v1"` layout support stays
+in `core/leaderboard.py` only to read the archived boards (below), not for
+a new study.
+
+Each foilspf line has an engine twin, `<name>_ax.json` (Phase C2b): the same
+knobs and geometry on SimJob MDC2025ax, with sob and flash from the `anakit`
+kit and its own v2 board. These seven `_ax` studies are the production lines
+now; the originals they were cloned from are archived (see `archive/` below).
 
 The rules, as the code enforces them:
 
-- A study runs on the engine when the engine can drive every kit it
-  names, otherwise on the pipeline when the pipeline can; one that
-  neither runner can drive whole is refused, and so is a pipeline study
-  with no knobs (`core/modes.py:runs_on_engine`).
-- A pipeline study must be `"layout": "v1"`: the pipeline writes v1 rows,
-  and `core/study_compat.py` refuses a `"v2"` one (along with the
-  pipeline's other shape rules there).
 - A prodtools step must set `quorum` in `fixed` (below it the step
   fails), at most 200 `njobs`, and `kits.prodtools.fatal_log_codes` lists
   the log codes that fail a step (foilspf: `GeomSolids1001`).
 - A stage template names its prodtools `desc_fmt` (`{cfg}` and `{geom}`
-  are substituted). The run label is the study setting
+  are substituted). The key keeps this name — a rename to `desc` was
+  considered and dropped, since it would change every `_ax` study's
+  `measure_sha`. The run label is the study setting
   `kits.prodtools.dsconf`: it must contain `{cfg}` and, filled in, hold
-  only letters, digits and `_`. The foilspf family says `Run1Bak_{cfg}`,
-  the only label the pipeline accepts; `prodtools_smoke` says
-  `MDC2025ax_{cfg}`. A template still carrying `dsconf_fmt` is refused.
+  only letters, digits and `_`. The `_ax` studies say `MDC2025ax_{cfg}`.
+  A template still carrying `dsconf_fmt` is refused.
 - `"preflight": {"kit": "offline_preflight", ...}` gates each point on
   `mu2e -n 1` with G4's surface check, run on this node from
   `kits.offline_preflight.code_tarball`, which must equal
   `kits.prodtools.code_tarball` when a study has both. A failure (or an
   `ambiguous` run) marks the point broken before anything is submitted;
   the log is `<GRID_DATA_ROOT>/<config>/preflight/preflight.log`.
-- `knobs: []` is a one-shot study: `graph.study_run` without `--x`;
-  `graph.study_loop` refuses it.
+- `knobs: []` is a one-shot study: `graph.run` without `--x`;
+  `graph.closed_loop` refuses it.
 - `--executor grid|local` and `--parallel N` choose where the jobs run;
   `tests/fixtures/engine_studies/prodtools_smoke.json` is the worked
   example.
-- Both refusals happen when `core.modes` is imported, so ONE study file
-  that breaks either rule, here or anywhere on `$AUTORESEARCH_STUDY_PATH`,
-  stops every command for every study — `graph.run`, `graph.closed_loop`,
-  `graph.study_run`, `graph.study_loop` and the surrogate MCP server — until
-  it is fixed or moved out of those directories.
+- A study naming an unknown kit, or breaking any rule above, is refused
+  when `core.modes` is imported, so ONE broken study file — here or
+  anywhere on `$AUTORESEARCH_STUDY_PATH` — stops every command for every
+  study: `graph.run`, `graph.closed_loop`, and the surrogate MCP server.
 
 `tests/fixtures/engine_studies/branin.json` is the worked example: two
 knobs, two objectives (Branin minimized, Currin minimized + log10) with
 Currin constrained, one `toykit` step, `"layout": "v2"`. It's what
-`tests/test_study_loop.py`'s acceptance test runs end to end.
+`tests/test_closed_loop.py`'s acceptance test (`TestBraninCampaign`) runs
+end to end.
 
 A study need not live in this directory: any `*.json` under a directory
 named on `$AUTORESEARCH_STUDY_PATH` (colon-separated, each entry an
-absolute path) is loaded the same way. That's where an engine study that
-isn't a production line yet — a toy, a one-off experiment — belongs
-instead of `mode_specs/`.
+absolute path) is loaded the same way. That's where a study that isn't a
+production line yet — a toy, a one-off experiment — belongs instead of
+`mode_specs/`.
+
+## `archive/`
+
+Not loaded — `core/study.py` leaves this directory out of the load glob, so
+nothing here is ever selectable with `--study`, and it stops none of the
+routing rules above. Two different things live here:
+
+- The four **schema-1** fixed A/B reference files, in the pre-generic-study
+  format: `ipa625.json`, `ipafix.json`, `ipaovr.json`, `nominal.json`, from
+  the retired IPA/mmackenz lines.
+- The **seven original foilspf studies** — `foilsflash.json`,
+  `foilspf.json`, `foilspf2k.json`, `foilspfbp.json`, `foilspfbpx.json`,
+  `foilspfbpz.json`, `foilspfbw.json` — archived in Phase C3 (2026-09-28)
+  when the pipeline that ran them was deleted. These are schema-2, layout
+  `"v1"` (the pipeline's shape, not a stale format); they are archived
+  rather than deleted because their leaderboards, `leaderboards/
+  leaderboard_bo_<name>.tsv`, stay as plain files. Their engine twins,
+  `<name>_ax.json`, live in this directory's parent, `mode_specs/`, and are
+  loaded normally.
 
 ## Gotchas
 
@@ -111,5 +124,5 @@ instead of `mode_specs/`.
 
 A top-level `modes/` directory would be an implicit namespace package: from
 the repo root, `import modes` would resolve to it instead of `core/modes.py`,
-and `modes.SPECS` would fail with an `AttributeError` far from the cause.
+and `modes.STUDIES` would fail with an `AttributeError` far from the cause.
 Don't rename it.

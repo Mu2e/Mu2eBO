@@ -1,22 +1,16 @@
 # autoresearch — closed-loop Bayesian optimization of Mu2e geometry
 
-A botorch GP proposes candidate geometries; each is rendered into an Offline
-geometry file, checked locally for G4 feasibility, run through a multi-stage
-Geant4 chain, and harvested into physics metrics — S/√B (Run1A
-conversion-electron significance, maximized) and beam-flash energy deposition
-per POT in the tracker (minimized). Rows append to a per-mode leaderboard TSV;
-the GP refits and the loop continues.
+A botorch GP proposes candidate Mu2e geometries; each is evaluated end to end
+by the contract engine — geometry render, a local G4 feasibility pre-check,
+grid (or local) Geant4 stages, and physics-metric extraction — and the result
+lands as a row on a per-study leaderboard. The GP refits against the board
+and the loop continues.
 
-Each optimization line is a **mode** — knobs, bounds, geometry rendering, grid
-stages, and objectives in one JSON spec under `mode_specs/`:
-
-```
-foilsflash foilspf foilspf2k foilspfbp foilspfbpx foilspfbpz foilspfbw
-```
-
-`mode_specs/archive/` holds retired specs (`ipa625 ipafix ipaovr nominal`,
-the fixed A/B reference arms) as a record only — the loader globs the
-directory flat, so they are not selectable with `--mode`.
+Each optimization line is a **study**: knobs, geometry rendering, evaluate
+steps and objectives in one schema-2 JSON file under `mode_specs/`. The
+engine drives a study's steps through **kits** — MCP servers (or in-process
+adapters) that speak a common `submit`/`status`/`results` contract — so a
+study is portable across grid backends without touching the runner.
 
 ## Setup
 
@@ -25,6 +19,7 @@ git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
 source activate.sh                                    # every new shell
 ./setup.sh --backing /exp/mu2e/app/users/oksuzian     # personal-path-ok: borrow a built Offline
 export AUTORESEARCH_PRODTOOLS=/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/<release>
+export AUTORESEARCH_ANAKIT=<path to the anakit fork checkout>
 kinit
 ```
 
@@ -35,79 +30,74 @@ kinit
   tarballs; a fresh clone has none, and every run refuses until you link one.
   The artifacts are world-readable, so this is all you need — you build
   nothing. `./setup.sh --status` always prints whose build you are on.
-- **`AUTORESEARCH_PRODTOOLS`** is required for grid *and* local runs: every job
-  is built and executed by [prodtools](https://github.com/Mu2e/prodtools), not
-  by this repo. Point it at a checkout holding `bin/json2jobdef`.
+- **`AUTORESEARCH_PRODTOOLS`** is required for any study whose kits include
+  `prodtools`/`offline_preflight` (grid *and* local runs): jobs are built and
+  executed by [prodtools](https://github.com/Mu2e/prodtools), not by this
+  repo. Point it at a checkout holding `bin/json2jobdef`.
+- **`AUTORESEARCH_ANAKIT`** is required for the `<name>_ax` studies, whose
+  `sob`/`flash` steps run on the `anakit` kit — a fork of M. MacKenzie's
+  analysis MCP server. See `kits.toml`.
+- **`kits.toml`** is the registry of native contract kits (`command`, `env`,
+  timeouts, poll cadence). Grid-backed kits (`prodtools`, `offline_preflight`,
+  `anakit`) are declared in `core/kit_registry.py` and run as in-process
+  Adapters instead of a `kits.toml` entry; a native kit needs only a
+  `kits.toml` table, no Python.
 - **Kerberos**: even local jobs stream resampler inputs from `/pnfs` over
-  xrootd, so a ticket is not optional.
+  xrootd, so a ticket is not optional; a grid launch refuses up front unless
+  at least 4 h remain (`core/contract.py:check_kerberos`).
 
-## Run one evaluation
+## Studies
+
+One file per study, `mode_specs/<name>.json`; every key is required and an
+unknown key is a load error. The seven production lines are their MDC2025ax
+engine twins: `foilsflash_ax`, `foilspf_ax`, `foilspf2k_ax`, `foilspfbp_ax`,
+`foilspfbpx_ax`, `foilspfbpz_ax`, `foilspfbw_ax`.
+
+`mode_specs/archive/` is unloaded history: the four schema-1 fixed A/B specs
+(`ipa625`, `ipafix`, `ipaovr`, `nominal`) plus, since Phase C3, the seven
+original (Run1Bap) foilspf studies that ran on the now-deleted pipeline. Their
+v1 leaderboards stay in `leaderboards/` as plain files; nothing loads them.
+See `mode_specs/README.md` for the field reference and how to add a study.
+
+## Run one point
 
 ```bash
-tools/run_local.sh [config-name] [mode]     # this node, ~20 min
-tools/run_grid.sh  [config-name] [mode]     # FermiGrid, 3-6 h
+python -m graph.run --study foilspfbpz_ax --config <name> --campaign <name> \
+    --x=<v1,...,v10> --context alpha=100000.0 --executor grid|local [--parallel N]
 ```
 
-With no arguments each picks a timestamped config name and mode `foilspf`.
-Both sandbox `AUTORESEARCH_DATA_ROOT` so a test run stays out of the board your
-real campaigns train on, print the roots they resolved, and run every gate in
-`core/launch_checks.py` before starting — artifacts and prodtools present,
-config name free, no stale cluster files, and (grid only) CephFS quota under
-90% plus a Kerberos ticket good for 4 h.
-
-The grid one takes hours, so detach it:
-
-```bash
-nohup tools/run_grid.sh gridcheck01 \
-  > /exp/mu2e/data/users/$USER/gridtest/gridcheck01.log 2>&1 &
-```
-
-What a run does:
-
-```
-propose → render geometry + preflight (local `mu2e -n 1`, zero-overlap gate)
-→ stages (mubeam → mustops_ce → elebeam_flash) → harvest → scan_logs
-→ evaluate (append leaderboard row)
-```
-
-Artifacts land in `$AUTORESEARCH_DATA_ROOT/autoresearch_grid/<config>/`, rows in
-`$AUTORESEARCH_DATA_ROOT/autoresearch_leaderboards/`. The committed
-`leaderboards/` is a read-only archive, read as priors and never written.
-
-### Local scale
-
-`run_local.sh` defaults to 8 × 12500 events per stage, which lands a row. Every
-default is an env override:
-
-| variable | default | meaning |
-|---|---|---|
-| `AUTORESEARCH_LOCAL_NJOBS` | 8 | jobs per stage |
-| `AUTORESEARCH_LOCAL_EVENTS` | 12500 | events per job |
-| `AUTORESEARCH_LOCAL_POOL` | 8 | jobs running concurrently |
-
-`AUTORESEARCH_LOCAL_EVENTS=200 tools/run_local.sh smoke01` is a ~30 s/stage
-plumbing check instead. It produces a real `harvest/summary.json` but
-deliberately lands **no row**: at 200 events the flash objective expects under
-one event, and `evaluate` refuses a row whose second objective is zero rather
-than let that zero dominate the Pareto front at the next GP refit.
+`--x` is comma-separated, in the study's knob order; a zero-knob study (e.g.
+`prodtools_smoke`) omits it. Exit 0 means the point ran — either a
+leaderboard row landed, or `state/broken.txt` says why not; exit 2 means it
+was refused before anything ran (unknown study, `--x` out of bounds, a kit
+that won't start, …). `--parallel N` (1..16) only applies with
+`--executor local`.
 
 ## Run a campaign
 
-The closed loop is a work pool: `q` evaluations in flight, one replacement
-launched per exit, with the GP refit against the leaderboard as it stands.
+`$GRAPH_DATA` below is `$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data`.
 
 ```bash
-nohup "$AUTORESEARCH_PYTHON" -m graph.closed_loop --mode foilspf --picker hybrid \
-  --q 20 --max-evals 40 --name-prefix foilspf05 \
-  > "$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/foilspf05_parent.log" 2>&1 &
+nohup python -m graph.closed_loop --study foilspfbpz_ax --q 20 --max-evals 40 \
+    --picker budget_sob --name-prefix foilspfbpz08 --context alpha=100000.0 \
+    --executor grid \
+    > "$GRAPH_DATA/foilspfbpz08_parent.log" 2>&1 &
 ```
 
-`--help` lists the pickers and the rest. Pick an unused `--name-prefix`, and
-don't edit `core/`, `graph/`, or `stage_entries/` while children are in flight —
-they re-execute the working tree. To stop, `touch
-"$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data/STOP_CLOSED_LOOP"`; the pool
-stops launching but blocks until every child exits. Recovery, monitoring, and
-crashed parents: [wiki/drivers/closed-loop-runner.md](wiki/drivers/closed-loop-runner.md).
+Keeps `--q` children (each one `graph.run`) in flight, launching one
+replacement per exit, refitting the GP against the leaderboard as it stands.
+`--picker` is one of `qnehvi`, `qlnei`, `budget_sob`, `hybrid`. Pick an unused
+`--name-prefix`. To stop launching without killing what's running, touch
+`$GRAPH_DATA/<name-prefix>/STOP`; the pool drains the in-flight set and exits.
+
+## Where things land
+
+- `<GRID_DATA_ROOT>/<config>/state/` — `point.json`, `<step>_cluster.txt`,
+  `<step>_results.json`, `broken.txt` (written at the first step failure).
+- The v2 leaderboards, under `$AUTORESEARCH_DATA_ROOT/autoresearch_leaderboards/`.
+  The committed `leaderboards/` is a read-only archive, read as priors and
+  never written.
+- The per-child campaign logs, `$GRAPH_DATA/closed_loop_logs/<config>.log`.
 
 ## Tests
 
@@ -115,6 +105,12 @@ crashed parents: [wiki/drivers/closed-loop-runner.md](wiki/drivers/closed-loop-r
 PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .
 ```
 
-675 tests, no grid contact.
+35 test files, 721 tests, no grid contact.
 
-More: `wiki/index.md`.
+## More
+
+[wiki/drivers/contract-engine.md](wiki/drivers/contract-engine.md) is the
+engine's design record. The `surrogate/` MCP server exposes the same boards
+(GP fit, predict, suggest) to an outside client; see
+[wiki/drivers/surrogate.md](wiki/drivers/surrogate.md). Wiki catalog:
+`wiki/index.md`.

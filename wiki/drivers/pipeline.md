@@ -2,14 +2,17 @@
 type: driver
 title: pipeline.py — parametric grid runner
 description: 'per-config runner: job description is checked-in `stage_entries/<stage>.json`, execution shells prodtools (env `AUTORESEARCH_PRODTOOLS`: json2jobdef/submit/jobwait/runlocal) — submits grid or local, harvests'
-status: active
-timestamp: '2026-09-25'
+status: superseded
+status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
+timestamp: '2026-09-28'
 updated_note: '2026-09-25: mustops_ce now sets sequential_aux (one staged mubeam file per job; render_entry passes it by name); P1 spike: a prodtools pin carrying 623dca6 breaks the ledger+outstage submit'
 ---
 
 # pipeline.py — parametric grid runner
 
 ## Summary
+Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record.
+
 One canonical pipeline.py at the repo root. Pass `--config CFG`; per-config
 paths (work tree, geom file, DSCONF, /pnfs staging dir, stage `desc` strings)
 are derived from CFG. Invoked once per BO iteration after `propose` to submit

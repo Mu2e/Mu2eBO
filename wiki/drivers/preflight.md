@@ -2,8 +2,9 @@
 type: driver
 title: preflight — local G4 init feasibility check
 description: local `mu2e -n 1` G4 init feasibility check
-status: active
-timestamp: '2026-09-26'
+status: superseded
+status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
+timestamp: '2026-09-28'
 updated_note: C2a — the rules moved to core/adapters/preflight_checks.py, shared
   with the engine's offline_preflight kit; runs from the code tarball; holeRadii
   canary dropped
@@ -98,6 +99,8 @@ updated_note: C2a — the rules moved to core/adapters/preflight_checks.py, shar
 > - **helical** — surface-check only, no GDML emission.
 
 ## Summary
+Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record; the shared rules file this page describes, `core/adapters/preflight_checks.py`, is still live and used by the engine's `offline_preflight` kit — only the pipeline's `bo_driver preflight` verb this page was written for is gone.
+
 Runs a single `mu2e -n 1` locally (Musing setup) on a BO proposal's geom file
 to verify that Geant4 geometry construction succeeds before paying for grid
 submission. Catches overlapping-volume errors, bad placements, and

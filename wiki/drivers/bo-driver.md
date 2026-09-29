@@ -3,8 +3,9 @@ type: driver
 title: bo_driver.py — driver
 description: '`propose | evaluate | preflight` (6 modes; michael/helical retired
   2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)'
-status: active
-timestamp: '2026-09-24'
+status: superseded
+status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
+timestamp: '2026-09-28'
 updated_note: 'Phase A of the generic-study refactor (2026-09-24): specs are
   schema-2 study files (core/study.py -> modes.STUDIES); extract_metrics/
   evaluate resolve values BY OBJECTIVE NAME with no per-event fallback;
@@ -16,6 +17,8 @@ updated_note: 'Phase A of the generic-study refactor (2026-09-24): specs are
 # bo_driver.py — driver
 
 ## Summary
+Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record.
+
 The multi-mode BO driver (all 6 live modes — foils/foilsf/foilsflash/
 foilsg/prodtarget/prodtarget6d). Implements the BO loop as subcommands, each
 independently runnable. Born 2026-04 as the dedicated driver for

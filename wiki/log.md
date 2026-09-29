@@ -32,6 +32,35 @@ superseded, linted.
   they're twins (`DEFAULT_MODE` must stay a pipeline `SPECS` entry), the
   preflight-reuse fix (closes the "resumed child re-runs preflight"
   follow-up), and `tools/c2b_parity.py`; acceptance marked pending.
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C3 —
+  the pipeline is deleted, so the engine is the only runner; renamed
+  `graph.study_run`/`graph.study_loop` to `graph.run`/`graph.closed_loop`
+  in the current-state text (dated bullets that predate the rename keep
+  the old names); new "Pipeline deleted (Phase C3)" section: the spec
+  path, what was deleted, the archive decision for the seven original
+  foilspf studies, the three out-of-scope rulings (`desc_fmt`,
+  `core/pipeline_templates/` and v1 leaderboard-layout code all keep their
+  current form), the seven `_ax` studies' unchanged `measure_basis_sha`,
+  and "Acceptance: pending"; added the ported-launch-checks follow-up
+  (data-quota, config-name-free, stale-cluster) to the follow-ups list.
+- **updated** [pipeline](/drivers/pipeline.md), [graph-runner](/drivers/graph-runner.md),
+  [closed-loop-runner](/drivers/closed-loop-runner.md),
+  [bo-driver](/drivers/bo-driver.md), [preflight](/drivers/preflight.md),
+  [local-executor](/drivers/local-executor.md): `status: superseded`,
+  `status_note` set to record the Phase C3 deletion (2026-09-28); one line
+  added at the top of each Summary pointing to
+  [contract-engine](/drivers/contract-engine.md); bodies left unchanged as
+  the historical record.
+- **updated** [tests](/drivers/tests.md): new counts verified by a full run
+  at commit `dc8a176` — 35 `test_*.py` files, 721 tests, 4 skipped, 248.8 s
+  under `ana 2.8.0` (was 43 files / 856 tests / 1 skipped at the Phase B
+  measurement); the manual golden parity harness (`tests/golden_parity.py`)
+  is marked deleted in Phase C3 everywhere it was described as current;
+  `graph.study_run`/`graph.study_loop` renamed to `graph.run`/`graph.closed_loop`
+  in current-state text.
+- **updated** [index](/index.md): the six superseded driver pages marked
+  "(**deleted 2026-09-28**, Phase C3)" in their one-liners; the
+  contract-engine and tests one-liners updated for Phase C3.
 
 ## 2026-09-27
 - **updated** [contract-engine](/drivers/contract-engine.md): C2a acceptance
