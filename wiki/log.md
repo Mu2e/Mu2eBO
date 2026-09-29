@@ -6,6 +6,13 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [tests](/drivers/tests.md) (post-C3 cleanup): suite now 35
+  files, 718 tests OK (skipped=3), ~250 s — was 729 (skipped=4); the
+  seven `_ax` studies' `measure_basis_sha` values are unchanged. Also:
+  `Leaderboard._check_header` is the one home of the header check, and
+  `core/kit_config.py` shares `resolve_command`/`resolve_env` (`_Launch`
+  base) and the table checks (`_table`, `_positive_timeouts`) between kits
+  and servers — no behaviour change.
 - **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
   cleanup): the `.env` bullet now records that the unused `python-dotenv`
   pin was dropped from `requirements.txt`. Same commit: the unreachable

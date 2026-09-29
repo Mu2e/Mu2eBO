@@ -1,15 +1,19 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (35 files, 729 tests, 4 skipped), no
+description: '`tests/` regression suite (35 files, 718 tests, 3 skipped), no
   grid contact; `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s
   tests -t .`; the manual golden parity harness (`tests/golden_parity.py`)
   was deleted in Phase C3 (2026-09-28) with the pipeline it checked'
 status: active
-timestamp: '2026-09-28'
-updated_note: 'Phase C3 (2026-09-28) deleted every pipeline-only test file
-  and tests/golden_parity.py, and renamed test_study_run.py/test_study_loop.py
-  to test_run.py/test_closed_loop.py. Measured post-cut (verified by a full
+timestamp: '2026-09-29'
+updated_note: 'Post-C3 cleanup (2026-09-29, branch cleanup-c3): 729 -> 718
+  tests, 4 -> 3 skipped -- the pending-TSV API and its 10 tests were
+  deleted, a duplicate test_geom_template case went, and the managed-policy
+  banner test asserts instead of skipping. Phase C3 (2026-09-28) deleted
+  every pipeline-only test file and tests/golden_parity.py, and renamed
+  test_study_run.py/test_study_loop.py to test_run.py/test_closed_loop.py.
+  Measured post-cut (verified by a full
   run at commit dc8a176): 35 files, 721 tests (4 skipped), ~249s under ana
   2.8.0. The Phase C3 final-fix review (2026-09-29, this file''s own doc
   fixes plus the AUTORESEARCH_LOCAL refusal, the pool.py recovery-text fix,
@@ -26,7 +30,7 @@ updated_note: 'Phase C3 (2026-09-28) deleted every pipeline-only test file
 
 ## Summary
 Regression tests for the Python drivers in this project. **35 `test_*.py`
-files, 729 tests (4 skipped)** (2026-09-29, post Phase C3 final-fix review),
+files, 718 tests (3 skipped)** (2026-09-29, post-C3 cleanup),
 run under
 `$AUTORESEARCH_PYTHON` with no grid contact (all mocks/tempdirs, or a temp
 `AUTORESEARCH_DATA_ROOT` for the engine's subprocess tests). The manual
@@ -47,7 +51,8 @@ Phase C (C1/C2a/C2b added kit-adapter and study-engine coverage, not
 re-audited file-by-file here; C3 on 2026-09-28 deleted every pipeline-only
 test file plus `tests/golden_parity.py`, and renamed
 `test_study_run.py`/`test_study_loop.py` to `test_run.py`/`test_closed_loop.py`),
-landing at the current 35 files / 721 tests / 4 skipped.
+landing at 35 files / 729 tests / 4 skipped after the C3 final-fix
+review, then 718 tests / 3 skipped after the post-C3 cleanup (2026-09-29).
 
 ## Key facts
 - **`tests/test_no_hardcoded_paths.py` only sees files git tracks**
