@@ -46,8 +46,16 @@ def write_fixture(path: Path, n: int = 10, header_only: bool = False):
 def patched_leaderboard(tmp: str, **kw):
     lb = Path(tmp) / f"leaderboard_bo_{STUDY}.tsv"
     write_fixture(lb, **kw)
-    return mock.patch.object(bp.boards, "board_for",
-                             lambda s: _board(lb))
+
+    def board_for(s):
+        # The fixture is STUDY's board: another study reaching board_for under
+        # this patch would silently train on the wrong schema's rows.
+        if s.name != STUDY:
+            raise AssertionError(
+                f"patched_leaderboard serves only {STUDY!r}'s fixture board, "
+                f"but board_for was called for study {s.name!r}")
+        return _board(lb)
+    return mock.patch.object(bp.boards, "board_for", board_for)
 
 
 BOUNDS_LO = list(bp._modes.STUDIES[STUDY].bounds_lo)

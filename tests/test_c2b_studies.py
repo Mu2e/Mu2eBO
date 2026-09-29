@@ -17,10 +17,81 @@ import study as st  # noqa: E402
 from tests.engine_fixtures import ENGINE_STUDIES  # noqa: E402
 
 MODES = ROOT / "mode_specs"
+TWINS = ("foilsflash_ax", "foilspf_ax", "foilspf2k_ax", "foilspfbp_ax",
+         "foilspfbpx_ax", "foilspfbpz_ax", "foilspfbw_ax")
+TARBALL = "${ARTIFACT}/autoresearch_muse/Code_mdc2025ax.tar.bz2"
+WORK_AREA = "${ARTIFACT}/autoresearch_muse_ax"
+SOB = {"step": "sob", "kit": "anakit", "entry": None, "files": [],
+       "files_from": ["mubeam", "mustops_ce"], "params": {},
+       "fixed": {"analysis": "ce_sensitivity", "input_correction": 0.01278168,
+                 "cosmic_rate_per_s_per_mev": 0.0018181818181818182,
+                 "dio_fraction": 0.39,
+                 "dio_table": WORK_AREA + "/data/heeck_finer_binning_2016_szafron.tbl"}}
+FLASH = {"step": "flash", "kit": "anakit", "entry": None, "files": [],
+         "files_from": ["elebeam_flash"], "params": {},
+         "fixed": {"analysis": "flash_edep_per_pot",
+                   "pot_per_electron": 11.536718606512062}}
 
 
 def doc(path):
     return json.loads(Path(path).read_text())
+
+
+class TestTwinFacts(unittest.TestCase):
+    """What makes each file an MDC2025ax engine twin (Phase C2b spec): the
+    release's code tarball and run label, the anakit analyses with their
+    constants, and its own v2 board. The comparison against the originals
+    went with them to mode_specs/archive/ in Phase C3; these are the
+    twin-side facts it used to pin."""
+
+    def test_each_twin_runs_mdc2025ax_and_anakit(self):
+        for name in TWINS:
+            with self.subTest(study=name):
+                twin = doc(MODES / f"{name}.json")
+                self.assertEqual(twin["name"], name)
+                kits = twin["kits"]
+                self.assertEqual(kits["prodtools"]["code_tarball"], TARBALL)
+                self.assertEqual(kits["prodtools"]["dsconf"],
+                                 "MDC2025ax_{cfg}")
+                self.assertEqual(kits["offline_preflight"]["code_tarball"],
+                                 TARBALL)
+                self.assertEqual(kits["anakit"], {"work_area": WORK_AREA})
+                steps = {s["step"]: s for s in twin["evaluate"]}
+                self.assertEqual(steps["sob"], SOB)
+                self.assertEqual(steps["flash"], FLASH)
+
+    def test_each_twin_writes_its_own_v2_board(self):
+        for name in TWINS:
+            with self.subTest(study=name):
+                board = doc(MODES / f"{name}.json")["leaderboard"]
+                self.assertEqual(board["file"],
+                                 f"leaderboards/leaderboard_bo_{name}.tsv")
+                self.assertEqual(board["layout"], "v2")
+
+
+class TestSpotFacts(unittest.TestCase):
+    """Load-bearing values pinned individually -- the ones with incident
+    history or active standards behind them (moved onto the loaded _ax
+    studies in Phase C3, when the originals were archived)."""
+
+    def test_obs_noise_is_the_replicate_measured_sigma(self):
+        # Free MLL noise ranked the best-ever eval 16th of 324
+        # (wiki/incidents/gp-free-noise-erases-champion.md).
+        for name in ("foilsflash_ax", "foilspf_ax"):
+            with self.subTest(study=name):
+                self.assertEqual(
+                    tuple(o.noise for o in modes.STUDIES[name].objectives),
+                    (0.006, 0.010))
+
+    def test_foilsflash_thickness_floor(self):
+        s = modes.STUDIES["foilsflash_ax"]
+        self.assertEqual(s.bounds_lo[2], 0.002)
+        self.assertEqual(s.bounds_lo[3], 0.002)
+
+    def test_foilsflash_elebeam_standard_100(self):
+        step = next(s for s in modes.STUDIES["foilsflash_ax"].steps
+                    if s.step == "elebeam_flash")
+        self.assertEqual(step.fixed["njobs"], 100)
 
 
 def geom_vector(text, key):

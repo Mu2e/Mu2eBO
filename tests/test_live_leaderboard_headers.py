@@ -5,8 +5,9 @@ schema drift is caught in the suite, not mid-campaign.
 If this fails on a REAL tracked file: STOP, report — do not edit the file.
 
 Since Phase C3 the loaded studies are the _ax engine twins. None has a
-committed board yet (the engine writes live boards under DATA_ROOT), so the
-check is empty until one is promoted into leaderboards/. The archived
+committed board yet (the engine writes live boards under DATA_ROOT), so until
+one is promoted into leaderboards/ there is nothing to check and the test
+SKIPS, saying so, rather than reading as a green check. The archived
 studies' v1 boards are not checked: their study files are unloaded.
 """
 import sys
@@ -46,10 +47,13 @@ class TestLiveFileHeaders(unittest.TestCase):
                     first.rstrip("\n"), PENDING_HEADER.rstrip("\n"),
                     msg=f"{pp} pending header malformed")
                 checked += 1
-        # Zero files checked is legitimate today (see the module docstring);
-        # guard the inputs instead of the count.
         self.assertTrue(live_root.is_dir(), f"{live_root} missing — wrong ROOT?")
         self.assertTrue(modes.STUDIES, "no studies loaded")
+        if checked == 0:
+            self.skipTest(
+                f"nothing to check: none of the loaded studies "
+                f"({', '.join(sorted(modes.STUDIES))}) has a board or pending "
+                f"file under {live_root} yet (see the module docstring)")
 
 
 if __name__ == "__main__":
