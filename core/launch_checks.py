@@ -16,83 +16,19 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harvest  # noqa: E402
 import modes  # noqa: E402
 import paths  # noqa: E402
+# Moved to core/contract.py in Phase C3 (the engine's launch gate); this
+# module is deleted with the pipeline.
+from contract import (GRID_TICKET_SECONDS, _klist_text,  # noqa: E402,F401
+                      _parse_klist_time, check_kerberos)
 
-# A grid chain submits stages for HOURS, not once at the start, so validity
-# now is not enough -- the ticket has to outlive the chain. Local runs
-# submit nothing but still stream resampler inputs from /pnfs over xrootd,
-# so they need a ticket, just not a long one.
-GRID_TICKET_SECONDS = 4 * 3600
 QUOTA_ABORT_PCT = 90
-
-
-def _klist_text() -> str | None:
-    """Raw `klist` output, or None when there is no usable ticket cache."""
-    try:
-        p = subprocess.run(["klist"], capture_output=True, text=True)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return p.stdout if p.returncode == 0 else None
-
-
-def _parse_klist_time(stamp: str) -> int | None:
-    """klist's local-time stamp as an epoch, or None if it does not parse.
-
-    Both a 4- and 2-digit year are in the wild. Parsed here rather than
-    shelled out to `date -d` so the result is a plain function of the string
-    and the process timezone -- testable without a subprocess.
-    """
-    for fmt in ("%m/%d/%Y %H:%M:%S", "%m/%d/%y %H:%M:%S"):
-        try:
-            return int(datetime.strptime(stamp, fmt).timestamp())
-        except ValueError:
-            continue
-    return None
-
-
-def check_kerberos(min_seconds: int, *, klist_text=_klist_text,
-                   now=time.time) -> str | None:
-    """Ticket present, and with `min_seconds` of life left.
-
-    A ticket that expires mid-run kills the chain at the next submit
-    (wiki/incidents/kerberos-mid-run-expiry.md), and the prodtools input
-    gate reports the resulting auth failure as "absent from dCache tape" --
-    which reads as missing data, sending you to look at SAM instead of at
-    your ticket.
-    """
-    text = klist_text()
-    if not text:
-        return "no valid Kerberos ticket -- run kinit first."
-    krbtgt = [ln for ln in text.splitlines() if "krbtgt" in ln]
-    if not krbtgt:
-        return "no valid Kerberos ticket -- run kinit first."
-    if min_seconds <= 0:
-        return None
-    # `MM/DD/YYYY HH:MM:SS  MM/DD/YYYY HH:MM:SS  krbtgt/...`: fields 3+4 are
-    # the expiry. An unparseable line is NOT fatal -- klist's format is
-    # locale-dependent, and refusing to launch over a date format would be
-    # worse than the risk it guards.
-    fields = krbtgt[0].split()
-    if len(fields) < 4:
-        return None
-    expiry = _parse_klist_time(f"{fields[2]} {fields[3]}")
-    if expiry is None:
-        return None
-    left = expiry - int(now())
-    if left < min_seconds:
-        return (f"Kerberos ticket has under {min_seconds // 3600} h left "
-                f"({left // 60} min) -- a chain submits stages for hours and "
-                f"will die at a later submit. Run 'kinit' before launching.")
-    return None
 
 
 def boards(data_root: Path = None) -> list[Path]:

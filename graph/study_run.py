@@ -20,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import kit_registry  # noqa: E402
 import modes as _modes  # noqa: E402
 from boards import board_for  # noqa: E402
-from contract import (ContractError, EXECUTORS, KitSet, executor_problems,  # noqa: E402
+from contract import (ContractError, EXECUTORS, GRID_TICKET_SECONDS,  # noqa: E402
+                      KitSet, check_kerberos, executor_problems,
                       kit_step_problems, requires_kerberos)
 from kits import KitError  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
@@ -33,8 +34,7 @@ def refuse(message: str) -> int:
 
 
 def _kerberos():
-    import launch_checks
-    return launch_checks.check_kerberos(launch_checks.GRID_TICKET_SECONDS)
+    return check_kerberos(GRID_TICKET_SECONDS)
 
 
 def launch_refusals(study, executor, parallel, *, kerberos=None) -> list:

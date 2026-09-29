@@ -487,5 +487,63 @@ class TestConfigNames(unittest.TestCase):
                                                  "a-b.c"), [])
 
 
+# A krbtgt line in klist's real shape; the expiry is far enough out that only
+# an absurd min_seconds trips it.
+KLIST_OK = """Ticket cache: FILE:/tmp/krb5cc_1000
+Default principal: someone@FNAL.GOV
+
+Valid starting       Expires              Service principal
+01/01/2030 11:35:23  01/02/2030 13:35:19  krbtgt/FNAL.GOV@FNAL.GOV
+"""
+
+
+class TestKerberos(unittest.TestCase):
+    """The engine's grid-launch ticket gate (moved from the pipeline's
+    core/launch_checks.py in Phase C3)."""
+
+    def setUp(self):
+        # Computed the way the module does, so the test is independent of
+        # the machine's timezone.
+        self.expiry = ct._parse_klist_time("01/02/2030 13:35:19")
+
+    def test_no_ticket_is_a_problem(self):
+        self.assertIn("kinit", ct.check_kerberos(0, klist_text=lambda: None))
+
+    def test_ticket_cache_without_krbtgt_is_a_problem(self):
+        """An expired cache still prints a header; only a krbtgt line counts."""
+        header = "Ticket cache: FILE:/tmp/krb5cc_1000\n\nValid starting\n"
+        self.assertIn("kinit", ct.check_kerberos(0, klist_text=lambda: header))
+
+    def test_zero_seconds_accepts_any_live_ticket(self):
+        self.assertIsNone(ct.check_kerberos(0, klist_text=lambda: KLIST_OK))
+
+    def test_long_ticket_passes_the_grid_life_check(self):
+        self.assertIsNone(ct.check_kerberos(
+            ct.GRID_TICKET_SECONDS, klist_text=lambda: KLIST_OK,
+            now=lambda: self.expiry - 86400))
+
+    def test_short_ticket_fails_the_grid_life_check(self):
+        """The gate is REMAINING life, not validity."""
+        problem = ct.check_kerberos(
+            ct.GRID_TICKET_SECONDS, klist_text=lambda: KLIST_OK,
+            now=lambda: self.expiry - 3600)
+        self.assertIsNotNone(problem)
+        self.assertIn("4 h left", problem)
+
+    def test_unparseable_expiry_does_not_block_a_launch(self):
+        """klist's stamp is locale-dependent; refusing to launch over a date
+        format would be worse than the risk the gate guards."""
+        odd = KLIST_OK.replace("01/02/2030 13:35:19", "2030-01-02T13:35:19")
+        self.assertIsNone(ct.check_kerberos(ct.GRID_TICKET_SECONDS,
+                                            klist_text=lambda: odd))
+
+    def test_two_digit_year_parses(self):
+        self.assertEqual(ct._parse_klist_time("01/02/30 13:35:19"),
+                         self.expiry)
+
+    def test_grid_seconds_is_four_hours(self):
+        self.assertEqual(ct.GRID_TICKET_SECONDS, 4 * 3600)
+
+
 if __name__ == "__main__":
     unittest.main()

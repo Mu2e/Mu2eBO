@@ -21,9 +21,11 @@ The Kit interface, which NativeKit and every adapter implement:
 from __future__ import annotations
 
 import functools
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 if __package__:
@@ -372,6 +374,68 @@ def requires_kerberos(study, executor: str) -> bool:
     _load_adapters()
     return any(getattr(ADAPTERS.get(n), "REQUIRES_KERBEROS", False)
                for n in kit_registry.kits_of(study))
+
+
+# A grid launch submits steps for HOURS, not once at the start, so validity
+# now is not enough -- the ticket has to outlive the run (moved from the
+# pipeline's core/launch_checks.py in Phase C3).
+GRID_TICKET_SECONDS = 4 * 3600
+
+
+def _klist_text() -> Optional[str]:
+    """Raw `klist` output, or None when there is no usable ticket cache."""
+    try:
+        p = subprocess.run(["klist"], capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return p.stdout if p.returncode == 0 else None
+
+
+def _parse_klist_time(stamp: str) -> Optional[int]:
+    """klist's local-time stamp as an epoch, or None if it does not parse.
+    Both a 4- and 2-digit year are in the wild."""
+    for fmt in ("%m/%d/%Y %H:%M:%S", "%m/%d/%y %H:%M:%S"):
+        try:
+            return int(datetime.strptime(stamp, fmt).timestamp())
+        except ValueError:
+            continue
+    return None
+
+
+def check_kerberos(min_seconds: int, *, klist_text=_klist_text,
+                   now=time.time) -> Optional[str]:
+    """Ticket present, and with `min_seconds` of life left.
+
+    A ticket that expires mid-run kills the run at the next submit
+    (wiki/incidents/kerberos-mid-run-expiry.md), and the prodtools input
+    gate reports the resulting auth failure as "absent from dCache tape" --
+    which reads as missing data, sending you to look at SAM instead of at
+    your ticket.
+    """
+    text = klist_text()
+    if not text:
+        return "no valid Kerberos ticket -- run kinit first."
+    krbtgt = [ln for ln in text.splitlines() if "krbtgt" in ln]
+    if not krbtgt:
+        return "no valid Kerberos ticket -- run kinit first."
+    if min_seconds <= 0:
+        return None
+    # `MM/DD/YYYY HH:MM:SS  MM/DD/YYYY HH:MM:SS  krbtgt/...`: fields 3+4 are
+    # the expiry. An unparseable line is NOT fatal -- klist's format is
+    # locale-dependent, and refusing to launch over a date format would be
+    # worse than the risk it guards.
+    fields = krbtgt[0].split()
+    if len(fields) < 4:
+        return None
+    expiry = _parse_klist_time(f"{fields[2]} {fields[3]}")
+    if expiry is None:
+        return None
+    left = expiry - int(now())
+    if left < min_seconds:
+        return (f"Kerberos ticket has under {min_seconds // 3600} h left "
+                f"({left // 60} min) -- a chain submits stages for hours and "
+                f"will die at a later submit. Run 'kinit' before launching.")
+    return None
 
 
 def config_name_problems(study, config: str) -> List[str]:
