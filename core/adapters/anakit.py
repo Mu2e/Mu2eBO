@@ -34,6 +34,7 @@ if __package__ == "core.adapters":
     from core.adapters import prodtools_entry as pe
     from core.contract import ContractError, parse_results, parse_status
     from core.kits import KitClient, KitError
+    from core.scheduler import write_atomic
     from core.study import expand_artifact
 else:
     import kit_config
@@ -41,6 +42,7 @@ else:
     from adapters import prodtools_entry as pe
     from contract import ContractError, parse_results, parse_status
     from kits import KitClient, KitError
+    from scheduler import write_atomic
     from study import expand_artifact
 
 VERSION = "anakit-adapter/1"          # bump when a step would measure anew
@@ -164,12 +166,6 @@ def _check_timeouts(server) -> None:
                      f"{RUN_TIMEOUT_S} s")
 
 
-def _write_json(path: Path, data) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
-    tmp.replace(path)
-
-
 class AnakitKit:
     """One campaign child's handle on anakit. run_steps' threads share it,
     one step each; each submit has its own server and step directory."""
@@ -288,11 +284,11 @@ class AnakitKit:
             client.close()
         result_path = sdir / RESULT_NAME
         try:
-            _write_json(result_path, {
+            write_atomic(result_path, json.dumps({
                 "handle": name, "analysis": analysis,
                 "work_area": str(work_area), "code": code,
                 "version": self._version, "metrics": list(spec["metrics"]),
-                "reply": reply})
+                "reply": reply}, indent=1, sort_keys=True))
         except OSError as exc:
             raise ValueError(f"anakit: writing {result_path} failed: "
                              f"{exc}") from exc

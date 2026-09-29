@@ -31,6 +31,7 @@ if __package__ == "core.adapters":
     from core.contract import (Describe, call_with_retries, parse_cancel,
                                parse_results, parse_status)
     from core.kits import KitClient, KitError, KitToolError
+    from core.scheduler import write_atomic
 else:
     import kit_config
     import kit_registry
@@ -39,6 +40,7 @@ else:
     from contract import (Describe, call_with_retries, parse_cancel,
                           parse_results, parse_status)
     from kits import KitClient, KitError, KitToolError
+    from scheduler import write_atomic
 
 VERSION = "prodtools-adapter/1"      # bump when a step would measure anew
 PARAMS = ("entry", "code_tarball", "dsconf", "fatal_log_codes", "njobs",
@@ -86,14 +88,6 @@ def _read_json(path):
         return json.loads(Path(path).read_text())
     except FileNotFoundError:
         return None
-
-
-def _write_json(path, data) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
-    tmp.replace(path)
 
 
 def _utc_of(value, what, run_name) -> datetime.datetime:
@@ -607,7 +601,9 @@ class ProdtoolsKit:
 
     def _save(self, sdir, rec, **fields) -> None:
         rec.update(fields)
-        _write_json(sdir / "record.json", rec)
+        sdir.mkdir(parents=True, exist_ok=True)
+        write_atomic(sdir / "record.json",
+                     json.dumps(rec, indent=1, sort_keys=True))
 
     def _working(self, message, progress):
         return parse_status({"state": "working", "message": message,

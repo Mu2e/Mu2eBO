@@ -6,6 +6,12 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** (post-C3 cleanup) the prodtools and anakit adapters write
+  `record.json` / `anakit_result.json` through `core/scheduler.py:
+  write_atomic` instead of private `_write_json` copies (same `.tmp` +
+  rename, same `json.dumps(indent=1, sort_keys=True)`, no trailing
+  newline: on-disk bytes unchanged, checked; prodtools still creates the
+  step dir first).
 - **updated** (post-C3 cleanup) `core/contract.py` imports `_is_number`
   from `core/kit_config.py` instead of carrying an identical copy.
 - **updated** (post-C3 cleanup) deleted the unused `Objective.step`,
