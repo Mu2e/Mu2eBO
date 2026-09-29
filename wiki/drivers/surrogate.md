@@ -39,12 +39,14 @@ later — plugs into `MCPServer(middleware=[...])` without touching the tools).
   NOT nested under this repo). Env seam `AUTORESEARCH_SURROKIT`
   (`core/paths.py:45 SURROKIT_ROOT`), default `../surrokit` relative to
   `REPO_ROOT`.
-- **Pinned SHA: `4884aa662ff9f2bdb3a6ff54b93f0b1ee53e35ab`** ("docs: README
-  states engine scope, Constraint semantics, adapter problem set",
-  2026-08-28 line, verified 2026-09-22). The pin lives at
-  `core/paths.py:51 SURROKIT_PIN_SHA` and the suite asserts the checkout
+- **Pinned SHA: `26929f7c22bcd9c4bef0c09d453309ae35300fbe`** ("pickers: one
+  home for the min_spacing / hv_frac / pool defaults", bumped 2026-09-29
+  from `4884aa66` — three cleanup commits, picks proven identical across
+  10 picker/seed cases, surrokit suite 52 OK). The pin lives at
+  `core/paths.py:50 SURROKIT_PIN_SHA` and the suite asserts the checkout
   matches it; bump DELIBERATELY after re-validating. (This page carried the
-  stale `0a094421` through three pin bumps — read paths.py, not this line.)
+  stale `0a094421` through three pin bumps before that — read paths.py, not
+  this line.)
 - **The old picker bodies are DELETED from `core/botorch_predict.py`**
   (2026-08-28, refactor commit "delete picker bodies ported to surrokit"):
   `_sampler`, `ACQ_NUM_RESTARTS`/`ACQ_RAW_SAMPLES`/`ACQ_OPTIONS`,
