@@ -1,4 +1,4 @@
-"""Leaderboard: the schema-owning module for per-study history + pending TSVs.
+"""Leaderboard: the schema-owning module for per-study history TSVs.
 
 Every read checks the physical header against the spec-derived one and fails
 loudly (never a silent 0-row history — see
@@ -11,15 +11,9 @@ from __future__ import annotations
 
 import csv
 import fcntl
-import json
-import sys
-import time
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-
-STALE_PENDING_S = 48 * 3600.0
-PENDING_HEADER = "config\tx\talpha\tsubmitted_at\n"
 
 # v2 rows end in these columns (generic-study design, "Leaderboard rows").
 V2_META = ("handles", "spec_sha", "measure_sha", "time")
@@ -113,12 +107,6 @@ class Point:
     cfg: str
     x: list
     y: dict
-
-
-def to_py_scalars(x) -> list:
-    """Coerce numpy scalars to native Python types for JSON/msgpack —
-    see wiki/incidents/langgraph-checkpoint-numpy-int64.md."""
-    return [v.item() if hasattr(v, "item") else v for v in x]
 
 
 @dataclass(frozen=True)
@@ -302,118 +290,3 @@ class Leaderboard:
             if new:
                 f.write(header)
             f.write(line)
-
-    # --- pending -----------------------------------------------------------
-    def pending_path(self) -> Path:
-        return self.path.parent / f"pending_bo_{self.name}.tsv"
-
-    def _pending_quarantine_path(self) -> Path:
-        pp = self.pending_path()
-        return pp.with_name(pp.name + ".quarantine.tsv")
-
-    def pending_add(self, name: str, x, alpha: float) -> None:
-        pp = self.pending_path()
-        row = (f"{name}\t{json.dumps(to_py_scalars(x))}"
-               f"\t{alpha:.3f}\t{int(time.time())}\n")
-        with _flock_ex(pp):
-            if not pp.exists():
-                pp.write_text(PENDING_HEADER + row)
-                return
-            with pp.open() as f:
-                first = f.readline()
-            if first.rstrip("\n") != PENDING_HEADER.rstrip("\n"):
-                qp = self._pending_quarantine_path()
-                new = not qp.exists()
-                with qp.open("a") as f:
-                    if new:
-                        f.write(PENDING_HEADER)
-                    f.write(row)
-                raise SchemaMismatch(pp, PENDING_HEADER, first,
-                                     quarantined=qp)
-            with pp.open("a") as f:
-                f.write(row)
-
-    def pending_load(self, *, now: float | None = None) -> list:
-        pp = self.pending_path()
-        if not pp.exists():
-            return []
-        now = time.time() if now is None else now
-        out, stale = [], []
-        with _flock_sh(pp), pp.open() as f:
-            first = f.readline()
-            if first.rstrip("\n") != PENDING_HEADER.rstrip("\n"):
-                raise SchemaMismatch(pp, PENDING_HEADER, first)
-            cols = ("config", "x", "alpha", "submitted_at")
-            reader = csv.DictReader(f, fieldnames=cols, delimiter="\t")
-            for line_no, row in enumerate(reader, start=2):
-                try:
-                    name, x = row["config"], json.loads(row["x"])
-                    age_s = now - float(row["submitted_at"])
-                except (KeyError, ValueError, TypeError,
-                        json.JSONDecodeError) as e:
-                    raise RowParseError(pp, line_no, e) from e
-                out.append((name, x))
-                if age_s > STALE_PENDING_S:
-                    stale.append((name, age_s / 3600.0))
-        if stale:
-            rows = "\n".join(f"    {n}  ({h:.0f}h old)" for n, h in stale)
-            print(f"[{self.name}] WARNING: {len(stale)} pending row(s) older "
-                  f"than {STALE_PENDING_S/3600:.0f}h — likely dead children "
-                  f"still repelling the GP as phantom in-flight points:\n"
-                  f"{rows}\n  To remove:  Leaderboard.pending_prune() "
-                  f"on this board", file=sys.stderr)
-        return out
-
-    def pending_prune(self, older_than_h: float = 48.0,
-                      now: float | None = None) -> list[str]:
-        pp = self.pending_path()
-        now = time.time() if now is None else now
-        with _flock_ex(pp):
-            if not pp.exists():
-                return []
-            lines = pp.read_text().splitlines()
-            if not lines:
-                return []
-            first = lines[0]
-            if first != PENDING_HEADER.rstrip("\n"):
-                raise SchemaMismatch(pp, PENDING_HEADER, first + "\n")
-            kept, removed = [first], []
-            for ln in lines[1:]:
-                cells = ln.split("\t")
-                try:
-                    age_h = (now - float(cells[3])) / 3600.0
-                except (IndexError, ValueError):
-                    kept.append(ln)   # unparseable rows are prune-immune;
-                    continue          # pending_load will name them loudly
-                if age_h > older_than_h:
-                    removed.append(cells[0])
-                else:
-                    kept.append(ln)
-            if removed:
-                # same newline invariant as pending_remove
-                pp.write_text("\n".join(kept) + "\n")
-            return removed
-
-    def pending_remove(self, name: str) -> bool:
-        pp = self.pending_path()
-        # LOCK_EX: two concurrent removals can race, one truncate clobbering
-        # the other's deletion.
-        with _flock_ex(pp):
-            if not pp.exists():
-                return False
-            rows = pp.read_text().splitlines()
-            if len(rows) < 2:
-                return False
-            header, body = rows[0], rows[1:]
-            kept = [r for r in body if not r.startswith(name + "\t")]
-            if len(kept) == len(body):
-                return False
-            # ALWAYS terminate with a newline, even when `kept` is empty: the
-            # old `("\n" if kept else "")` left the header unterminated, and
-            # appends in "a" mode then wrote the next row straight onto the
-            # header line -- the file became a single line forever and
-            # load_pending() returned 0 rows, silently. Fatal once the
-            # pending TSV became the ONLY record of x: a campaign child
-            # lost a finished 3.5 h eval to it (2026-07-26).
-            pp.write_text("\n".join([header] + kept) + "\n")
-            return True

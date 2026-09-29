@@ -6,6 +6,14 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** (post-C3 cleanup, branch `cleanup-c3`) removed the
+  pending-TSV API from `core/leaderboard.py` (`Leaderboard.pending_*`,
+  `PENDING_HEADER`, `STALE_PENDING_S`, `to_py_scalars`) and its 10 tests:
+  no caller since the pipeline deletion (`315563a`); in-flight points
+  reach the picker only as the in-memory `x_pending` list. Pages that
+  mention the pending TSV ([bo-driver](/drivers/bo-driver.md),
+  [graph-runner](/drivers/graph-runner.md),
+  [batch-bo](/concepts/batch-bo.md)) describe retired history — no edit.
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C3
   acceptance PASSED:
   - suite 729 OK (skipped=4) at the branch tip;

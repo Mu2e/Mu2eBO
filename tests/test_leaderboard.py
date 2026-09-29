@@ -1,15 +1,10 @@
-"""Leaderboard module: schema-owning history/pending I/O (spec 2026-08-08).
+"""Leaderboard module: schema-owning history I/O (spec 2026-08-08).
 
-Regression anchors: touched-leaderboard-headerless-history-loss (foilspfbw01),
-the remove_pending header-fusion bug (foilsflash24R00_00), stale pending rows.
+Regression anchor: touched-leaderboard-headerless-history-loss (foilspfbw01).
 """
-import io
 import sys
 import tempfile
-import time
 import unittest
-import unittest.mock
-from contextlib import redirect_stderr
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -161,66 +156,6 @@ class TestHistory(unittest.TestCase):
                         **common)
 
 
-class TestPending(unittest.TestCase):
-    def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.tmp = Path(self._td.name)
-        self.lb = demo_lb(self.tmp / "leaderboard_bo_test.tsv")
-
-    def tearDown(self):
-        self._td.cleanup()
-
-    def test_add_load_remove_roundtrip(self):
-        self.lb.pending_add("t01", [1.5, 2.5], alpha=1.0e5)
-        self.lb.pending_add("t02", [3.0, 4.0], alpha=1.0e5)
-        self.assertEqual(self.lb.pending_load(),
-                         [("t01", [1.5, 2.5]), ("t02", [3.0, 4.0])])
-        self.assertTrue(self.lb.pending_remove("t01"))
-        self.assertFalse(self.lb.pending_remove("t01"))
-        self.assertEqual(self.lb.pending_load(), [("t02", [3.0, 4.0])])
-
-    def test_last_row_removal_keeps_header_newline(self):
-        # regression: the fusion bug's ROOT CAUSE — header must stay
-        # newline-terminated when the last pending row is removed.
-        self.lb.pending_add("t01", [1.0, 2.0], alpha=1.0)
-        self.assertTrue(self.lb.pending_remove("t01"))
-        self.assertTrue(self.lb.pending_path().read_text().endswith("\n"))
-        self.lb.pending_add("t02", [3.0, 4.0], alpha=1.0)
-        self.assertEqual(self.lb.pending_load(), [("t02", [3.0, 4.0])])
-
-    def test_stale_rows_warn_but_are_returned(self):
-        self.lb.pending_add("old01", [1.0, 2.0], alpha=1.0)
-        now = time.time() + 49 * 3600
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            rows = self.lb.pending_load(now=now)
-        self.assertEqual(rows, [("old01", [1.0, 2.0])])
-        self.assertIn("old01", buf.getvalue())
-        self.assertIn("pending_prune", buf.getvalue())
-
-    def test_prune_removes_only_stale(self):
-        self.lb.pending_add("old01", [1.0, 2.0], alpha=1.0)
-        self.lb.pending_add("new01", [3.0, 4.0], alpha=1.0)
-        now = time.time() + 49 * 3600
-        # Both rows share a real timestamp, so selectivity is exercised via
-        # the threshold: at 50h neither qualifies, at 48h both do.
-        self.assertEqual(self.lb.pending_prune(older_than_h=50.0, now=now), [])
-        removed = self.lb.pending_prune(older_than_h=48.0, now=now)
-        self.assertEqual(sorted(removed), ["new01", "old01"])
-        self.assertEqual(self.lb.pending_load(), [])
-        self.assertTrue(self.lb.pending_path().read_text().endswith("\n"))
-
-    def test_pending_header_mismatch_is_loud(self):
-        self.lb.pending_path().write_text("config\twrong\n")
-        with self.assertRaises(SchemaMismatch):
-            self.lb.pending_load()
-        with self.assertRaises(SchemaMismatch):
-            self.lb.pending_add("t01", [1.0, 2.0], alpha=1.0)
-        self.assertTrue(self.lb.pending_path()
-                        .with_name(self.lb.pending_path().name
-                                   + ".quarantine.tsv").exists())
-
-
 class TestArchivePlusLive(unittest.TestCase):
     """The committed leaderboards/ are read-only priors; this operator's own
     rows append to a separate live file. load() returns both."""
@@ -286,10 +221,6 @@ class TestArchivePlusLive(unittest.TestCase):
         lb.append(Point(cfg="only", x=[2.0, 0.5],
                         y={"sob": 4.0, "flash_edep": 2e-6}), {"alpha": 0.0})
         self.assertEqual([p.cfg for p in lb.load()], ["only"])
-
-    def test_pending_follows_the_live_file_not_the_archive(self):
-        lb = self._lb()
-        self.assertEqual(lb.pending_path().parent, self.live.parent)
 
     def test_a_read_only_archive_dir_still_loads(self):
         """Someone else's checkout is READ-ONLY to you.
