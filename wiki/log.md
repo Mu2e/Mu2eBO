@@ -6,6 +6,21 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [surrogate](/drivers/surrogate.md): surrokit pin bumped
+  `4884aa66` → `26929f7c22bcd9c4bef0c09d453309ae35300fbe` (three cleanup
+  commits, incl. "pickers: one home for the min_spacing / hv_frac / pool
+  defaults"; picks verified identical across 10 picker/seed cases,
+  surrokit suite 52 OK). `core/paths.py:50 SURROKIT_PIN_SHA` updated;
+  `tests.test_botorch_predict` (incl. `TestSurrokitPin`) and
+  `tests.test_surrogate` green against the new checkout.
+- **corrected** [contract-engine](/drivers/contract-engine.md) and
+  `mode_specs/README.md`: the "running an archived foilspf study again
+  needs its layout set to `v2` and a new board" wording was incomplete —
+  each archived study also names the `ce_sensitivity`/`flash_edep_per_pot`
+  kits, which C3 deleted from `kits.toml` (those analyses now live only as
+  `analysis` params under the `anakit` kit), so a layout flip alone still
+  fails at load/eval. Re-running one for real means using its `_ax` twin,
+  or porting its kits to anakit as well as switching the layout.
 - **updated** [tests](/drivers/tests.md) (post-C3 cleanup, second batch):
   suite now 35 files, 713 tests OK (skipped=3), 386 s — was 718: −2 v1
   tests, −4 pool renew tests, +1 retry-budget pin. The seven `_ax`
