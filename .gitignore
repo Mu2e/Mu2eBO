@@ -32,7 +32,10 @@ docs/slides/*.vrb
 .#*
 
 # =============================================================================
-# Leaderboard / pending backups (originals are committed)
+# Leaderboard maintenance sidecars (operator-made, originals are committed):
+# pre-cleanup snapshots (<file>.tsv.bak.YYYYMMDD_HHMMSS) and flagged-row
+# quarantine sidecars (<file>.broken.tsv, see wiki/datasets/leaderboards.md).
+# Not the pending-BO queue -- that has its own section below.
 # =============================================================================
 *.bak
 *.bak_*

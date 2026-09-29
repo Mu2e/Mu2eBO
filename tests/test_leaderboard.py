@@ -40,18 +40,19 @@ class TestFormatsMatchARealBoard(unittest.TestCase):
         study = modes.STUDIES["foilspfbpz_ax"]
         lines = src.read_text().splitlines(keepends=True)
         head, last = lines[0], lines[-1]
-        with tempfile.TemporaryDirectory() as td:
-            lb = lbm.Leaderboard.for_study(study, path=Path(td) / src.name,
-                                           archive_path=None)
-            self.assertEqual(head.rstrip("\n") + "\t"
-                             + "\t".join(lbm.V2_META) + "\n", lb.header())
-            cells = last.rstrip("\n").split("\t")
-            n = len(study.knob_names)
-            p = lbm.Point(cfg=cells[0], x=[float(v) for v in cells[1:1 + n]],
-                          y={"sob": float(cells[1 + n]),
-                             "flash_edep": float(cells[2 + n])})
-            line = lb.format_line(p, {"alpha": float(cells[3 + n])}, META)
-            self.assertEqual(line, last.rstrip("\n") + META_TAIL + "\n")
+        # format_line() never touches disk; this Leaderboard only needs a
+        # plausible path, not a real directory.
+        lb = lbm.Leaderboard.for_study(
+            study, path=Path("/nonexistent") / src.name, archive_path=None)
+        self.assertEqual(head.rstrip("\n") + "\t"
+                         + "\t".join(lbm.V2_META) + "\n", lb.header())
+        cells = last.rstrip("\n").split("\t")
+        n = len(study.knob_names)
+        p = lbm.Point(cfg=cells[0], x=[float(v) for v in cells[1:1 + n]],
+                      y={"sob": float(cells[1 + n]),
+                         "flash_edep": float(cells[2 + n])})
+        line = lb.format_line(p, {"alpha": float(cells[3 + n])}, META)
+        self.assertEqual(line, last.rstrip("\n") + META_TAIL + "\n")
 
 
 def demo_lb(path: Path, archive_path: Path | None = None) -> Leaderboard:
@@ -117,7 +118,7 @@ class TestHistory(unittest.TestCase):
             self.lb.load()
 
     def test_fused_header_is_loud(self):
-        # the remove_pending fusion shape: header and row 1 on one line.
+        # a header fused with row 1 on one line.
         self.lb.path.write_text(
             self.lb.header().rstrip("\n")
             + "t01\t1.0000\t2.0000\t3.00000\t1.00000e-07\t1.000\t3.00000"

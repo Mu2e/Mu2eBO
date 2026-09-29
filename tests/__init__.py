@@ -4,7 +4,7 @@ The modules under test print progress to stdout as a matter of course:
 `[closed_loop] barrier ...`, `[botorch_predict] picked q=4 ...`,
 `[poke] converged ...`. Under the suite that is ~85 lines of narration for
 a green run, and much of it is deliberately alarming -- the tests that
-exercise failure handling emit `FATAL renew_token`, `ABORT (streak = full
+exercise failure handling emit `ABORT (streak = full
 pool of rowless resolutions)`, `child process died without resolution`,
 `all failed; exiting early`. A first-time operator following the README
 runs this as their second command and watches a passing suite scroll past
