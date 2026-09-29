@@ -18,7 +18,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 import contract as ct  # noqa: E402
 import kit_config  # noqa: E402
-import kit_registry  # noqa: E402
 import scheduler  # noqa: E402
 from adapters import prodtools as pk  # noqa: E402
 from adapters import prodtools_entry as pe  # noqa: E402
@@ -824,10 +823,6 @@ class TestRegistration(unittest.TestCase):
         kit = ct.open_kit("prodtools", "camp", executor="local", parallel=2)
         self.assertIsInstance(kit, pk.ProdtoolsKit)
         self.assertEqual((kit.executor, kit.parallel), ("local", 2))
-
-    def test_prodtools_is_an_engine_and_a_pipeline_kit(self):
-        d = kit_registry.KITS["prodtools"]
-        self.assertTrue(d.engine and d.pipeline)
 
 
 if __name__ == "__main__":

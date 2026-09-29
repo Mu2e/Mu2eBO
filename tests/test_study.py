@@ -380,8 +380,8 @@ class TestDeriveAndGeom(_Tmp):
 class TestSteps(_Tmp):
     def test_unknown_kit(self):
         doc = _doc()
-        _step(doc, "sob")["kit"] = "anakit"
-        self.assertRejects(doc, "anakit")
+        _step(doc, "sob")["kit"] = "nosuchkit"
+        self.assertRejects(doc, "nosuchkit")
 
     def test_files_from_unknown_step(self):
         doc = _doc()
@@ -484,8 +484,8 @@ class TestKits(_Tmp):
         # classify() (core/adapters/preflight_checks.py) only reads
         # require_zero_overlaps INSIDE the `if checks_managed_overlap:`
         # block, so this combination silently never enforces the policy
-        # (F3, 2026-09-26; the same rule already pins the old ModeSpec path
-        # in tests/test_zero_overlap_policy.py).
+        # (F3, 2026-09-26; tests/test_zero_overlap_policy.py pins the same
+        # rule on the loaded studies' settings).
         doc = _doc()
         doc["kits"]["offline_preflight"]["require_zero_overlaps"] = True
         doc["kits"]["offline_preflight"]["checks_managed_overlap"] = False
@@ -518,7 +518,7 @@ class TestMatchingSettings(_Tmp):
         doc["preflight"] = None
         del doc["kits"]["offline_preflight"]
         s = self.load(doc)
-        self.assertEqual(set(s.kits), {"prodtools"})
+        self.assertEqual(set(s.kits), {"prodtools", "anakit"})
         self.assertTrue(
             s.kits["prodtools"]["code_tarball"].endswith("Code_demo.tar.bz2"))
 

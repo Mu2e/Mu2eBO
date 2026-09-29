@@ -117,20 +117,9 @@ class TestRepoRegistry(unittest.TestCase):
 
     def test_native_kits_are_engine_kits(self):
         decl = kit_registry.KITS["toykit"]
-        self.assertTrue(decl.engine)
         self.assertTrue(decl.step_kit)
         self.assertTrue(decl.check_kit)
         self.assertFalse(decl.uses_entries)
-
-    def test_pipeline_kits_are_not_engine_kits(self):
-        for name in ("ce_sensitivity", "flash_edep_per_pot"):
-            with self.subTest(kit=name):
-                self.assertFalse(kit_registry.KITS[name].engine)
-                self.assertTrue(kit_registry.KITS[name].pipeline)
-
-    def test_the_pre_check_kit_runs_on_both_runners(self):
-        d = kit_registry.KITS["offline_preflight"]
-        self.assertTrue(d.engine and d.pipeline)
 
 
 class TestConfigNameRule(unittest.TestCase):

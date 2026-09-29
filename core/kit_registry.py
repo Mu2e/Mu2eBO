@@ -2,10 +2,8 @@
 
 A study names kits in three places: study["kits"], study["preflight"]["kit"]
 and each step's "kit". This table says which names exist and which settings
-each accepts, so a typo is a load error. Phase B adds the native contract
-kits from kits.toml (engine=True). Phase C gives the pipeline kits engine
-support one by one; a kit either runner can drive has both flags. STDLIB
-ONLY.
+each accepts, so a typo is a load error. The Python-adapter kits are declared
+here; the native contract kits come from kits.toml. STDLIB ONLY.
 """
 from __future__ import annotations
 
@@ -141,10 +139,6 @@ class KitDecl:
     uses_entries: bool                # step "entry" names a stage template
     step_kit: bool                    # may appear in evaluate[]
     check_kit: bool                   # may be study["preflight"]["kit"]
-    engine: bool                      # the contract engine (graph.study_run)
-                                      # can drive it
-    pipeline: bool                    # the old pipeline (graph.run) can
-                                      # drive it; Phase C3 deletes this flag
 
 
 KITS: Dict[str, KitDecl] = {d.name: d for d in (
@@ -154,15 +148,14 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             fixed_keys={"njobs": _job_count, "events_per_job": _positive_int,
                         "memory_mb": _positive_int, "quorum": _fraction},
             required_fixed=frozenset({"quorum"}),
-            uses_entries=True, step_kit=True, check_kit=False,
-            engine=True, pipeline=True),
+            uses_entries=True, step_kit=True, check_kit=False),
     KitDecl("offline_preflight",
             study_keys={"code_tarball": _path, "dumps_gdml": _flag,
                         "verifies_foil_gdml": _flag,
                         "checks_managed_overlap": _flag,
                         "require_zero_overlaps": _flag},
             fixed_keys={}, required_fixed=frozenset(), uses_entries=False,
-            step_kit=False, check_kit=True, engine=True, pipeline=True),
+            step_kit=False, check_kit=True),
     KitDecl("anakit",
             study_keys={"work_area": _path},
             fixed_keys={"analysis": _string, "input_correction": _number,
@@ -170,13 +163,7 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
                         "dio_fraction": _number, "dio_table": _path,
                         "pot_per_electron": _number},
             required_fixed=frozenset({"analysis"}), uses_entries=False,
-            step_kit=True, check_kit=False, engine=True, pipeline=False),
-    KitDecl("ce_sensitivity", study_keys={}, fixed_keys={},
-            required_fixed=frozenset(), uses_entries=False, step_kit=True,
-            check_kit=False, engine=False, pipeline=True),
-    KitDecl("flash_edep_per_pot", study_keys={}, fixed_keys={},
-            required_fixed=frozenset(), uses_entries=False, step_kit=True,
-            check_kit=False, engine=False, pipeline=True),
+            step_kit=True, check_kit=False),
 )}
 
 # Settings two kits must agree on when a study uses both:
@@ -234,14 +221,13 @@ def _native_decl(cfg) -> KitDecl:
                    fixed_keys={k: VALIDATORS[t]
                                for k, t in cfg.fixed_keys.items()},
                    required_fixed=frozenset(), uses_entries=False,
-                   step_kit=True, check_kit=cfg.check, engine=True,
-                   pipeline=False)
+                   step_kit=True, check_kit=cfg.check)
 
 
 _clash = sorted(set(NATIVE) & set(KITS))
 if _clash:
     raise ValueError(f"kits.toml declares {_clash}, which core/kit_registry.py "
-                     f"already declares as pipeline kits")
+                     f"already declares as adapter kits")
 KITS.update({name: _native_decl(cfg) for name, cfg in NATIVE.items()})
 
 

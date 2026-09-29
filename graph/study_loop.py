@@ -56,8 +56,7 @@ def busy_reason(name: str, board_names: set) -> str | None:
 
 def make_pick_source(study, name_prefix, pick):
     """next_pick for pool.run_rolling. `pick(round_idx, picker, x_pending)`
-    returns one x; the board is read once per process, like the pipeline's
-    pick source (graph/pool.py::_default_pick_source)."""
+    returns one x; the board is read once per process."""
     counter = {"i": 0}
     seen = {}
 
@@ -76,7 +75,7 @@ def make_pick_source(study, name_prefix, pick):
 
 
 def surrokit_pick(study):
-    """One pick per launch, seeded 42 ^ round_idx like the pipeline's."""
+    """One pick per launch, seeded 42 ^ round_idx (botorch_predict._seed)."""
     def pick(round_idx, picker, x_pending):
         import botorch_predict as bp
         picks = bp.compute_explore_picks(study.name, q=1, round_idx=round_idx,
@@ -139,10 +138,6 @@ def main(argv=None) -> int:
         print(f"[study_loop] REFUSED: unknown study {args.study!r}; known "
               f"{sorted(_modes.STUDIES)}", flush=True)
         return 2
-    if args.study not in _modes.ENGINE:
-        print(f"[study_loop] REFUSED: study {args.study!r} runs on the "
-              f"pipeline kits; use graph.closed_loop until Phase C", flush=True)
-        return 2
     study = _modes.STUDIES[args.study]
     if not study.knobs:
         print(f"[study_loop] REFUSED: study {args.study!r} has no knobs: "
@@ -173,7 +168,7 @@ def main(argv=None) -> int:
           f"stagger={stagger:g}s executor={args.executor}", flush=True)
     result = run_rolling(
         mode=study.name, picker=args.picker, q=args.q,
-        max_evals=args.max_evals, alpha=None, name_prefix=args.name_prefix,
+        max_evals=args.max_evals, name_prefix=args.name_prefix,
         run_child=make_run_child(study, args.name_prefix, args.context,
                                  args.executor, args.parallel),
         next_pick=make_pick_source(study, args.name_prefix,

@@ -55,8 +55,8 @@ WORKING = ("building", "submitting", "starting", "submitted", "running")
 # Every tool the adapter calls, per server role: each needs a timeout.
 TOOLS = {"write": ("submit_once", "run_local", "cancel_run"),
          "read": ("run_status",)}
-# The file core/pipeline.py's _submit_lock uses, so both runners serialize
-# their grid submits on a host (wiki/incidents/concurrent-token-contention.md).
+# One lock file per user and host, so concurrent children serialize their
+# grid submits (wiki/incidents/concurrent-token-contention.md).
 SUBMIT_LOCK = Path(f"/tmp/mu2e_submit.{pe.USER}.lock")
 PNFS_STAGE_ROOT = Path(f"/pnfs/mu2e/scratch/users/{pe.USER}/autoresearch_grid")
 _POLL = {"grid": ((30.0, 600.0), 60_000), "local": ((5.0, 60.0), 10_000)}

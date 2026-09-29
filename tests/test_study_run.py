@@ -158,9 +158,6 @@ class TestRefusals(_Point):
         self.assertRefused(self.run_point(self.add_study(), x=(1.0,)),
                            "2 knobs")
 
-    def test_a_pipeline_study(self):
-        self.assertRefused(self.run_point("foilspf"), "graph.run")
-
     def test_a_broken_point_is_not_rerun(self):
         s = self.add_study(lambda d: d["evaluate"][0]["fixed"].update(fail="failed"))
         self.run_point(s)
@@ -334,8 +331,6 @@ class TestExecutorFlag(_Point):
             out = io.StringIO()
             _HookedKitSet.made = []
             with mock.patch.dict(modes.STUDIES, {"hooktoy": study}), \
-                    mock.patch.object(modes, "ENGINE",
-                                      modes.ENGINE | {"hooktoy"}), \
                     mock.patch.object(study_run, "KitSet", _HookedKitSet), \
                     mock.patch.object(study_run, "GRID_DATA_ROOT", grid), \
                     mock.patch.object(study_run, "board_for", mock.Mock()), \
@@ -391,8 +386,6 @@ class TestKitStartCheck(unittest.TestCase):
             out = io.StringIO()
             _DeadKitSet.made = []
             with mock.patch.dict(modes.STUDIES, {"deadtoy": study}), \
-                    mock.patch.object(modes, "ENGINE",
-                                      modes.ENGINE | {"deadtoy"}), \
                     mock.patch.object(study_run, "KitSet", _DeadKitSet), \
                     mock.patch.object(study_run, "GRID_DATA_ROOT", grid), \
                     mock.patch.object(study_run, "board_for", mock.Mock()), \

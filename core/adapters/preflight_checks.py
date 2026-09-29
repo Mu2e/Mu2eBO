@@ -2,10 +2,8 @@
 docs/superpowers/specs/2026-09-26-c2a-preflight-kit-design.md, "1. The
 offline_preflight kit"): the surface-check files, running `mu2e -n 1`
 from a code tarball's Code/, and reading its log into a verdict.
-run_preflight is the whole sequence. The offline_preflight adapter
-(core/adapters/offline_preflight.py) and, until Phase C3 deletes it, the
-pipeline's pre-check (core/bo_driver.py) both call it, so the two runners
-judge a geometry the same way.
+run_preflight is the whole sequence; the offline_preflight adapter
+(core/adapters/offline_preflight.py) calls it.
 Stdlib and prodtools_entry only at import; graph/sourced_bash.py loads
 when a check runs.
 """
@@ -30,8 +28,8 @@ SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 TIMEOUT_S = 1200
 
 # Preflight verdict vocabulary — the ONE home of the rc mapping. A check
-# returns pass, fail_managed (every FAIL) or ambiguous; fail_init is the
-# pipeline's "no proposal geometry", decided before any check runs.
+# returns pass, fail_managed (every FAIL) or ambiguous; no check returns
+# fail_init (the deleted pipeline's "no proposal geometry").
 PREFLIGHT_VERDICTS = {0: "pass", 1: "fail_managed", 2: "fail_init",
                       3: "ambiguous"}
 
@@ -175,7 +173,7 @@ class Verdict:
     reason: str                  # the PASS / FAIL / AMBIGUOUS line's text
     notes: Tuple[str, ...] = ()  # what the check found on the way
     # The as-built GDML comparison ran and passed (a later rule may still
-    # fail the check): the pipeline keeps the dump only then.
+    # fail the check).
     gdml_verified: bool = False
 
 
@@ -290,9 +288,9 @@ def _overlap_context(out, vols) -> str:
 def classify(out, rc, timed_out, *, geom_text, gdml_path,
              verifies_foil_gdml, checks_managed_overlap,
              require_zero_overlaps) -> Verdict:
-    """The verdict on one check's output, by core/bo_driver.py's rules in
-    their order (fatal abort, as-built GDML, overlaps, a geometry error
-    before init, then pass or ambiguous), minus the retired `holeRadii
+    """The verdict on one check's output, by these rules in order (fatal
+    abort, as-built GDML, overlaps, a geometry error before init, then pass
+    or ambiguous), minus the retired `holeRadii
     vector active` printout check: upstream Offline prints no such line,
     and the GDML comparison checks every foil's hole radius."""
     notes = []

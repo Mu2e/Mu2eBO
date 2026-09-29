@@ -1,4 +1,3 @@
-import dataclasses
 import hashlib
 import json
 import os
@@ -12,12 +11,10 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
-import kit_registry  # noqa: E402
 import modes  # noqa: E402
 import paths  # noqa: E402
 import scheduler  # noqa: E402
 import study as st  # noqa: E402
-import study_compat  # noqa: E402
 from tests.engine_fixtures import (ENGINE_STUDIES, toy_doc,  # noqa: E402
                                    write_study)
 
@@ -132,7 +129,7 @@ class TestStageTemplates(_Tmp):
 
 class TestDerivedEnv(unittest.TestCase):
     def test_env_carries_knobs_consts_and_profiles(self):
-        study = modes.STUDIES["foilspf"]
+        study = modes.STUDIES["foilspf_ax"]
         x = [(lo + hi) / 2 for lo, hi in zip(study.bounds_lo, study.bounds_hi)]
         env = study.geom.derived_env(x)
         for name, v in zip(study.knob_names, x):
@@ -152,62 +149,27 @@ class TestDerivedEnv(unittest.TestCase):
         self.assertNotIn("Phase B", str(cm.exception))
 
 
-class TestEngineClassification(_Tmp):
-    def test_a_toykit_study_runs_on_the_engine(self):
-        self.assertTrue(modes.runs_on_engine(self.load(toy_doc())))
-
-    def test_a_pipeline_study_does_not(self):
-        self.assertFalse(modes.runs_on_engine(st.load_study_file(DEMO)))
-
-    def test_a_mixed_study_is_refused(self):
-        doc = json.loads(DEMO.read_text())
-        doc["kits"]["toykit"] = {"function": "branin_currin"}
-        doc["evaluate"].append({"step": "toy", "kit": "toykit", "entry": None,
-                                "files": [], "files_from": [], "params": {},
-                                "fixed": {}})
-        doc["extra_metrics"].append({"name": "toyv", "metric": "toy.branin",
-                                     "fmt": "{:.3f}"})
-        with self.assertRaises(ValueError) as cm:
-            modes.runs_on_engine(self.load(doc))
-        self.assertIn("no single runner", str(cm.exception))
-
-    def test_a_study_both_runners_can_drive_runs_on_the_engine(self):
-        both = dataclasses.replace(kit_registry.KITS["toykit"],
-                                   name="bothkit", pipeline=True)
-        doc = toy_doc()
-        doc["kits"] = {"bothkit": {"function": "branin_currin"}}
-        doc["evaluate"][0]["kit"] = "bothkit"
-        with mock.patch.dict(kit_registry.KITS, {"bothkit": both}):
-            self.assertTrue(modes.runs_on_engine(self.load(doc)))
-
-    def test_compat_refuses_a_v2_board(self):
-        doc = json.loads(DEMO.read_text())
-        doc["leaderboard"]["layout"] = "v2"
-        with self.assertRaises(ValueError) as cm:
-            study_compat.modespec_from_study(self.load(doc))
-        self.assertIn("layout", str(cm.exception))
-
-    def test_engine_studies_stay_out_of_specs(self):
+class TestLoadedStudies(unittest.TestCase):
+    def test_the_repo_studies_and_the_engine_fixtures_load(self):
         data = tempfile.TemporaryDirectory()
         self.addCleanup(data.cleanup)
         env = dict(os.environ, PYTHONPATH="", AUTORESEARCH_DATA_ROOT=data.name,
                    AUTORESEARCH_STUDY_PATH=str(ENGINE_STUDIES))
-        script = ("import modes; print(sorted(modes.ENGINE), "
-                  "'branin' in modes.SPECS, 'branin' in modes.STUDIES)")
+        script = "import modes; print(sorted(modes.STUDIES))"
         r = subprocess.run([sys.executable, "-c", script], env=env,
                            cwd=str(ROOT / "core"), capture_output=True,
                            text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
-        # C2b: mode_specs/ now also ships the seven foilspf engine twins
-        # (<name>_ax.json), and ENGINE_STUDIES gained the two acceptance
-        # fixtures (foilspfbpz_local, foilspf_nominal) alongside branin and
-        # prodtools_smoke.
+        # mode_specs/ ships the seven foilspf engine twins (<name>_ax.json;
+        # the originals are archived since C3), and ENGINE_STUDIES holds
+        # branin, prodtools_smoke and the two C2b acceptance fixtures
+        # (foilspfbpz_local, foilspf_nominal).
         self.assertEqual(r.stdout.strip().splitlines()[-1],
                          "['branin', 'foilsflash_ax', 'foilspf2k_ax', "
                          "'foilspf_ax', 'foilspf_nominal', 'foilspfbp_ax', "
                          "'foilspfbpx_ax', 'foilspfbpz_ax', "
                          "'foilspfbpz_local', 'foilspfbw_ax', "
-                         "'prodtools_smoke'] False True")
+                         "'prodtools_smoke']")
 
 
 X_GRIDPHASEA01 = [67.7974, 111.1044, 132.7585, 0.140557, 0.027008, 0.107443,
@@ -217,9 +179,8 @@ X_GRIDPHASEA01 = [67.7974, 111.1044, 132.7585, 0.140557, 0.027008, 0.107443,
 class TestProdtoolsSmoke(unittest.TestCase):
     def test_it_is_foilspfbpz_at_one_fixed_point(self):
         smoke = st.load_study_file(ENGINE_STUDIES / "prodtools_smoke.json")
-        bpz = st.load_study_file(ROOT / "mode_specs" / "foilspfbpz.json")
+        bpz = st.load_study_file(ROOT / "mode_specs" / "foilspfbpz_ax.json")
         self.assertEqual(smoke.knobs, ())
-        self.assertTrue(modes.runs_on_engine(smoke))
         self.assertEqual(smoke.geom.render([]),
                          bpz.geom.render(X_GRIDPHASEA01))
         self.assertEqual([s.step for s in smoke.steps],
@@ -228,7 +189,7 @@ class TestProdtoolsSmoke(unittest.TestCase):
 
     def test_it_gates_on_the_pre_check_with_foilspfbpzs_policy(self):
         smoke = st.load_study_file(ENGINE_STUDIES / "prodtools_smoke.json")
-        bpz = st.load_study_file(ROOT / "mode_specs" / "foilspfbpz.json")
+        bpz = st.load_study_file(ROOT / "mode_specs" / "foilspfbpz_ax.json")
         self.assertEqual(smoke.preflight, {"kit": "offline_preflight",
                                            "params": {}, "files": ["geom"]})
         pre = smoke.kits["offline_preflight"]
@@ -239,7 +200,6 @@ class TestProdtoolsSmoke(unittest.TestCase):
                      "checks_managed_overlap", "require_zero_overlaps"):
             self.assertEqual(pre[flag], bpz.kits["offline_preflight"][flag],
                              flag)
-        self.assertTrue(modes.runs_on_engine(smoke))
 
 
 class TestFixedPaths(_Tmp):

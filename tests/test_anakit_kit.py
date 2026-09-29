@@ -171,9 +171,8 @@ class TestOpen(_Kit):
 
     def test_it_is_a_registered_engine_adapter(self):
         decl = kit_registry.KITS["anakit"]
-        self.assertEqual((decl.engine, decl.pipeline, decl.step_kit,
-                          decl.check_kit, decl.uses_entries),
-                         (True, False, True, False, False))
+        self.assertEqual((decl.step_kit, decl.check_kit, decl.uses_entries),
+                         (True, False, False))
         self.assertEqual(sorted(decl.study_keys), ["work_area"])
         self.assertEqual(decl.required_fixed, frozenset({"analysis"}))
         ct._load_adapters()

@@ -205,14 +205,6 @@ class TestLaunchRefusals(unittest.TestCase):
                                       / "closed_loop_logs").exists())
                     self.assertEqual(submits(data), [])
 
-    def test_a_pipeline_study_is_refused(self):
-        with tempfile.TemporaryDirectory() as td:
-            r = subprocess.run(loop_cmd("foilspf", 1, 1, "pipe"), cwd=ROOT,
-                               env=engine_env(Path(td), ENGINE_STUDIES),
-                               capture_output=True, text=True, timeout=120)
-        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        self.assertIn("graph.closed_loop", r.stdout)
-
 
 class TestChildFlags(unittest.TestCase):
     def test_children_get_the_executor_and_parallel(self):
@@ -266,8 +258,6 @@ class TestNamePrefix(unittest.TestCase):
 
         out = io.StringIO()
         with mock.patch.dict(study_loop._modes.STUDIES, {"pfxtoy": study}), \
-                mock.patch.object(study_loop._modes, "ENGINE",
-                                  frozenset({"pfxtoy"})), \
                 mock.patch.object(study_loop, "config_name_problems",
                                   side_effect=rule), \
                 mock.patch.object(study_loop, "check_kits", return_value=[]), \

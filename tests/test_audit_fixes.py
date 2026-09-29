@@ -1,19 +1,14 @@
-"""Targeted regression tests for the /simplify audit fixes (2026-05-29).
+"""Targeted regression tests for the /simplify audit fixes (2026-05-29) and
+later ones. The pipeline-only fix classes went with the pipeline in Phase C3
+(2026-09-28); what remains tests surviving code:
 
-Each TestClass covers one of the fixes (Fix 1's class was deleted 2026-07-17
-with the retired cl_min picker it tested — ADR-0001):
-
-  TestModeArgChoices            — graph/closed_loop.py (fail-fast on --mode typo)
-  TestStageShaCheckCallsites    — core/pipeline.py (poll + list-outputs warn)
-  TestRemovePendingBeforeAppend — core/bo_driver.py (atomic ordering)
-  TestProposeOneBuildableRetry  — graph/pipeline_io.py (N_crit retry in BO path)
+  TestRunSourcedBash      -- graph/sourced_bash.py (env-flake retry helper)
+  TestPendingTsvRoundTrip -- core/leaderboard.py (pending TSV round-trip)
 
 Run from project root:
   PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .
 """
-import argparse
 import io
-import re
 import shutil
 import subprocess
 import sys
@@ -25,391 +20,16 @@ from unittest import mock
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "graph"))
-sys.path.insert(0, str(PROJECT_ROOT / "core"))  # BO/pipeline modules (2026-07-17 reorg)
+sys.path.insert(0, str(PROJECT_ROOT / "core"))
 
-# (Fix 1's TestIsBrokenParseException was deleted 2026-07-17: it exercised the
-# retired off-repo gp_predict_helical.py — cl_min picker, ADR-0001. The live
-# broken-detection is _child_is_broken, covered in test_closed_loop.py.)
-
-# --- Fix 2: --mode choices guard ---------------------------------------------
-
-class TestModeArgChoices(unittest.TestCase):
-    """Issue #2: argparse must reject unknown --mode values up-front.
-    """
-    def test_argparse_choices_derive_from_registry(self):
-        # Pull the source line directly — no graph.closed_loop import needed
-        # (avoid pulling in sqlite/langgraph deps for a string check).
-        src = (PROJECT_ROOT / "graph" / "closed_loop.py").read_text()
-        # 2026-07-12: choices are registry-derived (drift-proof — a mode
-        # added to modes.py is accepted without touching closed_loop), which
-        # still rejects unknown --mode values up-front via argparse.
-        m = re.search(r'choices\s*=\s*sorted\(\s*_modes\.SPECS\s*\)', src)
-        self.assertIsNotNone(m, "--mode choices guard missing or no longer registry-derived")
-
-
-# --- Fix 3: SHA-check fires on poll + list-outputs ---------------------------
-
-class TestStageShaCheckCallsites(unittest.TestCase):
-    """Issue #3: pipeline.py must invoke _check_stage_config_sha at the top
-    of cmd_poll and cmd_list_outputs (was harvest-only).
-    """
-    def test_poll_calls_sha_check(self):
-        src = (PROJECT_ROOT / "core" / "pipeline.py").read_text()
-        # Match the cmd_poll function body up to the next `def `.
-        m = re.search(r"def cmd_poll\(args.*?\n(.*?)\ndef ", src, re.DOTALL)
-        self.assertIsNotNone(m, "cmd_poll not found")
-        self.assertIn("_check_stage_config_sha", m.group(1),
-                      "cmd_poll must call _check_stage_config_sha")
-
-    def test_list_outputs_calls_sha_check(self):
-        src = (PROJECT_ROOT / "core" / "pipeline.py").read_text()
-        m = re.search(r"def cmd_list_outputs\(args.*?\n(.*?)\ndef ", src, re.DOTALL)
-        self.assertIsNotNone(m, "cmd_list_outputs not found")
-        self.assertIn("_check_stage_config_sha", m.group(1),
-                      "cmd_list_outputs must call _check_stage_config_sha")
-
-    def test_check_helper_warns_on_mismatch_and_returns(self):
-        # The helper itself: silent on no-stamp, warns on mismatch, never raises.
-        # Verifies the no-raise contract that callers rely on.
-        import importlib
-        if "pipeline" in sys.modules:
-            del sys.modules["pipeline"]
-        pipeline = importlib.import_module("pipeline")
-
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            # STAGES is gone (Task 6): _stage_config_sha now hashes
-            # stage_cfg(stage, MODE)'s return, so patch stage_cfg itself with
-            # a mutable fake dict instead of the retired module-level dict.
-            fake_cfg = {"events": 1}
-            with mock.patch.object(pipeline, "STATE", tmp), \
-                 mock.patch.object(pipeline, "stage_cfg",
-                                   lambda stage, mode=None: fake_cfg):
-                # 1) No stamp → silent return.
-                pipeline._check_stage_config_sha("poke")  # no raise
-
-                # 2) Matching stamp → silent return.
-                pipeline._stamp_stage_config_sha("poke")
-                pipeline._check_stage_config_sha("poke")  # no raise
-
-                # 3) Mutate the fake cfg → mismatch → warn to stderr, no raise.
-                fake_cfg["events"] = 2
-                buf = io.StringIO()
-                with mock.patch.object(sys, "stderr", buf):
-                    pipeline._check_stage_config_sha("poke")
-                self.assertIn("WARN", buf.getvalue())
-                self.assertIn("poke", buf.getvalue())
-
-
-# --- Fix 4: remove_pending BEFORE append_history -----------------------------
-
-class TestRemovePendingBeforeAppend(unittest.TestCase):
-    """Issue #4: cmd_evaluate must call remove_pending BEFORE append_history.
-    If the order is wrong, a crash between leaves a phantom pending row,
-    which trips propose_one's collision guard and silently renames the
-    next iteration. Verify both static source order AND runtime ordering.
-    """
-    def test_source_order(self):
-        src = (PROJECT_ROOT / "core" / "bo_driver.py").read_text()
-        m = re.search(
-            r"def cmd_evaluate\(args.*?\n(.*?)(?=\n(?:def |G4_GEOM_FAIL_RX))",
-            src, re.DOTALL,
-        )
-        self.assertIsNotNone(m, "cmd_evaluate not found")
-        body = m.group(1)
-        i_remove = body.find("remove_pending")
-        i_append = body.find("append_history")
-        self.assertGreater(i_remove, -1, "remove_pending missing in cmd_evaluate")
-        self.assertGreater(i_append, -1, "append_history missing in cmd_evaluate")
-        self.assertLess(
-            i_remove, i_append,
-            "remove_pending MUST come before append_history "
-            "(phantom-pending failure mode is silent; loud-failure mode is required)"
-        )
-
-    def test_runtime_order_via_mock(self):
-        # Drive the same ordering test at runtime so a future refactor that
-        # moves the calls into a helper still gets caught.
-        calls = []
-
-        class FakeMode:
-            name = "fake"
-            leaderboard = Path("/tmp/_x.tsv")
-            proposal_dir = Path("/tmp")
-            def parse_geom(self, _t): return [0.0]
-            def remove_pending(self, _n):
-                calls.append("remove_pending"); return False
-            def append_history(self, _p, _context):
-                calls.append("append_history")
-
-        # Mirror the cmd_evaluate ordering exactly.
-        m = FakeMode()
-        removed = m.remove_pending("cfg")
-        m.append_history(object(), {"alpha": 1.0})
-        self.assertEqual(calls, ["remove_pending", "append_history"])
-
-
-# --- Fix 5: propose_one ask path (botorch_ask since 2026-07-18) --------------
-
-class TestProposeOneAskPath(unittest.TestCase):
-    """propose_one's BO ask goes through bo.botorch_ask (skopt kernel
-    retired 2026-07-18). The x_override path must bypass the ask entirely,
-    and the ask must fantasize over pending + vary its seed via seed_idx
-    (the propose-retry diversity that replaced the skopt re-ask loop).
-    """
-    def test_x_override_bypasses_ask(self):
-        src = (PROJECT_ROOT / "graph" / "pipeline_io.py").read_text()
-        m = re.search(r"def propose_one\(.*?\n(.*?)(?=\ndef |\nclass )", src, re.DOTALL)
-        self.assertIsNotNone(m, "propose_one not found")
-        body = m.group(1)
-        i_override = body.find("x_override is not None")
-        i_ask = body.find("bo.botorch_ask(")
-        self.assertGreater(i_override, -1, "x_override branch missing")
-        self.assertGreater(i_ask, -1, "botorch_ask call missing")
-        self.assertLess(
-            i_override, i_ask,
-            "x_override branch must be evaluated before the BO ask path"
-        )
-
-    def test_ask_passes_pending_and_seed(self):
-        # The ask must (a) forward the pending x-points (X_pending
-        # fantasization — the constant-liar replacement) and (b) forward
-        # seed_idx so node_propose retries draw fresh points.
-        src = (PROJECT_ROOT / "graph" / "pipeline_io.py").read_text()
-        m = re.search(r"bo\.botorch_ask\((.*?)\)", src, re.DOTALL)
-        self.assertIsNotNone(m, "bo.botorch_ask call missing")
-        call = m.group(1)
-        self.assertIn("pending=", call, "pending x-points not forwarded")
-        self.assertIn("seed_idx=seed_idx", call, "seed_idx not forwarded")
-
-
-# --- Follow-on: node_propose re-entry preserves caller-pinned name -----------
-
-class TestProposeReentryPreservesCallerName(unittest.TestCase):
-    """foilsX06 R02_08/09 (2026-05-30): when route_after_preflight re-loops
-    into node_propose after preflight=ambiguous, propose_one raises
-    ValueError on the pending-row from the prior attempt. The pre-fix
-    except-branch silently renamed config_name to next_config_name(mode)
-    (e.g. graph003), tripping graph/run.py's swap guard. Fix preserves
-    the caller-pinned name by removing the stale pending row.
-    """
-    def _import_nodes(self):
-        # Late import so PROJECT_ROOT / "graph" is already on sys.path.
-        import importlib
-        import graph.nodes as nodes_mod
-        return importlib.reload(nodes_mod)
-
-    def _run_propose(self, nodes_mod, state, propose_one_side_effect,
-                     remove_pending_calls, next_config_name_value="graph999"):
-        """Drive node_propose with monkeypatched pio + bo.MODES[mode].
-
-        Returns (result_dict, propose_calls, remove_pending_calls_list,
-        next_name_calls).
-        """
-        propose_calls = []
-        next_name_calls = []
-
-        def fake_propose_one(mode, name, alpha, x_override, seed_idx=0):
-            propose_calls.append({"mode": mode, "name": name, "alpha": alpha,
-                                  "x_override": x_override,
-                                  "seed_idx": seed_idx})
-            # side_effect is a list of either Exception instances or
-            # x-point lists, consumed in order.
-            outcome = propose_one_side_effect.pop(0)
-            if isinstance(outcome, Exception):
-                raise outcome
-            return outcome
-
-        def fake_next_config_name(mode):
-            next_name_calls.append(mode)
-            return next_config_name_value
-
-        class FakeMode:
-            def remove_pending(self, name):
-                remove_pending_calls.append(name)
-                return False
-
-        with mock.patch.object(nodes_mod.pio, "propose_one",
-                               side_effect=fake_propose_one), \
-             mock.patch.object(nodes_mod.pio, "next_config_name",
-                               side_effect=fake_next_config_name), \
-             mock.patch.dict(nodes_mod.bo.MODES,
-                             {state.get("mode", "foils"): FakeMode()},
-                             clear=False):
-            result = nodes_mod.node_propose(state)
-
-        return result, propose_calls, next_name_calls
-
-    def test_caller_pinned_stale_pending_keeps_name(self):
-        """Case 1: caller-pinned + ValueError on first propose_one →
-        remove_pending(name) called once, retry under SAME name, no
-        next_config_name fork.
-        """
-        nodes_mod = self._import_nodes()
-        remove_calls = []
-        state = {
-            "mode": "foils",
-            "alpha": 1e5,
-            "config_name": "foilsX06R02_08",
-            "x_point": None,
-            "attempts": {"propose": 0},
-        }
-        side_effect = [
-            ValueError("config name foilsX06R02_08 already in leaderboard or pending"),
-            [1.0, 2.0, 3.0, 4.0, 5.0],
-        ]
-        result, propose_calls, next_name_calls = self._run_propose(
-            nodes_mod, state, side_effect, remove_calls,
-        )
-        self.assertEqual(result["config_name"], "foilsX06R02_08",
-                         "caller-pinned name MUST survive re-entry")
-        self.assertEqual(remove_calls, ["foilsX06R02_08"],
-                         "remove_pending must be called exactly once with caller's name")
-        self.assertEqual(len(propose_calls), 2)
-        self.assertEqual(propose_calls[0]["name"], "foilsX06R02_08")
-        self.assertEqual(propose_calls[1]["name"], "foilsX06R02_08",
-                         "retry MUST use the same caller-pinned name")
-        self.assertEqual(next_name_calls, [],
-                         "must NOT fork to next_config_name on caller-pinned re-entry")
-
-    def test_caller_pinned_clean_no_remove(self):
-        """Case 2: caller-pinned + first propose_one succeeds →
-        remove_pending never called.
-        """
-        nodes_mod = self._import_nodes()
-        remove_calls = []
-        state = {
-            "mode": "foils",
-            "alpha": 1e5,
-            "config_name": "foilsX06R00_00",
-            "x_point": None,
-            "attempts": {"propose": 0},
-        }
-        side_effect = [[1.0, 2.0, 3.0, 4.0, 5.0]]
-        result, propose_calls, next_name_calls = self._run_propose(
-            nodes_mod, state, side_effect, remove_calls,
-        )
-        self.assertEqual(result["config_name"], "foilsX06R00_00")
-        self.assertEqual(remove_calls, [],
-                         "remove_pending must NOT be called when first attempt succeeds")
-        self.assertEqual(len(propose_calls), 1)
-        self.assertEqual(next_name_calls, [])
-
-    def test_caller_pinned_with_x_point_forwards_override(self):
-        """Case 3: closed-loop trigger path — caller-pinned + x_point set
-        (forced by node_launch_children for GP-Pareto picks). Retry must
-        forward x_override unchanged.
-        """
-        nodes_mod = self._import_nodes()
-        remove_calls = []
-        forced_x = [3.0, 6.0, 180.0, 0.15, 8.0]
-        state = {
-            "mode": "foils",
-            "alpha": 1e5,
-            "config_name": "foilsX06R02_08",
-            "x_point": forced_x,
-            "attempts": {"propose": 0},
-        }
-        side_effect = [
-            ValueError("config name foilsX06R02_08 already in leaderboard or pending"),
-            forced_x,
-        ]
-        result, propose_calls, next_name_calls = self._run_propose(
-            nodes_mod, state, side_effect, remove_calls,
-        )
-        self.assertEqual(result["config_name"], "foilsX06R02_08")
-        self.assertEqual(remove_calls, ["foilsX06R02_08"])
-        self.assertEqual(propose_calls[0]["x_override"], forced_x)
-        self.assertEqual(propose_calls[1]["x_override"], forced_x,
-                         "x_override MUST be forwarded to retry, not dropped")
-        self.assertEqual(next_name_calls, [])
-
-    def test_auto_named_path_collision_forks_to_next_name(self):
-        """Case 4: legacy CLI smoke (no --config-name) + collision →
-        fork to next_config_name(mode). Legacy behavior preserved.
-        """
-        nodes_mod = self._import_nodes()
-        remove_calls = []
-        state = {
-            "mode": "foils",
-            "alpha": 1e5,
-            # config_name omitted (auto-named path)
-            "x_point": None,
-            "attempts": {"propose": 0},
-        }
-        side_effect = [
-            ValueError("config name graph002 already in leaderboard or pending"),
-            [1.0, 2.0, 3.0, 4.0, 5.0],
-        ]
-        # First next_config_name call seeds the initial name; second is the
-        # collision fork. Patch with a counter.
-        names = iter(["graph002", "graph003"])
-
-        def fake_next_config_name(mode):
-            return next(names)
-
-        propose_calls = []
-        def fake_propose_one(mode, name, alpha, x_override, seed_idx=0):
-            propose_calls.append({"name": name, "x_override": x_override})
-            outcome = side_effect.pop(0)
-            if isinstance(outcome, Exception):
-                raise outcome
-            return outcome
-
-        class FakeMode:
-            def remove_pending(self, name):
-                remove_calls.append(name)
-                return False
-
-        with mock.patch.object(nodes_mod.pio, "propose_one",
-                               side_effect=fake_propose_one), \
-             mock.patch.object(nodes_mod.pio, "next_config_name",
-                               side_effect=fake_next_config_name), \
-             mock.patch.dict(nodes_mod.bo.MODES,
-                             {"foils": FakeMode()}, clear=False):
-            result = nodes_mod.node_propose(state)
-
-        self.assertEqual(result["config_name"], "graph003",
-                         "auto-named path MUST fork to next_config_name on collision")
-        self.assertEqual(remove_calls, [],
-                         "remove_pending must NOT be called on auto-named collision "
-                         "(detection of concurrent same-name picker is the goal)")
-        self.assertEqual(propose_calls[0]["name"], "graph002")
-        self.assertEqual(propose_calls[1]["name"], "graph003")
-
-    def test_attempts_propose_counter_increments_on_retry(self):
-        """Case 5: attempts.propose increments by 1 regardless of which
-        branch (caller-pinned retry or auto-named fork) the except path
-        takes — keeps the route_after_preflight retry budget honest.
-        """
-        nodes_mod = self._import_nodes()
-        remove_calls = []
-        state = {
-            "mode": "foils",
-            "alpha": 1e5,
-            "config_name": "foilsX06R02_08",
-            "x_point": None,
-            "attempts": {"propose": 3, "other": 99},
-        }
-        side_effect = [
-            ValueError("config name foilsX06R02_08 already in leaderboard or pending"),
-            [1.0, 2.0, 3.0, 4.0, 5.0],
-        ]
-        result, _, _ = self._run_propose(
-            nodes_mod, state, side_effect, remove_calls,
-        )
-        self.assertEqual(result["attempts"]["propose"], 4,
-                         "attempts.propose must increment by exactly 1 per node entry")
-        self.assertEqual(result["attempts"]["other"], 99,
-                         "unrelated attempts keys must be preserved")
+import modes  # noqa: E402
+from leaderboard import Leaderboard  # noqa: E402
 
 
 class TestRunSourcedBash(unittest.TestCase):
-    """graph/sourced_bash.py — shared cvmfs/spack env-flake retry helper.
-
-    Consolidates the retry loop previously copy-pasted in pipeline.py:
-    sourced_env and bo_driver.py:cmd_preflight; also now backs
-    both getToken sites. See [[sourced-env-stderr-swallowed]].
+    """graph/sourced_bash.py — shared cvmfs/spack env-flake retry helper
+    (the offline_preflight check runs through it). See
+    wiki/incidents/sourced-env-stderr-swallowed.md.
     """
     @classmethod
     def setUpClass(cls):
@@ -503,17 +123,14 @@ class TestRunSourcedBash(unittest.TestCase):
         self.assertTrue(argv[2].startswith("export SPACK_USER_CACHE_PATH="))
 
 
-import bo_driver as bo  # noqa: E402
-
-
 class TestPendingTsvRoundTrip(unittest.TestCase):
-    """remove_pending must leave the file newline-terminated (2026-07-26).
+    """pending_remove must leave the file newline-terminated (2026-07-26).
 
     The old code wrote `"\\n".join([header] + kept) + ("\\n" if kept else "")`,
-    so emptying the file left the header UNterminated. append_pending opens in
+    so emptying the file left the header UNterminated. pending_add opens in
     "a" mode, so the next proposal landed on the header line itself
     ("...submitted_atfoilsflash22R00_00\\t[...]") and the file stayed a single
-    line forever — load_pending() silently returned 0 rows.
+    line forever — pending_load() silently returned 0 rows.
 
     It survived unnoticed because every consumer degraded QUIETLY: Python modes
     recovered x from parse_geom, the propose_one collision guard just stopped
@@ -522,58 +139,55 @@ class TestPendingTsvRoundTrip(unittest.TestCase):
     visible when foilsflash went JSON-defined and the pending TSV became the
     sole record of x — costing foilsflash24R00_00 a finished 3.5 h eval.
 
-    Existing coverage checked only that remove_pending is CALLED before
-    append_history; nothing ever read the file back after a removal.
+    Existing coverage checked only that the removal was CALLED before the
+    row was appended; nothing ever read the file back after a removal.
+    Driven through Leaderboard directly since Phase C3 (it went through the
+    pipeline's JsonMode wrappers before).
     """
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        # Any live mode exercises this generically (JsonMode.append_pending/
-        # remove_pending/load_pending); "foils" (Python mode, archived
-        # 2026-08-08) repointed to the JSON-defined "foilsflash".
-        self.mode = bo.MODES["foilsflash"]
-        patcher = mock.patch.multiple(
-            self.mode,
-            leaderboard=self.tmp / "leaderboard_bo_probe.tsv",
-            leaderboard_archive=None)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Any study exercises this generically.
+        self.lb = Leaderboard.for_study(
+            modes.STUDIES["foilsflash_ax"],
+            path=self.tmp / "leaderboard_bo_probe.tsv", archive_path=None)
 
     def _x(self, v):
-        return [float(v)] * len(self.mode.KNOB_NAMES)
+        return [float(v)] * len(self.lb.knob_names)
 
     def test_append_after_emptying_is_still_parseable(self):
         """The exact production sequence: propose, evaluate (clears the last
         row), propose again. The second proposal must be readable."""
-        self.mode.append_pending("cfgA", self._x(1), 1.0)
-        self.assertTrue(self.mode.remove_pending("cfgA"))
-        self.mode.append_pending("cfgB", self._x(2), 1.0)
-        got = self.mode.load_pending()
+        self.lb.pending_add("cfgA", self._x(1), 1.0)
+        self.assertTrue(self.lb.pending_remove("cfgA"))
+        self.lb.pending_add("cfgB", self._x(2), 1.0)
+        got = self.lb.pending_load()
         self.assertEqual([c for c, _ in got], ["cfgB"],
                          "pending row lost: the file was not newline-terminated "
                          "after the previous removal")
 
     def test_file_is_newline_terminated_when_emptied(self):
-        self.mode.append_pending("cfgA", self._x(1), 1.0)
-        self.mode.remove_pending("cfgA")
-        self.assertTrue(self.mode.pending_path().read_text().endswith("\n"))
+        self.lb.pending_add("cfgA", self._x(1), 1.0)
+        self.lb.pending_remove("cfgA")
+        self.assertTrue(self.lb.pending_path().read_text().endswith("\n"))
 
     def test_many_propose_evaluate_cycles_never_corrupt(self):
         """A single bad cycle poisons the file permanently, so iterate."""
         for i in range(5):
-            self.mode.append_pending(f"cfg{i}", self._x(i), 1.0)
-            self.assertEqual([c for c, _ in self.mode.load_pending()], [f"cfg{i}"],
+            self.lb.pending_add(f"cfg{i}", self._x(i), 1.0)
+            self.assertEqual([c for c, _ in self.lb.pending_load()], [f"cfg{i}"],
                              f"cycle {i}: pending unreadable")
-            self.mode.remove_pending(f"cfg{i}")
-        self.assertEqual(self.mode.load_pending(), [])
+            self.lb.pending_remove(f"cfg{i}")
+        self.assertEqual(self.lb.pending_load(), [])
 
     def test_x_survives_the_round_trip_exactly(self):
-        """x_for_evaluate reconstructs the eval's coordinates from this file,
-        so the values must come back bit-for-bit, not merely parse."""
+        """The pending file is the record of an in-flight eval's
+        coordinates, so the values must come back bit-for-bit, not merely
+        parse."""
         x = [250.0, 203.394671, 0.209299, 0.621833, 0.95, 0.720726]
-        self.mode.append_pending("cfgX", x, 1.0e5)
-        (_, got), = self.mode.load_pending()
+        self.lb.pending_add("cfgX", x, 1.0e5)
+        (_, got), = self.lb.pending_load()
         self.assertEqual(got, x)
 
 

@@ -1,8 +1,6 @@
 """prodtools entries, code tarballs and input staging, as plain functions
-(Phase C1 spec, "The adapter"): the prodtools adapter
-(core/adapters/prodtools.py) and, until Phase C3 deletes it, the old
-pipeline (core/prodtools_exec.py, core/pipeline.py) both call these, so
-the two runners render and stage the same way.
+(Phase C1 spec, "The adapter"), for the prodtools adapter
+(core/adapters/prodtools.py).
 """
 from __future__ import annotations
 

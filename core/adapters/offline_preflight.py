@@ -3,15 +3,15 @@ for a study whose preflight is `offline_preflight` (Phase C2a spec,
 docs/superpowers/specs/2026-09-26-c2a-preflight-kit-design.md, "1. The
 offline_preflight kit").
 
-check hands the point to preflight_checks.run_preflight, the sequence the
-old pipeline's pre-check runs too: unpack the study's code tarball (the
-one its prodtools steps ship, so the pre-check runs the jobs' own code)
-under <GRID_DATA_ROOT>/_code/, write the point's geometry and the
-surface-check files into the emptied <GRID_DATA_ROOT>/<config>/preflight/,
-run `mu2e -n 1` there and read the log into a verdict. This module adds
-the contract's side: the checks on check's arguments, the GDML dump kept
-as asbuilt.gdml, the verdict as (ok, message). The check always runs on
-this node, whatever --executor says: one event, no inputs.
+check hands the point to preflight_checks.run_preflight: unpack the
+study's code tarball (the one its prodtools steps ship, so the pre-check
+runs the jobs' own code) under <GRID_DATA_ROOT>/_code/, write the point's
+geometry and the surface-check files into the emptied
+<GRID_DATA_ROOT>/<config>/preflight/, run `mu2e -n 1` there and read the log
+into a verdict. This module adds the contract's side: the checks on check's
+arguments, the GDML dump kept as asbuilt.gdml, the verdict as (ok, message).
+The check always runs on this node, whatever --executor says: one event, no
+inputs.
 """
 from __future__ import annotations
 

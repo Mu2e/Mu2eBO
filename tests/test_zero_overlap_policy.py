@@ -66,24 +66,36 @@ class TestOverlapClassification(unittest.TestCase):
         self.assertTrue(SURFACE_OVERLAP_MANAGED.match("StoppingTargetFoil_07"))
 
 
+def _prechecked():
+    """{study: its offline_preflight settings}, for every study that runs
+    the geometry pre-check."""
+    return {name: s.kits["offline_preflight"]
+            for name, s in modes.STUDIES.items()
+            if "offline_preflight" in s.kits}
+
+
 class TestPolicyFlagWiring(unittest.TestCase):
 
-    def test_run1bap_modes_require_zero(self):
-        """foilsflash/foilspf run a Musing that can reach zero overlaps."""
-        for name in ("foilsflash", "foilspf"):
-            self.assertTrue(modes.SPECS[name].require_zero_overlaps, name)
+    def test_the_foilspf_family_requires_zero(self):
+        """foilsflash_ax/foilspf_ax run a release that can reach zero
+        overlaps."""
+        for name in ("foilsflash_ax", "foilspf_ax"):
+            self.assertTrue(
+                modes.STUDIES[name].kits["offline_preflight"]
+                ["require_zero_overlaps"], name)
 
-    def test_every_mode_declares_the_flag(self):
-        """No silent defaults: a new mode must state its overlap policy."""
-        for name, spec in modes.SPECS.items():
-            self.assertIsInstance(spec.require_zero_overlaps, bool, name)
+    def test_every_study_declares_the_flag(self):
+        """No silent defaults: a study must state its overlap policy."""
+        self.assertTrue(_prechecked())
+        for name, pre in _prechecked().items():
+            self.assertIsInstance(pre["require_zero_overlaps"], bool, name)
 
-    def test_strict_modes_also_scan_overlaps(self):
+    def test_strict_studies_also_scan_overlaps(self):
         """require_zero_overlaps is meaningless unless the scan runs -- the
         gate lives inside the `if checks_managed_overlap:` block."""
-        for name, spec in modes.SPECS.items():
-            if spec.require_zero_overlaps:
-                self.assertTrue(spec.checks_managed_overlap, name)
+        for name, pre in _prechecked().items():
+            if pre["require_zero_overlaps"]:
+                self.assertTrue(pre["checks_managed_overlap"], name)
 
 
 class TestPassBanner(unittest.TestCase):
@@ -91,9 +103,9 @@ class TestPassBanner(unittest.TestCase):
     banner drift is why checks_managed_overlap exists at all)."""
 
     def test_banner_reports_strict_policy(self):
-        spec = modes.SPECS["foilsflash"]
-        self.assertEqual(overlap_banner(spec.checks_managed_overlap,
-                                        spec.require_zero_overlaps),
+        pre = modes.STUDIES["foilsflash_ax"].kits["offline_preflight"]
+        self.assertEqual(overlap_banner(pre["checks_managed_overlap"],
+                                        pre["require_zero_overlaps"]),
                          " and zero surface-check overlaps")
 
     def test_banner_reports_managed_policy(self):

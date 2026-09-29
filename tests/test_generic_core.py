@@ -5,21 +5,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # Files that are generic end to end: no physics names at all.
-# core/study_compat.py is deliberately in neither list: it builds
-# metric_cols and names the harvest plugins by design -- it is the
-# schema-1-compat bridge and is deleted in Phase C.
 STRICT = ["core/study.py", "core/leaderboard.py", "core/kit_config.py",
           "core/kits.py", "core/contract.py", "core/boards.py",
           "core/scheduler.py", "core/score.py", "graph/study_graph.py",
           "graph/study_run.py", "graph/study_loop.py"]
 # Files that still host Mu2e code paths (preflight, picker names like
 # budget_sob) but must not read objectives by physics name.
-USAGE = ["core/botorch_predict.py", "core/bo_driver.py",
-         "surrogate/adapter.py", "graph/pipeline_io.py",
+USAGE = ["core/botorch_predict.py", "surrogate/adapter.py",
          "core/kit_registry.py"]
-# Attribute reads (`.sob`), the retired ModeSpec/env symbols, and quoted
+# Attribute reads (`.sob`), the retired per-mode/env symbols, and quoted
 # physics-name reads (`y["sob"]`, `values['flash_edep']`). The quoted form
-# needs the closing quote right after the name, so the plugin kit name
+# needs the closing quote right after the name, so the anakit analysis name
 # "flash_edep_per_pot" is not a hit.
 USAGE_RX = re.compile(r"\.sob\b|\.calo\b|\bmetric_cols\b|flash_budget|"
                       r"budget_k_sigma|calo_or_flash|\bsob_only\b|"
@@ -41,7 +37,7 @@ class TestGenericCore(unittest.TestCase):
                     "spec.sob", "metric_cols[1]"):
             with self.subTest(hit=hit):
                 self.assertTrue(USAGE_RX.search(hit), hit)
-        for miss in ('KitDecl("flash_edep_per_pot", ...)', "o.name",
+        for miss in ('{"analysis": "flash_edep_per_pot"}', "o.name",
                      'values[o.name]', "sobriety"):
             with self.subTest(miss=miss):
                 self.assertFalse(USAGE_RX.search(miss), miss)

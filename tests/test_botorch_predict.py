@@ -1,10 +1,9 @@
 """Picker tests for core/botorch_predict.py (main suite since the 2026-07-18
-single-venv consolidation) + the botorch_ask subprocess seam smoke.
+single-venv consolidation).
 
-Fixtures repoint bo.MODES["foilsflash"].leaderboard at a tmp 10-row TSV
-(history is exactly the fixture leaderboard). The live
-leaderboards are never touched."""
-import json
+Fixtures patch botorch_predict.boards.board_for to read a tmp v2 board for
+foilsflash_ax (history is exactly the fixture board). The live leaderboards
+are never touched."""
 import math
 import os
 import sys
@@ -15,37 +14,44 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
-import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 import study as st  # noqa: E402
+from leaderboard import Leaderboard, Point  # noqa: E402
 
-HEADER = ("config\textra_rOut_up\textra_rOut_dn\textra_halfThickness_up"
-          "\textra_halfThickness_dn\textra_f_up\textra_f_dn"
-          "\tsob\tflash_edep\talpha\tobj\n")
+# The engine twin of the old foilsflash study: same knobs and objectives.
+STUDY = "foilsflash_ax"
+
+
+def _board(path: Path) -> Leaderboard:
+    return Leaderboard.for_study(bp._modes.STUDIES[STUDY], path=path,
+                                 archive_path=None)
 
 
 def write_fixture(path: Path, n: int = 10, header_only: bool = False):
-    rows = []
-    for i in range(n):
+    lb = _board(path)
+    cols = lb.header().rstrip("\n").split("\t")
+    lines = [lb.header()]
+    for i in range(0 if header_only else n):
         u = i / max(1, n - 1)
         x = [50 + 200 * u, 250 - 200 * u, 0.002 + 0.9 * u, 0.9 - 0.8 * u,
              0.05 + 0.9 * u, 0.9 - 0.85 * u]
-        sob, flash = 3.0 + 0.8 * u, 1e-7 * (1 + 9 * u)
-        rows.append(f"cfg{i:03d}\t{x[0]:.4f}\t{x[1]:.4f}\t{x[2]:.6f}"
-                    f"\t{x[3]:.6f}\t{x[4]:.4f}\t{x[5]:.4f}"
-                    f"\t{sob:.5f}\t{flash:.5e}\t100000.000\t{sob:.5f}\n")
-    path.write_text(HEADER + ("" if header_only else "".join(rows)))
+        vals = {"config": f"cfg{i:03d}",
+                **{k: f"{v:.6f}" for k, v in zip(lb.knob_names, x)},
+                "sob": f"{3.0 + 0.8 * u:.5f}",
+                "flash_edep": f"{1e-7 * (1 + 9 * u):.5e}"}
+        lines.append("\t".join(vals.get(c, "0") for c in cols) + "\n")
+    path.write_text("".join(lines))
 
 
 def patched_leaderboard(tmp: str, **kw):
-    lb = Path(tmp) / "leaderboard_bo_foilsflash.tsv"
+    lb = Path(tmp) / f"leaderboard_bo_{STUDY}.tsv"
     write_fixture(lb, **kw)
-    return mock.patch.multiple(bo.MODES["foilsflash"],
-                               leaderboard=lb, leaderboard_archive=None)
+    return mock.patch.object(bp.boards, "board_for",
+                             lambda s: _board(lb))
 
 
-BOUNDS_LO = list(bp._modes.SPECS["foilsflash"].bounds_lo)
-BOUNDS_HI = list(bp._modes.SPECS["foilsflash"].bounds_hi)
+BOUNDS_LO = list(bp._modes.STUDIES[STUDY].bounds_lo)
+BOUNDS_HI = list(bp._modes.STUDIES[STUDY].bounds_hi)
 
 
 def in_bounds(x):
@@ -56,7 +62,7 @@ def in_bounds(x):
 class TestLoadHistoryTensor(unittest.TestCase):
     def test_parses_rows_and_log_transforms_second_objective(self):
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            X, Y, bounds, int_dims = bp.load_history_tensor("foilsflash")
+            X, Y, bounds, int_dims = bp.load_history_tensor(STUDY)
             self.assertEqual(tuple(X.shape), (10, 6))
             self.assertEqual(tuple(Y.shape), (10, 2))
             self.assertAlmostEqual(float(Y[0, 1]), -math.log10(1e-7), places=6)
@@ -64,31 +70,33 @@ class TestLoadHistoryTensor(unittest.TestCase):
             self.assertEqual(int_dims, [])
 
     def test_nonpositive_calo_rows_dropped(self):
-        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp) as _:
-            lb = bo.MODES["foilsflash"].leaderboard
-            with lb.open("a") as f:
-                f.write("bad\t100.0\t100.0\t0.5\t0.5\t0.5\t0.5"
-                        "\t3.0\t0.00000e+00\t100000.000\t3.0\n")
-            X, Y, _, _ = bp.load_history_tensor("foilsflash")
+        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
+            path = Path(tmp) / f"leaderboard_bo_{STUDY}.tsv"
+            cols = _board(path).header().rstrip("\n").split("\t")
+            vals = {"config": "bad", "extra_rOut_up": "100.0",
+                    "extra_rOut_dn": "100.0", "sob": "3.0",
+                    "flash_edep": "0.00000e+00"}
+            with path.open("a") as f:
+                f.write("\t".join(vals.get(c, "0.5") for c in cols) + "\n")
+            X, Y, _, _ = bp.load_history_tensor(STUDY)
             self.assertEqual(tuple(X.shape), (10, 6))
 
     def test_primary_only_path_is_1d(self):
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            _, Y, _, _ = bp.load_history_tensor("foilsflash", primary_only=True)
+            _, Y, _, _ = bp.load_history_tensor(STUDY, primary_only=True)
             self.assertEqual(tuple(Y.shape), (10, 1))
 
     def test_width_guard_systemexit_on_dim_mismatch(self):
-        wrong = [bo.Point(cfg="w", x=[1.0, 2.0, 3.0],
-                          y={"sob": 1.0, "flash_edep": 1e-7})]
-        with mock.patch.object(bo.MODES["foilsflash"], "load_history",
-                               return_value=wrong):
+        wrong = [Point(cfg="w", x=[1.0, 2.0, 3.0],
+                       y={"sob": 1.0, "flash_edep": 1e-7})]
+        with mock.patch.object(bp, "history_points", return_value=wrong):
             with self.assertRaises(SystemExit):
-                bp.load_history_tensor("foilsflash")
+                bp.load_history_tensor(STUDY)
 
     def test_cold_start_returns_empty_with_correct_width(self):
         with tempfile.TemporaryDirectory() as tmp, \
              patched_leaderboard(tmp, header_only=True):
-            X, Y, _, _ = bp.load_history_tensor("foilsflash")
+            X, Y, _, _ = bp.load_history_tensor(STUDY)
             self.assertEqual(tuple(X.shape), (0, 6))
             self.assertEqual(tuple(Y.shape), (0, 2))
 
@@ -160,7 +168,7 @@ class TestComputeExplorePicks(unittest.TestCase):
     def test_cold_start_path_returns_q_picks(self):
         with tempfile.TemporaryDirectory() as tmp, \
              patched_leaderboard(tmp, header_only=True):
-            picks = bp.compute_explore_picks(q=2, mode="foilsflash",
+            picks = bp.compute_explore_picks(q=2, mode=STUDY,
                                              round_idx=0)
             self.assertEqual(len(picks), 2)
             for p in picks:
@@ -169,22 +177,11 @@ class TestComputeExplorePicks(unittest.TestCase):
     def test_real_gp_qnehvi_pick_on_fixture(self):
         # The one real GP fit in the suite (CPU, ~seconds on 10 rows).
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            picks = bp.compute_explore_picks(q=1, mode="foilsflash",
+            picks = bp.compute_explore_picks(q=1, mode=STUDY,
                                              round_idx=0, picker="qnehvi")
             self.assertEqual(len(picks), 1)
             self.assertEqual(len(picks[0]), 6)
             self.assertTrue(in_bounds(picks[0]))
-
-    def test_main_emits_picks_json(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            lb = Path(tmp) / "lb.tsv"
-            write_fixture(lb, header_only=True)  # cold start = fast
-            out = Path(tmp) / "picks.json"
-            bp.main(["--mode", "foilsflash", "--q", "2", "--round-idx", "0",
-                     "--leaderboard", str(lb),
-                     "--emit-picks-json", str(out)])
-            picks = json.loads(out.read_text())
-            self.assertEqual(len(picks), 2)
 
 
 _REMOVED = (("AUTORESEARCH_FLASH_BUDGET", "max"),
@@ -204,12 +201,12 @@ class TestRemovedEnvOverrides(unittest.TestCase):
     operator believes it runs at theirs."""
 
     def test_each_removed_variable_is_fatal_in_build_problem(self):
-        study = bp._modes.STUDIES["foilspfbpz"]
+        study = bp._modes.STUDIES["foilspfbpz_ax"]
         for var, field in _REMOVED:
             with self.subTest(var=var), \
                  mock.patch.dict(os.environ, {var: "0.5"}):
                 with self.assertRaises(SystemExit) as cm:
-                    bp.build_problem("foilspfbpz")
+                    bp.build_problem("foilspfbpz_ax")
                 msg = str(cm.exception)
                 self.assertIn(var, msg)
                 self.assertIn("removed in Phase A", msg)
@@ -223,31 +220,15 @@ class TestRemovedEnvOverrides(unittest.TestCase):
                  patched_leaderboard(tmp), \
                  mock.patch.dict(os.environ, {var: "6.8e-7"}):
                 with self.assertRaises(SystemExit) as cm:
-                    bp.compute_explore_picks("foilsflash", q=1,
+                    bp.compute_explore_picks(STUDY, q=1,
                                              picker="budget_sob")
                 self.assertIn(var, str(cm.exception))
 
     def test_unset_builds_the_study_constraint(self):
         with mock.patch.dict(os.environ, _env_without_removed(), clear=True):
-            prob = bp.build_problem("foilspfbpz")
-        c = bp._modes.STUDIES["foilspfbpz"].constraints[0]
+            prob = bp.build_problem("foilspfbpz_ax")
+        c = bp._modes.STUDIES["foilspfbpz_ax"].constraints[0]
         self.assertEqual(prob.constraint.k_sigma, c.k_sigma)
-
-
-class TestBotorchAskSeamSmoke(unittest.TestCase):
-    def test_ask_q2_roundtrip_through_subprocess(self):
-        # End-to-end: bo_driver.botorch_ask -> .venv python botorch_predict.py
-        # --leaderboard <tmp fixture> --emit-picks-json. The only slow test
-        # in the suite (one real 10-row GP fit in a fresh interpreter).
-        with tempfile.TemporaryDirectory() as tmp:
-            lb = Path(tmp) / "lb.tsv"
-            write_fixture(lb)
-            xs = bo.botorch_ask("foilsflash", q=2, seed_idx=0,
-                                picker="qnehvi", leaderboard=lb)
-            self.assertEqual(len(xs), 2)
-            for x in xs:
-                self.assertEqual(len(x), 6)
-                self.assertTrue(in_bounds(x))
 
 
 class TestSurrokitPin(unittest.TestCase):
@@ -262,6 +243,22 @@ class TestSurrokitPin(unittest.TestCase):
         self.assertEqual(head, SURROKIT_PIN_SHA,
                          "surrokit checkout drifted from the validated pin; "
                          "re-validate and bump SURROKIT_PIN_SHA deliberately")
+
+
+class TestMissingBoard(unittest.TestCase):
+    def test_a_study_with_no_board_file_has_empty_history(self):
+        """Six of the seven _ax studies have no board yet; neither the live
+        nor the archive file exists. That is an empty history, not an error."""
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.tsv"
+            with mock.patch.object(
+                    bp.boards, "board_for",
+                    lambda s: Leaderboard.for_study(s, path=missing,
+                                                    archive_path=None)):
+                self.assertEqual(bp.history_points(STUDY), [])
+                X, Y, _, _ = bp.load_history_tensor(STUDY)
+        self.assertEqual(X.shape[0], 0)
+        self.assertEqual(Y.shape[0], 0)
 
 
 if __name__ == "__main__":

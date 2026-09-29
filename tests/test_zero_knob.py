@@ -1,4 +1,3 @@
-import json
 import subprocess
 import sys
 import tempfile
@@ -10,11 +9,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "graph"))
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
-import modes  # noqa: E402
 import study as st  # noqa: E402
 from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
-
-DEMO = ROOT / "tests" / "fixtures" / "studies" / "demo.json"
 
 
 def zero_doc(name="zk"):
@@ -44,17 +40,6 @@ class TestLoader(_Tmp):
     def test_no_knobs_loads(self):
         s = st.load_study_file(write_study(zero_doc(), self.studies))
         self.assertEqual(s.knobs, ())
-        self.assertTrue(modes.runs_on_engine(s))
-
-    def test_a_pipeline_study_with_no_knobs_is_refused(self):
-        doc = json.loads(DEMO.read_text())
-        doc["derive"]["consts"].update({k["name"]: k["min"]
-                                        for k in doc["knobs"]})
-        doc["knobs"] = []
-        s = st.load_study_file(write_study(doc, self.studies))
-        with self.assertRaises(ValueError) as cm:
-            modes.runs_on_engine(s)
-        self.assertIn("no knobs", str(cm.exception))
 
 
 class TestRunners(_Tmp):

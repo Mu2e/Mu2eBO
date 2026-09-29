@@ -89,9 +89,6 @@ def main(argv=None) -> int:
     if args.study not in _modes.STUDIES:
         return refuse(f"unknown study {args.study!r}; known "
                       f"{sorted(_modes.STUDIES)}")
-    if args.study not in _modes.ENGINE:
-        return refuse(f"study {args.study!r} runs on the pipeline kits; use "
-                      f"graph.run / graph.closed_loop until Phase C")
     study = _modes.STUDIES[args.study]
     try:
         if not study.knobs:

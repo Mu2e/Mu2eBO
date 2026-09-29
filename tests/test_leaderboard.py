@@ -28,19 +28,25 @@ _DEMO = Path(__file__).parent / "fixtures" / "studies" / "demo.json"
 
 class TestByteIdenticalOnARealBoard(unittest.TestCase):
     """Appending to a copy of a real board adds exactly the line today's
-    writer would have produced."""
+    writer would have produced. The board is the archived study's committed
+    v1 board; the archived study file names kits deleted in Phase C3, so its
+    columns come from the twin foilspfbpz_ax (same knobs, objectives and
+    columns) with the v1 layout."""
 
     def test_foilspfbpz_last_row_rewritten_identically(self):
+        import dataclasses
         import modes
         root = Path(__file__).resolve().parent.parent
         src = root / "leaderboards" / "leaderboard_bo_foilspfbpz.tsv"
-        study = modes.STUDIES["foilspfbpz"]
+        study = modes.STUDIES["foilspfbpz_ax"]
         with tempfile.TemporaryDirectory() as td:
             lines = src.read_text().splitlines(keepends=True)
             head, last = lines[:-1], lines[-1]
             copy = Path(td) / src.name
             copy.write_text("".join(head))
-            lb = lbm.Leaderboard.for_study(study, path=copy, archive_path=None)
+            lb = dataclasses.replace(
+                lbm.Leaderboard.for_study(study, path=copy, archive_path=None),
+                layout="v1")
             cells = last.rstrip("\n").split("\t")
             n = len(study.knob_names)
             p = lbm.Point(cfg=cells[0], x=[float(v) for v in cells[1:1 + n]],
@@ -190,7 +196,7 @@ class TestPending(unittest.TestCase):
             rows = self.lb.pending_load(now=now)
         self.assertEqual(rows, [("old01", [1.0, 2.0])])
         self.assertIn("old01", buf.getvalue())
-        self.assertIn("pending-prune", buf.getvalue())
+        self.assertIn("pending_prune", buf.getvalue())
 
     def test_prune_removes_only_stale(self):
         self.lb.pending_add("old01", [1.0, 2.0], alpha=1.0)
@@ -213,24 +219,6 @@ class TestPending(unittest.TestCase):
         self.assertTrue(self.lb.pending_path()
                         .with_name(self.lb.pending_path().name
                                    + ".quarantine.tsv").exists())
-
-
-class TestPendingPruneCmd(unittest.TestCase):
-    def test_cmd_pending_prune_prints_and_prunes(self):
-        import types
-        import bo_driver as bo
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            lb = demo_lb(tmp / "leaderboard_bo_test.tsv")
-            lb.pending_add("old01", [1.0, 2.0], alpha=1.0)
-            mode = next(iter(bo.MODES.values()))
-            with unittest.mock.patch.object(
-                    type(mode), "leaderboard_io", return_value=lb):
-                args = types.SimpleNamespace(
-                    mode=mode.name, older_than_hours=-1.0)  # everything stale
-                rc = bo.cmd_pending_prune(args)
-                self.assertEqual(rc, 0)
-                self.assertEqual(lb.pending_load(), [])  # row actually pruned
 
 
 class TestArchivePlusLive(unittest.TestCase):

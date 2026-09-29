@@ -1,204 +1,53 @@
-"""Completeness + lockstep tests for the ModeSpec registry (ADR-0002).
-
-These are the tests that turn "MUST stay in lockstep" comments into failures:
-a new mode, a moved bound, or a renamed stage now breaks HERE instead of
-silently building the wrong geometry on the grid.
+"""The study registry (core/modes.py): which study files load into
+modes.STUDIES, from where, and the batch pickers declared beside them.
 """
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
 import unittest
 import uuid
 from pathlib import Path
-from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "core"))
 import modes  # noqa: E402
 
 
-class TestRegistryCompleteness(unittest.TestCase):
-    def test_keys_match_driver_modes(self):
-        import bo_driver as bo
-        self.assertEqual(set(modes.SPECS), set(bo.MODES),
-                         "modes.SPECS and driver MODES diverged")
+class TestRegistry(unittest.TestCase):
+    def test_the_live_studies_are_the_seven_engine_twins(self):
+        import modes
+        live = {n for n in modes.STUDIES if not n.startswith("_")}
+        self.assertTrue({"foilsflash_ax", "foilspf_ax", "foilspf2k_ax",
+                         "foilspfbp_ax", "foilspfbpx_ax", "foilspfbpz_ax",
+                         "foilspfbw_ax"} <= live)
+        self.assertFalse({"foilsflash", "foilspf", "foilspf2k", "foilspfbp",
+                          "foilspfbpx", "foilspfbpz", "foilspfbw"} & live,
+                         "the originals are archived, not loaded")
 
-    def test_name_field_matches_key(self):
-        for name, spec in modes.SPECS.items():
-            self.assertEqual(spec.name, name)
-
-    def test_every_mode_is_a_json_mode(self):
-        """No Python-mode adapter survives (the last five were archived
-        2026-08-08): every driver mode is the generic JsonMode."""
-        import bo_driver as bo
-        for name, mode in bo.MODES.items():
-            self.assertIsInstance(mode, bo.JsonMode, name)
-
-    def test_every_fact_populated(self):
-        for name, spec in modes.SPECS.items():
-            self.assertTrue(spec.grid_tarball.startswith("/"), name)
-            self.assertFalse(hasattr(spec, "musing"), name)
-            self.assertTrue(spec.grid_tarball.endswith(".tar.bz2"), name)
-            self.assertGreater(len(spec.grid_stages), 0, name)
+    def test_the_pickers(self):
+        self.assertEqual(modes.PICKER_CHOICES,
+                         ("qnehvi", "qlnei", "budget_sob", "hybrid"))
+        self.assertIn(modes.DEFAULT_PICKER, modes.PICKER_CHOICES)
 
 
-class TestBoundsLockstep(unittest.TestCase):
-    def test_build_space_matches_spec(self):
-        # THE lockstep test: build_space pairs the driver's KNOB_NAMES with
-        # the registry bounds and must raise loudly on a length mismatch;
-        # the SpaceDim rows it returns must mirror the spec exactly (the
-        # spec is what the botorch picker and cloud plots read).
-        import bo_driver as bo
-        for name, spec in modes.SPECS.items():
-            dims = bo.MODES[name].build_space()
-            lo = tuple(d.low for d in dims)
-            hi = tuple(d.high for d in dims)
-            intd = tuple(i for i, d in enumerate(dims) if d.is_int)
-            self.assertEqual(spec.bounds_lo, lo, name)
-            self.assertEqual(spec.bounds_hi, hi, name)
-            self.assertEqual(spec.int_dims, intd, name)
-            self.assertEqual(tuple(d.name for d in dims),
-                             tuple(bo.MODES[name].KNOB_NAMES), name)
-
-    def test_leaderboard_row_roundtrips(self):
-        # Leaderboard.append (core/leaderboard.py) writes the header + line;
-        # Leaderboard.load must read exactly those columns back. This pins
-        # the KNOB_NAMES / header / value-column contract the 2026-07-12
-        # driver collapse introduced: a renamed knob column silently broke
-        # reading EXISTING rows (now a loud RowParseError/SchemaMismatch
-        # instead of a swallowed KeyError -- see
-        # wiki/incidents/touched-leaderboard-headerless-history-loss.md).
-        # Round-trips build_space midpoints through append/load for every
-        # mode, each against its own scratch temp-dir copy (never the real
-        # leaderboards/*.tsv -- mode.leaderboard_io() is only consulted for
-        # its knob/metric column schema, not written to).
-        import tempfile
-        import bo_driver as bo
-        for name, mode in bo.MODES.items():
-            # leaderboard_io() caches onto the shared bo.MODES[name]
-            # singleton (same object across every test in this process);
-            # drop the cache afterward so a later test that patches the
-            # registry and expects a fresh Leaderboard build doesn't
-            # silently get this test's cached instance back instead.
-            self.addCleanup(setattr, mode, "_lb_cache", None)
-            study = modes.STUDIES[name]
-            self.assertEqual(mode.leaderboard_io().header(),
-                             bo.Leaderboard.for_study(
-                                 study, path=mode.leaderboard,
-                                 archive_path=None).header(), name)
-            x0 = []
-            for d in mode.build_space():
-                if d.is_int:
-                    x0.append(int(round((d.low + d.high) / 2)))
-                else:
-                    x0.append((d.low + d.high) / 2.0)
-            p = bo.Point(cfg="RT01", x=x0,
-                         y={study.objectives[0].name: 3.21,
-                            study.objectives[1].name: 6.5e-7})
-            with tempfile.TemporaryDirectory() as td:
-                lb = bo.Leaderboard.for_study(
-                    study, path=Path(td) / f"leaderboard_bo_{name}.tsv",
-                    archive_path=None)
-                lb.append(p, {"alpha": 1.0e5})
-                [back] = lb.load()
-            self.assertEqual(back.cfg, "RT01", name)
-            self.assertEqual(len(back.x), len(x0), name)
-            for got, want in zip(back.x, x0):
-                self.assertAlmostEqual(float(got), float(want), places=3, msg=name)
-
-
-class TestSpotFacts(unittest.TestCase):
-    """Load-bearing values pinned individually — the ones with incident
-    history or active standards behind them."""
-
-    def test_foilsflash_thickness_floor(self):
-        self.assertEqual(modes.SPECS["foilsflash"].bounds_lo[2], 0.002)
-        self.assertEqual(modes.SPECS["foilsflash"].bounds_lo[3], 0.002)
-
-    def test_foilsflash_elebeam_standard_100(self):
-        self.assertEqual(
-            modes.SPECS["foilsflash"].stage_target_overrides["elebeam_flash"], 100)
-
-    def test_foilsflash_presubmit_overlap(self):
-        self.assertEqual(modes.SPECS["foilsflash"].presubmit_after,
-                         {"mubeam": ("elebeam_flash",)})
-
-    def test_foilsflash_obs_noise_is_the_replicate_measured_sigma(self):
-        # Free MLL noise ranked the best-ever eval 16th of 324
-        # (wiki/incidents/gp-free-noise-erases-champion.md).
-        self.assertEqual(modes.SPECS["foilsflash"].obs_noise, (0.006, 0.010))
-
-    def test_foilsflash_run_configuration(self):
-        spec = modes.SPECS["foilsflash"]
-        self.assertEqual(spec.grid_stages,
-                         ("mubeam", "mustops_ce", "elebeam_flash"))
-        self.assertEqual(spec.metrics["sob"], ("s_over_sqrt_b",))
-
-    def test_foils_family_needs_holeradii_tarball(self):
-        # (ipa — the last non-holeradii CE/calo mode — retired 2026-07-18;
-        # its base-tarball regression pin went with it. "foils"/"foilsf"/
-        # "foilsg" -- the Python-mode family -- archived 2026-08-08;
-        # foilsflash is the sole surviving anchor.)
-        self.assertIn("holeradii", modes.SPECS["foilsflash"].grid_tarball)
-
-
-class TestSchemaFields(unittest.TestCase):
-    def test_metric_cols_spot_pins(self):
-        # "foils" (plain "calo" tail) and "prodtarget" (5-column mu_per_POT
-        # tail) were archived 2026-08-08; every surviving mode shares the
-        # foilsflash-family "flash_edep" tail, so there is no longer a
-        # second shape to contrast against.
-        # metric_cols is the study_compat view's column tail; the
-        # leaderboard itself reads its columns by name from the Study
-        # (core/leaderboard.py Leaderboard.for_study), not from here.
-        self.assertEqual(modes.SPECS["foilsflash"].metric_cols,
-                         ("sob", "flash_edep", "alpha", "obj"))
-
-    def test_driver_reads_registry(self):
-        import bo_driver as bo
-        for name, mode in bo.MODES.items():
-            self.assertEqual(mode.KNOB_NAMES, modes.SPECS[name].knob_names)
-            self.assertEqual(mode.KNOB_FMTS, modes.SPECS[name].knob_fmts)
-
-
-class TestGeomField(unittest.TestCase):
-    def test_the_new_fields_are_required_not_defaulted(self):
-        """A missing fact must be a TypeError, never a silent default."""
-        import dataclasses
-        by_name = {f.name: f for f in dataclasses.fields(modes.ModeSpec)}
-        for field in ("geom", "metrics", "leaderboard_rel"):
-            self.assertIn(field, by_name)
-            self.assertIs(by_name[field].default, dataclasses.MISSING,
-                          f"{field} must not have a default")
-            self.assertIs(by_name[field].default_factory, dataclasses.MISSING,
-                          f"{field} must not have a default_factory")
-        with self.assertRaises(TypeError):
-            modes.ModeSpec(name="x")  # type: ignore[call-arg]
-
-
-class TestModeSpecsDirectoryWiring(unittest.TestCase):
+class TestStudyDirectoryWiring(unittest.TestCase):
     """F8: the lines that ARE the study-directory feature had zero coverage.
 
-    Deleting the `STUDIES = load_study_dirs(MODES_DIR, ...)` /
-    `SPECS = {...}` tail of core/modes.py, or the
-    `MODES[_name] = JsonMode(_name)` loop in core/bo_driver.py, used to leave
-    the whole suite green -- verified by mutation, twice. Every other test
-    registers its study by hand into modes.STUDIES/SPECS and so bypasses
-    directory discovery.
+    Deleting the `STUDIES = load_study_dirs(MODES_DIR, ...)` line of
+    core/modes.py used to leave the whole suite green -- verified by
+    mutation. Every other test registers its study by hand into
+    modes.STUDIES and so bypasses directory discovery.
 
     Neither test here writes into the real mode_specs/ (a concurrently
     importing campaign child would load a probe dropped there). The primary
     directory is proven by comparing a fresh process's registry to the
-    files in mode_specs/; "drop a study file in a directory, get a runnable
-    mode" is proven through $AUTORESEARCH_STUDY_PATH with a temp directory,
-    checking all three links of the chain: the study is discovered into
-    STUDIES and SPECS, a JsonMode is registered under that name in the
-    driver, and it renders geometry.
+    files in mode_specs/; "drop a study file in a directory, get a study"
+    is proven through $AUTORESEARCH_STUDY_PATH with a temp directory,
+    checking that the study is discovered into STUDIES and renders its
+    geometry.
     """
-
-    ROOT = Path(__file__).resolve().parent.parent
 
     def _fresh_process(self, script, study_path=None, cwd=None):
         env = dict(os.environ)
@@ -207,7 +56,7 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
         if study_path is not None:
             env["AUTORESEARCH_STUDY_PATH"] = study_path
         r = subprocess.run([sys.executable, "-c", script],
-                           cwd=str(cwd or self.ROOT),
+                           cwd=str(cwd or ROOT),
                            capture_output=True, text=True, env=env,
                            timeout=180)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -215,31 +64,27 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
 
     def test_the_primary_directory_is_the_repo_mode_specs(self):
         """Run from core/ with PYTHONPATH popped, so core/ is the only
-        project directory on sys.path: the production path when bo_driver
-        runs as a subprocess (the TYPE_CHECKING guard on the GeomTemplate
-        annotation is what lets modes import there)."""
-        self.assertEqual(modes.MODES_DIR, self.ROOT / "mode_specs")
+        project directory on sys.path: a bare `import modes` must work
+        there, not only the package-qualified `core.modes`."""
+        self.assertEqual(modes.MODES_DIR, ROOT / "mode_specs")
         script = (
             "import json\n"
             "import modes\n"
-            "print(json.dumps([str(modes.MODES_DIR), sorted(modes.STUDIES), "
-            "sorted(modes.SPECS), sorted(modes.ENGINE)]))\n"
+            "print(json.dumps([str(modes.MODES_DIR), sorted(modes.STUDIES)]))\n"
         )
-        modes_dir, studies, specs, engine = json.loads(
-            self._fresh_process(script, cwd=self.ROOT / "core").splitlines()[-1])
-        want = sorted(p.stem for p in (self.ROOT / "mode_specs").glob("*.json"))
-        self.assertEqual(Path(modes_dir), self.ROOT / "mode_specs")
+        modes_dir, studies = json.loads(
+            self._fresh_process(script, cwd=ROOT / "core").splitlines()[-1])
+        want = sorted(p.stem for p in (ROOT / "mode_specs").glob("*.json"))
+        self.assertEqual(Path(modes_dir), ROOT / "mode_specs")
         self.assertEqual(studies, want)
-        # C2b: each foilspf study has an engine twin <name>_ax (MDC2025ax,
-        # anakit); the twins run on the engine, the originals stay the
-        # pipeline's until C3.
-        self.assertEqual(engine, [n for n in want if n.endswith("_ax")])
-        self.assertEqual(specs, [n for n in want if not n.endswith("_ax")])
+        # C2b: each foilspf study has an engine twin <name>_ax; since C3 the
+        # twins are the only studies shipped (the originals are archived).
+        self.assertTrue(all(n.endswith("_ax") for n in want), want)
 
-    def test_a_study_on_the_study_path_becomes_a_runnable_mode(self):
+    def test_a_study_on_the_study_path_is_loaded(self):
         name = "wiringprobe" + uuid.uuid4().hex[:8]
-        doc = json.loads((Path(__file__).parent / "fixtures" / "modes"
-                          / "template.json").read_text())
+        doc = json.loads((ROOT / "mode_specs" / "foilsflash_ax.json")
+                         .read_text())
         doc["name"] = name
         # Its own leaderboard basename: the loader rejects a study that
         # claims one already owned by another study.
@@ -247,34 +92,24 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
         script = (
             "import sys\n"
             "sys.path.insert(0, 'core')\n"
-            "import modes, bo_driver\n"
+            "import modes\n"
             f"n = {name!r}\n"
             "print('STUDY_DISCOVERED', n in modes.STUDIES)\n"
-            "print('SPEC_DISCOVERED', n in modes.SPECS)\n"
-            "m = bo_driver.MODES.get(n)\n"
-            "print('DRIVER_CLASS', type(m).__name__)\n"
-            "print('GEOM_RENDERS', bool(m) and 'stoppingTarget.radii' in "
-            "m._geom_text([120.0, 130.0, 0.1, 0.2]))\n"
+            "s = modes.STUDIES.get(n)\n"
+            "print('GEOM_RENDERS', bool(s) and 'stoppingTarget.radii' in "
+            "s.geom.render([120.0, 130.0, 0.1, 0.2, 0.3, 0.4]))\n"
         )
         with tempfile.TemporaryDirectory() as td:
             (Path(td) / f"{name}.json").write_text(json.dumps(doc))
             out = self._fresh_process(script, study_path=str(Path(td).resolve()))
         self.assertEqual(out.splitlines(),
-                         ["STUDY_DISCOVERED True",
-                          "SPEC_DISCOVERED True",
-                          "DRIVER_CLASS JsonMode",
-                          "GEOM_RENDERS True"], out)
+                         ["STUDY_DISCOVERED True", "GEOM_RENDERS True"], out)
 
     # Specs deliberately shipped in the real mode_specs/ directory. Every file
     # here is loaded by EVERY process that imports modes, so the point of the
     # test below is that nothing arrives unnoticed -- adding a line here is a
     # conscious act, which is exactly the review checkpoint we want.
-    SHIPPED_SPECS = {"foilsflash.json", "foilspf.json", "foilspf2k.json",
-                     "foilspfbp.json", "foilspfbw.json", "foilspfbpx.json",
-                     "foilspfbpz.json",
-                     # C2b: engine twins of the seven above (MDC2025ax,
-                     # anakit); see mode_specs/README.md "Engine studies".
-                     "foilsflash_ax.json", "foilspf_ax.json",
+    SHIPPED_SPECS = {"foilsflash_ax.json", "foilspf_ax.json",
                      "foilspf2k_ax.json", "foilspfbp_ax.json",
                      "foilspfbw_ax.json", "foilspfbpx_ax.json",
                      "foilspfbpz_ax.json"}
@@ -284,91 +119,43 @@ class TestModeSpecsDirectoryWiring(unittest.TestCase):
         a STRAY *.json checked in here would be loaded by every process that
         imports modes.
 
-        Was "only the README" until foilsflash became JSON-defined
-        (2026-07-26). Kept as an explicit allow-list rather than relaxed to
-        "any *.json": the whole value of this guard is that an unintended file
-        fails loudly, and `assertEqual` against a named set preserves that
-        while a laxer check would not.
+        Kept as an explicit allow-list rather than relaxed to "any *.json":
+        the whole value of this guard is that an unintended file fails
+        loudly, and `assertEqual` against a named set preserves that while a
+        laxer check would not.
 
-        No test writes into this directory any more (the wiring tests above
-        use a temp dir on $AUTORESEARCH_STUDY_PATH), so the old
-        `wiringprobe*.json` exclusion is gone: any stray file fails here.
-
-        `archive/` is excluded deliberately: it holds retired one-shot A/B
-        specs whose leaderboards are still readable (see Task 5)."""
-        root = Path(__file__).resolve().parent.parent
-        stray = sorted(p.name for p in (root / "mode_specs").iterdir()
+        `archive/` is excluded deliberately: nothing loads it. It holds the
+        retired one-shot A/B specs and, since Phase C3, the seven original
+        foilspf studies, whose boards stay in leaderboards/."""
+        stray = sorted(p.name for p in (ROOT / "mode_specs").iterdir()
                        if p.name != "archive")
         self.assertEqual(stray, sorted({"README.md"} | self.SHIPPED_SPECS))
 
 
-class TestCopyPasteTemplate(unittest.TestCase):
-    """F4 (second half), ported from the old spec loader's test module
-    (deleted with the schema-2 switch): mode_specs/README.md once advertised
-    a copy of the live foilsflash spec as the thing to copy. Copy it, miss
-    the leaderboard line (it looks plausible) and the new line appends into
-    a live TSV. The loader rejects a shared leaderboard outright, but what
-    the README hands an author must not be a live-leaderboard file in the
-    first place.
-    """
-
-    ROOT = Path(__file__).resolve().parent.parent
-    TEMPLATE = Path(__file__).parent / "fixtures" / "modes" / "template.json"
-
-    def readme(self) -> str:
-        return (self.ROOT / "mode_specs" / "README.md").read_text()
-
-    def test_readme_advertises_the_template(self):
-        self.assertIn("tests/fixtures/modes/template.json", self.readme())
-
-    def test_template_loads(self):
-        """Through the same study -> ModeSpec path core/modes.py uses, so a
-        copy dropped into mode_specs/ becomes a runnable mode."""
-        from study_compat import load_modespec
-        spec = load_modespec(self.TEMPLATE)
-        self.assertEqual(spec.name, "template")
-        self.assertIsNotNone(spec.geom)
-        self.assertTrue(spec.geom.render([v for v in spec.bounds_lo]))
-
-    def test_template_leaderboard_is_not_a_live_one(self):
-        # By basename: the live board tree is flat (paths.leaderboard_live),
-        # so a template sharing only a basename would still write a live TSV.
-        from study import load_study_file
-        board = Path(load_study_file(self.TEMPLATE).leaderboard_rel).name
-        live = {Path(s.leaderboard_rel).name for s in modes.STUDIES.values()}
-        self.assertNotIn(board, live)
-
+class TestReadme(unittest.TestCase):
     def test_readme_documents_the_int_fmt_limitation(self):
         """F14: _validate_fmt probes with a float, so "{:d}" is rejected at
         load even for a knob with "type": "int" -- authors must write
         "{:.0f}". Loud, not silent; documented rather than changed (a {:d}
         fmt genuinely breaks on the float path)."""
-        readme = self.readme()
+        readme = (ROOT / "mode_specs" / "README.md").read_text()
         self.assertIn("{:d}", readme)
         self.assertIn("{:.0f}", readme)
 
 
-class TestSingleModeSpecClass(unittest.TestCase):
+class TestSingleModuleCopy(unittest.TestCase):
     """Only ONE copy of each of these modules may be live in the suite process.
 
-    Ported from the old spec loader's test module (deleted with the
-    schema-2 switch): the invariant is about import convention, not the
-    loader. `core/modes.py` (and its siblings
-    core/geom_template.py, core/bo_driver.py) are importable two ways --
-    bare (core/ on sys.path, which is how bo_driver.py runs as a subprocess
-    and how this suite imports) and qualified `core.<module>`. If both load,
-    Python builds two non-identical copies of the same class (ModeSpec,
-    GeomTemplate, ...) and any isinstance check or `is`-identity across them
-    silently returns False. Every test file here must therefore use the bare
-    convention. tests/test_geom_template.py was the gap that motivated the
-    geom_template/bo_driver entries below (I7 in the json-configurable-modes
-    final review) -- it used qualified `core.geom_template`/`core.bo_driver`
-    imports until fixed. A qualified `core.study`/`core.study_compat` import
-    trips these too: both pull in `core.geom_template`, and
-    study_compat.modespec_from_study imports `core.modes` when called.
+    `core/modes.py` and its sibling core/geom_template.py are importable two
+    ways -- bare (core/ on sys.path, which is how this suite imports) and
+    qualified `core.<module>`. If both load, Python builds two non-identical
+    copies of the same class (GeomTemplate, ...) and any isinstance check or
+    `is`-identity across them silently returns False. Every test file here
+    must therefore use the bare convention. A qualified `core.study` import
+    trips these too: it pulls in `core.geom_template`.
     """
     def test_no_qualified_core_module_is_loaded(self):
-        for bare in ("modes", "geom_template", "bo_driver"):
+        for bare in ("modes", "geom_template"):
             with self.subTest(module=bare):
                 self.assertNotIn(
                     f"core.{bare}", sys.modules,
@@ -380,466 +167,19 @@ class TestSingleModeSpecClass(unittest.TestCase):
                     f"by tests/test_modes.py.")
 
 
-class TestModeStamping(unittest.TestCase):
-    """Finding I1 (final review): nothing stamped AUTORESEARCH_MODE from
-    --mode after graph/presniff.py was deleted in 265c642, so with
-    `--mode foilspfbw` on the command line runtime._SPEC.name resolved to
-    "foilspf" and pipeline.MODE to "foilsflash" -- neither the requested
-    mode, and which you got depended on import order inside graph/build.py.
-
-    Untestable in-process: both modules resolve their mode at IMPORT time,
-    and the suite has already imported them under tests/__init__.py's stamp.
-    The end-to-end case therefore spawns a fresh interpreter.
-    """
-
-    ROOT = Path(__file__).resolve().parent.parent
-
-    def test_stamps_space_separated_form(self):
-        env = {}
-        with mock.patch.dict(modes.os.environ, env, clear=False):
-            got = modes.stamp_mode_from_argv(["--mode", "foilspfbw", "--q", "2"])
-            self.assertEqual(got, "foilspfbw")
-            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspfbw")
-
-    def test_stamps_equals_form(self):
-        with mock.patch.dict(modes.os.environ, {}, clear=False):
-            self.assertEqual(modes.stamp_mode_from_argv(["--mode=foilspf2k"]),
-                             "foilspf2k")
-
-    def test_unknown_mode_falls_through_and_is_never_stamped_as_such(self):
-        """Stamping a typo would turn argparse's "invalid choice" message
-        into a bare KeyError traceback from `from runtime import ...`. It
-        falls through to the env / DEFAULT_MODE instead, and
-        assert_mode_stamped reports the bad name properly."""
-        with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": "foilspfbw"}, clear=False):
-            self.assertEqual(modes.stamp_mode_from_argv(["--mode", "nope"]),
-                             "foilspfbw")
-            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspfbw")
-
-    def test_no_mode_flag_keeps_an_already_set_env(self):
-        """Precedence rung 2: AUTORESEARCH_MODE is the supported way to
-        pick a mode without the flag, so the stamp must not clobber it --
-        overwriting an operator's explicit export with DEFAULT_MODE would be
-        its own silent substitution."""
-        with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": "foilspfbw"}, clear=False):
-            self.assertEqual(modes.stamp_mode_from_argv(["--q", "2"]),
-                             "foilspfbw")
-            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"], "foilspfbw")
-
-    def test_no_mode_flag_and_no_env_stamps_the_registry_default(self):
-        """Precedence rung 3, and the fix for the round-2 defect: it must
-        STAMP, not merely return. Returning without stamping left every
-        module-level reader to apply its own fallback, and they disagreed."""
-        env = dict(modes.os.environ)
-        env.pop("AUTORESEARCH_MODE", None)
-        with mock.patch.dict(modes.os.environ, env, clear=True):
-            self.assertEqual(modes.stamp_mode_from_argv([]),
-                             modes.DEFAULT_MODE)
-            self.assertEqual(modes.os.environ["AUTORESEARCH_MODE"],
-                             modes.DEFAULT_MODE)
-
-    def test_explicit_mode_beats_an_already_set_env(self):
-        """Precedence rung 1."""
-        with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": "foilsflash"}, clear=False):
-            self.assertEqual(modes.stamp_mode_from_argv(["--mode", "foilspf2k"]),
-                             "foilspf2k")
-
-    def test_assert_mode_stamped_passes_when_all_agree(self):
-        import pipeline
-        import runtime
-        modes.assert_mode_stamped(runtime._SPEC.name)
-        self.assertEqual(runtime._SPEC.name, pipeline.MODE)
-
-    def test_assert_mode_stamped_names_an_unknown_mode_as_such(self):
-        """graph/run.py's --mode has no argparse choices, so a typo lands in
-        the assertion; it must not be reported as an import-order problem."""
-        with self.assertRaises(SystemExit) as cm:
-            modes.assert_mode_stamped("nosuchmode")
-        self.assertIn("unknown --mode 'nosuchmode'", str(cm.exception))
-        self.assertIn("foilspf", str(cm.exception))
-
-    def test_assert_mode_stamped_dies_on_disagreement(self):
-        import runtime
-        other = next(m for m in modes.SPECS if m != runtime._SPEC.name)
-        with self.assertRaises(SystemExit) as cm:
-            modes.assert_mode_stamped(other)
-        msg = str(cm.exception)
-        for frag in ("--mode", "AUTORESEARCH_MODE", "runtime._SPEC.name",
-                     "pipeline.MODE", other):
-            self.assertIn(frag, msg)
-
-    def test_stamp_makes_runtime_and_pipeline_agree_in_a_fresh_process(self):
-        """The regression itself, end to end: stamp then import, and both
-        mode-keyed modules resolve to the CLI's mode."""
-        script = (
-            "import sys, os\n"
-            "sys.argv = ['run.py', '--mode', 'foilspfbw']\n"
-            f"sys.path[:0] = [{str(self.ROOT / 'graph')!r}, "
-            f"{str(self.ROOT / 'core')!r}]\n"
-            "import modes\n"
-            "modes.stamp_mode_from_argv()\n"
-            "import build, runtime, pipeline\n"
-            "print(os.environ['AUTORESEARCH_MODE'], runtime._SPEC.name, "
-            "pipeline.MODE)\n"
-        )
-        env = dict(os.environ)
-        env.pop("PYTHONPATH", None)
-        env.pop("AUTORESEARCH_MODE", None)
-        r = subprocess.run([sys.executable, "-c", script], env=env,
-                           capture_output=True, text=True,
-                           cwd=str(self.ROOT))
-        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
-        self.assertEqual(r.stdout.split()[-3:],
-                         ["foilspfbw", "foilspfbw", "foilspfbw"])
-
-    # --- entrypoint / module-scope-env-reader reachability -----------------
-    #
-    # The invariant is "no entrypoint reaches a module-scope reader of
-    # AUTORESEARCH_MODE before stamping it", NOT "graph/run.py and
-    # graph/closed_loop.py each contain a `from runtime import` line after a
-    # stamp line". The literal-two-files version missed a plain `import
-    # runtime`, any indirect import (a new module-scope `from X import ...`
-    # where X itself imports runtime), and any third entrypoint added later.
-
-    @staticmethod
-    def _module_sources(root):
-        out = {}
-        for d in ("core", "graph"):
-            for f in sorted((root / d).glob("*.py")):
-                if f.name == "__init__.py":
-                    continue
-                out[f.stem] = f.read_text()
-        return out
-
-    @staticmethod
-    def _module_scope_lines(text):
-        """Column-0 statements only -- anything indented is inside a def/
-        class/if and does not run at import."""
-        for line in text.splitlines():
-            if not line or line[0].isspace() or line.lstrip().startswith("#"):
-                continue
-            yield line
-
-    # A module-scope read of the process mode, in either spelling: the raw
-    # env var, or the canonical resolver every reader now calls. Keying on
-    # the env-var name ALONE silently blinded this detector the moment the
-    # readers were routed through modes.resolve_env_mode() -- caught by
-    # test_env_reader_detection_finds_the_known_readers, which is exactly
-    # what that guard-the-guard is for.
-    _READS_MODE_RE = re.compile(r"AUTORESEARCH_MODE|resolve_env_mode\(")
-
-    @classmethod
-    def _env_readers(cls, sources):
-        """Modules whose IMPORT resolves the process mode, transitively."""
-        direct = {
-            name for name, text in sources.items()
-            if any(cls._READS_MODE_RE.search(ln)
-                   for ln in cls._module_scope_lines(text))
-        }
-        imports = {
-            name: {m.group(1) for ln in cls._module_scope_lines(text)
-                   for m in [re.match(r"(?:from|import)\s+(\w+)", ln)] if m}
-            for name, text in sources.items()
-        }
-        # `modes` DEFINES resolve_env_mode but only reads the env inside a
-        # function body, so it is not itself an import-time reader; excluding
-        # it keeps the closure from tainting every module in the tree.
-        direct.discard("modes")
-        tainted, changed = set(direct), True
-        while changed:
-            changed = False
-            for name, deps in imports.items():
-                if name not in tainted and deps & tainted:
-                    tainted.add(name)
-                    changed = True
-        return tainted
-
-    @classmethod
-    def _entrypoints(cls, root):
-        return sorted(
-            f for f in (root / "graph").glob("*.py")
-            if '__name__ == "__main__"' in f.read_text()
-            and 'add_argument("--mode"' in f.read_text()
-        )
-
-    def test_env_reader_detection_finds_the_known_readers(self):
-        """Guards the guard: if this stops finding runtime/pipeline the
-        reachability test below silently passes on nothing."""
-        readers = self._env_readers(self._module_sources(self.ROOT))
-        self.assertLessEqual({"runtime", "pipeline", "bo_driver"}, readers)
-        # ...and picks up the indirect ones (build imports runtime).
-        self.assertIn("build", readers)
-        # ...but not modes itself, whose only uses are inside functions.
-        self.assertNotIn("modes", readers)
-
-    def test_every_entrypoint_stamps_before_any_module_scope_env_reader(self):
-        import re
-        eps = self._entrypoints(self.ROOT)
-        self.assertTrue(eps, "no --mode entrypoint found under graph/")
-        readers = self._env_readers(self._module_sources(self.ROOT))
-        for path in eps:
-            rel = path.relative_to(self.ROOT)
-            with self.subTest(entrypoint=str(rel)):
-                self.assertEqual(
-                    self._stamp_violations(path.read_text(), readers), [],
-                    f"{rel}: see message(s) above")
-
-    # The locator is ^-anchored to the assignment, NOT a bare
-    # `stamp_mode_from_argv\(` search over the whole file. A prose mention in
-    # a comment ABOVE a bad import would otherwise satisfy the search and
-    # make this check pass on a genuinely broken file -- it only failed to
-    # do so because the two existing prose mentions happen to lack a
-    # trailing "(". Round-3 minor 1.
-    _STAMP_RE = re.compile(r"^_MODE = _modes\.stamp_mode_from_argv\(", re.M)
-
-    @classmethod
-    def _stamp_violations(cls, text, readers):
-        out = []
-        stamp = cls._STAMP_RE.search(text)
-        if stamp is None:
-            return ["takes --mode but never assigns "
-                    "_MODE = _modes.stamp_mode_from_argv(...)"]
-        for ln in cls._module_scope_lines(text):
-            m = re.match(r"(?:from|import)\s+(\w+)", ln)
-            if not m or m.group(1) not in readers:
-                continue
-            if text.index(ln) < stamp.start():
-                out.append(f"`{ln.strip()}` imports a module that resolves "
-                           f"AUTORESEARCH_MODE at import time, but runs "
-                           f"BEFORE stamp_mode_from_argv()")
-        return out
-
-    def test_stamp_locator_is_not_comment_defeatable(self):
-        """Guard-the-guard, locator axis (round-3 minor 1). A comment
-        mentioning the stamp must not stand in for the stamp itself."""
-        decoy = ("# NB: this module calls stamp_mode_from_argv() further "
-                 "down.\nimport runtime\n"
-                 "_MODE = _modes.stamp_mode_from_argv()\n")
-        self.assertNotEqual(
-            self._stamp_violations(decoy, {"runtime"}), [],
-            "a prose mention of stamp_mode_from_argv() satisfied the "
-            "locator, so the check passes on a broken file")
-        good = ("_MODE = _modes.stamp_mode_from_argv()\nimport runtime\n")
-        self.assertEqual(self._stamp_violations(good, {"runtime"}), [])
-        missing = "import runtime\n"
-        self.assertNotEqual(self._stamp_violations(missing, {"runtime"}), [])
-
-    # --- omitting --mode is a SUPPORTED invocation -------------------------
-
-    def _entrypoint_probe(self, module):
-        """Import an entrypoint module (which runs its stamp) with a bare
-        argv, then report what the two mode-keyed modules resolved to."""
-        script = (
-            "import sys, os\n"
-            f"sys.argv = ['{module}.py']\n"
-            f"sys.path[:0] = [{str(self.ROOT / 'graph')!r}, "
-            f"{str(self.ROOT / 'core')!r}]\n"
-            f"import {module}\n"
-            "import modes, runtime, pipeline\n"
-            "modes.assert_mode_stamped(modes.DEFAULT_MODE)\n"
-            "print(os.environ.get('AUTORESEARCH_MODE'), runtime._SPEC.name, "
-            "pipeline.MODE, modes.DEFAULT_MODE)\n"
-        )
-        env = dict(os.environ)
-        env.pop("PYTHONPATH", None)
-        env.pop("AUTORESEARCH_MODE", None)
-        r = subprocess.run([sys.executable, "-c", script], env=env,
-                           capture_output=True, text=True, cwd=str(self.ROOT))
-        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
-        return r.stdout.split()[-4:]
-
-    def test_omitting_mode_starts_cleanly_on_closed_loop(self):
-        """Omitting --mode is SUPPORTED (both CLIs declare a default), so it
-        must not be a startup FATAL. It was: stamp_mode_from_argv correctly
-        stamped nothing, core/runtime.py fell back to "foilspf" and
-        core/pipeline.py's own setdefault fell back to "foilsflash" -- two
-        different legacy fallbacks -- and assert_mode_stamped read the env
-        AFTER the `import pipeline` it itself triggered, so it reported a
-        three-way disagreement it had caused, blaming import order for a
-        missing flag."""
-        env, rt, pl, dflt = self._entrypoint_probe("closed_loop")
-        self.assertEqual([env, rt, pl], [dflt, dflt, dflt])
-
-    def test_omitting_mode_starts_cleanly_on_run(self):
-        env, rt, pl, dflt = self._entrypoint_probe("run")
-        self.assertEqual([env, rt, pl], [dflt, dflt, dflt])
-
-    def test_entrypoints_default_mode_to_the_stamped_value(self):
-        """args.mode must BE the resolved mode, not a second constant that
-        happens to match it -- otherwise an omitted --mode, a set
-        AUTORESEARCH_MODE and the registry default are three chances to
-        disagree."""
-        import re
-        for path in self._entrypoints(self.ROOT):
-            rel = path.relative_to(self.ROOT)
-            text = path.read_text()
-            with self.subTest(entrypoint=str(rel)):
-                self.assertIsNotNone(
-                    re.search(r"^_MODE = _modes\.stamp_mode_from_argv\(\)",
-                              text, re.M),
-                    f"{rel}: the stamp's return value is not captured")
-                self.assertIsNotNone(
-                    re.search(r'add_argument\("--mode",\s*default=_MODE',
-                              text),
-                    f"{rel}: --mode's argparse default must be the stamped "
-                    f"mode")
-
-    # --- a set-but-UNKNOWN AUTORESEARCH_MODE must be LOUD ------------------
-
-    def _bad_env_probe(self, module):
-        """Import an entrypoint with AUTORESEARCH_MODE set to a name that is
-        not a live spec. Returns (rc, stderr)."""
-        script = (
-            "import sys\n"
-            f"sys.argv = ['{module}.py']\n"
-            f"sys.path[:0] = [{str(self.ROOT / 'graph')!r}, "
-            f"{str(self.ROOT / 'core')!r}]\n"
-            f"import {module}\n"
-            "print('STARTED')\n"
-        )
-        env = dict(os.environ)
-        env.pop("PYTHONPATH", None)
-        env["AUTORESEARCH_MODE"] = "bogusmode"
-        r = subprocess.run([sys.executable, "-c", script], env=env,
-                           capture_output=True, text=True, cwd=str(self.ROOT))
-        return r.returncode, r.stderr, r.stdout
-
-    def test_unknown_env_mode_is_loud_on_closed_loop(self):
-        """Round-3 Important: rung 2 read AUTORESEARCH_MODE without checking
-        it names a live spec, so an unknown value fell through to
-        DEFAULT_MODE and a campaign launched at rc=0 against the wrong
-        bounds, geometry and LEADERBOARD. The live names differ by one
-        character (foilspf / foilspfbw / foilspfbp / foilspfbpx /
-        foilspfbpz), and writing rows into another mode's leaderboard is the
-        most expensive silent failure in this system -- it is what the GP
-        refits on. --mode nosuchmode was already loud; this closes the
-        asymmetry."""
-        rc, err, out = self._bad_env_probe("closed_loop")
-        self.assertNotEqual(rc, 0, f"started anyway: {out!r}")
-        self.assertNotIn("STARTED", out)
-        self.assertIn("bogusmode", err)
-        self.assertIn("AUTORESEARCH_MODE", err)
-        self.assertIn(modes.DEFAULT_MODE, err)  # lists the known modes
-
-    def test_unknown_env_mode_is_loud_on_run(self):
-        rc, err, out = self._bad_env_probe("run")
-        self.assertNotEqual(rc, 0, f"started anyway: {out!r}")
-        self.assertIn("bogusmode", err)
-
-    def test_unknown_env_mode_is_loud_for_a_bare_pipeline_import(self):
-        """The two stamping entrypoints were not the only readers: a
-        standalone `python core/pipeline.py` resolved the same env var and
-        died with a bare KeyError('bogusmode'). Same failure, worse message
-        -- so the check lives in the ONE resolver every reader now calls."""
-        script = (
-            "import sys\n"
-            f"sys.path[:0] = [{str(self.ROOT / 'core')!r}]\n"
-            "import pipeline\n"
-            "print('STARTED')\n"
-        )
-        env = dict(os.environ)
-        env.pop("PYTHONPATH", None)
-        env["AUTORESEARCH_MODE"] = "bogusmode"
-        r = subprocess.run([sys.executable, "-c", script], env=env,
-                           capture_output=True, text=True, cwd=str(self.ROOT))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("bogusmode", r.stderr)
-        self.assertIn("AUTORESEARCH_MODE", r.stderr)
-        self.assertNotIn("KeyError", r.stderr)
-
-    def test_resolve_env_mode_unset_falls_through_to_the_default(self):
-        env = dict(modes.os.environ)
-        env.pop("AUTORESEARCH_MODE", None)
-        with mock.patch.dict(modes.os.environ, env, clear=True):
-            self.assertEqual(modes.resolve_env_mode(), modes.DEFAULT_MODE)
-
-    def test_resolve_env_mode_empty_falls_through_to_the_default(self):
-        with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": ""}, clear=False):
-            self.assertEqual(modes.resolve_env_mode(), modes.DEFAULT_MODE)
-
-    def test_resolve_env_mode_passes_a_live_spec_through(self):
-        with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": "foilspfbw"}, clear=False):
-            self.assertEqual(modes.resolve_env_mode(), "foilspfbw")
-
-    def test_resolve_env_mode_raises_on_a_set_but_unknown_value(self):
-        with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": "foilspfbx"}, clear=False):
-            with self.assertRaises(SystemExit) as cm:
-                modes.resolve_env_mode()
-        msg = str(cm.exception)
-        self.assertIn("foilspfbx", msg)
-        self.assertIn("AUTORESEARCH_MODE", msg)
-        for m in modes.SPECS:
-            self.assertIn(m, msg)
-
-    def test_stamp_does_not_coerce_a_set_but_unknown_env(self):
-        with mock.patch.dict(modes.os.environ,
-                             {"AUTORESEARCH_MODE": "bogusmode"}, clear=False):
-            with self.assertRaises(SystemExit):
-                modes.stamp_mode_from_argv([])
-
-    def test_one_default_mode_literal_in_the_tree(self):
-        """The shadow shape this branch existed to delete: core/runtime.py,
-        core/pipeline.py and core/bo_driver.py each carried their own
-        module-level fallback literal, and two of them disagreed.
-
-        Globbed, not a hardcoded three: the whole point is that the reader
-        set is NOT a fixed list. graph/pipeline_io.py was a live reader
-        outside the original tuple (round-3 minor 2), and the sibling
-        reachability test on this page already derives its file set the same
-        way."""
-        offenders = []
-        files = sorted((self.ROOT / "core").glob("*.py")) + \
-            sorted((self.ROOT / "graph").glob("*.py"))
-        self.assertGreater(len(files), 10, "glob found suspiciously few files")
-        for path in files:
-            rel = path.relative_to(self.ROOT)
-            for ln, line in enumerate(path.read_text().splitlines(), 1):
-                if line.lstrip().startswith("#"):
-                    continue
-                if re.search(r'(setdefault|environ\.get)\(\s*'
-                             r'"AUTORESEARCH_MODE"\s*,\s*"', line):
-                    offenders.append(f"{rel}:{ln}")
-        self.assertEqual(
-            offenders, [],
-            "hardcoded AUTORESEARCH_MODE fallback literal(s); use "
-            "modes.DEFAULT_MODE")
-
-    def test_test_tree_mode_literals_agree_with_the_registry(self):
-        """The per-module `setdefault("AUTORESEARCH_MODE", ...)` lines in
-        tests/ must stay literal -- they exist for `discover -s tests`
-        WITHOUT `-t .`, which never imports tests/__init__.py and so cannot
-        rely on its stamp. But a literal that can drift from
-        modes.DEFAULT_MODE is the same shadow shape as the five core ones,
-        so make the drift a failure instead of a silent divergence."""
-        import re
-        bad = []
-        for f in sorted((self.ROOT / "tests").glob("*.py")):
-            for ln, line in enumerate(f.read_text().splitlines(), 1):
-                if line.lstrip().startswith("#"):
-                    continue
-                m = re.search(r'setdefault\(\s*"AUTORESEARCH_MODE"\s*,\s*'
-                              r'"([^"]+)"', line)
-                if m and m.group(1) != modes.DEFAULT_MODE:
-                    bad.append(f"{f.name}:{ln} pins {m.group(1)!r}")
-        self.assertEqual(
-            bad, [],
-            f"test-tree AUTORESEARCH_MODE literal(s) disagree with "
-            f"modes.DEFAULT_MODE ({modes.DEFAULT_MODE!r})")
-
-    def test_default_mode_is_a_live_spec(self):
-        self.assertIn(modes.DEFAULT_MODE, modes.SPECS)
-
-    def test_entrypoints_assert_mode_after_argparse(self):
-        for rel in ("graph/run.py", "graph/closed_loop.py"):
-            text = (self.ROOT / rel).read_text()
-            self.assertIn("assert_mode_stamped(args.mode)", text,
-                          f"{rel}: no loud startup mode assertion")
+class TestStaleModeEnv(unittest.TestCase):
+    def test_a_stale_autoresearch_mode_is_ignored(self):
+        """AUTORESEARCH_MODE was the pipeline's mode switch. After Phase C3
+        nothing reads it: a leftover export in the operator's shell must
+        not break an import, whatever it names."""
+        env = dict(os.environ, AUTORESEARCH_MODE="no_such_mode_c3",
+                   PYTHONPATH="")
+        code = ("import sys; sys.path.insert(0, 'core'); sys.path.insert(0, 'graph'); "
+                "import modes, botorch_predict, study_run, study_loop; print('ok')")
+        p = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT),
+                           env=env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr[-2000:])
+        self.assertIn("ok", p.stdout)
 
 
 if __name__ == "__main__":

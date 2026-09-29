@@ -1,19 +1,18 @@
 """The parent rolling work-pool: q children in flight, replenish on resolve.
 
 A child resolves when its SUBPROCESS EXITS -- the single resolution truth
-source; *_cluster.txt survives only as `_name_busy_reason`'s LAUNCH-time
-double-launch guard. Retired-by-design (wiki/incidents/):
-barrier-false-positive-round1, closed-loop-barrier-timeout-zero-rows-falsepos,
+source; *_cluster.txt survives only as the runner's LAUNCH-time
+double-launch guard (graph/study_loop.py busy_reason). Retired-by-design
+(wiki/incidents/): barrier-false-positive-round1,
+closed-loop-barrier-timeout-zero-rows-falsepos,
 closed-loop-final-round-orphan-children, rolling-no-row-streak-false-increment.
-The run_child/next_pick/stop_flag/renew/row_landed/broken callables are the
-test seam.
+The caller (graph/study_loop.py) supplies the run_child/next_pick/row_landed/
+broken callables and the stagger; stop_flag and renew are optional. They are
+also the test seam.
 """
 from __future__ import annotations
 
-import subprocess
-import sys
 import time
-import uuid
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
 from concurrent.futures import as_completed
@@ -92,10 +91,9 @@ def _should_abort(streak: int, q: int) -> bool:
     return streak >= max(q, 2)
 
 
-def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
-                run_child=None, next_pick=None, stop_flag=None, renew=None,
-                row_landed=None, broken=None, log=print, stagger=None,
-                heartbeat=HEARTBEAT_S):
+def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
+                next_pick, row_landed, broken, stagger, stop_flag=None,
+                renew=None, log=print, heartbeat=HEARTBEAT_S):
     """Keep q children in flight until max_evals launched and the pool drains.
 
     Returns {"launched", "rows", "outcomes", "aborted"}. `stagger` separates
@@ -103,15 +101,8 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
     (wiki/incidents/concurrent-token-contention.md measured 60-90s safe).
     `heartbeat` is REPORT-ONLY -- never resolves/abandons (_log_inflight).
     """
-    run_child = run_child or _default_run_child(mode, alpha)
-    next_pick = next_pick or _default_pick_source(name_prefix)
     stop_flag = stop_flag or (lambda: False)
     renew = renew or (lambda: None)
-    row_landed = row_landed or _default_row_landed
-    broken = broken or _default_broken
-    if stagger is None:
-        from runtime import CLOSED_LOOP_STAGGER_SEC
-        stagger = CLOSED_LOOP_STAGGER_SEC
 
     inflight = {}   # future -> (name, x, launch timestamp)
     launched = 0
@@ -129,7 +120,7 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
         (wiki/incidents/kerberos-mid-run-expiry.md -- an expired-ticket eval
         VANISHES rather than failing visibly). Failure here is REPORTED, not
         fatal -- only the pre-launch renew gates "can we still submit?".
-        SystemExit caught: renew_token signals fatal via sys.exit(2)."""
+        SystemExit caught: a renew callable may signal fatal that way."""
         name, x, _t0 = inflight.pop(fut)
         try:
             rc = fut.result()
@@ -186,84 +177,7 @@ def run_rolling(mode, picker, q, max_evals, alpha, name_prefix,
             "outcomes": outcomes, "aborted": aborted}
 
 
-# --- production defaults ---------------------------------------------------
-
-def _default_run_child(mode, alpha):
-    """Popen `graph.run` and WAIT. The wait IS the barrier."""
-    from paths import GRAPH_DATA, REPO_ROOT as PROJECT_ROOT
-
-    def run_child(name, x):
-        logs = GRAPH_DATA / "closed_loop_logs"
-        logs.mkdir(parents=True, exist_ok=True)
-        log_path = logs / f"{name}.log"
-        cmd = [
-            sys.executable, "-m", "graph.run",
-            "--thread-id", f"{name}_{uuid.uuid4().hex[:8]}",
-            "--config-name", name,
-            "--mode", mode,
-            "--alpha", str(alpha),
-            "--x-point", ",".join(f"{v:.6f}" for v in x),
-        ]
-        with open(log_path, "w") as fh:
-            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fh,
-                                    stderr=subprocess.STDOUT,
-                                    start_new_session=True,
-                                    cwd=str(PROJECT_ROOT))
-        return proc.wait()
-    return run_child
-
-
-def _pending_names(mode) -> set:
-    """Names with an unresolved row in the mode's pending TSV. An
-    unregistered mode raises KeyError loudly: fail-open would give the
-    double-launch guard a silently EMPTY busy-name set."""
-    import bo_driver as bo  # noqa: WPS433
-    return {n for n, _x in bo.MODES[mode].load_pending()}
-
-
-def _name_busy_reason(cl, name, lb_names, pending_names):
-    """Why `name` must not be launched again, or None if it is free.
-
-    leaderboard row / broken.txt = RESOLVED by a prior process;
-    *_cluster.txt / pending row = work IN FLIGHT (the double-launch guard).
-    Relaunching under the same --name-prefix with a prior detached child
-    alive is the STANDARD recovery move; without the guard, pipeline.py's
-    submit idempotency makes child 2 harvest child 1's outputs -- two rows
-    under one name, both with child 1's metrics, and the GP trains on an x
-    that does not describe its geometry. Nothing errors. Cannot recreate
-    wiki/incidents/closed-loop-stale-cluster-silent-no-launch.md: the
-    monotonic launch index means a skip ADVANCES to a fresh name.
-    """
-    if name in lb_names:
-        return (f"already has a leaderboard row from a PRIOR run under this "
-                f"--name-prefix -- skipping so this child is not credited "
-                f"with that run's outcome")
-    if cl._child_is_broken(name):
-        return (f"already carries broken.txt from a PRIOR run under this "
-                f"--name-prefix -- skipping so this child is not credited "
-                f"with that run's outcome")
-    state_dir = cl._child_state_dir(name)
-    if any(state_dir.glob("*_cluster.txt")):
-        return (
-            f"has *_cluster.txt in {state_dir} -- a grid submission under "
-            f"this name is IN FLIGHT or was abandoned by a prior run. "
-            f"Launching a second graph.run here would re-use that cluster "
-            f"and land TWO leaderboard rows under one name, both carrying "
-            f"the FIRST child's metrics. Advancing to the next index. "
-            f"RECOVERY: confirm nothing is alive for it "
-            f"(pgrep -f 'graph.run.*{name}'), then either "
-            f"`rm {state_dir}/*_cluster.txt` and relaunch, or relaunch with "
-            f"a different --name-prefix")
-    if name in pending_names:
-        return (
-            f"has an unresolved row in the pending TSV -- a prior run "
-            f"proposed under this name and never resolved it (it may still "
-            f"be in preflight, which can take up to PREFLIGHT_TIMEOUT_S per "
-            f"attempt, before any cluster file exists). Advancing to the "
-            f"next index rather than racing it. If that attempt is dead, "
-            f"`core/bo_driver.py --mode <mode> pending-prune` clears the row")
-    return None
-
+# --- child names ----------------------------------------------------------
 
 def child_name(name_prefix: str, i: int) -> str:
     """THE child-name shape `{prefix}R{i:02d}_00`; every producer (allocator,
@@ -290,51 +204,3 @@ def next_free_name(name_prefix, start, busy_reason, *, log, summary_hint):
             f"busy names skipped (last was {child_name(name_prefix, i - 1)}); "
             f"resuming at {name}. {summary_hint}")
     return name, i
-
-
-def _default_pick_source(name_prefix):
-    """Closure holding the monotonic launch index; imports closed_loop lazily
-    (closed_loop imports pool). Busy names skip per `_name_busy_reason`."""
-    counter = {"i": 0}
-    busy_cache = {}
-
-    def next_pick(mode, picker, x_pending):
-        import closed_loop as cl
-        # Both TSVs read ONCE per process: flock'd full-file reads consulted
-        # strictly for PRIOR-run state; the monotonic index plus the
-        # single-writer-per---name-prefix invariant make later reads moot.
-        if mode not in busy_cache:
-            busy_cache[mode] = (cl._leaderboard_names(mode),
-                                _pending_names(mode))
-        lb_names, pending_names = busy_cache[mode]
-        name, i = next_free_name(
-            name_prefix, counter["i"],
-            lambda n: _name_busy_reason(cl, n, lb_names, pending_names),
-            log=lambda m: print(m, flush=True),
-            summary_hint=("Reasons are the same four signals as above -- see "
-                          "graph/pool.py::_name_busy_reason."))
-        counter["i"] = i + 1
-        picks = cl._botorch_picks_subprocess(mode, q=1, round_idx=i,
-                                             picker=picker, pending=x_pending)
-        return list(picks[0]), name
-    return next_pick
-
-
-def _default_row_landed(name, mode):
-    """Did this child land a leaderboard row? THE signal `_should_abort` reads.
-
-    An unregistered mode raises loudly (ADR-0002) rather than fail-open
-    "every child landed a row", which would let a mode-registry mismatch
-    report a campaign of silent failures as fully successful -- the shape of
-    wiki/incidents/foilsflash-tarball-mode-key-omission.md and
-    wiki/incidents/preflight-mode-tuple-prodtarget6d-omission.md.
-    """
-    import bo_driver as bo  # noqa: WPS433
-    bo.MODES[mode]   # loud KeyError on an unregistered mode (ADR-0002)
-    import closed_loop as cl
-    return name in cl._leaderboard_names(mode)
-
-
-def _default_broken(name):
-    import closed_loop as cl
-    return cl._child_is_broken(name)

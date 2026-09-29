@@ -1,22 +1,17 @@
 """core/adapters/preflight_checks.py: the geometry pre-check's files, its
-run, and the log -> verdict rules, shared by the offline_preflight kit and
-core/bo_driver.py's pipeline pre-check (Phase C2a)."""
-import contextlib
-import dataclasses
+run, and the log -> verdict rules the offline_preflight kit runs on
+(Phase C2a)."""
 import io
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
-import bo_driver as bo  # noqa: E402
-import paths  # noqa: E402
 from adapters import preflight_checks as pc  # noqa: E402
 from adapters import prodtools_entry as pe  # noqa: E402
 from tests.preflight_logs import (ADVISORY_LOG, CLEAN_LOG, FATAL_LOG,  # noqa: E402
@@ -126,7 +121,7 @@ STRICT = dict(verifies_foil_gdml=False, checks_managed_overlap=True,
 
 
 class TestClassify(unittest.TestCase):
-    """One recorded log per verdict, the rules and order bo_driver used."""
+    """One recorded log per verdict, the rules in their order."""
 
     def classify(self, out, rc, *, timed_out=False, gdml_path=None,
                  geom_text=GEOM, **flags):
@@ -346,15 +341,11 @@ class TestRunCheck(unittest.TestCase):
             proc(3, "Geant4 version Name")))
         self.assertFalse(pc.retry_if_mu2e_never_started(proc(0)))
 
-    def test_runtime_reexports_the_pre_checks_constants(self):
-        import runtime
-        self.assertEqual(runtime.SETUPMU2E, pc.SETUPMU2E)
-        self.assertEqual(runtime.PREFLIGHT_TIMEOUT_S, pc.TIMEOUT_S)
-
 
 class TestRunPreflight(unittest.TestCase):
-    """run_preflight: the one sequence both runners call -- unpack the code
-    tarball, stage the emptied workdir, run, keep preflight.log, classify."""
+    """run_preflight: the sequence the offline_preflight kit calls -- unpack
+    the code tarball, stage the emptied workdir, run, keep preflight.log,
+    classify."""
 
     def setUp(self):
         td = tempfile.TemporaryDirectory()
@@ -446,130 +437,6 @@ class TestRunPreflight(unittest.TestCase):
             self.run_preflight(self.runner(CLEAN_LOG, 0))
         self.assertEqual(self.calls, [])
         self.assertFalse(self.workdir.exists())
-
-
-class TestPipelinePreflight(unittest.TestCase):
-    """core/bo_driver.py's pre-check through the shared functions: the same
-    return codes and verdict lines, run from the mode's code tarball."""
-
-    def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-        self.mode = bo.MODES["foilspf"]
-        spec = bo._modes.SPECS["foilspf"]
-        tarball = self.tmp / "Code.tar.bz2"
-        tarball.write_text("")
-        self.spec = dataclasses.replace(spec, grid_tarball=str(tarball),
-                                        dumps_gdml=False,
-                                        verifies_foil_gdml=False)
-        self.calls = []
-        for patch in (
-                mock.patch.dict(bo._modes.SPECS, {"foilspf": self.spec}),
-                mock.patch.multiple(self.mode,
-                                    proposal_dir=self.tmp / "proposals",
-                                    preflight_dir=self.tmp / "preflight"),
-                mock.patch.object(bo, "GRID_DATA_ROOT", self.tmp / "grid"),
-                mock.patch.object(paths, "verify"),
-                mock.patch.object(pe, "unpacked",
-                                  return_value=self.tmp / "code")):
-            patch.start()
-            self.addCleanup(patch.stop)
-        x = [(lo + hi) / 2 for lo, hi in zip(spec.bounds_lo, spec.bounds_hi)]
-        self.geom_text = self.mode.render_proposal("cfgT", x).read_text()
-        self.workdir = self.tmp / "grid" / "cfgT" / "preflight"
-        self.kept = self.tmp / "grid" / "cfgT" / "geom" / "asbuilt_cfgT.gdml"
-
-    def preflight(self, out, rc, *, gdml_text=None, **spec_over):
-        if spec_over:
-            bo._modes.SPECS["foilspf"] = dataclasses.replace(self.spec,
-                                                             **spec_over)
-
-        def fake(code_dir, workdir, fcl, *, timeout_s, label, log=None):
-            self.calls.append((code_dir, workdir, fcl, timeout_s, label))
-            if gdml_text is not None:
-                (workdir / pc.PREFLIGHT_GDML_NAME).write_text(
-                    gdml_text((workdir / pc.geom_name("cfgT")).read_text()))
-            return out, rc, False
-
-        buf, self.err = io.StringIO(), io.StringIO()
-        with mock.patch.object(pc, "run_check", side_effect=fake), \
-                contextlib.redirect_stdout(buf), \
-                contextlib.redirect_stderr(self.err):
-            code = bo._cmd_preflight_impl(
-                SimpleNamespace(mode="foilspf", config_name="cfgT"))
-        return code, buf.getvalue()
-
-    def test_a_clean_run_passes_from_the_code_tarball(self):
-        code, out = self.preflight(CLEAN_LOG, 0)
-        self.assertEqual(code, 0)
-        self.assertIn("[preflight/foilspf] PASS  init=True; no geom-fail "
-                      "signature and zero surface-check overlaps.", out)
-        self.assertIn("[preflight/foilspf] return code: 0  timed_out=False",
-                      out)
-        pe.unpacked.assert_called_once_with(self.spec.grid_tarball,
-                                            self.tmp / "grid" / "_code")
-        self.assertEqual(self.calls, [(self.tmp / "code", self.workdir,
-                                       "surfacecheck.fcl", 1200,
-                                       "preflight/foilspf")])
-        self.assertEqual(
-            (self.workdir / "autoresearch_cfgT_geom.txt").read_text(),
-            self.geom_text)
-        self.assertEqual((self.tmp / "preflight" / "cfgT.log").read_text(),
-                         CLEAN_LOG)
-
-    def test_a_fatal_abort_is_rc_1(self):
-        code, out = self.preflight(FATAL_LOG, 134)
-        self.assertEqual(code, 1)
-        self.assertIn("[preflight/foilspf] FAIL  fatal G4/art abort:", out)
-
-    def test_an_env_flake_is_rc_3_and_names_the_log(self):
-        code, out = self.preflight(NO_MU2E_LOG, 127)
-        self.assertEqual(code, 3)
-        self.assertIn("[preflight/foilspf] AMBIGUOUS  rc=127", out)
-        self.assertIn(f"See {self.tmp / 'preflight' / 'cfgT.log'}", out)
-
-    def test_a_missing_gdml_dump_fails(self):
-        code, out = self.preflight(CLEAN_LOG, 0, dumps_gdml=True,
-                                   verifies_foil_gdml=True)
-        self.assertEqual(code, 1)
-        self.assertIn("GDML dump preflight_geom.gdml not produced", out)
-        self.assertIn("writeGDML",
-                      (self.workdir / "surfacecheck.fcl").read_text())
-
-    def test_a_verified_as_built_geometry_passes_and_is_kept(self):
-        code, out = self.preflight(CLEAN_LOG, 0, gdml_text=gdml_matching,
-                                   dumps_gdml=True, verifies_foil_gdml=True)
-        self.assertEqual(code, 0, out)
-        self.assertIn("foils verified against as-built GDML", out)
-        self.assertEqual(self.kept.read_text(),
-                         (self.workdir / pc.PREFLIGHT_GDML_NAME).read_text())
-
-    def test_a_differing_as_built_geometry_fails_and_is_not_kept(self):
-        def wrong(geom_text):
-            return gdml([("Foil_00", 51.0, 100.0, 1.0, "mm")])
-        code, out = self.preflight(CLEAN_LOG, 0, gdml_text=wrong,
-                                   dumps_gdml=True, verifies_foil_gdml=True)
-        self.assertEqual(code, 1)
-        self.assertIn("FAIL  as-built geometry differs from geom file", out)
-        self.assertFalse(self.kept.exists())
-
-    def test_a_verified_geometry_is_kept_even_when_an_overlap_fails_it(self):
-        # As before: the copy follows the as-built comparison, which runs
-        # before the overlap policy.
-        code, out = self.preflight(ADVISORY_LOG, 0, gdml_text=gdml_matching,
-                                   dumps_gdml=True, verifies_foil_gdml=True)
-        self.assertEqual(code, 1)
-        self.assertIn("FAIL  zero-overlap policy", out)
-        self.assertTrue(self.kept.is_file())
-
-    def test_a_missing_proposal_is_rc_2_and_runs_nothing(self):
-        (self.tmp / "proposals" / "cfgT_geom.txt").unlink()
-        code, _out = self.preflight(CLEAN_LOG, 0)
-        self.assertEqual(code, 2)
-        self.assertIn("Proposal geom not found", self.err.getvalue())
-        self.assertEqual(self.calls, [])
-        pe.unpacked.assert_not_called()
 
 
 if __name__ == "__main__":

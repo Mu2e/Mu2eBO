@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""BoTorch pickers for any study (objectives, transforms and the constraint from modes.STUDIES).
-
-THE production picker: graph/closed_loop.py shells this CLI every round
-(--emit-picks-json round-trip; keep argparse-compatible). Pickers: qnehvi,
-qlnei, budget_sob, hybrid — see compute_explore_picks.
+"""BoTorch pickers for any study (objectives, transforms and the constraint
+from modes.STUDIES): graph/study_loop.py and the surrogate MCP
+(surrogate/adapter.py) call compute_explore_picks / load_history_tensor /
+build_problem. Pickers: qnehvi, qlnei, budget_sob, hybrid -- see
+compute_explore_picks.
 """
 from __future__ import annotations
 
-import argparse
-import json
 import math
 import os
 import sys
@@ -17,7 +15,6 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import bo_driver as bo  # noqa: E402
 
 
 # float64 + CPU: history is tiny (<200 pts), CPU beats GPU incl. transfer.
@@ -26,8 +23,8 @@ DEVICE = torch.device("cpu")
 
 
 # Bounds, integer dims, objectives and the constraint come straight off the
-# study (modes.STUDIES, ADR-0002). Knob order matches Point.x (=
-# build_space); lockstep ENFORCED by tests/test_modes.py.
+# study (modes.STUDIES, ADR-0002). Knob order matches Point.x: the board
+# stores knobs in the study's knob order (core/leaderboard.py).
 import modes as _modes  # noqa: E402
 import boards  # noqa: E402
 
@@ -54,11 +51,9 @@ def _objectives(study, primary_only):
 
 
 def history_points(name: str):
-    """A study's evaluated points. Pipeline studies read through their
-    JsonMode (the patchable leaderboard paths the golden harness and tests
-    use); engine studies read their board directly."""
-    if name in bo.MODES:
-        return bo.MODES[name].load_history()
+    """A study's evaluated points: its live board under DATA_ROOT plus the
+    committed archive (core/boards.py). A study with neither file has an
+    empty history."""
     return boards.board_for(_modes.STUDIES[name]).load()
 
 
@@ -188,67 +183,3 @@ def compute_explore_picks(mode: str,
             f"search box with {c.name} {op} {c.value:.3e} ({e}); refusing "
             f"to submit blind picks.")
     return [tuple(row) for row in picks]
-
-
-def main(argv=None):
-    import logging
-    _h = logging.StreamHandler(sys.stdout)
-    _h.setFormatter(logging.Formatter("[surrokit] %(message)s"))
-    _sk = logging.getLogger("surrokit")
-    if not _sk.handlers:
-        _sk.addHandler(_h)
-        _sk.setLevel(logging.INFO)
-
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=sorted(_modes.SPECS), required=True,
-                    help="BO mode to refit")
-    ap.add_argument("--q", type=int, default=5,
-                    help="Batch size (default 5)")
-    ap.add_argument("--round-idx", type=int, default=0,
-                    help="Round index; seeds MC sampler (default 0)")
-    ap.add_argument("--picker", choices=_modes.PICKER_CHOICES,
-                    default="qnehvi",
-                    help="qnehvi = multi-obj Pareto-HV (default); "
-                         "qlnei = single-obj qLogNoisyEI on sob only; "
-                         "budget_sob = GP-mean sob corner constrained to the "
-                         "deployed damage budget; "
-                         "hybrid = ~60%% qnehvi + ~40%% qnparego "
-                         "(recommended for new multi-objective lines)")
-    ap.add_argument("--emit-picks-json", type=str, default=None,
-                    help="If set, write picks as JSON to this path")
-    ap.add_argument("--pending-json", type=str, default=None,
-                    help="JSON file: list of x-lists for in-flight evals "
-                         "(rolling closed-loop); pickers fantasize over them "
-                         "via X_pending")
-    ap.add_argument("--leaderboard", type=str, default=None,
-                    help="Override the mode's leaderboard TSV path (tests + "
-                         "golden harness only; live callers omit it)")
-    ns = ap.parse_args(argv)
-    if ns.leaderboard:
-        bo.MODES[ns.mode].leaderboard = Path(ns.leaderboard)
-        bo.MODES[ns.mode].leaderboard_archive = None
-        print(f"[botorch_predict] leaderboard override: {ns.leaderboard}",
-              flush=True)
-
-    x_pending = None
-    if ns.pending_json:
-        x_pending = json.loads(Path(ns.pending_json).read_text())
-        print(f"[botorch_predict] pending-aware: {len(x_pending)} in-flight "
-              f"evals loaded from {ns.pending_json}", flush=True)
-
-    picks = compute_explore_picks(q=ns.q, mode=ns.mode,
-                                  round_idx=ns.round_idx, picker=ns.picker,
-                                  x_pending=x_pending)
-
-    if ns.emit_picks_json:
-        Path(ns.emit_picks_json).write_text(json.dumps(picks, indent=2))
-        print(f"[botorch_predict] mode={ns.mode} wrote {len(picks)} picks "
-              f"-> {ns.emit_picks_json}")
-    else:
-        for i, p in enumerate(picks):
-            print(f"pick {i} ({ns.mode}): {p}")
-
-
-if __name__ == "__main__":
-    main()

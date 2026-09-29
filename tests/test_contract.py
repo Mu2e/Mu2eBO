@@ -18,7 +18,6 @@ from adapters import offline_preflight as op  # noqa: E402
 from kits import KitClient, KitError, KitTimeout, KitToolError  # noqa: E402
 from tests.engine_fixtures import toy_config, toy_doc, write_study  # noqa: E402
 
-DEMO = ROOT / "tests" / "fixtures" / "studies" / "demo.json"
 STATUS = {"state": "working", "message": "", "poll_ms": 100, "progress": None}
 RESULTS = {"metrics": {"a": 1.0}, "files": [], "metadata": {}}
 
@@ -264,8 +263,7 @@ class TestRegistry(unittest.TestCase):
         decl = kit_registry.KitDecl("fakeadapter", study_keys={},
                                     fixed_keys={}, required_fixed=frozenset(),
                                     uses_entries=False, step_kit=True,
-                                    check_kit=False, engine=True,
-                                    pipeline=False)
+                                    check_kit=False)
         for patch in (mock.patch.dict(ct.ADAPTERS, {}, clear=True),
                       mock.patch.dict(kit_registry.KITS,
                                       {"fakeadapter": decl})):
@@ -288,15 +286,15 @@ class TestRegistry(unittest.TestCase):
         with self.assertRaises(ValueError):
             ct.register_adapter("fakeadapter", Fake)
 
-    def test_only_an_engine_kit_without_a_kits_toml_entry_takes_an_adapter(self):
-        for name in ("toykit", "nosuchkit", "ce_sensitivity"):
+    def test_only_a_declared_kit_without_a_kits_toml_entry_takes_an_adapter(self):
+        for name in ("toykit", "nosuchkit"):
             with self.subTest(kit=name):
                 with self.assertRaises(ValueError):
                     ct.register_adapter(name, object)
 
     def test_a_kit_with_neither_is_refused(self):
         with self.assertRaises(KeyError) as cm:
-            ct.open_kit("ce_sensitivity", "c")
+            ct.open_kit("nosuchkit", "c")
         self.assertIn("kits.toml", str(cm.exception))
 
     def test_launch_stagger(self):
@@ -379,24 +377,6 @@ class TestCheckKits(_Toy):
         self.assertEqual(len(problems), 1)
         self.assertIn("TOYKIT_NOT_SET_ANYWHERE", problems[0])
         self.assertIn("'toykit'", problems[0])
-
-    def test_pipeline_kits_are_refused_without_starting_anything(self):
-        # prodtools and offline_preflight are now BOTH engine kits
-        # (adapters) and pipeline kits. The two step kits that still have
-        # no adapter and no kits.toml entry are refused as such; prodtools'
-        # refusal reads differently; offline_preflight starts nothing and
-        # passes. Force AUTORESEARCH_PRODTOOLS unset regardless of the
-        # ambient environment, so the prodtools adapter fails at command
-        # resolution (a string substitution) and never spawns a subprocess
-        # either way.
-        with mock.patch.dict(os.environ), \
-             mock.patch.object(ct.paths, "GRAPH_DATA", self.tmp / "trace"):
-            os.environ.pop("AUTORESEARCH_PRODTOOLS", None)
-            problems = ct.check_kits(st.load_study_file(DEMO), campaign="c")
-        self.assertTrue(problems)
-        self.assertTrue(all("kits.toml" in p or "AUTORESEARCH_PRODTOOLS" in p
-                            for p in problems))
-        self.assertFalse([p for p in problems if "offline_preflight" in p])
 
     def preflight_only(self, doc):
         doc["kits"]["offline_preflight"] = {

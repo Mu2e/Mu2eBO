@@ -266,11 +266,11 @@ class TestKitInterface(_Kit):
         with self.assertRaises(ValueError):
             op.OfflinePreflightKit("camp", executor="cloud")
 
-    def test_it_opens_as_the_adapter_and_runs_on_both_runners(self):
+    def test_it_opens_as_the_adapter(self):
         kit = ct.open_kit("offline_preflight", "camp", executor="local")
         self.assertIsInstance(kit, op.OfflinePreflightKit)
         d = kit_registry.KITS["offline_preflight"]
-        self.assertTrue(d.engine and d.pipeline and d.check_kit)
+        self.assertTrue(d.check_kit)
         self.assertFalse(d.step_kit)
 
 

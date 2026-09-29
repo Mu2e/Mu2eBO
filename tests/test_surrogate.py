@@ -1,7 +1,7 @@
 """Tests for the MCP surrogate door (adapter + server wiring).
 
-Reuses the foilsflash fixture leaderboard from test_botorch_predict —
-bo.MODES["foilsflash"].leaderboard is repointed at a tmp TSV; live
+Reuses the foilsflash_ax fixture board from test_botorch_predict —
+botorch_predict.boards.board_for is patched to read a tmp v2 board; live
 leaderboards are never touched. The MCP test is skipped where the `mcp`
 SDK is absent (it ships in ana 2.8.0 but not in the dev venv).
 
@@ -18,7 +18,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests.test_botorch_predict import (  # noqa: E402
-    patched_leaderboard,
+    STUDY, patched_leaderboard,
 )
 
 try:
@@ -75,9 +75,9 @@ class TestAutoresearchAdapter(unittest.TestCase):
         import botorch_predict as bp
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
             got = AutoresearchAdapter().suggest(
-                "foilsflash", q=2, picker="qnehvi", round_idx=1)
+                STUDY, q=2, picker="qnehvi", round_idx=1)
             want = [list(t) for t in bp.compute_explore_picks(
-                "foilsflash", q=2, round_idx=1, picker="qnehvi")]
+                STUDY, q=2, round_idx=1, picker="qnehvi")]
             self.assertEqual(got, want)
 
     def test_suggest_rejects_unknowns(self):
@@ -86,12 +86,12 @@ class TestAutoresearchAdapter(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown problem"):
             a.suggest("nope")
         with self.assertRaisesRegex(ValueError, "unknown picker"):
-            a.suggest("foilsflash", picker="qnparego")
+            a.suggest(STUDY, picker="qnparego")
 
     def test_history_shape_and_meta(self):
         from surrogate.adapter import AutoresearchAdapter
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            X, Y, meta = AutoresearchAdapter().history("foilsflash")
+            X, Y, meta = AutoresearchAdapter().history(STUDY)
             self.assertEqual(len(X), len(Y))
             self.assertEqual(len(Y[0]), 2)
             self.assertIn("objectives", meta)
@@ -104,7 +104,7 @@ class TestAutoresearchAdapter(unittest.TestCase):
         surrogate.board_stats facade (2026-09-22) -- same assertions."""
         from surrogate.adapter import AutoresearchAdapter
         with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
-            _, _, meta = AutoresearchAdapter().history("foilsflash")
+            _, _, meta = AutoresearchAdapter().history(STUDY)
             self.assertEqual(meta["best"]["config"], "cfg009")
             self.assertAlmostEqual(meta["best"]["values"]["sob"], 3.8,
                                    places=4)

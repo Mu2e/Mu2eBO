@@ -17,8 +17,7 @@ from typing import Callable, Optional
 
 DEFAULT_BACKOFFS = (5, 15, 30)  # 4 attempts total, ~50s worst case
 
-# Node-local /tmp, never NFS HOME (module docstring); supersedes the per-site
-# exports in pipeline.py:sourced_env / bo_driver.py:cmd_preflight.
+# Node-local /tmp, never NFS HOME (module docstring).
 _SPACK_CACHE = f"/tmp/spack_cache_{os.environ.get('USER', 'x')}"
 
 

@@ -9,7 +9,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import boards  # noqa: E402
-import bo_driver as bo  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 import modes  # noqa: E402
 import study as st  # noqa: E402
@@ -51,12 +50,6 @@ class TestBoardFor(unittest.TestCase):
         self.assertEqual(X.tolist(), [[1.0, 2.0]])
         self.assertAlmostEqual(Y.tolist()[0][0], -5.0)
         self.assertAlmostEqual(Y.tolist()[0][1], -math.log10(3.0))
-
-    def test_a_pipeline_study_still_reads_through_its_mode(self):
-        with mock.patch.object(bo.MODES["foilspf"], "load_history",
-                               return_value=[]) as m:
-            self.assertEqual(bp.history_points("foilspf"), [])
-        m.assert_called_once_with()
 
 
 if __name__ == "__main__":

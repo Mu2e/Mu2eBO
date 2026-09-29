@@ -90,6 +90,150 @@ class TestEntryForStep(unittest.TestCase):
         self.assertEqual(facts["events_per_job"], 2500)
 
 
+class TestRenderEntry(unittest.TestCase):
+    """render_entry on its own (moved from tests/test_prodtools_exec.py in
+    Phase C3, which reached it through the pipeline's prodtools_exec)."""
+
+    def _base(self, **kw):
+        args = dict(dsconf="Run1Bak_t001",
+                    desc="Run1A_MuBeam_t001", njobs=200,
+                    code_tarball=Path("/data/t001/Code.tar.bz2"),
+                    # `fcl` is the published Production FCL path, not a
+                    # per-config materialized file's basename.
+                    fcl_name="Production/JobConfig/pileup/MuBeamResampler.fcl")
+        args.update(kw)
+        return args
+
+    def test_resampler_stage_shape(self):
+        e = pe.render_entry(
+            **self._base(
+                events=5000, run=1800,
+                resampler_name="beamResampler",
+                input_data={"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
+                inloc="tape"))
+        self.assertEqual(e["desc"], "Run1A_MuBeam_t001")
+        self.assertEqual(e["dsconf"], "Run1Bak_t001")
+        self.assertEqual(e["fcl"],
+                         "Production/JobConfig/pileup/MuBeamResampler.fcl")
+        self.assertEqual(e["code"], "/data/t001/Code.tar.bz2")
+        self.assertEqual(e["events"], 5000)
+        self.assertEqual(e["run"], 1800)
+        self.assertEqual(e["resampler_name"], "beamResampler")
+        self.assertEqual(e["inloc"], "tape")
+        self.assertEqual(e["outloc"],
+                         {"*.art": "outstage", "*.root": "outstage"})
+        self.assertNotIn("simjob_setup", e)   # exactly one Offline source
+        self.assertNotIn("fcl_overrides", e)  # not passed -> not present
+
+    def test_fcl_overrides_copied_into_the_entry_when_given(self):
+        overrides = {"#include": "epilog_1b.fcl",
+                     "services.SeedService.baseSeed": 1}
+        e = pe.render_entry(**self._base(fcl_overrides=overrides))
+        self.assertEqual(e["fcl_overrides"], overrides)
+
+    def test_fcl_overrides_is_a_copy_not_an_alias(self):
+        # A caller mutating its own overrides dict after the call must never
+        # leak into the already-rendered entry.
+        overrides = {"a": 1}
+        e = pe.render_entry(**self._base(fcl_overrides=overrides))
+        overrides["a"] = 2
+        overrides["b"] = 3
+        self.assertEqual(e["fcl_overrides"], {"a": 1})
+
+    def test_merge_stage_no_events(self):
+        e = pe.render_entry(
+            **self._base(
+                desc="Run1A_MuStopsCat_t001", njobs=1,
+                input_data={"sim.a.art": 200, "sim.b.art": 200},
+                inloc="dir:/pnfs/stage/t001/mustops_ce_inputs"))
+        self.assertNotIn("events", e)
+        self.assertNotIn("run", e)
+        self.assertNotIn("resampler_name", e)
+        self.assertEqual(e["inloc"], "dir:/pnfs/stage/t001/mustops_ce_inputs")
+
+    def test_memory_formatted(self):
+        e = pe.render_entry(**self._base(memory_mb=3000, events=2500,
+                                         run=1801))
+        self.assertEqual(e["memory"], "3000MB")
+
+    def test_outloc_defaults_to_the_outstage_literal_when_omitted(self):
+        e = pe.render_entry(**self._base())
+        self.assertEqual(e["outloc"], {"*.art": "outstage", "*.root": "outstage"})
+
+    def test_outloc_passed_in_wins_over_the_default(self):
+        # A stage template's "outloc" must actually reach the rendered
+        # entry, not be shadowed by the hardcoded literal.
+        custom = {"*.art": "tape", "*.root": "disk"}
+        e = pe.render_entry(**self._base(outloc=custom))
+        self.assertEqual(e["outloc"], custom)
+
+    def test_outloc_is_a_copy_not_an_alias(self):
+        custom = {"*.art": "tape"}
+        e = pe.render_entry(**self._base(outloc=custom))
+        custom["*.art"] = "disk"
+        custom["*.root"] = "outstage"
+        self.assertEqual(e["outloc"], {"*.art": "tape"})
+
+
+class TestSubstitutePlaceholders(unittest.TestCase):
+    """substitute_placeholders on its own (moved from
+    tests/test_prodtools_exec.py in Phase C3, which reached it through the
+    pipeline's prodtools_exec.load_stage_entry)."""
+
+    MAPPING = {"cfg": "cfg007", "geom": "g.txt"}
+
+    def test_substitutes_cfg_and_geom_recursively(self):
+        e = pe.substitute_placeholders({
+            "fcl": "a/b.fcl",
+            "fcl_overrides": {
+                "services.GeometryService.inputFile": "{geom}",
+                "nested": {"list": ["prefix_{cfg}_suffix", 3]},
+            },
+        }, self.MAPPING, "x")
+        self.assertEqual(
+            e["fcl_overrides"]["services.GeometryService.inputFile"], "g.txt")
+        self.assertEqual(
+            e["fcl_overrides"]["nested"]["list"][0], "prefix_cfg007_suffix")
+        self.assertEqual(e["fcl_overrides"]["nested"]["list"][1], 3)  # untouched
+
+    def test_unknown_placeholder_raises_naming_the_key_path(self):
+        with self.assertRaises(ValueError) as cm:
+            pe.substitute_placeholders(
+                {"fcl_overrides": {"a": {"b": "{typo}"}}}, self.MAPPING, "x")
+        self.assertIn("typo", str(cm.exception))
+        self.assertIn("x.fcl_overrides.a.b", str(cm.exception))
+
+    def test_include_key_stays_first_through_substitution(self):
+        e = pe.substitute_placeholders({
+            "fcl_overrides": {
+                "#include": ["a.fcl", "b.fcl"],
+                "services.SeedService.baseSeed": 1,
+                "services.GeometryService.inputFile": "{geom}",
+            },
+        }, self.MAPPING, "x")
+        self.assertEqual(list(e["fcl_overrides"].keys())[0], "#include")
+
+    def test_repeated_calls_over_one_template_do_not_alias_or_leak(self):
+        template = {"fcl_overrides":
+                    {"services.GeometryService.inputFile": "{geom}"}}
+        e1 = pe.substitute_placeholders(template, {"cfg": "c",
+                                                   "geom": "geom1.txt"}, "x")
+        e1["fcl_overrides"]["injected"] = "leak"
+        e2 = pe.substitute_placeholders(template, {"cfg": "c",
+                                                   "geom": "geom2.txt"}, "x")
+        self.assertEqual(
+            e2["fcl_overrides"]["services.GeometryService.inputFile"],
+            "geom2.txt")
+        self.assertNotIn("injected", e2["fcl_overrides"])
+        self.assertEqual(template["fcl_overrides"],
+                         {"services.GeometryService.inputFile": "{geom}"})
+
+    def test_comment_key_rides_along_unsubstituted(self):
+        e = pe.substitute_placeholders({"_comment": "see the template",
+                                        "fcl": "a.fcl"}, self.MAPPING, "x")
+        self.assertEqual(e["_comment"], "see the template")
+
+
 class _Tmp(unittest.TestCase):
     def setUp(self):
         td = tempfile.TemporaryDirectory()

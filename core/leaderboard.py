@@ -360,8 +360,8 @@ class Leaderboard:
             print(f"[{self.name}] WARNING: {len(stale)} pending row(s) older "
                   f"than {STALE_PENDING_S/3600:.0f}h — likely dead children "
                   f"still repelling the GP as phantom in-flight points:\n"
-                  f"{rows}\n  To remove:  ./core/bo_driver.py --mode "
-                  f"{self.name} pending-prune", file=sys.stderr)
+                  f"{rows}\n  To remove:  Leaderboard.pending_prune() "
+                  f"on this board", file=sys.stderr)
         return out
 
     def pending_prune(self, older_than_h: float = 48.0,

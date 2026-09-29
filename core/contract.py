@@ -286,7 +286,7 @@ class NativeKit:
 # Kits implemented in Python (core/adapters/). A factory is a class called
 # factory(campaign, executor=..., parallel=...), with LAUNCH_STAGGER_S and
 # EXECUTORS attributes (REQUIRES_KERBEROS optional); its kit needs a
-# kit_registry declaration with engine=True and no kits.toml entry.
+# kit_registry declaration and no kits.toml entry.
 ADAPTERS: Dict[str, Callable[..., Any]] = {}
 
 
@@ -294,9 +294,9 @@ def register_adapter(name: str, factory) -> None:
     if name in ADAPTERS:
         raise ValueError(f"adapter {name!r} is registered twice")
     decl = kit_registry.KITS.get(name)
-    if decl is None or not decl.engine or name in kit_registry.NATIVE:
+    if decl is None or name in kit_registry.NATIVE:
         raise ValueError(f"adapter {name!r} needs a kit_registry declaration "
-                         f"with engine=True and no kits.toml entry")
+                         f"and no kits.toml entry")
     ADAPTERS[name] = factory
 
 
@@ -318,8 +318,7 @@ def open_kit(name: str, campaign: str, *, executor: str = "grid",
     cfg = kit_registry.NATIVE.get(name)
     if cfg is None:
         raise KeyError(f"kit {name!r} has no adapter and no kits.toml entry, "
-                       f"so the contract engine cannot run it (the pipeline "
-                       f"kits run through graph.run until Phase C)")
+                       f"so the contract engine cannot run it")
     return NativeKit(cfg, KitClient(cfg, campaign=campaign,
                                     trace_dir=paths.GRAPH_DATA / campaign))
 
