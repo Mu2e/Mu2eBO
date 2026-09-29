@@ -5,15 +5,17 @@ literal anyone pastes back in. In core/study.py, a load-time check
 rejects a bare /exp/mu2e/.../users/<name>/ in a study file, which covers
 untracked studies this grep never sees.
 
-SCANNED covers the source directories (core, graph, tests, mode_specs) plus
-a short list of individual top-level files that are prose or config, not
-source, but are exactly where an operator pastes a convenient personal
-default: setup.sh (the one script most likely to grow a hardcoded fallback
-path), README.md and requirements.txt (both hand-edited to de-personalize
-them in the same change that added this guard, so they are the files most
-likely to regress), and CONTEXT.md / CLAUDE.md (agent-facing instructions,
-same risk as README.md). tools/ (the old launchers) was deleted with the
-pipeline in Phase C3.
+SCANNED covers the source directories (core, graph, surrogate, tests,
+mode_specs) plus a short list of individual top-level files that are prose
+or config, not source, but are exactly where an operator pastes a
+convenient personal default: setup.sh and activate.sh (the two scripts
+most likely to grow a hardcoded fallback path -- activate.sh already
+falls back to a default interpreter), README.md and requirements.txt
+(both hand-edited to de-personalize them in the same change that added
+this guard, so they are the files most likely to regress), and
+CONTEXT.md / CLAUDE.md (agent-facing instructions, same risk as
+README.md). tools/ (the old launchers) was deleted with the pipeline in
+Phase C3.
 
 wiki/ and docs/ are deliberately NOT scanned: they record what actually
 happened, including who ran it, and rewriting that to hide a username would
@@ -35,8 +37,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCANNED = (
-    "core", "graph", "tests", "mode_specs",
-    "setup.sh", "README.md", "requirements.txt", "CONTEXT.md", "CLAUDE.md",
+    "core", "graph", "surrogate", "tests", "mode_specs",
+    "setup.sh", "activate.sh", "README.md", "requirements.txt", "CONTEXT.md",
+    "CLAUDE.md",
 )
 
 # `$` and `<` are excluded so `$USER` and `<them>` placeholders in docs and

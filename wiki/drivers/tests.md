@@ -56,7 +56,11 @@ review, then 718 tests / 3 skipped after the post-C3 cleanup (2026-09-29).
 
 ## Key facts
 - **`tests/test_no_hardcoded_paths.py` only sees files git tracks**
-  (`git ls-files`, `tests/test_no_hardcoded_paths.py:57`). A new file
+  (`git ls-files` over `SCANNED`, `tests/test_no_hardcoded_paths.py:58`:
+  `core`, `graph`, `surrogate`, `tests`, `mode_specs` plus `setup.sh`,
+  `activate.sh`, `README.md`, `requirements.txt`, `CONTEXT.md`,
+  `CLAUDE.md`; `surrogate/` and `activate.sh` added 2026-09-29, no hit
+  in either). A new file
   carrying a personal path passes the suite until it is staged, then goes
   red at the commit. So run `git add` BEFORE the full suite, never after.
   This bit Phase A Task 1 on 2026-09-24: the new golden

@@ -6,6 +6,10 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [tests](/drivers/tests.md) (post-C3 cleanup):
+  `tests/test_no_hardcoded_paths.py` now also scans `surrogate/` and
+  `activate.sh` (tracked, previously outside `SCANNED`); neither had a
+  personal path, so nothing needed fixing.
 - **updated** (post-C3 cleanup) new test
   `tests/test_contract.py:TestRetryPolicy.
   test_every_timed_call_but_start_has_a_retry_budget` pins
