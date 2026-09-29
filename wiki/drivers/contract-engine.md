@@ -781,11 +781,11 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   itself is now REFUSED rather than silently ignored — see
   [local-executor](/drivers/local-executor.md) and `graph/run.py:
   local_env_refusal`), `AUTORESEARCH_NO_RUN1B`, `AUTORESEARCH_BOTORCH_VENV`.
-- **`.env`/LangSmith tracing is no longer loaded.** `requirements.txt`'s
-  comment claiming `graph/run.py`/`graph/closed_loop.py` call
-  `load_dotenv()` predates the rename and is stale — neither file imports
-  `python-dotenv`; a `.env` with `LANGCHAIN_*`/`LANGSMITH_*` keys is now
-  inert.
+- **`.env`/LangSmith tracing is no longer loaded.** Nothing calls
+  `load_dotenv()` since Phase C3 (only the deleted pipeline's
+  `graph/run.py` did), so a `.env` with `LANGCHAIN_*`/`LANGSMITH_*` keys
+  is inert; the unused `python-dotenv` pin was dropped from
+  `requirements.txt` on 2026-09-29.
 - **Acceptance PASSED (2026-09-29).**
   - **Suite:** green at the branch tip, 729 tests OK (skipped=4).
   - **Grep gates:** clean.

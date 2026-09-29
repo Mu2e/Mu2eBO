@@ -8,7 +8,6 @@ GRAPH_DATA/<name-prefix>/STOP; running children drain.
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 from collections import Counter

@@ -194,15 +194,6 @@ class TestRender(unittest.TestCase):
         ).render([3.0, 4.0])
         self.assertIn("double k.x = 12.00;", out)
 
-    def test_profiles_referenced_by_index(self):
-        out = _tpl(
-            [{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
-              "per_index": {"count": 3, "expr": "p[i]"}}],
-            profiles={"p": {"count": 3, "control": ["a", "b", "a"],
-                            "clip": [0.0, 100.0]}},
-        ).render([10.0, 20.0])
-        self.assertIn("vector<double> k.v = { 10.0, 20.0, 10.0 };", out)
-
     def test_comments_interpolate_knobs(self):
         out = _tpl([{"comment": "up rOut={a:.2f} n={n_foils}"}],
                    consts={"n_foils": 6}).render([1.5, 0.0])

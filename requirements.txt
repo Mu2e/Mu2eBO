@@ -32,17 +32,7 @@
 #   check ran against?   git show 99935cd:requirements.lock
 #
 langgraph>=0.2.50
-# STALE since Phase C3 (2026-09-28, deleted-pipeline docs review
-# 2026-09-29): this used to read "graph/run.py + graph/closed_loop.py
-# load_dotenv() the load-bearing .env (LangSmith tracing) before any
-# langchain import" -- true of the OLD pipeline's graph/run.py, but the
-# engine's graph/run.py (renamed from graph/study_run.py in C3) never
-# imported dotenv, and no module in core/, graph/, surrogate/ or tests/
-# does either (grep confirms). A .env with LANGCHAIN_*/LANGSMITH_* keys is
-# no longer loaded by anything; LangSmith tracing is off unless the
-# variables are exported directly. python-dotenv itself is left pinned
-# below in case a future module wants it -- nothing currently imports it.
-python-dotenv>=1.0
+# python-dotenv dropped 2026-09-29: nothing loads .env since Phase C3.
 botorch==0.18.1
 gpytorch==1.15.2
 numpy==2.4.6

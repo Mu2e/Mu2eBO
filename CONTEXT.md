@@ -98,7 +98,7 @@ Retired term. Was the explicit, typed product of the pipeline's harvest (`harves
 _Avoid_: "the summary dict" (the pipeline's implicit 26-key contract)
 
 **Preflight**:
-The local 1-event G4 feasibility check gating a point before anything is submitted: `mu2e -n 1` with G4's surface check, the as-built GDML comparison and the overlap policy, run on this node from the study's code tarball (`kits.offline_preflight.code_tarball`, which must equal `kits.prodtools.code_tarball`). Its rules live in `core/adapters/preflight_checks.py`, used by the engine's `offline_preflight` kit (shared with the pipeline's `bo_driver preflight` until Phase C3, 2026-09-28, deleted it); its workdir is `<GRID_DATA_ROOT>/<config>/preflight/`. Verdicts are `pass` / `fail_managed` / `fail_init` / `ambiguous`; only `pass` passes.
+The local 1-event G4 feasibility check gating a point before anything is submitted: `mu2e -n 1` with G4's surface check, the as-built GDML comparison and the overlap policy, run on this node from the study's code tarball (`kits.offline_preflight.code_tarball`, which must equal `kits.prodtools.code_tarball`). Its rules live in `core/adapters/preflight_checks.py`, used by the engine's `offline_preflight` kit (shared with the pipeline's `bo_driver preflight` until Phase C3, 2026-09-28, deleted it); its workdir is `<GRID_DATA_ROOT>/<config>/preflight/`. Verdicts are `pass` / `fail_managed` / `ambiguous`; only `pass` passes.
 
 **Musing**:
 The Mu2e Offline release a code tarball builds against (its `Code/backing` link: SimJob MDC2025ax for the production studies, Run1Bap for the archived foilspf family). Since Phase C2a no study names one: the pre-check and the jobs all source the code tarball's own `Code/setup.sh`.

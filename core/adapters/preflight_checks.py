@@ -27,11 +27,9 @@ SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 # Wall-clock cap on one `mu2e -n 1` check (G4 init + surface check).
 TIMEOUT_S = 1200
 
-# Preflight verdict vocabulary — the ONE home of the rc mapping. A check
-# returns pass, fail_managed (every FAIL) or ambiguous; no check returns
-# fail_init (the deleted pipeline's "no proposal geometry").
-PREFLIGHT_VERDICTS = {0: "pass", 1: "fail_managed", 2: "fail_init",
-                      3: "ambiguous"}
+# Preflight verdict vocabulary: a check returns pass, fail_managed (every
+# FAIL) or ambiguous. The integer keys are the deleted pipeline's exit codes.
+PREFLIGHT_VERDICTS = {0: "pass", 1: "fail_managed", 3: "ambiguous"}
 
 FCL_NAME = "surfacecheck.fcl"
 # run_preflight keeps the check's output here, in the workdir.

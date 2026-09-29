@@ -6,6 +6,13 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
+  cleanup): the `.env` bullet now records that the unused `python-dotenv`
+  pin was dropped from `requirements.txt`. Same commit: the unreachable
+  `2: "fail_init"` preflight verdict left `PREFLIGHT_VERDICTS` (and
+  `CONTEXT.md`'s verdict list); `Verdict.gdml_verified` is KEPT — seven
+  test assertions use it as the guard that the as-built GDML comparison
+  ran.
 - **updated** (post-C3 cleanup, branch `cleanup-c3`) removed the
   pending-TSV API from `core/leaderboard.py` (`Leaderboard.pending_*`,
   `PENDING_HEADER`, `STALE_PENDING_S`, `to_py_scalars`) and its 10 tests:
