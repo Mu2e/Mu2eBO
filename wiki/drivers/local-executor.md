@@ -1,7 +1,7 @@
 ---
 type: driver
 title: local executor — the grid-free path
-description: '(**SUPERSEDED 2026-08-16** by the prodtools switch: `core/local_exec.py` deleted, `submit --local` now shells prodtools `runlocal`) `AUTORESEARCH_LOCAL=1`/`--local` still activate a grid-free run (no jobsub, but NOT offline: resampler inputs stream from /pnfs over xrootd, and `AUTORESEARCH_PRODTOOLS` is now required even locally); `$AUTORESEARCH_DATA_ROOT` is the sandbox seam that keeps toy rows off the live board; ~33 s/stage at 1×200 events under prodtools runlocal (was ~20 s pre-switch), and a flash mode cannot land a row at that scale by design'
+description: '(**DELETED 2026-09-28, Phase C3**, with the rest of the pipeline; SUPERSEDED 2026-08-16 before that by the prodtools switch: `core/local_exec.py` deleted, `submit --local` shelled prodtools `runlocal`) `AUTORESEARCH_LOCAL=1`/`--local` were the pipeline''s grid-free activation switch and are now INERT -- nothing in the engine reads them, and `graph.run`/`graph.closed_loop` REFUSE (exit 2) if `AUTORESEARCH_LOCAL` is set at all (2026-09-29 review fix); the engine''s grid-free path is `--executor local [--parallel N]` (default `--executor grid`). The rest of this description is historical: `AUTORESEARCH_PRODTOOLS` was required even for a local run under the pipeline too; `$AUTORESEARCH_DATA_ROOT` is still the sandbox seam that keeps toy rows off the live board; ~33 s/stage at 1x200 events was measured under prodtools runlocal (was ~20 s pre-switch), and a flash mode could not land a row at that scale by design'
 status: superseded
 status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
 timestamp: '2026-09-28'
@@ -12,6 +12,18 @@ updated_note: 'SUPERSEDED (prodtools-switch Task 12): core/local_exec.py, the lo
 
 ## Summary
 Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record.
+
+**Current truth (2026-09-29 review fix): grid-free is `--executor local
+[--parallel N]`, not an env var.** `graph.run --executor grid|local` and
+`graph.closed_loop --executor ... --parallel N` (local only, 1..16) choose
+the executor; the default is `--executor grid`. `AUTORESEARCH_LOCAL` and
+its `AUTORESEARCH_LOCAL_{NJOBS,EVENTS,POOL}` siblings are INERT — nothing
+in the engine reads them — and `graph.run`/`graph.closed_loop` now REFUSE
+outright (exit 2, naming `--executor local`) if `AUTORESEARCH_LOCAL` is set
+at all (`graph/run.py:local_env_refusal`), so a stale export from the
+pipeline era is caught loudly instead of silently doing nothing. Everything
+below this notice describes the deleted pipeline's own env-activated local
+path and is history only.
 
 **Superseded 2026-08-16 by the prodtools switch.** `core/local_exec.py` and
 the `local-build`/`local-run` verbs described on this page were deleted; the

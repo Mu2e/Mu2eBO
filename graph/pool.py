@@ -55,11 +55,11 @@ def _log_inflight(inflight, log, now=None, warn_after=STALL_WARN_S):
             f"subprocess to exit, by design. To investigate: "
             f"`pgrep -f 'graph.run.*{name}'`, its log under "
             f"closed_loop_logs/{name}.log, and `jobsub_q -G mu2e "
-            f"--user=$USER`. If you kill it, clear its state before any "
-            f"relaunch under the same --name-prefix: "
-            f"`rm <grid>/{name}/state/*_cluster.txt` (only once no job of "
-            f"its is still landing outputs there), or relaunch with a "
-            f"different --name-prefix.")
+            f"--user=$USER`. If you kill it, do NOT relaunch it under the "
+            f"same --name-prefix: `state/point.json` or `*_cluster.txt` "
+            f"still marks {name} busy (graph/closed_loop.py::busy_reason), "
+            f"and the kit refuses the same <config>.<step> handle with "
+            f"other params. Relaunch under another --name-prefix instead.")
 
 
 def _wait_one(inflight, log, heartbeat=HEARTBEAT_S):

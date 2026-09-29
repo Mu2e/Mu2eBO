@@ -32,6 +32,36 @@ class TestRegistry(unittest.TestCase):
         self.assertIn(modes.DEFAULT_PICKER, modes.PICKER_CHOICES)
 
 
+class TestArchiveIsPresentAndUnloaded(unittest.TestCase):
+    """Archive guard (Phase C3 review): the eleven archived study files and
+    the seven original foilspf boards must still exist on disk -- archived,
+    not deleted -- and none of the archived names may leak into
+    modes.STUDIES (mode_specs/README.md, "archive/")."""
+
+    ORIGINAL_FOILSPF = ("foilsflash", "foilspf", "foilspf2k", "foilspfbp",
+                        "foilspfbpx", "foilspfbpz", "foilspfbw")
+    SCHEMA1 = ("ipa625", "ipafix", "ipaovr", "nominal")
+
+    def test_the_eleven_archived_files_exist(self):
+        archive_dir = modes.MODES_DIR / "archive"
+        for name in self.ORIGINAL_FOILSPF + self.SCHEMA1:
+            with self.subTest(name=name):
+                self.assertTrue((archive_dir / f"{name}.json").exists(),
+                                f"missing {archive_dir / (name + '.json')}")
+
+    def test_the_seven_original_boards_still_exist(self):
+        boards = modes.MODES_DIR.parent / "leaderboards"
+        for name in self.ORIGINAL_FOILSPF:
+            with self.subTest(name=name):
+                path = boards / f"leaderboard_bo_{name}.tsv"
+                self.assertTrue(path.exists(), f"missing {path}")
+
+    def test_no_archived_name_is_loaded(self):
+        self.assertFalse(
+            (set(self.ORIGINAL_FOILSPF) | set(self.SCHEMA1))
+            & set(modes.STUDIES))
+
+
 class TestStudyDirectoryWiring(unittest.TestCase):
     """F8: the lines that ARE the study-directory feature had zero coverage.
 

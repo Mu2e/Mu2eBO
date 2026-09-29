@@ -303,6 +303,26 @@ class TestRegistry(unittest.TestCase):
         self.assertEqual(ct.launch_stagger(study), 0.0)
 
 
+class TestLoadedMeansRunnable(unittest.TestCase):
+    """Spec ruling (Phase C3, "the `engine`/`pipeline` flags on `KitDecl`
+    go... So 'loaded' means 'runnable'"): once the two pipeline-only
+    KitDecls and the engine/pipeline flags are deleted, every kit
+    `kit_registry.KITS` declares must be runnable on the engine -- either
+    natively (a `kits.toml` entry, `kit_registry.NATIVE`) or through a
+    registered `core/adapters/` factory (`contract.ADAPTERS`, populated by
+    `contract._load_adapters` -> `core.adapters.register_all`)."""
+
+    def test_every_non_native_kit_has_a_registered_adapter(self):
+        ct._load_adapters()
+        non_native = set(kit_registry.KITS) - set(kit_registry.NATIVE)
+        self.assertTrue(non_native, "no adapter (non-kits.toml) kits "
+                                    "declared -- nothing to check")
+        missing = sorted(non_native - set(ct.ADAPTERS))
+        self.assertEqual(missing, [], f"declared in kit_registry.KITS but "
+                                      f"not a native kit and not registered "
+                                      f"in contract.ADAPTERS: {missing}")
+
+
 class TestExecutors(unittest.TestCase):
     def setUp(self):
         td = tempfile.TemporaryDirectory()

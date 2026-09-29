@@ -401,6 +401,35 @@ class TestKitStartCheck(unittest.TestCase):
             self.assertTrue(_DeadKitSet.made and _DeadKitSet.made[0].closed)
 
 
+class TestAutoresearchLocalRefused(unittest.TestCase):
+    """AUTORESEARCH_LOCAL was the deleted pipeline's grid-free activation
+    switch (wiki/drivers/local-executor.md); nothing in the engine reads it
+    any more. A stale export must refuse loudly, not be silently ignored --
+    the engine's grid-free equivalent is --executor local."""
+
+    def test_set_env_var_refuses_before_any_kit_starts(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            study = st.load_study_file(write_study(
+                toy_doc(name="localenvtoy", layout="v2"), tmp / "studies"))
+            out = io.StringIO()
+            with mock.patch.dict(modes.STUDIES, {"localenvtoy": study}), \
+                    mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
+                    contextlib.redirect_stdout(out):
+                rc = run.main(["--study", "localenvtoy", "--config", "p1",
+                              "--campaign", "t", "--x=1.0,2.0"])
+            self.assertEqual(rc, 2, out.getvalue())
+            self.assertIn("REFUSED", out.getvalue())
+            self.assertIn("--executor local", out.getvalue())
+            self.assertIn("AUTORESEARCH_LOCAL", out.getvalue())
+
+    def test_env_var_absent_is_unaffected(self):
+        """No regression: TestAPoint.test_a_point_lands_one_row and every
+        other test in this file already run with AUTORESEARCH_LOCAL unset
+        and land a row, so this only pins the negative explicitly."""
+        self.assertNotIn("AUTORESEARCH_LOCAL", os.environ)
+
+
 class TestOldAndArchivedShapes(unittest.TestCase):
     def test_the_old_pipeline_command_shape_is_refused(self):
         """The pipeline's `graph.run --mode foilspf --x-point ...` must fail

@@ -1,7 +1,7 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (35 files, 721 tests, 4 skipped), no
+description: '`tests/` regression suite (35 files, 729 tests, 4 skipped), no
   grid contact; `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s
   tests -t .`; the manual golden parity harness (`tests/golden_parity.py`)
   was deleted in Phase C3 (2026-09-28) with the pipeline it checked'
@@ -11,17 +11,23 @@ updated_note: 'Phase C3 (2026-09-28) deleted every pipeline-only test file
   and tests/golden_parity.py, and renamed test_study_run.py/test_study_loop.py
   to test_run.py/test_closed_loop.py. Measured post-cut (verified by a full
   run at commit dc8a176): 35 files, 721 tests (4 skipped), ~249s under ana
-  2.8.0. The per-file growth history in Key facts below runs only through
-  generic-study Phase B (2026-09-25, 856 tests) and was never re-audited
-  file-by-file through Phase C1/C2a/C2b -- trust the two headline numbers in
-  this note over that narrative for anything after 2026-09-25.'
+  2.8.0. The Phase C3 final-fix review (2026-09-29, this file''s own doc
+  fixes plus the AUTORESEARCH_LOCAL refusal, the pool.py recovery-text fix,
+  a loaded-means-runnable pin, and the archive-exists guard) added 8 tests
+  to existing files -- no new file -- landing at 35 files / 729 tests (4
+  skipped), ~256s. The per-file growth history in Key facts below runs only
+  through generic-study Phase B (2026-09-25, 856 tests) and was never
+  re-audited file-by-file through Phase C1/C2a/C2b -- trust the two
+  headline numbers in this note over that narrative for anything after
+  2026-09-25.'
 ---
 
 # Self-tests (`tests/`)
 
 ## Summary
 Regression tests for the Python drivers in this project. **35 `test_*.py`
-files, 721 tests (4 skipped)** (2026-09-28, post Phase C3), run under
+files, 729 tests (4 skipped)** (2026-09-29, post Phase C3 final-fix review),
+run under
 `$AUTORESEARCH_PYTHON` with no grid contact (all mocks/tempdirs, or a temp
 `AUTORESEARCH_DATA_ROOT` for the engine's subprocess tests). The manual
 byte/tensor-parity harness, `tests/golden_parity.py` (not picked up by
@@ -126,7 +132,11 @@ landing at the current 35 files / 721 tests / 4 skipped.
   `test_harvest`, `test_json_mode`, `test_nodes`, `test_no_mock_mode`,
   `test_pipeline_verbs`, `test_seam_protocol`, `test_stages_retired`,
   `test_prodtools_exec`, `test_launch_checks`, `test_mode_archive`,
-  `test_c2b_parity`, `test_runtime_constants` — plus `tests/golden_parity.py`
+  `test_c2b_parity`, `test_runtime_constants`, `test_recursion_limit`
+  (nothing calls `.stream()` any more — the engine `.invoke()`s a five-node
+  linear graph, so there is no recursion limit to pin) and
+  `test_study_compat` (its `core/study_compat.py` target went with it) —
+  plus `tests/golden_parity.py`
   and its fixtures (`tests/fixtures/modes/`, `tests/goldens/`), and renamed
   `test_study_run.py` → `test_run.py`, `test_study_loop.py` →
   `test_closed_loop.py` (`git mv`, history follows). `test_geom_golden_parity.py`

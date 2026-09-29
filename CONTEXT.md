@@ -42,7 +42,7 @@ The campaign parent (`graph/pool.py::run_rolling`): keeps q Children in flight a
 _Avoid_: round, batch, wave (all retired 2026-08-19)
 
 **Picker**:
-The proposal strategy that turns leaderboard history into the next point(s) — `hybrid`, `qnehvi`, `qlnei`, `budget_sob`, declared once as `core.modes.PICKER_CHOICES` and accepted by both the parent and the picker subprocess. Runs once per replacement launch, in a subprocess, over the current In-flight set as `X_pending`. The Engine-side name for `budget_sob` is `constrained_max`.
+The proposal strategy that turns leaderboard history into the next point(s) — `hybrid`, `qnehvi`, `qlnei`, `budget_sob`, declared once as `core.modes.PICKER_CHOICES`. Runs once per replacement launch, in the campaign process itself — no subprocess: `graph/closed_loop.py:surrokit_pick` calls `core/botorch_predict.py` directly — over the current In-flight set as `X_pending`. The Engine-side name for `budget_sob` is `constrained_max`.
 
 **Engine**:
 The physics-agnostic surrogate/optimization core (`surrokit`, extracted from `core/botorch_predict.py`): GP fit, posterior predict, and the Pickers behind a `fit / predict / ask` API. Sees only numbers in math space — every Y axis maximized, axis 0 primary; never learns what "sob" or "flash" means.
@@ -57,7 +57,7 @@ Two distinct senses, kept apart by context — see Flagged ambiguities.
 (2) Python that speaks the evaluator contract (see Kit) for a kit that doesn't speak it natively: a class registered in `core/contract.py`'s `ADAPTERS`, taking the Campaign name, with a `LAUNCH_STAGGER_S` attribute. `prodtools` (`core/adapters/prodtools.py`, Phase C1) and `offline_preflight` (`core/adapters/offline_preflight.py`, Phase C2a) are the first two; an adapter may also declare `config_problem(config)`, its config-name rule, which `graph.closed_loop` checks against the first child name before launching; `core/adapters/__init__.py:register_all` registers them.
 
 **Leaderboard**:
-The append-only per-mode TSV of completed evals; the ONLY durable source of truth for BO history. There is no checkpointer (retired 2026-08-19) and no other resume state.
+The append-only per-mode TSV of completed evals; the ONLY durable source of truth for BO history. There is no checkpointer (retired 2026-08-19); the engine's own resume state is per-point, not per-campaign — `state/point.json`, `state/<step>_cluster.txt` and `state/<step>_results.json` under `<GRID_DATA_ROOT>/<config>/state/`, read by `core/scheduler.py:run_steps` so a rerun of `graph.run` with the same `--config` adopts steps already submitted or done instead of resubmitting them.
 
 **measure_sha**:
 On a `"v2"`-layout Leaderboard, the SHA-256 identifying HOW a row was measured: `derive`, `geom`, every kit's settings, each step's kit/entry/files/params/fixed, each objective's metric and transform, each extra metric's metric (an extra metric has no transform), and the reported version of each kit a step runs on (`core/study.py:Study.measure_sha`). The preflight Kit's version is excluded — it gates a point but produces none of its numbers. An append whose `measure_sha` differs from the board's is refused and the row quarantined (`core/leaderboard.py`): a board holds one measurement, never mixed ones. A point's `point.json` records the kit-version-free part (`Study.measure_basis_sha`), so rerunning a killed point after the study's measurement changed is refused rather than adopting jobs measured the old way.
@@ -75,7 +75,7 @@ A Kit that speaks the evaluator contract over MCP directly: one `kits.toml` entr
 Where a point's jobs run: `grid` (the default) or `local` (this node), chosen by `graph.run --executor` / `graph.closed_loop --executor` and recorded in the point's `point.json`. Not part of `measure_sha`: the physics is the same. A small test is its own study file with its own board, not a scale-down of a real one.
 
 **Stage**:
-One grid-submission unit in an eval's chain (`mubeam`, `mustops_ce`, `elebeam_flash`) driven by idempotent submit/poll/list-outputs verbs.
+One grid-submission unit in an eval's chain (`mubeam`, `mustops_ce`, `elebeam_flash`) driven through the evaluator contract's `submit`/`status`/`results` verbs (plus optional `check`/`describe`/`cancel`) that every Kit speaks — see Kit, below.
 
 **Stage chain**:
 The ordered stages one eval runs; declared per Mode.
@@ -91,7 +91,7 @@ A Child's result, decided at the moment its subprocess exits and never before: `
 _Avoid_: resolution, running/dead_unresolved/stale_cluster (the retired ChildTracker vocabulary)
 
 **Busy name**:
-A config name the Pool refuses to launch under because an earlier process already resolved it (leaderboard row, `broken.txt`) or still has work in flight for it (`state/*_cluster.txt`, an unresolved pending-TSV row). The Pool skips to the next index and says why (`graph/pool.py::_name_busy_reason`). This is what makes a same-prefix relaunch the safe crash-recovery move.
+A config name the Pool refuses to launch under because an earlier process already resolved it (a leaderboard row, `broken.txt`) or still has work in flight for it (`state/point.json`, `state/*_cluster.txt`). The Pool skips to the next index and says why (`graph/closed_loop.py::busy_reason`). Recovery is "relaunch under another --name-prefix" (the code's own advice, `busy_reason`'s docstring) — NOT a same-prefix relaunch: once a `*_cluster.txt` exists the kit refuses the same `<config>.<step>` handle with other params, so removing the state dir is safe only once nothing still runs under that name and it never held a `*_cluster.txt` (nothing was submitted).
 
 **Eval summary**:
 Retired term. Was the explicit, typed product of the pipeline's harvest (`harvest.EvalSummary` → `harvest/summary.json`): the primary sob chain plus fail-soft secondary objectives, with a `degraded` record of every extraction that fail-softed. Deleted with `harvest.py` in Phase C3 (2026-09-28). The engine's equivalent: each step's kit reports its metrics into `state/<step>_results.json` (`core/scheduler.py`); `core/score.py:score` collects them by name into the study's objectives and extra metrics, writes `state/summary.json` (`{config, x, steps: {step: metrics}}` — a much smaller schema, with no `degraded` record) and `state/evaluate_result.json` (`{config, primary, objectives, row_appended}`), and appends the leaderboard row.
@@ -110,7 +110,7 @@ The `Code.tar.bz2` shipped to grid workers (`kits.prodtools.code_tarball`). The 
 
 - A **Campaign** runs a **Pool**; the Pool keeps q **Children** in its **In-flight set** and replaces each one as it exits; each Child performs one **Eval** and ends in one **Outcome**.
 - A **Mode** = one **Study** (`mode_specs/<name>.json`), run through the contract engine (`core/contract.py`, `core/scheduler.py`); every Eval belongs to exactly one Mode. (Before Phase C3 a Mode also had a **JsonMode** instance for the pipeline path; that class and the pipeline are both gone.)
-- An Eval runs its Mode's **Stage chain**; **Preflight** gates the first Stage; harvest appends one **Leaderboard** row.
+- An Eval runs its Mode's **Stage chain**; **Preflight** gates the first Stage; `core/score.py:score` appends one **Leaderboard** row (harvest is retired terminology — see Eval summary).
 - The **Pool** learns a Child's **Outcome** from its exit code plus two artifacts (leaderboard row, `broken.txt`); it never polls, and it never resolves a Child that has not exited.
 - The **Picker** consumes the **Leaderboard** and produces the next point, once per replacement launch.
 

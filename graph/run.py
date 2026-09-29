@@ -10,6 +10,7 @@ Exit 2: refused before anything ran. Anything else: a crash.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -30,6 +31,19 @@ from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
 def refuse(message: str) -> int:
     print(f"[run] REFUSED: {message}", flush=True)
     return 2
+
+
+def local_env_refusal() -> str | None:
+    """AUTORESEARCH_LOCAL was the deleted pipeline's grid-free activation
+    switch (wiki/drivers/local-executor.md); nothing in the engine reads it
+    any more. A stale export must not be silently ignored -- the engine's
+    grid-free equivalent is `--executor local`."""
+    if "AUTORESEARCH_LOCAL" in os.environ:
+        return (f"AUTORESEARCH_LOCAL={os.environ['AUTORESEARCH_LOCAL']!r} is "
+                f"set, but nothing reads it any more (it was the deleted "
+                f"pipeline's grid-free activation switch); unset it and use "
+                f"--executor local instead")
+    return None
 
 
 def _kerberos():
@@ -84,6 +98,10 @@ def main(argv=None) -> int:
                     help="jobs at once on this node, with --executor local "
                          "only (1..16)")
     args = ap.parse_args(argv)
+
+    removed = local_env_refusal()
+    if removed:
+        return refuse(removed)
 
     if args.study not in _modes.STUDIES:
         return refuse(f"unknown study {args.study!r}; known "

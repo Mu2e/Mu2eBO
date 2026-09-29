@@ -249,8 +249,9 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   `python -m graph.run --study S --config C --campaign K --x=v1,v2,...`.
 - **Exit 0:** the point ran — either a leaderboard row landed, or
   `broken.txt` says why not. **Exit 2:** refused before anything ran (an
-  unknown or non-engine study, `x` outside the knob box or of the wrong
-  length, a missing or unknown `--context`, a broken point, a kit that
+  unknown study — since Phase C3 there is no "non-engine" study any more,
+  every loaded study runs on the engine — `x` outside the knob box or of the
+  wrong length, a missing or unknown `--context`, a broken point, a kit that
   won't start, a config name already claimed by a different point in
   `point.json`, or a `point.json` whose `measure_basis_sha` is missing or
   differs from the study's). Anything else is a crash.
@@ -764,6 +765,27 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   foilspfbpz_ax  c4aafee1c30ba5121ab727bcab4513786b6d076c10f976d1b786daf95e218a80
   foilspfbw_ax   01bcbd62be9a8f4d8b825e85267a3e7b45a0746b2784f1c48c32aeacba962191
   ```
+- **`stage_entries/*.json` still names the deleted file in its own
+  `_comment`.** Every stage template's `_comment` field (e.g.
+  `stage_entries/mubeam.json:2`) says "Rationale for these keys lives in
+  core/pipeline.py, in the comment block immediately above
+  _render_fcl_overrides" — that file is gone. `stage_entries/*.json` is
+  frozen (the templates are hashed whole into `measure_basis`, ruling 2
+  above), so the comment is not rewritten; read the rationale with
+  `git show 3d48db1:core/pipeline.py` (the last commit that still has it).
+- **Env vars now inert** (nothing reads them; confirmed by grep, 2026-09-29
+  review): `AUTORESEARCH_MODE` (the pipeline's mode switch —
+  `tests/test_modes.py` pins that a stale export is ignored, never a
+  `SystemExit`), `AUTORESEARCH_ELEBEAM_NJOBS`, `AUTORESEARCH_LOCAL` and its
+  `AUTORESEARCH_LOCAL_{NJOBS,EVENTS,POOL}` scale knobs (`AUTORESEARCH_LOCAL`
+  itself is now REFUSED rather than silently ignored — see
+  [local-executor](/drivers/local-executor.md) and `graph/run.py:
+  local_env_refusal`), `AUTORESEARCH_NO_RUN1B`, `AUTORESEARCH_BOTORCH_VENV`.
+- **`.env`/LangSmith tracing is no longer loaded.** `requirements.txt`'s
+  comment claiming `graph/run.py`/`graph/closed_loop.py` call
+  `load_dotenv()` predates the rename and is stale — neither file imports
+  `python-dotenv`; a `.env` with `LANGCHAIN_*`/`LANGSMITH_*` keys is now
+  inert.
 - **Acceptance: pending (local run + surrogate MCP).**
 
 ## Cross-links
@@ -910,3 +932,24 @@ Phase C follow-ups found in review (2026-09-25):
   that checks the first child name against each kit's own character rule,
   not whether the name is free of a prior claim, quota-under-limit, or a
   stale grid cluster.)
+- **A local run no longer checks for a live Kerberos ticket before
+  starting.** `requires_kerberos` (`core/contract.py:368`) returns `False`
+  whenever `executor != "grid"`, since it only asks whether some kit sets
+  `REQUIRES_KERBEROS` (the prodtools adapter's grid path). But README.md's
+  own Kerberos note says even a local run streams resampler inputs from
+  `/pnfs` over xrootd, needing a live bearer token exactly as a grid worker
+  does — the deleted pipeline's `run_local.sh` called `check_kerberos(0)`
+  (any ticket, not the grid path's 4 h minimum) to catch that up front. The
+  engine has no equivalent: a ticketless `--executor local` run is not
+  refused at launch and instead fails later, inside a step's xrootd read.
+- **`measure_basis` hashes a stage template whole, but only the FILENAMES
+  of its FCL includes, never their bytes.** `core/study.py:_measure_basis`
+  puts each step's `entry(s)` — the whole `stage_entries/<step>.json` dict,
+  via `_stage_template` — into the hashed basis, so `fcl_overrides.#include`
+  contributes as a list of strings like `"sim_kept_products_extras.fcl"`.
+  The actual snippet files those names resolve to, `core/pipeline_templates/
+  *.fcl` (read at run time by `core/adapters/prodtools_entry.py`'s
+  `TEMPLATES_ROOT`), are never read or hashed by `_measure_basis`. So
+  editing an include's FCL content (not its filename) changes what every
+  future job runs with no `measure_sha` change — a champion re-run after
+  such an edit would silently compare apples to oranges on the same board.

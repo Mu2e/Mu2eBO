@@ -6,6 +6,69 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-28
+- **updated** [contract-engine](/drivers/contract-engine.md) (final fix
+  wave, review of the Phase C3 docs pass): fixed "unknown or non-engine
+  study" — non-engine studies no longer exist since C3, just "unknown
+  study". Added to "Pipeline deleted (Phase C3)": `stage_entries/*.json`
+  `_comment` fields still cite the deleted `core/pipeline.py` (frozen —
+  the templates are hashed into `measure_basis` — so the rationale is
+  only recoverable via `git show 3d48db1:core/pipeline.py`); five env
+  vars confirmed inert by grep (`AUTORESEARCH_MODE`,
+  `AUTORESEARCH_ELEBEAM_NJOBS`, `AUTORESEARCH_LOCAL*`,
+  `AUTORESEARCH_NO_RUN1B`, `AUTORESEARCH_BOTORCH_VENV`); `.env`/LangSmith
+  tracing is no longer loaded (`requirements.txt`'s `load_dotenv()`
+  comment was stale — fixed there too). Added two follow-ups: a local run
+  no longer checks for a live Kerberos ticket before starting
+  (`requires_kerberos` is grid-only; a ticketless local run now fails
+  later, inside a step's xrootd read, instead of being refused at
+  launch); `measure_basis` hashes a stage template's FCL `#include` list
+  as filenames only, never the referenced `core/pipeline_templates/*.fcl`
+  bytes, so editing an include's content changes every future job with no
+  `measure_sha` change.
+- **updated** [local-executor](/drivers/local-executor.md) and this
+  index's one-liner for it (final fix wave): both still claimed
+  `AUTORESEARCH_LOCAL=1`/`--local` activate a grid-free run. Corrected:
+  nothing in the engine reads them; grid-free is `--executor local
+  [--parallel N]` (default `--executor grid`), and — new as of this fix —
+  `graph.run`/`graph.closed_loop` REFUSE (exit 2, naming `--executor
+  local`) if `AUTORESEARCH_LOCAL` is set at all (`graph/run.py:
+  local_env_refusal`; `tests/test_run.py`/`tests/test_closed_loop.py`
+  pin it, `graph/pool.py`'s stall-warning recovery text and
+  `tests/test_pool.py` updated to match `busy_reason`'s own advice —
+  relaunch under ANOTHER `--name-prefix`, never the same one).
+- **updated** [tests](/drivers/tests.md) (final fix wave): the Phase C3
+  deleted-files list omitted `test_recursion_limit.py` (nothing calls
+  `.stream()` any more — the engine `.invoke()`s a five-node linear graph
+  — so there is no recursion limit left to pin) and `test_study_compat.py`
+  (its `core/study_compat.py` target was deleted with the rest of the
+  pipeline); both added. Test count bumped 721 → 729 (8 new tests in
+  existing files: `tests/test_run.py`, `tests/test_closed_loop.py` — the
+  `AUTORESEARCH_LOCAL` refusal; `tests/test_contract.py` — loaded-means-
+  runnable; `tests/test_modes.py` — the archive-exists guard); no new
+  file, so the file count stays 35.
+- **updated** `README.md`, `CONTEXT.md`, `mode_specs/README.md`,
+  `requirements.txt` (final fix wave, not wiki pages — repo root):
+  README's "Run one point"/"Run a campaign" commands used bare `python`
+  (dies with `ModuleNotFoundError: tomllib` on this node's system Python
+  3.9) — now `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.run`/
+  `graph.closed_loop`; its `AUTORESEARCH_PRODTOOLS` bullet described the
+  deleted pipeline's `bin/json2jobdef` check, now describes the two
+  `kits.toml` prodtools MCP servers (`submit_once`/`run_local`/
+  `run_status`). `mode_specs/README.md`'s "Starting a new study" recipe
+  copied the deleted `tests/fixtures/modes/template.json` — now says copy
+  an existing `_ax` study, and cites the real `leaderboard.file`-collision
+  check (`core/study.py:730-735`). `CONTEXT.md`'s "Picker", "Busy name",
+  "Stage" and "Leaderboard" glossary entries described deleted pipeline
+  mechanics (a picker subprocess, `graph/pool.py::_name_busy_reason`, a
+  pending-TSV busy signal, submit/poll/list-outputs stage verbs, "no other
+  resume state") — rewritten to the engine's actual
+  `graph/closed_loop.py::busy_reason`/`core/scheduler.py:run_steps`/point-
+  file resume mechanics; its "Relationships" line's "harvest appends one
+  Leaderboard row" now credits `core/score.py:score`.
+  `requirements.txt`'s `python-dotenv` comment claimed
+  `graph/run.py`/`graph/closed_loop.py` call `load_dotenv()` for LangSmith
+  tracing — grep confirms no importer anywhere in `core/`, `graph/`,
+  `surrogate/` or `tests/`; comment corrected, the pin left unchanged.
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C2b
   acceptance PASSED. Parity: Level 1 495/495; Level 2 7/7 on three points;
   Level 3 exit 0. Local `c2blocal01` landed a row. Grid on MDC2025ax:

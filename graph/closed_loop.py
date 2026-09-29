@@ -8,6 +8,7 @@ GRAPH_DATA/<name-prefix>/STOP; running children drain.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -22,7 +23,7 @@ from boards import board_for  # noqa: E402
 from contract import (EXECUTORS, check_kits, config_name_problems,  # noqa: E402
                       launch_stagger)
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
-from run import launch_refusals, parse_context  # noqa: E402
+from run import launch_refusals, local_env_refusal, parse_context  # noqa: E402
 
 
 def state_dir(name: str) -> Path:
@@ -132,6 +133,11 @@ def main(argv=None) -> int:
                     help="jobs at once on this node, with --executor local "
                          "only (1..16); passed to every child")
     args = ap.parse_args(argv)
+
+    removed = local_env_refusal()
+    if removed:
+        print(f"[closed_loop] REFUSED: {removed}", flush=True)
+        return 2
 
     if args.study not in _modes.STUDIES:
         print(f"[closed_loop] REFUSED: unknown study {args.study!r}; known "

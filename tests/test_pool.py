@@ -348,13 +348,16 @@ class TestHeartbeat(unittest.TestCase):
         self.assertEqual(res["rows"], 1)
 
     def test_stall_warning_carries_the_recovery_text(self):
+        """The advice must match graph/closed_loop.py::busy_reason: a
+        same-prefix relaunch is NOT safe once state exists for the name."""
         lines = []
         inflight = {object(): ("cX", [1.0], 0.0)}
         pool._log_inflight(inflight, lines.append, now=25 * 3600.0)
         joined = " ".join(lines)
         self.assertIn("WARNING cX", joined)
-        self.assertIn("_cluster.txt", joined)
-        self.assertIn("--name-prefix", joined)
+        self.assertIn("busy_reason", joined)
+        self.assertIn("another --name-prefix", joined)
+        self.assertIn("do NOT relaunch it under the same --name-prefix", joined)
         self.assertIn("pgrep", joined)
 
     def test_no_warning_below_threshold(self):

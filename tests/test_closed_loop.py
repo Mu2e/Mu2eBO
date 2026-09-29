@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -271,6 +272,39 @@ class TestNamePrefix(unittest.TestCase):
         rolling.assert_not_called()
         self.assertIn("REFUSED", out.getvalue())
         self.assertIn("smoke-1R00_00", out.getvalue())
+
+
+class TestAutoresearchLocalRefused(unittest.TestCase):
+    """AUTORESEARCH_LOCAL was the deleted pipeline's grid-free activation
+    switch (wiki/drivers/local-executor.md); nothing in the engine reads it
+    any more. A stale export must refuse loudly, not be silently ignored --
+    the engine's grid-free equivalent is --executor local."""
+
+    def test_set_env_var_refuses_before_any_kit_starts(self):
+        with tempfile.TemporaryDirectory() as td:
+            study = st.load_study_file(
+                write_study(toy_doc(name="localenvloop", layout="v2"),
+                           Path(td)))
+            out = io.StringIO()
+            with mock.patch.dict(closed_loop._modes.STUDIES,
+                                 {"localenvloop": study}), \
+                    mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
+                    mock.patch.object(closed_loop, "run_rolling") as rolling, \
+                    contextlib.redirect_stdout(out):
+                rc = closed_loop.main(["--study", "localenvloop", "--q", "1",
+                                      "--max-evals", "1", "--name-prefix",
+                                      "lel"])
+            self.assertEqual(rc, 2, out.getvalue())
+            self.assertIn("REFUSED", out.getvalue())
+            self.assertIn("--executor local", out.getvalue())
+            self.assertIn("AUTORESEARCH_LOCAL", out.getvalue())
+            rolling.assert_not_called()
+
+    def test_env_var_absent_is_unaffected(self):
+        """No regression: TestBraninCampaign and every other test in this
+        file already run with AUTORESEARCH_LOCAL unset and complete, so this
+        only pins the negative explicitly."""
+        self.assertNotIn("AUTORESEARCH_LOCAL", os.environ)
 
 
 class TestRenamedHints(unittest.TestCase):

@@ -13,12 +13,15 @@ The format, field rules and examples are in
 
 ## Starting a new study
 
-Copy `tests/fixtures/modes/template.json`, not a shipped spec: it points
-at a non-live leaderboard. Then change:
+There is no template file — copy an existing `_ax` study (e.g.
+`mode_specs/foilspfbpz_ax.json`). Then change:
 
 1. `"name"`: must equal the file stem.
-2. `"leaderboard": {"file": ...}`: a path no other study uses.
-3. the knobs, `derive` and `geom`.
+2. `"leaderboard": {"file": ...}`: a basename no other *loaded* study
+   uses. The loader compares leaderboard basenames across every loaded
+   study and refuses a collision (`core/study.py:730-735`), since two
+   studies sharing one board would contaminate each other's GP history.
+3. the knobs, `derive`, `geom`, `kits` and `evaluate` steps.
 
 Every key is required and unknown keys are rejected, so a typo fails at
 import, never hours into a campaign.

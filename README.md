@@ -31,9 +31,14 @@ kinit
   The artifacts are world-readable, so this is all you need — you build
   nothing. `./setup.sh --status` always prints whose build you are on.
 - **`AUTORESEARCH_PRODTOOLS`** is required for any study whose kits include
-  `prodtools`/`offline_preflight` (grid *and* local runs): jobs are built and
-  executed by [prodtools](https://github.com/Mu2e/prodtools), not by this
-  repo. Point it at a checkout holding `bin/json2jobdef`.
+  `prodtools`/`offline_preflight` (grid *and* local runs): `kits.toml` starts
+  two prodtools MCP servers from it,
+  `${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_write_mcp.sh` (submits, via
+  `submit_once` on the grid or `run_local` here) and `start_mcp.sh` (reads
+  back status via `run_status`) — jobs are built and executed by
+  [prodtools](https://github.com/Mu2e/prodtools), not by this repo. Point it
+  at a checkout whose write server has a `submit_once`/`run_local` tool and
+  whose read server has `run_status` (`core/adapters/prodtools.py`).
 - **`AUTORESEARCH_ANAKIT`** is required for the `<name>_ax` studies, whose
   `sob`/`flash` steps run on the `anakit` kit — a fork of M. MacKenzie's
   analysis MCP server. See `kits.toml`.
@@ -62,8 +67,9 @@ See `mode_specs/README.md` for the field reference and how to add a study.
 ## Run one point
 
 ```bash
-python -m graph.run --study foilspfbpz_ax --config <name> --campaign <name> \
-    --x=<v1,...,v10> --context alpha=100000.0 --executor grid|local [--parallel N]
+PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.run --study foilspfbpz_ax \
+    --config <name> --campaign <name> --x=<v1,...,v10> \
+    --context alpha=100000.0 --executor grid|local [--parallel N]
 ```
 
 `--x` is comma-separated, in the study's knob order; a zero-knob study (e.g.
@@ -78,9 +84,9 @@ that won't start, …). `--parallel N` (1..16) only applies with
 `$GRAPH_DATA` below is `$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data`.
 
 ```bash
-nohup python -m graph.closed_loop --study foilspfbpz_ax --q 20 --max-evals 40 \
-    --picker budget_sob --name-prefix foilspfbpz08 --context alpha=100000.0 \
-    --executor grid \
+PYTHONPATH= nohup "$AUTORESEARCH_PYTHON" -m graph.closed_loop --study foilspfbpz_ax \
+    --q 20 --max-evals 40 --picker budget_sob --name-prefix foilspfbpz08 \
+    --context alpha=100000.0 --executor grid \
     > "$GRAPH_DATA/foilspfbpz08_parent.log" 2>&1 &
 ```
 
@@ -105,7 +111,7 @@ replacement per exit, refitting the GP against the leaderboard as it stands.
 PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .
 ```
 
-35 test files, 721 tests, no grid contact.
+35 test files, 729 tests, no grid contact.
 
 ## More
 
