@@ -68,7 +68,10 @@ needs it.
 
 ### 2. The engine stops using pipeline code
 
-These changes come first; the tree stays green after each one.
+The pipeline's fallbacks live inside these shared modules, so cutting
+them breaks the pipeline. They therefore land in the same commit as
+section 3. The Kerberos move is the exception: it lands first, and the
+tree stays green after it.
 
 - **`core/botorch_predict.py`:**
   - `history_points` reads every study through
@@ -83,8 +86,10 @@ These changes come first; the tree stays green after each one.
   - the default helpers `_default_run_child`, `_default_pick_source`,
     `_default_row_landed`, `_default_broken` and `_pending_names` go,
     together with the pipeline branch of `_name_busy_reason`;
-  - the stagger default of 90 s moves to `graph/study_loop.py` as its
-    own constant, because `core/runtime.py` is deleted.
+  - the stagger fallback to `runtime.CLOSED_LOOP_STAGGER_SEC` goes: the
+    engine loop already passes `launch_stagger(study)`, the largest
+    `launch_stagger_s` of the study's kits, so no constant replaces it;
+  - the unused `alpha` parameter goes with `_default_run_child`.
 - **Kerberos:** `check_kerberos` and `GRID_TICKET_SECONDS = 4 * 3600`
   move from `core/launch_checks.py` into `core/contract.py`, next to
   `requires_kerberos`. `graph/study_run.py:_kerberos` calls them there.
