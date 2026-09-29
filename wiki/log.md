@@ -6,6 +6,13 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [tests](/drivers/tests.md): `activate.sh` now exports
+  `AUTORESEARCH_ANAKIT` / `AUTORESEARCH_PRODTOOLS` from sibling checkouts
+  (`../analysis-mcp-server`, `../muse_050125/prodtools`) when unset and the
+  directory exists; a missing one stays unset so the runner still refuses
+  loudly. Found by a post-cleanup local run from a fresh shell, which refused
+  twice (anakit, then prodtools not set). The cvmfs prodtools releases ship
+  no `mcp/src`, so the engine needs the local checkout. 713 -> 716 tests.
 - **updated** [surrogate](/drivers/surrogate.md): surrokit pin bumped
   `4884aa66` → `26929f7c22bcd9c4bef0c09d453309ae35300fbe` (three cleanup
   commits, incl. "pickers: one home for the min_spacing / hv_frac / pool

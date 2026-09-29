@@ -12,6 +12,8 @@
 #
 # AUTORESEARCH_SURROKIT: path to the surrokit engine checkout
 # (default: the repo's sibling directory ../surrokit; see core/paths.py).
+# AUTORESEARCH_ANAKIT / AUTORESEARCH_PRODTOOLS: the kit checkouts; exported
+# here from sibling directories when unset (see the end of this file).
 #
 # Why a published env: a personal /exp venv is one operator's directory, so a
 # second person, a cron job, or a fresh node has nothing to point at.
@@ -79,3 +81,20 @@ if ! PYTHONPATH= "$AUTORESEARCH_PYTHON" -c 'import sys' 2>/dev/null; then
          "($AUTORESEARCH_PYTHON_SOURCE)" >&2
     return 1
 fi
+
+# The kit checkouts the engine starts servers from (kits.toml,
+# core/adapters/). An exported value always wins. Otherwise each defaults to
+# a sibling of this repo, the convention AUTORESEARCH_SURROKIT already uses
+# (core/paths.py): the anakit fork at ../analysis-mcp-server and the
+# prodtools checkout inside its Muse work area at ../muse_050125/prodtools.
+# A default is taken only when that directory exists. A missing one stays
+# unset, so the runner refuses with "not set" rather than pointing a kit at
+# a path that is not there.
+_parent="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -z "${AUTORESEARCH_ANAKIT:-}" && -d "$_parent/analysis-mcp-server" ]]; then
+    export AUTORESEARCH_ANAKIT="$_parent/analysis-mcp-server"
+fi
+if [[ -z "${AUTORESEARCH_PRODTOOLS:-}" && -d "$_parent/muse_050125/prodtools" ]]; then
+    export AUTORESEARCH_PRODTOOLS="$_parent/muse_050125/prodtools"
+fi
+unset _parent

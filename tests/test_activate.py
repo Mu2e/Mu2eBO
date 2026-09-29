@@ -7,6 +7,7 @@ letting `pyenv.sh`'s exported command wrappers into our subprocesses.
 """
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -91,6 +92,59 @@ class TestNeverActivates(unittest.TestCase):
         self.assertIn(pythonpath, ("", "unset"), f"PYTHONPATH gained {pythonpath!r}")
         self.assertNotIn("site-packages", out)
         self.assertEqual(out.split("FN=")[1].strip(), "")
+
+
+class TestKitCheckoutDefaults(unittest.TestCase):
+    """AUTORESEARCH_ANAKIT and AUTORESEARCH_PRODTOOLS default to sibling
+    checkouts of the repo, but only when those directories exist: a missing
+    checkout stays unset, so the runner refuses with "not set" instead of
+    pointing a kit at a path that is not there. An exported value wins."""
+
+    def layout(self, tmp, *siblings):
+        """A copy of activate.sh at <tmp>/repo, a stand-in venv (no /cvmfs
+        needed), and the named sibling directories."""
+        root = Path(tmp)
+        (root / "repo").mkdir()
+        (root / "repo" / "activate.sh").write_text(ACTIVATE.read_text())
+        (root / "venv" / "bin").mkdir(parents=True)
+        (root / "venv" / "bin" / "python").symlink_to(sys.executable)
+        for s in siblings:
+            (root / s).mkdir(parents=True)
+        return root
+
+    def source(self, root, env_extra=None):
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("AUTORESEARCH_")}
+        env["AUTORESEARCH_VENV"] = str(root / "venv")
+        env.update(env_extra or {})
+        p = subprocess.run(
+            ["bash", "-c", f"source '{root / 'repo' / 'activate.sh'}' || exit 2\n"
+             'echo "A=${AUTORESEARCH_ANAKIT-unset}"\n'
+             'echo "P=${AUTORESEARCH_PRODTOOLS-unset}"'],
+            env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return dict(line.split("=", 1) for line in p.stdout.split())
+
+    def test_existing_siblings_become_the_defaults(self):
+        with TemporaryDirectory() as tmp:
+            root = self.layout(tmp, "analysis-mcp-server",
+                               "muse_050125/prodtools")
+            out = self.source(root)
+            self.assertEqual(out["A"], str(root / "analysis-mcp-server"))
+            self.assertEqual(out["P"], str(root / "muse_050125" / "prodtools"))
+
+    def test_missing_siblings_stay_unset(self):
+        with TemporaryDirectory() as tmp:
+            out = self.source(self.layout(tmp))
+            self.assertEqual(out, {"A": "unset", "P": "unset"})
+
+    def test_exported_values_win(self):
+        with TemporaryDirectory() as tmp:
+            root = self.layout(tmp, "analysis-mcp-server",
+                               "muse_050125/prodtools")
+            out = self.source(root, {"AUTORESEARCH_ANAKIT": "/elsewhere/a",
+                                     "AUTORESEARCH_PRODTOOLS": "/elsewhere/p"})
+            self.assertEqual(out, {"A": "/elsewhere/a", "P": "/elsewhere/p"})
 
 
 class TestResolvesThePublishedEnv(unittest.TestCase):
