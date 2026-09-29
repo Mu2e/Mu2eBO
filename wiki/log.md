@@ -6,6 +6,10 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** (post-C3 cleanup) deleted the unused `Objective.step`,
+  `Objective.key` and `ExtraMetric.key` properties from `core/study.py`:
+  no reader outside one test assertion (now on `.metric`); `core/score.py`
+  splits `metric` itself. No wiki page named them.
 - **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
   cleanup, operator-approved): C3 ruling 3 REVERSED — `"v2"` is the only
   leaderboard layout. `core/study.py` refuses `"v1"` at load (key still

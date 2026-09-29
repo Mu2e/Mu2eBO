@@ -78,14 +78,6 @@ class Objective:
     noise: float
     fmt: str
 
-    @property
-    def step(self) -> str:
-        return self.metric.split(".", 1)[0]
-
-    @property
-    def key(self) -> str:
-        return self.metric.split(".", 1)[1]
-
 
 @dataclass(frozen=True)
 class StudyConstraint:
@@ -100,10 +92,6 @@ class ExtraMetric:
     name: str
     metric: str
     fmt: str
-
-    @property
-    def key(self) -> str:
-        return self.metric.split(".", 1)[1]
 
 
 @dataclass(frozen=True)
