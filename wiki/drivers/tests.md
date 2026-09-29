@@ -264,6 +264,13 @@ landing at the current 35 files / 721 tests / 4 skipped.
     `cl.run_sourced_bash` for getToken** (not `cl.subprocess.run`), since
     getToken now routes through the shared helper; `cl.subprocess.run` is
     mocked only for the `kinit -R` call.
+    **STALE beyond the filename since Phase C3 (2026-09-28):** the pipeline's
+    `graph/closed_loop.py` this bullet describes, and this test file's
+    content, were both deleted; `tests/test_closed_loop.py` is now the
+    ENGINE loop's test file (renamed from `tests/test_study_loop.py`,
+    `TestBraninCampaign` and friends — see [contract-engine](/drivers/contract-engine.md)).
+    A reader here for "what does test_closed_loop.py cover today" wants
+    that page, not this 2026-07-20 snapshot.
   - `tests/test_flock.py` (4, NEW 2026-07-19, `b54b4d9`) — real `flock`
     acquisition on tmp files: `_flock_ex`/`_flock_sh` acquire/release/
     contention and the `_lock_path` anchor. Closes the gap that let the
@@ -378,8 +385,11 @@ landing at the current 35 files / 721 tests / 4 skipped.
   `tests/test_pipeline_verbs.py`; the picker/`botorch_predict.py` gap by
   `tests/test_botorch_predict.py`; the flock seam by `tests/test_flock.py`.
   (`HelicalMode` is retired code as of 2026-07-12, so its old gap is moot.)
-- Still no coverage for: `graph/pipeline_io.propose_one` end-to-end (only
-  the retry loop's shape is pinned via static check).
+- MOOT (Phase C3, 2026-09-28): `graph/pipeline_io.propose_one` (was: still
+  no coverage for it end-to-end, only the retry loop's shape pinned via
+  static check) — `graph/pipeline_io.py` and the rest of the pipeline it
+  belonged to are deleted; the engine has no `propose_one` equivalent to
+  cover (`derive`/`render` in `graph/study_graph.py` play that role now).
 - RESOLVED 2026-07-19 (slimming round, Task 5 — the "test_closed_loop
   acrobatics shrink" the design page's follow-up list flagged): audited
   `test_closed_loop.py`'s barrier/launch test classes against the

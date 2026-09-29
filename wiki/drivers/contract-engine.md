@@ -59,26 +59,34 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   `${PYTHON} ${REPO_ROOT}/tests/toykit.py`, `set` pins
   `TOYKIT_STATE_DIR=${DATA_ROOT}/toykit`, `poll_s = [0.1, 2.0]` (grid kits
   are expected at 30 s–10 min), `check = true`, `launch_stagger_s = 0`.
-- `core/kit_registry.py` merges `kits.toml`'s native kits (`engine=True`)
-  with four declared kits — `prodtools` (Phase C1: `engine=True,
-  pipeline=True`, driven by its adapter below) and `offline_preflight`,
-  `ce_sensitivity`, `flash_edep_per_pot` (still `engine=False,
-  pipeline=True` — Phase C2); a name clash between the two raises at
-  import.
+- `core/kit_registry.py` merges `kits.toml`'s native kits with three
+  declared kits, each an in-process `Adapter` (`core/contract.py:
+  ADAPTERS`): `prodtools` (Phase C1), `offline_preflight` (Phase C2a),
+  `anakit` (Phase C2b) — verify with `grep -n "^    KitDecl(" core/
+  kit_registry.py`. A name clash between the native and declared sets
+  raises at import. `KitDecl` (`name`, `study_keys`, `fixed_keys`,
+  `required_fixed`, `uses_entries`, `step_kit`, `check_kit`) has no
+  `engine`/`pipeline` flags. Until Phase C3 (2026-09-28) the registry also
+  declared `ce_sensitivity` and `flash_edep_per_pot`, and every `KitDecl`
+  carried `engine`/`pipeline` booleans the pipeline routed on; both went
+  with the pipeline.
 - **`kits.toml` is parsed when `core.kit_registry` is imported**
   (`NATIVE = load_kit_configs()`), and `core.study` and `core.modes` import
-  it, so a `kits.toml` error breaks the pipeline's imports too
+  it, so a `kits.toml` error breaks every command
   (`graph.run`, `graph.closed_loop`, the surrogate MCP server), not just
-  the engine's.
-- **Routing, as the code enforces it (the three-way rule, Phase C1):** a
-  study runs on the engine when the engine can drive every kit it names,
-  otherwise on the pipeline when the pipeline can; one neither runner can
-  drive whole is refused, and so is a pipeline study with no knobs
-  (`core/modes.py:runs_on_engine`); a pipeline study must also be layout
-  `"v1"` (`core/study_compat.py`). All these refusals happen at
-  `core.modes` import, so one such study file in `mode_specs/` or on
+  one of them.
+- **Routing, as the code enforces it:** every loaded study runs on the
+  engine — there is no other runner to route to since Phase C3. A study
+  naming a kit that isn't in `kit_registry.KITS` is refused at load
+  (`core/study.py`: `"unknown kit"`), which happens at `core.modes`
+  import, so one such study file in `mode_specs/` or on
   `$AUTORESEARCH_STUDY_PATH` stops every command for every study
-  (`mode_specs/README.md`, "Engine studies").
+  (`mode_specs/README.md`, "Studies run on the engine"). Until Phase C3
+  this was "the three-way rule" (Phase C1): a study ran on the engine when
+  the engine could drive every kit it named, otherwise on the pipeline
+  when the pipeline could, otherwise was refused, and a pipeline study
+  also had to be layout `"v1"` (`core/modes.py:runs_on_engine`,
+  `core/study_compat.py`) — both functions and that layout rule are gone.
 - **Why `env_passthrough` exists:** the MCP SDK's
   `mcp.client.stdio.get_default_environment()` passes only a short
   allowlist of variables to the child process, so any kit that needs more
@@ -851,6 +859,11 @@ filled-in template is a prodtools entry key for key
 `_comment` should also name the production entry it derives from; for
 mubeam that is `data/Run1B/resampler_beam.json` MuBeamFlash/Run1Bak, which
 shares only `fcl`, `resampler_name` and `input_data`.
+**Resolved by C3 (2026-09-28), not as planned above:** the `desc_fmt`
+rename was dropped rather than done (see "Pipeline deleted (Phase C3)"
+below, ruling 1 — it would have changed every `_ax` study's `measure_sha`),
+and `core/pipeline.py` itself, `desc_fmt`-reading line included, is
+deleted along with the rest of the pipeline.
 
 Phase C follow-ups found in review (2026-09-25):
 - No launch-time check that the board's `measure_sha` matches the study's

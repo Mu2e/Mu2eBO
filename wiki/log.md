@@ -61,6 +61,25 @@ superseded, linted.
 - **updated** [index](/index.md): the six superseded driver pages marked
   "(**deleted 2026-09-28**, Phase C3)" in their one-liners; the
   contract-engine and tests one-liners updated for Phase C3.
+- **updated** [contract-engine](/drivers/contract-engine.md) (fix round 1,
+  review of the Phase C3 docs pass): the "Registry" section no longer
+  presents the deleted `ce_sensitivity`/`flash_edep_per_pot` KitDecls or
+  `engine=`/`pipeline=` flags as current, and its routing bullet no longer
+  cites mode_specs/README.md's old "Engine studies" heading (renamed to
+  "Studies run on the engine"); the "reference-only from 2026-09-26" block
+  now says the planned `desc_fmt` rename was resolved by NOT doing it (see
+  ruling 1 in "Pipeline deleted (Phase C3)"), not left pending.
+- **updated** `CONTEXT.md` (fix round 1, not a wiki page — repo root): the "Eval summary" entry
+  no longer presents `harvest.EvalSummary`/`harvest/summary.json` as the
+  live mechanism — retired, with the engine's actual row-scoring path
+  (`state/<step>_results.json` → `core/score.py:score` →
+  `state/summary.json` + `state/evaluate_result.json` + the leaderboard
+  row) in its place.
+- **updated** [tests](/drivers/tests.md) (fix round 1): the
+  `graph/pipeline_io.propose_one` coverage-gap TODO is marked moot (the
+  module is deleted); the `tests/test_closed_loop.py` file-snapshot bullet
+  now flags that the filename holds the engine loop's tests since Phase
+  C3, not the pipeline content the 2026-07-20 snapshot describes.
 
 ## 2026-09-27
 - **updated** [contract-engine](/drivers/contract-engine.md): C2a acceptance
