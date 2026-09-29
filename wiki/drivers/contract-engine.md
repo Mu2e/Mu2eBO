@@ -273,6 +273,12 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   --picker P --name-prefix NAME`, wired onto the existing rolling pool
   (`graph/pool.py:run_rolling`) via `graph/closed_loop.py`'s
   `make_run_child`/`make_pick_source`.
+- **No credential renewal mid-campaign.** `run_rolling`'s optional
+  `renew` hook (called before every launch and at every resolution) was
+  never passed by `graph/closed_loop.py`, so it was a no-op; it and its 4
+  tests were deleted 2026-09-29. A grid campaign whose kit needs Kerberos
+  relies on the launch check instead: `graph/run.py:launch_refusals`
+  refuses it unless the ticket has 4 h left.
 - `--context` is validated once at launch with `graph/run.py:
   parse_context` (the function each child uses), then `check_kits` must
   pass, before anything launches (exit 2 otherwise, naming each problem).

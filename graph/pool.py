@@ -7,8 +7,10 @@ double-launch guard (graph/closed_loop.py busy_reason). Retired-by-design
 closed-loop-barrier-timeout-zero-rows-falsepos,
 closed-loop-final-round-orphan-children, rolling-no-row-streak-false-increment.
 The caller (graph/closed_loop.py) supplies the run_child/next_pick/row_landed/
-broken callables and the stagger; stop_flag and renew are optional. They are
-also the test seam.
+broken callables and the stagger; stop_flag is optional. They are also the
+test seam. Nothing here renews credentials: a grid campaign whose kit needs
+Kerberos is refused at launch unless the ticket has 4 h left (graph/run.py
+launch_refusals, which graph/closed_loop.py runs before the pool starts).
 """
 from __future__ import annotations
 
@@ -93,7 +95,7 @@ def _should_abort(streak: int, q: int) -> bool:
 
 def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
                 next_pick, row_landed, broken, stagger, stop_flag=None,
-                renew=None, log=print, heartbeat=HEARTBEAT_S):
+                log=print, heartbeat=HEARTBEAT_S):
     """Keep q children in flight until max_evals launched and the pool drains.
 
     Returns {"launched", "rows", "outcomes", "aborted"}. `stagger` separates
@@ -102,7 +104,6 @@ def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
     `heartbeat` is REPORT-ONLY -- never resolves/abandons (_log_inflight).
     """
     stop_flag = stop_flag or (lambda: False)
-    renew = renew or (lambda: None)
 
     inflight = {}   # future -> (name, x, launch timestamp)
     launched = 0
@@ -113,14 +114,7 @@ def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
 
     def _resolve_one(fut):
         """Pop one resolved future -> Outcome, logging per child from main
-        loop and drain alike.
-
-        Renews the ticket AFTER recording the outcome: a q=20 drain runs for
-        hours and children share the parent's ccache
-        (wiki/incidents/kerberos-mid-run-expiry.md -- an expired-ticket eval
-        VANISHES rather than failing visibly). Failure here is REPORTED, not
-        fatal -- only the pre-launch renew gates "can we still submit?".
-        SystemExit caught: a renew callable may signal fatal that way."""
+        loop and drain alike."""
         name, x, _t0 = inflight.pop(fut)
         try:
             rc = fut.result()
@@ -129,12 +123,6 @@ def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
             log(f"[pool] {name} raised: {exc}")
         oc = classify(name, x, rc, row_landed(name, mode), broken(name))
         log(f"[pool] {name}: {oc.reason}")
-        try:
-            renew()
-        except (Exception, SystemExit) as exc:  # noqa: BLE001
-            log(f"[pool] renew at resolution failed ({exc}); not fatal here "
-                f"-- the pre-launch renew is the gate that stops the "
-                f"campaign. Children already running are unaffected.")
         return oc
 
     with ThreadPoolExecutor(max_workers=q) as poolx:
@@ -143,7 +131,6 @@ def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
                    and not stop_flag() and not aborted):
                 if launched > 0 and stagger:
                     time.sleep(stagger)
-                renew()
                 x, name = next_pick(mode, picker,
                                     [v for _, v, _t in inflight.values()])
                 inflight[poolx.submit(run_child, name, x)] = (name, x,

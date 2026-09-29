@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
+  cleanup): deleted `graph/pool.py:run_rolling`'s `renew` hook (parameter,
+  default, the pre-launch and at-resolution calls) and its 4 tests
+  (`TestRenewHook`, `TestRenewDuringDrain`): `graph/closed_loop.py` never
+  passed it. Campaigns rely on the 4 h Kerberos launch check.
 - **updated** [tests](/drivers/tests.md) (post-C3 cleanup):
   `tests/test_no_hardcoded_paths.py` now also scans `surrogate/` and
   `activate.sh` (tracked, previously outside `SCANNED`); neither had a

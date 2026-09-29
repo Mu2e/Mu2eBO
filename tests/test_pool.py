@@ -75,7 +75,7 @@ class TestPoolWidth(unittest.TestCase):
         pool.run_rolling(mode="m", picker="p", q=3, max_evals=9,
                          name_prefix="t", run_child=run_child,
                          next_pick=next_pick,
-                         stop_flag=lambda: False, renew=lambda: None,
+                         stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         t.cancel()
         self.assertLessEqual(peak["max"], 3)
@@ -92,7 +92,7 @@ class TestReplenish(unittest.TestCase):
         pool.run_rolling(mode="m", picker="p", q=2, max_evals=5,
                          name_prefix="t", run_child=lambda n, x: 0,
                          next_pick=next_pick,
-                         stop_flag=lambda: False, renew=lambda: None,
+                         stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(counter["i"], 5)
 
@@ -114,7 +114,7 @@ class TestReplenish(unittest.TestCase):
         pool.run_rolling(mode="m", picker="p", q=3, max_evals=3,
                          name_prefix="t", run_child=run_child,
                          next_pick=next_pick,
-                         stop_flag=lambda: False, renew=lambda: None,
+                         stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         t.cancel()
         self.assertEqual(seen[0], [])
@@ -135,7 +135,7 @@ class TestDrain(unittest.TestCase):
         res = pool.run_rolling(mode="m", picker="p", q=4, max_evals=4,
                                name_prefix="t",
                                run_child=run_child, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=lambda: None,
+                               stop_flag=lambda: False,
                                row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(len(finished), 4)
         self.assertEqual(len(res["outcomes"]), 4)
@@ -153,7 +153,7 @@ class TestNoRowStreak(unittest.TestCase):
             name_prefix="t",
             run_child=lambda n, x: 0 if rows.get(n) else 1,
             next_pick=next_pick,
-            stop_flag=lambda: False, renew=lambda: None,
+            stop_flag=lambda: False,
             row_landed=lambda name, mode: rows.get(name, False),
             broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(res["rows"], 1)
@@ -165,7 +165,7 @@ class TestNoRowStreak(unittest.TestCase):
             mode="m", picker="p", q=2, max_evals=10,
             name_prefix="t", run_child=lambda n, x: 1,
             next_pick=next_pick,
-            stop_flag=lambda: False, renew=lambda: None,
+            stop_flag=lambda: False,
             row_landed=lambda name, mode: False,
             broken=_NOT_BROKEN, stagger=0)
         self.assertTrue(res["aborted"])
@@ -210,45 +210,9 @@ class TestStopFlag(unittest.TestCase):
                                name_prefix="t",
                                run_child=run_child, next_pick=next_pick,
                                stop_flag=lambda: stop["v"],
-                               renew=lambda: None,
                                row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertLess(res["launched"], 20)
         self.assertEqual(len(res["outcomes"]), len(done))
-
-
-class TestRenewHook(unittest.TestCase):
-    """The `renew` injection point fires before every launch AND at every
-    resolution (not once per round -- there are no rounds; and not
-    launch-only, or the drain runs unrenewed -- finding M7). A renew that
-    fails before a launch must not be swallowed."""
-
-    def test_renew_called_at_every_launch_and_every_resolution(self):
-        calls = {"n": 0}
-
-        def renew():
-            calls["n"] += 1
-
-        next_pick, _ = _picker()
-        res = pool.run_rolling(mode="m", picker="p", q=3, max_evals=7,
-                               name_prefix="t",
-                               run_child=lambda n, x: 0, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=renew,
-                               row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
-        self.assertEqual(res["launched"], 7)
-        self.assertEqual(len(res["outcomes"]), 7)
-        self.assertEqual(calls["n"], 14)  # 7 launches + 7 resolutions
-
-    def test_renew_failure_propagates_not_swallowed(self):
-        def renew():
-            raise RuntimeError("getToken rc=1: krb5 expired")
-
-        next_pick, _ = _picker()
-        with self.assertRaises(RuntimeError):
-            pool.run_rolling(mode="m", picker="p", q=2, max_evals=5,
-                             name_prefix="t",
-                             run_child=lambda n, x: 0, next_pick=next_pick,
-                             stop_flag=lambda: False, renew=renew,
-                             row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
 
 
 class TestStagger(unittest.TestCase):
@@ -266,7 +230,7 @@ class TestStagger(unittest.TestCase):
             pool.run_rolling(mode="m", picker="p", q=2, max_evals=4,
                              name_prefix="t",
                              run_child=lambda n, x: 0, next_pick=next_pick,
-                             stop_flag=lambda: False, renew=lambda: None,
+                             stop_flag=lambda: False,
                              row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         m.assert_not_called()
 
@@ -278,7 +242,6 @@ class TestStagger(unittest.TestCase):
                                    run_child=lambda n, x: 0,
                                    next_pick=next_pick,
                                    stop_flag=lambda: False,
-                                   renew=lambda: None,
                                    row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=42)
         # 3 launches -> 2 gaps between them, none before the first.
         self.assertEqual(m.call_args_list, [mock.call(42), mock.call(42)])
@@ -306,7 +269,7 @@ class TestHeartbeat(unittest.TestCase):
         res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=2,
                                name_prefix="t",
                                run_child=run_child, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=lambda: None,
+                               stop_flag=lambda: False,
                                row_landed=lambda n, m: True,
                                broken=_NOT_BROKEN, stagger=0,
                                log=lines.append, heartbeat=0.05)
@@ -338,7 +301,7 @@ class TestHeartbeat(unittest.TestCase):
         res = pool.run_rolling(mode="m", picker="p", q=1, max_evals=1,
                                name_prefix="t",
                                run_child=run_child, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=lambda: None,
+                               stop_flag=lambda: False,
                                row_landed=lambda n, m: True,
                                broken=_NOT_BROKEN, stagger=0,
                                log=lines.append, heartbeat=0.02)
@@ -367,57 +330,6 @@ class TestHeartbeat(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertIn("heartbeat", lines[0])
         self.assertNotIn("WARNING", lines[0])
-
-
-class TestRenewDuringDrain(unittest.TestCase):
-    """Finding M7: renew() ran only in the top-up loop, so a q=20 pool could
-    drain for hours after its last launch with no `kinit -R`. Children share
-    the parent ccache; an expiry during a late stage submit is
-    kerberos-mid-run-expiry (the eval VANISHES, no row, no loud failure)."""
-
-    def test_renew_called_on_every_resolution_including_the_drain(self):
-        calls = {"n": 0}
-        next_pick, _ = _picker()
-
-        def renew():
-            calls["n"] += 1
-
-        pool.run_rolling(mode="m", picker="p", q=3, max_evals=3,
-                         name_prefix="t", run_child=lambda n, x: 0,
-                         next_pick=next_pick, stop_flag=lambda: False,
-                         renew=renew, row_landed=lambda n, m: True,
-                         broken=_NOT_BROKEN, stagger=0)
-        # 3 launches + 3 resolutions; the point is that it exceeds the
-        # launch count, i.e. the drain renews too.
-        self.assertGreater(calls["n"], 3)
-
-    def test_resolution_time_renew_failure_is_reported_not_fatal(self):
-        """Asymmetric on purpose: the PRE-LAUNCH renew is the fatal gate
-        ("can we still submit?"); the resolution-time one is hygiene for
-        children already running, and aborting the parent on it would
-        abandon reporting for a pool that is only draining."""
-        lines = []
-        state = {"launches": 0}
-        next_pick, _ = _picker()
-
-        def renew():
-            # Fail only after every launch is done, i.e. during the drain.
-            if state["launches"] < 2:
-                state["launches"] += 1
-                return
-            raise SystemExit(2)
-
-        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=2,
-                               name_prefix="t",
-                               run_child=lambda n, x: 0, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=renew,
-                               row_landed=lambda n, m: True,
-                               broken=_NOT_BROKEN, stagger=0,
-                               log=lines.append)
-        self.assertEqual(res["rows"], 2)
-        self.assertEqual(len(res["outcomes"]), 2)
-        self.assertTrue(any("renew at resolution failed" in ln
-                            for ln in lines), lines)
 
 
 class TestNextFreeName(unittest.TestCase):
