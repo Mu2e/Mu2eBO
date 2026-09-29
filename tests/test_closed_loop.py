@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "graph"))
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import paths  # noqa: E402
-import study_loop  # noqa: E402
+import closed_loop  # noqa: E402
 import study as st  # noqa: E402
 from tests import toykit  # noqa: E402
 from tests.engine_fixtures import (ENGINE_STUDIES, engine_env,  # noqa: E402
@@ -23,7 +23,7 @@ from tests.engine_fixtures import (ENGINE_STUDIES, engine_env,  # noqa: E402
 
 
 def loop_cmd(study, q, max_evals, prefix, picker="budget_sob"):
-    return [sys.executable, "-m", "graph.study_loop", "--study", study,
+    return [sys.executable, "-m", "graph.closed_loop", "--study", study,
             "--q", str(q), "--max-evals", str(max_evals), "--picker", picker,
             "--name-prefix", prefix]
 
@@ -52,7 +52,7 @@ class TestBusyNames(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def touch(self, name, file):
-        sd = study_loop.state_dir(name)
+        sd = closed_loop.state_dir(name)
         sd.mkdir(parents=True, exist_ok=True)
         (sd / file).write_text("x\n")
 
@@ -65,17 +65,17 @@ class TestBusyNames(unittest.TestCase):
                              ("pR02_00", "in flight"),
                              ("pR03_00", "in flight")):
             with self.subTest(name=name):
-                self.assertIn(needle, study_loop.busy_reason(name, {"pR00_00"}))
-        self.assertIsNone(study_loop.busy_reason("pR04_00", {"pR00_00"}))
+                self.assertIn(needle, closed_loop.busy_reason(name, {"pR00_00"}))
+        self.assertIsNone(closed_loop.busy_reason("pR04_00", {"pR00_00"}))
 
     def test_the_in_flight_recovery_steers_to_a_new_prefix(self):
         """Removing the state dir re-picks the name with a new x, and the
         kit refuses the same <config>.<step> handle with other params: safe
         only when nothing was ever submitted."""
         self.touch("pR00_00", "toy_cluster.txt")
-        reason = study_loop.busy_reason("pR00_00", set())
+        reason = closed_loop.busy_reason("pR00_00", set())
         self.assertIn("another --name-prefix", reason)
-        self.assertIn("pgrep -f 'study_run.*pR00_00'", reason)
+        self.assertIn("pgrep -f 'graph.run.*pR00_00'", reason)
         self.assertIn("only", reason)
         self.assertIn("*_cluster.txt", reason)
         self.assertNotIn("or use another --name-prefix", reason)
@@ -90,8 +90,8 @@ class TestBusyNames(unittest.TestCase):
             return [0.0, 0.0]
 
         board = types.SimpleNamespace(load=lambda: [])
-        with mock.patch.object(study_loop, "board_for", return_value=board):
-            nxt = study_loop.make_pick_source(object(), "p", pick)
+        with mock.patch.object(closed_loop, "board_for", return_value=board):
+            nxt = closed_loop.make_pick_source(object(), "p", pick)
             self.assertEqual(nxt("s", "budget_sob", [])[1], "pR02_00")
             self.assertEqual(nxt("s", "budget_sob", [[1.0, 1.0]])[1], "pR03_00")
         self.assertEqual(calls, [(2, "budget_sob", []),
@@ -219,9 +219,9 @@ class TestChildFlags(unittest.TestCase):
 
         study = types.SimpleNamespace(name="toy")
         with tempfile.TemporaryDirectory() as td, \
-                mock.patch.object(study_loop.subprocess, "Popen", P), \
-                mock.patch.object(study_loop.paths, "GRAPH_DATA", Path(td)):
-            study_loop.make_run_child(study, "camp", [], "local", 3)(
+                mock.patch.object(closed_loop.subprocess, "Popen", P), \
+                mock.patch.object(closed_loop.paths, "GRAPH_DATA", Path(td)):
+            closed_loop.make_run_child(study, "camp", [], "local", 3)(
                 "n1", [1.0, 2.0])
         cmd = seen["cmd"]
         self.assertEqual(cmd[cmd.index("--executor") + 1], "local")
@@ -238,9 +238,9 @@ class TestChildFlags(unittest.TestCase):
                 return 0
 
         with tempfile.TemporaryDirectory() as td, \
-                mock.patch.object(study_loop.subprocess, "Popen", P), \
-                mock.patch.object(study_loop.paths, "GRAPH_DATA", Path(td)):
-            study_loop.make_run_child(types.SimpleNamespace(name="toy"),
+                mock.patch.object(closed_loop.subprocess, "Popen", P), \
+                mock.patch.object(closed_loop.paths, "GRAPH_DATA", Path(td)):
+            closed_loop.make_run_child(types.SimpleNamespace(name="toy"),
                                       "camp", [], "grid", None)("n1", [1.0])
         self.assertNotIn("--parallel", seen["cmd"])
 
@@ -257,13 +257,13 @@ class TestNamePrefix(unittest.TestCase):
             return [f"kit 'x': config name {config!r} has character(s) '-'"]
 
         out = io.StringIO()
-        with mock.patch.dict(study_loop._modes.STUDIES, {"pfxtoy": study}), \
-                mock.patch.object(study_loop, "config_name_problems",
+        with mock.patch.dict(closed_loop._modes.STUDIES, {"pfxtoy": study}), \
+                mock.patch.object(closed_loop, "config_name_problems",
                                   side_effect=rule), \
-                mock.patch.object(study_loop, "check_kits", return_value=[]), \
-                mock.patch.object(study_loop, "run_rolling") as rolling, \
+                mock.patch.object(closed_loop, "check_kits", return_value=[]), \
+                mock.patch.object(closed_loop, "run_rolling") as rolling, \
                 contextlib.redirect_stdout(out):
-            rc = study_loop.main(["--study", "pfxtoy", "--q", "1",
+            rc = closed_loop.main(["--study", "pfxtoy", "--q", "1",
                                   "--max-evals", "1", "--name-prefix",
                                   "smoke-1"])
         self.assertEqual(rc, 2)
@@ -271,6 +271,24 @@ class TestNamePrefix(unittest.TestCase):
         rolling.assert_not_called()
         self.assertIn("REFUSED", out.getvalue())
         self.assertIn("smoke-1R00_00", out.getvalue())
+
+
+class TestRenamedHints(unittest.TestCase):
+    def test_busy_hint_names_the_renamed_runner(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(paths, "GRID_DATA_ROOT", Path(tmp)):
+            sd = Path(tmp) / "c3R00_00" / "state"
+            sd.mkdir(parents=True)
+            (sd / "point.json").write_text("{}")
+            why = closed_loop.busy_reason("c3R00_00", set())
+        self.assertIn("pgrep -f 'graph.run.*c3R00_00'", why)
+
+    def test_an_archived_study_is_unknown_with_a_hint(self):
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            rc = closed_loop.main(["--study", "foilspf", "--q", "1",
+                                  "--max-evals", "1", "--name-prefix", "c3x"])
+        self.assertEqual(rc, 2)
+        self.assertIn("mode_specs/archive/", out.getvalue())
 
 
 if __name__ == "__main__":

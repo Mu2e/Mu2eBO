@@ -2,11 +2,11 @@
 
 A child resolves when its SUBPROCESS EXITS -- the single resolution truth
 source; *_cluster.txt survives only as the runner's LAUNCH-time
-double-launch guard (graph/study_loop.py busy_reason). Retired-by-design
+double-launch guard (graph/closed_loop.py busy_reason). Retired-by-design
 (wiki/incidents/): barrier-false-positive-round1,
 closed-loop-barrier-timeout-zero-rows-falsepos,
 closed-loop-final-round-orphan-children, rolling-no-row-streak-false-increment.
-The caller (graph/study_loop.py) supplies the run_child/next_pick/row_landed/
+The caller (graph/closed_loop.py) supplies the run_child/next_pick/row_landed/
 broken callables and the stagger; stop_flag and renew are optional. They are
 also the test seam.
 """

@@ -45,7 +45,7 @@ class TestLoader(_Tmp):
 class TestRunners(_Tmp):
     def test_a_zero_knob_point_lands_a_row_without_knob_columns(self):
         write_study(zero_doc(), self.studies)
-        r = self.run_module("graph.study_run", "--study", "zk", "--config",
+        r = self.run_module("graph.run", "--study", "zk", "--config",
                             "z1", "--campaign", "t")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         board = self.data / "autoresearch_leaderboards" / "leaderboard_zk.tsv"
@@ -56,18 +56,18 @@ class TestRunners(_Tmp):
     def test_x_is_refused_without_knobs_and_required_with_them(self):
         write_study(zero_doc(), self.studies)
         write_study(toy_doc(name="kn", layout="v2"), self.studies)
-        r = self.run_module("graph.study_run", "--study", "zk", "--config",
+        r = self.run_module("graph.run", "--study", "zk", "--config",
                             "z1", "--campaign", "t", "--x=1,2")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("no knobs", r.stdout)
-        r = self.run_module("graph.study_run", "--study", "kn", "--config",
+        r = self.run_module("graph.run", "--study", "kn", "--config",
                             "k1", "--campaign", "t")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("--x", r.stdout)
 
     def test_the_loop_refuses_a_zero_knob_study(self):
         write_study(zero_doc(), self.studies)
-        r = self.run_module("graph.study_loop", "--study", "zk", "--q", "1",
+        r = self.run_module("graph.closed_loop", "--study", "zk", "--q", "1",
                             "--max-evals", "1", "--name-prefix", "zk")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("no knobs", r.stdout)

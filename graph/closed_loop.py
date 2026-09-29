@@ -1,10 +1,9 @@
 """A campaign over a study on the contract engine: q children in flight
-through graph/pool.py's rolling pool, each child one `graph.study_run`
+through graph/pool.py's rolling pool, each child one `graph.run`
 point, picks from surrokit through core/botorch_predict.py.
-  python -m graph.study_loop --study branin --q 2 --max-evals 8 --picker budget_sob --name-prefix brn
+  python -m graph.closed_loop --study branin --q 2 --max-evals 8 --picker budget_sob --name-prefix brn
 check_kits must pass before anything launches. To stop launching, touch
-GRAPH_DATA/<name-prefix>/STOP; running children drain. Phase C folds this
-into graph/closed_loop.py when the pipeline path is deleted.
+GRAPH_DATA/<name-prefix>/STOP; running children drain.
 """
 from __future__ import annotations
 
@@ -23,7 +22,7 @@ from boards import board_for  # noqa: E402
 from contract import (EXECUTORS, check_kits, config_name_problems,  # noqa: E402
                       launch_stagger)
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
-from study_run import launch_refusals, parse_context  # noqa: E402
+from run import launch_refusals, parse_context  # noqa: E402
 
 
 def state_dir(name: str) -> Path:
@@ -47,7 +46,7 @@ def busy_reason(name: str, board_names: set) -> str | None:
         return (f"has state in {sd}: a child under this name is in flight or "
                 f"was abandoned. Advancing to the next index. RECOVERY: "
                 f"relaunch under another --name-prefix. Removing {sd} is safe "
-                f"only once nothing runs it (pgrep -f 'study_run.*{name}') "
+                f"only once nothing runs it (pgrep -f 'graph.run.*{name}') "
                 f"AND it never held a *_cluster.txt (nothing was submitted): "
                 f"the name would be re-picked with a new x, and the kit "
                 f"refuses the same <config>.<step> handle with other params")
@@ -68,7 +67,7 @@ def make_pick_source(study, name_prefix, pick):
             lambda n: busy_reason(n, seen["board"]),
             log=lambda m: print(m, flush=True),
             summary_hint="Reasons as logged above -- see "
-                         "graph/study_loop.py::busy_reason.")
+                         "graph/closed_loop.py::busy_reason.")
         counter["i"] = i + 1
         return pick(i, picker, x_pending), name
     return next_pick
@@ -86,12 +85,12 @@ def surrokit_pick(study):
 
 
 def make_run_child(study, campaign, context_args, executor, parallel):
-    """Popen `graph.study_run` and WAIT: the wait is the barrier."""
+    """Popen `graph.run` and WAIT: the wait is the barrier."""
     def run_child(name, x):
         logs = paths.GRAPH_DATA / "closed_loop_logs"
         logs.mkdir(parents=True, exist_ok=True)
         # "--x=" form: argparse reads "--x -3.2,..." as a flag, not a value.
-        cmd = [sys.executable, "-u", "-m", "graph.study_run", "--study",
+        cmd = [sys.executable, "-u", "-m", "graph.run", "--study",
                study.name, "--config", name, "--campaign", campaign,
                "--x=" + ",".join(repr(float(v)) for v in x)]
         for pair in context_args:
@@ -135,19 +134,20 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     if args.study not in _modes.STUDIES:
-        print(f"[study_loop] REFUSED: unknown study {args.study!r}; known "
-              f"{sorted(_modes.STUDIES)}", flush=True)
+        print(f"[closed_loop] REFUSED: unknown study {args.study!r}; known "
+              f"{sorted(_modes.STUDIES)} (studies under mode_specs/archive/ "
+              f"are not loaded)", flush=True)
         return 2
     study = _modes.STUDIES[args.study]
     if not study.knobs:
-        print(f"[study_loop] REFUSED: study {args.study!r} has no knobs: "
-              f"there is nothing to pick; run graph.study_run", flush=True)
+        print(f"[closed_loop] REFUSED: study {args.study!r} has no knobs: "
+              f"there is nothing to pick; run graph.run", flush=True)
         return 2
     try:
         # Once here, not by every child refusing until the pool aborts.
         parse_context(args.context, study)
     except ValueError as exc:
-        print(f"[study_loop] REFUSED: {exc}", flush=True)
+        print(f"[closed_loop] REFUSED: {exc}", flush=True)
         return 2
     problems = launch_refusals(study, args.executor, args.parallel)
     # The first child's name, as next_free_name gives it when nothing is
@@ -158,11 +158,11 @@ def main(argv=None) -> int:
                            executor=args.executor, parallel=args.parallel)
     if problems:
         for problem in problems:
-            print(f"[study_loop] REFUSED: {problem}", flush=True)
+            print(f"[closed_loop] REFUSED: {problem}", flush=True)
         return 2
     stagger = launch_stagger(study) if args.stagger is None else args.stagger
     stop = paths.GRAPH_DATA / args.name_prefix / "STOP"
-    print(f"[study_loop] study={study.name} q={args.q} "
+    print(f"[closed_loop] study={study.name} q={args.q} "
           f"max_evals={args.max_evals} picker={args.picker} "
           f"prefix={args.name_prefix} board={board_for(study).path} "
           f"stagger={stagger:g}s executor={args.executor}", flush=True)
@@ -179,7 +179,7 @@ def main(argv=None) -> int:
         broken=lambda name: (state_dir(name) / "broken.txt").exists(),
         stagger=stagger)
     tally = Counter(oc.reason for oc in result["outcomes"])
-    print(f"[study_loop] done: launched={result['launched']} "
+    print(f"[closed_loop] done: launched={result['launched']} "
           f"rows={result['rows']} aborted={result['aborted']} | "
           + ", ".join(f"{k}={n}" for k, n in sorted(tally.items())),
           flush=True)

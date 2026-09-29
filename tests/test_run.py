@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import modes  # noqa: E402
 import study as st  # noqa: E402
-import study_run  # noqa: E402
+import run  # noqa: E402
 from kits import KitError  # noqa: E402
 from tests import toykit  # noqa: E402
 from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
@@ -42,7 +42,7 @@ class _Point(unittest.TestCase):
     @staticmethod
     def cmd(study, config, x):
         # "--x=" form: argparse reads "--x -3.0,2.0" as a flag, not a value.
-        return [sys.executable, "-m", "graph.study_run", "--study", study,
+        return [sys.executable, "-m", "graph.run", "--study", study,
                 "--config", config, "--campaign", "t",
                 "--x=" + ",".join(str(v) for v in x)]
 
@@ -331,11 +331,11 @@ class TestExecutorFlag(_Point):
             out = io.StringIO()
             _HookedKitSet.made = []
             with mock.patch.dict(modes.STUDIES, {"hooktoy": study}), \
-                    mock.patch.object(study_run, "KitSet", _HookedKitSet), \
-                    mock.patch.object(study_run, "GRID_DATA_ROOT", grid), \
-                    mock.patch.object(study_run, "board_for", mock.Mock()), \
+                    mock.patch.object(run, "KitSet", _HookedKitSet), \
+                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                    mock.patch.object(run, "board_for", mock.Mock()), \
                     contextlib.redirect_stdout(out):
-                rc = study_run.main(["--study", "hooktoy", "--config", "p1",
+                rc = run.main(["--study", "hooktoy", "--config", "p1",
                                      "--campaign", "t", "--x=1.0,2.0"])
             self.assertEqual(rc, 2, out.getvalue())
             self.assertIn("REFUSED", out.getvalue())
@@ -354,24 +354,24 @@ class TestLaunchRefusals(unittest.TestCase):
             calls.append(1)
             return "ticket has under 4 h left"
 
-        with mock.patch.object(study_run, "executor_problems",
+        with mock.patch.object(run, "executor_problems",
                                return_value=[]), \
-                mock.patch.object(study_run, "requires_kerberos",
+                mock.patch.object(run, "requires_kerberos",
                                   return_value=True):
-            self.assertEqual(study_run.launch_refusals(
+            self.assertEqual(run.launch_refusals(
                 study, "grid", None, kerberos=kerberos),
                 ["ticket has under 4 h left"])
-        with mock.patch.object(study_run, "executor_problems",
+        with mock.patch.object(run, "executor_problems",
                                return_value=[]), \
-                mock.patch.object(study_run, "requires_kerberos",
+                mock.patch.object(run, "requires_kerberos",
                                   return_value=False):
-            self.assertEqual(study_run.launch_refusals(
+            self.assertEqual(run.launch_refusals(
                 study, "grid", None, kerberos=kerberos), [])
         self.assertEqual(calls, [1])
 
 
 class TestKitStartCheck(unittest.TestCase):
-    """study_run starts every kit the study names before anything is written
+    """run starts every kit the study names before anything is written
     for the point: one that won't start is an environment problem, refused
     (exit 2), never recorded as a failed evaluation in broken.txt.
     In-process: the repo's kits.toml makes an unstartable toykit hard to
@@ -386,11 +386,11 @@ class TestKitStartCheck(unittest.TestCase):
             out = io.StringIO()
             _DeadKitSet.made = []
             with mock.patch.dict(modes.STUDIES, {"deadtoy": study}), \
-                    mock.patch.object(study_run, "KitSet", _DeadKitSet), \
-                    mock.patch.object(study_run, "GRID_DATA_ROOT", grid), \
-                    mock.patch.object(study_run, "board_for", mock.Mock()), \
+                    mock.patch.object(run, "KitSet", _DeadKitSet), \
+                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                    mock.patch.object(run, "board_for", mock.Mock()), \
                     contextlib.redirect_stdout(out):
-                rc = study_run.main(["--study", "deadtoy", "--config", "p1",
+                rc = run.main(["--study", "deadtoy", "--config", "p1",
                                      "--campaign", "t", "--x=1.0,2.0"])
             self.assertEqual(rc, 2, out.getvalue())
             self.assertIn("REFUSED", out.getvalue())
@@ -399,6 +399,24 @@ class TestKitStartCheck(unittest.TestCase):
             self.assertFalse((grid / "p1").exists(),
                              "state written for a point that never ran")
             self.assertTrue(_DeadKitSet.made and _DeadKitSet.made[0].closed)
+
+
+class TestOldAndArchivedShapes(unittest.TestCase):
+    def test_the_old_pipeline_command_shape_is_refused(self):
+        """The pipeline's `graph.run --mode foilspf --x-point ...` must fail
+        loudly at argparse, not start anything."""
+        with self.assertRaises(SystemExit) as cm, \
+                mock.patch("sys.stderr", new_callable=io.StringIO):
+            run.main(["--mode", "foilspf", "--x-point", "1,2,3"])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_an_archived_study_is_unknown_with_a_hint(self):
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            rc = run.main(["--study", "foilspf", "--config", "c3x01",
+                              "--campaign", "c3x", "--x=1"])
+        self.assertEqual(rc, 2)
+        self.assertIn("unknown study 'foilspf'", out.getvalue())
+        self.assertIn("mode_specs/archive/", out.getvalue())
 
 
 if __name__ == "__main__":

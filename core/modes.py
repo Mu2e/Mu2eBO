@@ -22,7 +22,7 @@ else:
 MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 STUDIES = load_study_dirs(MODES_DIR, os.environ.get("AUTORESEARCH_STUDY_PATH"))
 
-# The batch pickers, declared once: graph/study_loop.py validates --picker
+# The batch pickers, declared once: graph/closed_loop.py validates --picker
 # and core/botorch_predict.py dispatches on it. cl_min retired per ADR-0001.
 PICKER_CHOICES = ("qnehvi", "qlnei", "budget_sob", "hybrid")
 DEFAULT_PICKER = "hybrid"

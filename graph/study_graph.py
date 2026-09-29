@@ -93,7 +93,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
         path = state_dir / "broken.txt"
         if not path.exists():
             write_atomic(path, reason + "\n")
-        log(f"[study_run] {config}: broken: {reason}")
+        log(f"[run] {config}: broken: {reason}")
         return {"broken": True, "reason": reason}
 
     def node_derive(state):
@@ -170,7 +170,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
             # A resumed point already checked: a transient failure on a
             # second run must not break a point whose jobs are running.
             if reusable_pass(verdict_path, basis):
-                log(f"[study_run] {config}: preflight passed earlier with "
+                log(f"[run] {config}: preflight passed earlier with "
                     f"the same settings and files; reusing that verdict")
                 return {"broken": False}
             kit = kits.get(pre["kit"])
@@ -206,7 +206,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
                            board=board, state_dir=state_dir)
         except (ScoreError, LeaderboardError) as exc:
             return broken(f"score: {exc}")
-        log(f"[study_run] {config}: primary={result['primary']} "
+        log(f"[run] {config}: primary={result['primary']} "
             f"row_appended={result['row_appended']}")
         return {"objective": result["primary"]}
 

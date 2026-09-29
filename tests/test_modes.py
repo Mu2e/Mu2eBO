@@ -175,7 +175,7 @@ class TestStaleModeEnv(unittest.TestCase):
         env = dict(os.environ, AUTORESEARCH_MODE="no_such_mode_c3",
                    PYTHONPATH="")
         code = ("import sys; sys.path.insert(0, 'core'); sys.path.insert(0, 'graph'); "
-                "import modes, botorch_predict, study_run, study_loop; print('ok')")
+                "import modes, botorch_predict, run, closed_loop; print('ok')")
         p = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT),
                            env=env, capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr[-2000:])

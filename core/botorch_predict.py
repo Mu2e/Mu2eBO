@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """BoTorch pickers for any study (objectives, transforms and the constraint
-from modes.STUDIES): graph/study_loop.py and the surrogate MCP
+from modes.STUDIES): graph/closed_loop.py and the surrogate MCP
 (surrogate/adapter.py) call compute_explore_picks / load_history_tensor /
 build_problem. Pickers: qnehvi, qlnei, budget_sob, hybrid -- see
 compute_explore_picks.

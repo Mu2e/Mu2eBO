@@ -1,12 +1,11 @@
-"""One point of a study on the contract engine; graph/study_loop.py spawns
+"""One point of a study on the contract engine; graph/closed_loop.py spawns
 one per child. By hand:
-  python -m graph.study_run --study branin --config brn001 --campaign brn --x=-1.5,2.25
+  python -m graph.run --study branin --config brn001 --campaign brn --x=-1.5,2.25
 (Write --x=... : argparse reads "--x -1.5,..." as a flag.)
 A study with no knobs runs once, with no --x:
-  python -m graph.study_run --study prodtools_smoke --config smoke01 --campaign smoke --executor local
+  python -m graph.run --study prodtools_smoke --config smoke01 --campaign smoke --executor local
 Exit 0: the point ran (a leaderboard row, or broken.txt saying why not).
 Exit 2: refused before anything ran. Anything else: a crash.
-Phase C renames this to graph.run when the pipeline path is deleted.
 """
 from __future__ import annotations
 
@@ -29,7 +28,7 @@ from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
 
 
 def refuse(message: str) -> int:
-    print(f"[study_run] REFUSED: {message}", flush=True)
+    print(f"[run] REFUSED: {message}", flush=True)
     return 2
 
 
@@ -88,7 +87,8 @@ def main(argv=None) -> int:
 
     if args.study not in _modes.STUDIES:
         return refuse(f"unknown study {args.study!r}; known "
-                      f"{sorted(_modes.STUDIES)}")
+                      f"{sorted(_modes.STUDIES)} (studies under "
+                      f"mode_specs/archive/ are not loaded)")
     study = _modes.STUDIES[args.study]
     try:
         if not study.knobs:

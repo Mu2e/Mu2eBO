@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STRICT = ["core/study.py", "core/leaderboard.py", "core/kit_config.py",
           "core/kits.py", "core/contract.py", "core/boards.py",
           "core/scheduler.py", "core/score.py", "graph/study_graph.py",
-          "graph/study_run.py", "graph/study_loop.py"]
+          "graph/run.py", "graph/closed_loop.py"]
 # Files that still host Mu2e code paths (preflight, picker names like
 # budget_sob) but must not read objectives by physics name.
 USAGE = ["core/botorch_predict.py", "surrogate/adapter.py",
