@@ -158,6 +158,18 @@ class Leaderboard:
     def quarantine_path(self) -> Path:
         return self.path.with_name(self.path.name + ".quarantine.tsv")
 
+    def _check_header(self, path: Path, first: str,
+                      quarantine_line: str | None = None) -> None:
+        """Raise SchemaMismatch unless `first` is this board's header; with
+        quarantine_line, save that row to the quarantine file first."""
+        if first.rstrip("\n") == self.header().rstrip("\n"):
+            return
+        quarantined = None
+        if quarantine_line is not None:
+            self._append_quarantine(self.header(), quarantine_line)
+            quarantined = self.quarantine_path()
+        raise SchemaMismatch(path, self.header(), first, quarantined=quarantined)
+
     def _load_one(self, path: Path, *, lock: bool = True) -> list[Point]:
         """lock=False for the committed archive: _lock_path CREATES the lock
         file, so even a SHARED lock needs WRITE access to the repo
@@ -168,9 +180,7 @@ class Leaderboard:
             return []
         out = []
         with (_flock_sh(path) if lock else nullcontext()), path.open() as f:
-            first = f.readline()
-            if first.rstrip("\n") != self.header().rstrip("\n"):
-                raise SchemaMismatch(path, self.header(), first)
+            self._check_header(path, f.readline())
             cols = self.header().rstrip("\n").split("\t")
             reader = csv.DictReader(f, fieldnames=cols, delimiter="\t")
             for line_no, row in enumerate(reader, start=2):
@@ -230,9 +240,7 @@ class Leaderboard:
         if path is None or not path.exists():
             return []
         with path.open() as f:
-            first = f.readline()
-            if first.rstrip("\n") != self.header().rstrip("\n"):
-                raise SchemaMismatch(path, self.header(), first)
+            self._check_header(path, f.readline())
             cols = self.header().rstrip("\n").split("\t")
             return list(csv.DictReader(f, fieldnames=cols, delimiter="\t"))
 
@@ -267,10 +275,7 @@ class Leaderboard:
             if self.path.exists():
                 with self.path.open() as f:
                     first = f.readline()
-                if first.rstrip("\n") != self.header().rstrip("\n"):
-                    self._append_quarantine(self.header(), line)
-                    raise SchemaMismatch(self.path, self.header(), first,
-                                         quarantined=self.quarantine_path())
+                self._check_header(self.path, first, quarantine_line=line)
             if self.layout == "v2":
                 rows = (self._raw_rows(self.archive_path)
                         + self._raw_rows(self.path))
