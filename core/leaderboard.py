@@ -200,7 +200,7 @@ class Leaderboard:
         live = [p for p in self._load_one(self.path) if p.cfg not in seen]
         return archive + live
 
-    def format_line(self, p: Point, context: dict, meta: dict | None = None) -> str:
+    def format_line(self, p: Point, context: dict, meta: dict) -> str:
         """The exact line append() writes. Public so a caller holding the
         only record of a row's x can validate the row before discarding
         that record."""
@@ -214,10 +214,10 @@ class Leaderboard:
                   for fmt, n in zip(self.value_fmts, self.value_names)]
         env = {**self.consts, **p.y, **context}
         extras = [c.fmt.format(c.evaluate(env)) for c in self.extra_columns]
-        if meta is None or set(meta) != set(V2_META):
+        if set(meta) != set(V2_META):
             raise LeaderboardError(
                 f"{self.name}: a row needs meta {list(V2_META)}, got "
-                f"{None if meta is None else sorted(meta)}")
+                f"{sorted(meta)}")
         for key in V2_META:
             v = meta[key]
             if not isinstance(v, str) or not v or "\t" in v or "\n" in v:
@@ -259,7 +259,7 @@ class Leaderboard:
                                   self.quarantine_path())
         return True
 
-    def append(self, p: Point, context: dict, meta: dict | None = None) -> bool:
+    def append(self, p: Point, context: dict, meta: dict) -> bool:
         """True when a row was written; False when the same row (apart
         from `time`) is already there: idempotent by name."""
         line = self.format_line(p, context, meta)

@@ -285,7 +285,7 @@ class TestV2Rows(unittest.TestCase):
 
     def test_a_v2_row_needs_all_its_meta(self):
         with self.assertRaises(lbm.LeaderboardError):
-            self.lb.append(self.pt(), {})
+            self.lb.append(self.pt(), {}, {})
         partial = {k: v for k, v in META.items() if k != "time"}
         with self.assertRaises(lbm.LeaderboardError):
             self.lb.append(self.pt(), {}, partial)
