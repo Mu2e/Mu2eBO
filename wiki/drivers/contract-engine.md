@@ -2,7 +2,7 @@
 type: driver
 title: Contract engine (Phase B)
 description: kits.toml native kits over stdio MCP (KitClient), the evaluator
-  contract (NativeKit, check_kits), run_steps (one scheduler node,
+  contract (NativeKit, launch_problems), run_steps (one scheduler node,
   state-file resume), v2 rows with measure_sha, graph.run /
   graph.closed_loop; toykit Branin acceptance in 28.7 s; C1 prodtools
   adapter (`core/adapters/`), --executor, zero-knob studies; C2a
@@ -22,7 +22,7 @@ evaluator contract (`submit`/`status`/`results`, plus optional
 `check`/`describe`/`cancel`) over stdio MCP. A study's steps are declared
 in its schema-2 JSON (`mode_specs/<name>.json`, data, not code); the
 engine drives them through `core/kits.py`'s
-`KitClient`, `core/contract.py`'s `NativeKit`/`KitSet`/`check_kits`, and
+`KitClient`, `core/contract.py`'s `NativeKit`/`KitSet`/`launch_problems`, and
 `core/scheduler.py`'s `run_steps`, then scores and appends a v2 leaderboard
 row (`core/score.py`, `core/leaderboard.py`). `graph/run.py` runs one
 point; `graph/closed_loop.py` runs a campaign of them through the existing
@@ -60,12 +60,14 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   `TOYKIT_STATE_DIR=${DATA_ROOT}/toykit`, `poll_s = [0.1, 2.0]` (grid kits
   are expected at 30 s–10 min), `check = true`, `launch_stagger_s = 0`.
 - `core/kit_registry.py` merges `kits.toml`'s native kits with three
-  declared kits, each an in-process `Adapter` (`core/contract.py:
-  ADAPTERS`): `prodtools` (Phase C1), `offline_preflight` (Phase C2a),
+  declared kits, each an in-process `Adapter` built from its `KitDecl`'s
+  `factory` string (`core/contract.py:load_factory`): `prodtools` (Phase C1), `offline_preflight` (Phase C2a),
   `anakit` (Phase C2b) — verify with `grep -n "^    KitDecl(" core/
   kit_registry.py`. A name clash between the native and declared sets
   raises at import. `KitDecl` (`name`, `study_keys`, `fixed_keys`,
-  `required_fixed`, `uses_entries`, `step_kit`, `check_kit`) has no
+  `required_fixed`, `uses_entries`, `step_kit`, `check_kit`, and, since
+  2026-09-29, `executors`, `launch_stagger_s`, `requires_kerberos`,
+  `names_runs_after_config`, `factory`; see "Kit seam" below) has no
   `engine`/`pipeline` flags. Until Phase C3 (2026-09-28) the registry also
   declared `ce_sensitivity` and `flash_edep_per_pot`, and every `KitDecl`
   carried `engine`/`pipeline` booleans the pipeline routed on; both went
@@ -92,8 +94,8 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   allowlist of variables to the child process, so any kit that needs more
   (a Kerberos cache, a token file, …) must name them in `env_passthrough`
   in `kits.toml`; a missing one is a start-time error naming the kit and
-  the variable, raised when the kit starts (at `check_kits`, at
-  `graph.run`'s kit start check, or at the first call), never at
+  the variable, raised when the kit starts (in the launch check
+  `contract.launch_problems`, or at the first call), never at
   import (`core/kit_config.py:KitConfig.resolve_env`, surfaced as a
   `KitError` from `core/kits.py:KitClient.start`).
 
@@ -138,21 +140,22 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
 - The prodtools adapter's `run_status` polls use the `status` budget
   from `status` and the `submit` budget when `submit` adopts a run;
   its `cancel_run` uses the `cancel` budget.
-- **`check_kits(study, campaign)`** is the launch check: it opens every
-  kit the study names, confirms a kit that runs a step offers
-  `submit`/`status`/`results` and the preflight kit `check` (a kit used
-  only for the preflight needs only `check`), that it reports a
-  `serverInfo.version` (else `measure_sha` can't fingerprint it), and — if
-  it offers `describe` — that the study's params/metrics match what the
-  kit accepts/returns. It starts each kit exactly once; any problem is
-  collected and returned as a list, and `graph/closed_loop.py` refuses to
-  launch (exit 2) if the list is non-empty.
-- **`graph/run.py` runs a start check, not the full `check_kits`:**
-  after its other refusals and before anything is written for the point,
-  it starts every kit the study names (`kit_registry.kits_of`) through the
-  child's own `KitSet` (`kits.get(name).tools`), so the steps reuse those
-  servers. A kit that won't start is refused (exit 2) naming the kit and
-  the error — no submit, no `point.json`, no `broken.txt` — so an
+- **`launch_problems(study, kits, *, executor, parallel, config_names,
+  kerberos=None)`** (`core/contract.py`) is the one launch check, used by
+  both `graph/run.py` and `graph/closed_loop.py` (refusal is exit 2,
+  naming each problem). Static checks come first (executor rules;
+  Kerberos with 4 h left when a kit sets `requires_kerberos` and the run
+  is on grid; the config-name rule of a kit with `names_runs_after_config`)
+  and any static problem returns before a kit is opened. Then, per kit the
+  study names: `start()`, the required contract tools (a kit that runs a
+  step offers `submit`/`status`/`results`; a preflight-only kit needs only
+  `check`), a `serverInfo.version` (else `measure_sha` can't fingerprint
+  it), the `describe` cross-check (if offered) of the study's
+  params/metrics, and `step_problems`. `graph/run.py` checks `broken.txt`
+  before the launch check, so an already-broken point is refused without
+  starting a kit server, and it starts the kits through the child's own
+  `KitSet` so the steps reuse those servers. A kit that won't start is
+  refused — no submit, no `point.json`, no `broken.txt` — so an
   environment problem is never recorded as a failed evaluation.
 
 **`run_steps` (`core/scheduler.py`)**
@@ -216,7 +219,7 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   produces no numbers for it); only its settings, which live in `kits`
   and so are already covered.
 - A kit's version is its `serverInfo.version` at MCP `initialize`
-  (`core/kits.py:KitClient._serve`); `check_kits` refuses launch if any
+  (`core/kits.py:KitClient._serve`); `launch_problems` refuses launch if any
   kit reports none.
 - `core/leaderboard.py:Leaderboard._is_new_row` (`_check_v2` until
   2026-09-29) refuses an append whose `measure_sha` differs from what's
@@ -277,10 +280,10 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   `renew` hook (called before every launch and at every resolution) was
   never passed by `graph/closed_loop.py`, so it was a no-op; it and its 4
   tests were deleted 2026-09-29. A grid campaign whose kit needs Kerberos
-  relies on the launch check instead: `graph/run.py:launch_refusals`
+  relies on the launch check instead: `contract.launch_problems`
   refuses it unless the ticket has 4 h left.
 - `--context` is validated once at launch with `graph/run.py:
-  parse_context` (the function each child uses), then `check_kits` must
+  parse_context` (the function each child uses), then `launch_problems` must
   pass, before anything launches (exit 2 otherwise, naming each problem).
   Without the launch check a bad `--context` made every child refuse and
   the pool abort after max(q, 2) of them.
@@ -354,15 +357,14 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   **28.7 s** — the design's acceptance bar was "under a minute".
 
 **prodtools kit (Phase C1, `core/adapters/prodtools.py`)**
-- `ProdtoolsKit` is an in-process `Adapter` (`core/contract.py:ADAPTERS`),
-  not a native `kits.toml` entry: it speaks the contract itself, over two
+- `ProdtoolsKit` is an in-process `Adapter` (declared by a `KitDecl` with
+  `factory="adapters.prodtools:ProdtoolsKit"`), not a native `kits.toml` entry: it speaks the contract itself, over two
   `KitClient`s onto the `prodtools_write`/`prodtools_read` MCP servers
   (`kits.toml`'s `[servers.prodtools_write]`/`[servers.prodtools_read]`,
-  Task 2). `core/adapters/__init__.py:register_all` registers it (and
-  every future adapter) lazily, from `core/contract.py:_load_adapters`
-  (called first by `open_kit`, `launch_stagger`, `executor_problems` and
-  `requires_kerberos`), not at import — an adapter module imports
-  `core.contract`.
+  Task 2). `core/contract.py:load_factory` imports the factory string when
+  the kit opens, not at import (an adapter module imports `core.contract`);
+  `core/adapters/__init__.py:register_all` and `contract.ADAPTERS` went
+  away 2026-09-29.
 - **prodtools replies are text only:** its read tools are declared
   `-> dict` and its write tools have no return annotation, and neither
   sets `structured_output`, so under mcp 2.x a reply carries no
@@ -425,9 +427,9 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   before its first submit. Steady state (3 submits per ~3.5 h child,
   q=20: ~17/h) fits under the ceiling.
 - **No token refresh in the adapter:** the adapter never renews a
-  Kerberos ticket; `graph/run.py:launch_refusals` refuses a grid
-  launch up front when the study's kit(s) set `REQUIRES_KERBEROS` and
-  under 4 h remain (`core/contract.py:requires_kerberos`). The servers
+  Kerberos ticket; `contract.launch_problems` refuses a grid
+  launch up front when the study's kit(s) declare `requires_kerberos` and
+  under 4 h remain. The servers
   get `KRB5CCNAME` and `XDG_RUNTIME_DIR` (kits.toml `env_passthrough`)
   and find the bearer token at `$XDG_RUNTIME_DIR/bt_u<uid>` — without
   the variable they read a stale `/tmp/bt_u<uid>`. The write server's
@@ -526,7 +528,7 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   the code tarball's `Code/setup.sh` instead.
 - The loader refuses a study whose `kits.offline_preflight.code_tarball`
   differs from `kits.prodtools.code_tarball`
-  (`kit_registry.MATCHING_SETTINGS`). `check_kits` asks a kit used only
+  (`kit_registry.MATCHING_SETTINGS`). `launch_problems` asks a kit used only
   for the preflight for `check` alone.
 - The kit's message is `<code>: <reason>`; `ambiguous` fails, with the
   log's last 40 lines. `node_preflight` was not changed.
@@ -536,7 +538,8 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   reply with no `jobs` block raises; `KitClient.start` writes a
   `start` trace row; `entry` is reserved at load for a kit that takes
   stage templates; `graph.closed_loop` checks `<prefix>R00_00` against
-  each adapter's `config_problem` before launching.
+  the config-name rule of each kit declaring `names_runs_after_config`
+  before launching (an adapter `config_problem` method until 2026-09-29).
 - A pre-check that hits an `OSError` (quota, unpack) or a GDML dump it
   cannot parse now marks the point broken; the loader refuses
   `require_zero_overlaps: true` without `checks_managed_overlap: true`.
@@ -560,7 +563,7 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   branch `generic-study-phase-c2b`. See [anakit](/external/anakit.md) for
   the fork itself (commits, the work area, the build).
 - `AnakitKit` (`core/adapters/anakit.py`, another in-process
-  `core/contract.py:ADAPTERS` entry) drives M. MacKenzie's analysis MCP
+  `kit_registry` declaration with a `factory`) drives M. MacKenzie's analysis MCP
   server for the `sob`/`flash` steps: `ce_sensitivity` and
   `flash_edep_per_pot`, run by our fork under
   `kits.toml[servers.anakit]`. It offers no `describe` (its params/metrics
@@ -606,11 +609,10 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   a list of files).
 - **`step_problems` (`core/contract.py:kit_step_problems`):** the optional
   per-step half of the launch check — a kit may say what's wrong with one
-  of its steps before any job runs. `check_kits` (used by
-  `graph.closed_loop`) calls it for every step of every kit the study
-  names; `graph.run` runs the same per-step check itself, not the
-  full `check_kits`, right after starting its kits and before writing
-  anything for the point (`graph/run.py`, after the kit-start loop).
+  of its steps before any job runs. `launch_problems` (used by
+  both `graph.run` and `graph.closed_loop`) calls it for every step of
+  every kit the study names, after the static checks and each kit's
+  start, before anything is written for the point.
   `AnakitKit.step_problems` uses it to check the work area is a directory,
   the code tarball's `backing` link matches it, the step's `analysis`
   exists in anakit's catalogue, every sent param is one the analysis
@@ -857,6 +859,49 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   - **No grid run:** the engine changed only by renames, by losing
     fallbacks it never used, and by the new `AUTORESEARCH_LOCAL` refusal.
 
+- **Kit seam (2026-09-29, branch `kit-seam`, local and unmerged; merges
+  into `generic-study-phase-c1` after the live `bpzax01` campaign
+  finishes or on the operator's word; acceptance pending).** Design:
+  `docs/superpowers/specs/2026-09-29-kit-seam-design.md`.
+  - **One declaration per kit** (b3d9c88): `kit_registry.KitDecl` carries
+    `executors`, `launch_stagger_s`, `requires_kerberos`,
+    `names_runs_after_config` and `factory` (a string relative to `core/`,
+    e.g. `adapters.prodtools:ProdtoolsKit`; `None` for a native
+    `kits.toml` kit). `contract.load_factory(decl)` imports it, adding the
+    `core.` prefix only when `contract` itself was imported as
+    `core.contract` — `graph/run.py` imports `core/` flat, and a second
+    copy of `contract` would break its `except ContractError`. Deleted:
+    `contract.ADAPTERS`, `register_adapter`, `_load_adapters`,
+    `adapters.register_all`, and the adapter attributes `EXECUTORS`,
+    `LAUNCH_STAGGER_S`, `REQUIRES_KERBEROS` and method `config_problem`.
+  - **The kit error rule** (6616359): a kit raises only `KitError` or
+    `ContractError` for an expected failure. `KitSet.get` returns each kit
+    wrapped in `contract.GuardedKit`, which turns `OSError`, `ValueError`,
+    `KeyError` and `subprocess.SubprocessError` from opening the kit (call
+    `open`) or from any attribute or method into `KitError(kit, call,
+    "<Type>: <message>")`; `KitToolError` and `ContractError` pass through
+    as the same object, an optional attribute a kit lacks reads as its
+    default, and anything else (`TypeError`, `AttributeError`, ...)
+    crashes. `scheduler._run_one` and `study_graph.node_preflight` split
+    engine-side and kit-side `try` blocks. Anakit's step-directory,
+    result-write and `_record` rewraps were deleted; `_git`, prodtools
+    staging and offline_preflight's check rewraps stay. Fixed: a prodtools
+    server config missing a timeout now refuses `graph.run` (exit 2, was a
+    traceback); an adapter `OSError` mid-step now breaks the point
+    (`broken.txt`, exit 0, was a traceback).
+  - **One launch check** (303af0a): `contract.launch_problems`, described
+    under the launch check above; `start()` joined the Kit interface.
+    Deleted: `graph/run.py:launch_refusals`, `contract.check_kits`,
+    `contract.config_name_problems`. Fixed: `graph.run --config bad.name`
+    now refuses (exit 2) and writes nothing (it wrote `point.json` and
+    ended as `broken.txt`).
+  - Related, earlier on the branch (58f5240): study loading refuses a
+    knob, objective or metric named after a column the board adds
+    (`handles`, `spec_sha`, `measure_sha`, `time`), not only `config`.
+  - Suite at 303af0a: 737 tests OK (3 skipped). Acceptance (unchanged
+    `measure_basis_sha`, a local `foilspfbpz_local` row, the Branin loop)
+    has not run yet.
+
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded
   — the pipeline campaign runner this engine sat alongside, not on top of,
@@ -982,8 +1027,8 @@ Phase C follow-ups found in review (2026-09-25):
   20.0)` s after the 1st and 2nd failed attempt.
 - ~~No credential renewal / 4 h ticket gate for engine campaigns.
   `graph/study_loop.py`.~~ **Done in C1:** a grid launch whose kit sets
-  `REQUIRES_KERBEROS` is refused up front (`graph/run.py:
-  launch_refusals`, `core/contract.py:requires_kerberos`) unless a
+  `requires_kerberos` is refused up front (`contract.launch_problems`
+  since 2026-09-29; `graph/run.py:launch_refusals` before) unless a
   ticket with at least 4 h left is held; the adapter itself never
   refreshes one.
 - After a runner restart, orphaned in-flight children's x are not passed
@@ -1002,9 +1047,9 @@ Phase C follow-ups found in review (2026-09-25):
   not whether the name is free of a prior claim, quota-under-limit, or a
   stale grid cluster.)
 - **A local run no longer checks for a live Kerberos ticket before
-  starting.** `requires_kerberos` (`core/contract.py:368`) returns `False`
-  whenever `executor != "grid"`, since it only asks whether some kit sets
-  `REQUIRES_KERBEROS` (the prodtools adapter's grid path). But README.md's
+  starting.** the Kerberos check in `contract.launch_problems` runs only when
+  `executor == "grid"`, since it only asks whether some kit declares
+  `requires_kerberos` (the prodtools adapter's grid path). But README.md's
   own Kerberos note says even a local run streams resampler inputs from
   `/pnfs` over xrootd, needing a live bearer token exactly as a grid worker
   does — the deleted pipeline's `run_local.sh` called `check_kerberos(0)`

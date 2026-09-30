@@ -1,13 +1,14 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (35 files, 718 tests, 3 skipped), no
+description: '`tests/` regression suite (35 files, 737 tests, 3 skipped), no
   grid contact; `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s
   tests -t .`; the manual golden parity harness (`tests/golden_parity.py`)
   was deleted in Phase C3 (2026-09-28) with the pipeline it checked'
 status: active
 timestamp: '2026-09-29'
-updated_note: 'Post-C3 cleanup (2026-09-29, branch cleanup-c3): 729 -> 718
+updated_note: 'Kit seam (2026-09-29, branch kit-seam at 303af0a): 718 -> 737
+  tests, 3 skipped, 35 files. Earlier: post-C3 cleanup (2026-09-29, branch cleanup-c3): 729 -> 718
   tests, 4 -> 3 skipped -- the pending-TSV API and its 10 tests were
   deleted, a duplicate test_geom_template case went, and the managed-policy
   banner test asserts instead of skipping. Second cleanup batch (same
@@ -34,7 +35,7 @@ updated_note: 'Post-C3 cleanup (2026-09-29, branch cleanup-c3): 729 -> 718
 
 ## Summary
 Regression tests for the Python drivers in this project. **35 `test_*.py`
-files, 718 tests (3 skipped)** (2026-09-29, after the line-buffered stdout fix),
+files, 737 tests (3 skipped)** (2026-09-29, on branch `kit-seam` at 303af0a; 718 before it),
 run under
 `$AUTORESEARCH_PYTHON` with no grid contact (all mocks/tempdirs, or a temp
 `AUTORESEARCH_DATA_ROOT` for the engine's subprocess tests). The manual
@@ -121,7 +122,7 @@ then 713 / 3 skipped after its second batch the same day, then 716 when
   loading/validation), `tests/test_toykit.py` (the reference kit),
   `tests/test_kits.py` (`KitClient`: start/respawn/generation-counter/
   retries), `tests/test_contract.py` (reply validation, `NativeKit`,
-  `check_kits`, the adapter registry), `tests/test_scheduler.py`
+  `launch_problems`, `GuardedKit`, the kit declarations), `tests/test_scheduler.py`
   (`run_steps`: dependency graph, parallel steps, `broken.txt` timing,
   sibling-finish-before-raise), `tests/test_score.py` (metric collection,
   `measure_sha`/`row_meta`), `tests/test_study_engine.py` (v2 boards,

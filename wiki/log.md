@@ -6,6 +6,18 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [contract-engine](/drivers/contract-engine.md): the kit seam
+  (branch `kit-seam`, local, unmerged; acceptance pending). One `KitDecl`
+  per kit (executors, stagger, Kerberos, config-name rule, `factory` string;
+  `ADAPTERS`/`register_adapter`/`register_all` and the adapter class
+  attributes deleted), one error rule (`GuardedKit` wraps every kit from
+  `KitSet.get`: `OSError`/`ValueError`/`KeyError`/`SubprocessError` become
+  `KitError`), one launch check (`contract.launch_problems` for both
+  runners; `check_kits`, `launch_refusals`, `config_name_problems`
+  deleted). Two bugs fixed: a prodtools config missing a timeout refuses
+  instead of tracing back; `graph.run --config bad.name` refuses and writes
+  nothing. `CONTEXT.md` Adapter entries updated. [tests](/drivers/tests.md)
+  718 -> 737 (3 skipped, 35 files).
 - **updated** [contract-engine](/drivers/contract-engine.md): launched
   `bpzax01` (first MDC2025ax campaign: foilspfbpz_ax, budget_sob, q=20,
   40 evals, grid, 20:38 CDT); the host submit lock serializes
