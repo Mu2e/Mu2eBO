@@ -99,7 +99,7 @@ class Kits:
 class RaisingToolsKit:
     """Wraps a FakeKit but raises KitError from `tools`, like a NativeKit
     whose MCP server died and could not be restarted (contract.py's
-    NativeKit.tools calls _ensure_started -> client.start())."""
+    NativeKit.tools calls start() -> client.start())."""
 
     def __init__(self, inner):
         self._inner = inner

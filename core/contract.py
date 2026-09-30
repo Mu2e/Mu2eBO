@@ -1,7 +1,7 @@
 """The evaluator contract (generic-study design, "The evaluator contract"):
 reply validation, the Kit interface the engine drives, NativeKit (a kit
-that speaks the contract over MCP), KitSet (the kits
-one child uses) and launch_problems (the launch check both runners call).
+that speaks the contract over MCP), KitSet (the kits one child uses) and
+launch_problems (the launch check both runners call).
 
 A reply outside the contract raises ContractError: a failed evaluation,
 never success. Replies must carry the keys the contract names, with the
@@ -27,7 +27,10 @@ escape (from its factory and from every attribute and method) into a
 KitError naming the kit and the call. A programming error (TypeError,
 AttributeError, ...) is not translated and crashes. Callers therefore catch
 (KitError, ContractError) around kit calls; engine-side code keeps its own
-ValueError/KeyError handling.
+ValueError/KeyError handling. A KitError the guard makes from a kit-side
+ValueError, KeyError or OSError is a refusal or an environment failure, not
+a transport failure, so it must not be fed to call_with_retries (which
+retries a plain KitError); retries live inside the kits.
 
 A kit is declared once, in kit_registry.KITS (an adapter kit there, a
 native kit from kits.toml): its executors, launch stagger, Kerberos need,
@@ -43,7 +46,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 if __package__:
     from core import kit_registry, paths
@@ -458,6 +461,12 @@ class GuardedKit:
                 raise self._as_kit_error(attr, exc) from exc
         return guarded
 
+    def close(self) -> None:
+        try:
+            self._kit.close()
+        except KIT_FAILURES as exc:
+            raise self._as_kit_error("close", exc) from exc
+
     def _as_kit_error(self, attr, exc) -> KitError:
         return KitError(self._name, attr, f"{type(exc).__name__}: {exc}")
 
@@ -490,8 +499,14 @@ class KitSet:
     def close(self) -> None:
         with self._lock:
             kits, self._kits = list(self._kits.values()), {}
+        first = None
         for kit in kits:
-            kit._kit.close()
+            try:
+                kit.close()
+            except Exception as exc:
+                first = first or exc
+        if first is not None:
+            raise first
 
 
 def _needs(study, kit_name):

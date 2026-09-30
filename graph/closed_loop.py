@@ -2,8 +2,8 @@
 through graph/pool.py's rolling pool, each child one `graph.run`
 point, picks from surrokit through core/botorch_predict.py.
   python -m graph.closed_loop --study branin --q 2 --max-evals 8 --picker budget_sob --name-prefix brn
-contract.launch_problems must pass before anything launches. To stop launching, touch
-GRAPH_DATA/<name-prefix>/STOP; running children drain.
+contract.launch_problems must pass before anything launches. To stop
+launching, touch GRAPH_DATA/<name-prefix>/STOP; running children drain.
 """
 from __future__ import annotations
 

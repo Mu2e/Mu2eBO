@@ -537,7 +537,6 @@ class TestKitErrorContract(unittest.TestCase):
             broken = (grid / "p1" / "state" / "broken.txt").read_text()
             self.assertIn("step toy", broken)
             self.assertIn("OSError", broken)
-            board.assert_not_called()
             self.assertFalse(board.mock_calls, "a row was appended")
 
 

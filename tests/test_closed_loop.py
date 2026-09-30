@@ -273,7 +273,6 @@ class TestNamePrefix(unittest.TestCase):
         self.assertIn("REFUSED", out.getvalue())
         self.assertIn("smoke-1R00_00", out.getvalue())
 
-
     def test_the_launch_check_kits_are_closed_on_refusal(self):
         with tempfile.TemporaryDirectory() as td:
             study = st.load_study_file(

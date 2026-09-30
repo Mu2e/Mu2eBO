@@ -268,6 +268,36 @@ class TestKitSet(unittest.TestCase):
         self.assertEqual([k.name for k in opened], ["a", "b"])
         self.assertTrue(all(k.closed for k in opened))
 
+    def _close_order(self, failure):
+        closed = []
+
+        def make(name, exc):
+            def close():
+                closed.append(name)
+                if exc is not None:
+                    raise exc
+            return types.SimpleNamespace(close=close)
+
+        kits_by_name = {"a": make("a", failure), "b": make("b", None)}
+        kits = ct.KitSet("c", opener=lambda n, c: kits_by_name[n])
+        kits.get("a")
+        kits.get("b")
+        return kits, closed
+
+    def test_close_guards_a_kit_failure_and_closes_every_kit(self):
+        kits, closed = self._close_order(OSError("gone"))
+        with self.assertRaises(KitError) as caught:
+            kits.close()
+        self.assertEqual((caught.exception.kit, caught.exception.tool),
+                         ("a", "close"))
+        self.assertEqual(closed, ["a", "b"])
+
+    def test_close_lets_a_programming_error_through_after_closing_all(self):
+        kits, closed = self._close_order(TypeError("bug"))
+        with self.assertRaises(TypeError):
+            kits.close()
+        self.assertEqual(closed, ["a", "b"])
+
 
 class TestKitErrorContract(unittest.TestCase):
     """KitSet.get hands out kits inside a guard: a kit raises only KitError
@@ -421,6 +451,7 @@ class TestRegistry(unittest.TestCase):
         code = ("import contract, kit_registry, sys; "
                 "cls = contract.load_factory(kit_registry.KITS['prodtools']); "
                 "print(cls.__module__, 'core.contract' in sys.modules)")
+        # PYTHONPATH is core/ alone: graph/run.py's flat import mode.
         out = subprocess.run(
             [sys.executable, "-c", code], cwd=ROOT, capture_output=True,
             text=True, check=True,
