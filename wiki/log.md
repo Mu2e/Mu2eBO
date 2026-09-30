@@ -5,6 +5,9 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-09-30
+- **updated** [contract-engine](/drivers/contract-engine.md): bpzax01 measured the straggler cost — the prodtools kit applies `quorum` only after every job ends, so five single jobs of ~5,200 (6–14 h against a ~1.5 h step) held their points and pool slots into the afternoon of day 2; a tail cutoff is the open design item.
+
 ## 2026-09-29
 - **updated** [contract-engine](/drivers/contract-engine.md): the kit seam
   (branch `kit-seam`, local, unmerged; acceptance passed: 737 tests OK, the

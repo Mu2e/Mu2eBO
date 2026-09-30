@@ -426,6 +426,19 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   launch every 90 s; a child can wait over 10 min in preflight + queue
   before its first submit. Steady state (3 submits per ~3.5 h child,
   q=20: ~17/h) fits under the ceiling.
+- **Quorum is applied only after every job ends, so one straggler holds
+  a whole point (measured bpzax01, 2026-09-30):** `status` stays
+  `working` while `run_status` reports any job running; `quorum` is
+  checked only in `_complete`, once the run is `done`/`short`. In bpzax01
+  (40 points, ~5,200 jobs) five single jobs ran 6–14 h where their
+  step's other jobs took ~1.5 h (steps: mubeam ~90 min median, max 6 h
+  otherwise; mustops_ce ~100 min). Three of them finished on their own
+  after 10.5–14 h. 35 rows had landed by 08:20 on day 2; the last points
+  waited on the stragglers into the afternoon, and each stuck child held
+  a pool slot the whole time. Nothing times out a running job short of
+  the grid's own wall limit. A tail cutoff (complete a step once
+  ok/njobs ≥ quorum and the remaining jobs run far past the step's
+  median) is the open design item.
 - **No token refresh in the adapter:** the adapter never renews a
   Kerberos ticket; `contract.launch_problems` refuses a grid
   launch up front when the study's kit(s) declare `requires_kerberos` and
