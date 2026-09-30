@@ -438,7 +438,16 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   a pool slot the whole time. Nothing times out a running job short of
   the grid's own wall limit. A tail cutoff (complete a step once
   ok/njobs ≥ quorum and the remaining jobs run far past the step's
-  median) is the open design item.
+  median) is the open design item. **A per-job time limit alone does not
+  fix it:** prodtools already sends `--expected-lifetime` (default 24 h,
+  `utils/jobsub_argv.py`; an entry may set `expected_lifetime`), but a job
+  past its limit is HELD (`SYSTEM_PERIODIC_HOLD Run Time/limit`, per
+  prodtools' `.claude/commands/joblog.md`), not removed, and
+  `run_status` counts held jobs as running (`tools/runs.py:101`), so the
+  step would still wait. A limit works only together with treating a
+  run-time-held job as failed. And `fixed` values are in `measure_basis`,
+  so a lifetime set there would change every `_ax` `measure_sha` unless
+  it is kept out of the basis.
 - **No token refresh in the adapter:** the adapter never renews a
   Kerberos ticket; `contract.launch_problems` refuses a grid
   launch up front when the study's kit(s) declare `requires_kerberos` and
