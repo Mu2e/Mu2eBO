@@ -358,8 +358,8 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
 
 **prodtools kit (Phase C1, `core/adapters/prodtools.py`)**
 - `ProdtoolsKit` is an in-process `Adapter` (declared by a `KitDecl` with
-  `factory="adapters.prodtools:ProdtoolsKit"`), not a native `kits.toml` entry: it speaks the contract itself, over two
-  `KitClient`s onto the `prodtools_write`/`prodtools_read` MCP servers
+  `factory="adapters.prodtools:ProdtoolsKit"`), not a native `kits.toml`
+  entry: it speaks the contract itself, over two `KitClient`s onto the `prodtools_write`/`prodtools_read` MCP servers
   (`kits.toml`'s `[servers.prodtools_write]`/`[servers.prodtools_read]`,
   Task 2). `core/contract.py:load_factory` imports the factory string when
   the kit opens, not at import (an adapter module imports `core.contract`);
@@ -865,7 +865,7 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
 
 - **Kit seam (2026-09-29, branch `kit-seam`, local and unmerged; merges
   into `generic-study-phase-c1` after the live `bpzax01` campaign
-  finishes or on the operator's word; acceptance pending).** Design:
+  finishes or on the operator's word; acceptance passed 2026-09-29).** Design:
   `docs/superpowers/specs/2026-09-29-kit-seam-design.md`.
   - **One declaration per kit** (b3d9c88): `kit_registry.KitDecl` carries
     `executors`, `launch_stagger_s`, `requires_kerberos`,
@@ -902,9 +902,18 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   - Related, earlier on the branch (58f5240): study loading refuses a
     knob, objective or metric named after a column the board adds
     (`handles`, `spec_sha`, `measure_sha`, `time`), not only `config`.
-  - Suite at 303af0a: 737 tests OK (3 skipped). Acceptance (unchanged
-    `measure_basis_sha`, a local `foilspfbpz_local` row, the Branin loop)
-    has not run yet.
+  - Suite at 303af0a: 737 tests OK (3 skipped).
+  - **Acceptance (2026-09-29, at 303af0a; later code is docs plus the
+    final fix wave):** the seven `_ax` studies' `measure_basis_sha` is
+    unchanged from the baseline at 2a390e2. Local point `kslocal01`
+    (`foilspfbpz_local`, `--executor local --parallel 4`, sandbox
+    `c3_sandbox/local`, c3local01's x): pre-check passed, 5/5 steps, row
+    landed; sob 4.16741 and flash 4.24058e-07, bit-identical to
+    c3local01-05; `measure_sha` `8c8157af…`, unchanged. `graph.run
+    --config bad.name` on `foilspfbpz_local` (real kits): exit 2 naming
+    '.', from offline_preflight's and prodtools' declarations; nothing
+    written. Branin `graph.closed_loop` `ksbrn01` (q=3, 6 evals,
+    budget_sob, local): exit 0, launched=6 rows=6.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded
@@ -1031,8 +1040,8 @@ Phase C follow-ups found in review (2026-09-25):
   20.0)` s after the 1st and 2nd failed attempt.
 - ~~No credential renewal / 4 h ticket gate for engine campaigns.
   `graph/study_loop.py`.~~ **Done in C1:** a grid launch whose kit sets
-  `requires_kerberos` is refused up front (`contract.launch_problems`
-  since 2026-09-29; `graph/run.py:launch_refusals` before) unless a
+  `requires_kerberos` is refused up front (`contract.launch_problems`;
+  before 2026-09-29 it was `graph/run.py:launch_refusals`) unless a
   ticket with at least 4 h left is held; the adapter itself never
   refreshes one.
 - After a runner restart, orphaned in-flight children's x are not passed
@@ -1048,11 +1057,12 @@ Phase C follow-ups found in review (2026-09-25):
   `core/launch_checks.py`. (This is distinct from the config-name rule that
   `contract.launch_problems` applies, for both runners, for each kit whose
   declaration has `names_runs_after_config` — that checks the first child
-  name against the kit's own character rule, not whether the name is free of a prior claim, quota-under-limit, or a
-  stale grid cluster.)
+  name against the kit's own character rule. It does not check that the
+  name is free of a prior claim, that quota is under the limit, or that no
+  stale grid cluster remains.)
 - **A local run no longer checks for a live Kerberos ticket before
-  starting.** the Kerberos check in `contract.launch_problems` runs only when
-  `executor == "grid"`, since it only asks whether some kit declares
+  starting.** The Kerberos check in `contract.launch_problems` runs only
+  when `executor == "grid"`, since it only asks whether some kit declares
   `requires_kerberos` (the prodtools adapter's grid path). But README.md's
   own Kerberos note says even a local run streams resampler inputs from
   `/pnfs` over xrootd, needing a live bearer token exactly as a grid worker

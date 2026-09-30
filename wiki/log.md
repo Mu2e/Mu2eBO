@@ -7,17 +7,24 @@ superseded, linted.
 
 ## 2026-09-29
 - **updated** [contract-engine](/drivers/contract-engine.md): the kit seam
-  (branch `kit-seam`, local, unmerged; acceptance pending). One `KitDecl`
-  per kit (executors, stagger, Kerberos, config-name rule, `factory` string;
+  (branch `kit-seam`, local, unmerged; acceptance passed: 737 tests OK, the
+  seven `_ax` `measure_basis_sha` unchanged from 2a390e2, local point
+  `kslocal01` bit-identical to c3local01-05 with `measure_sha` unchanged,
+  `graph.run --config bad.name` refused with exit 2 and nothing written,
+  Branin loop `ksbrn01` launched=6 rows=6). One `KitDecl` per kit (executors,
+  stagger, Kerberos, config-name rule, `factory` string;
   `ADAPTERS`/`register_adapter`/`register_all` and the adapter class
   attributes deleted), one error rule (`GuardedKit` wraps every kit from
   `KitSet.get`: `OSError`/`ValueError`/`KeyError`/`SubprocessError` become
-  `KitError`), one launch check (`contract.launch_problems` for both
-  runners; `check_kits`, `launch_refusals`, `config_name_problems`
-  deleted). Two bugs fixed: a prodtools config missing a timeout refuses
-  instead of tracing back; `graph.run --config bad.name` refuses and writes
-  nothing. `CONTEXT.md` Adapter entries updated. [tests](/drivers/tests.md)
-  718 -> 737 (3 skipped, 35 files).
+  `KitError`), one launch check (`contract.launch_problems` for both runners;
+  `check_kits`, `launch_refusals`, `config_name_problems` deleted). Four bugs
+  fixed: a prodtools config missing a timeout now refuses with exit 2 instead
+  of tracing back; an adapter `OSError` mid-step breaks the point instead of a
+  traceback; `graph.run --config bad.name` refuses and writes nothing; a knob,
+  objective or metric named after a board column (`handles`, `spec_sha`,
+  `measure_sha`, `time`) is refused at study load (58f5240). `CONTEXT.md`
+  Adapter entries updated. [tests](/drivers/tests.md) 718 -> 739 (3 skipped,
+  35 files).
 - **updated** [contract-engine](/drivers/contract-engine.md): launched
   `bpzax01` (first MDC2025ax campaign: foilspfbpz_ax, budget_sob, q=20,
   40 evals, grid, 20:38 CDT); the host submit lock serializes

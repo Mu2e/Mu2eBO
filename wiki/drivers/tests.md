@@ -1,13 +1,13 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (35 files, 737 tests, 3 skipped), no
+description: '`tests/` regression suite (35 files, 739 tests, 3 skipped), no
   grid contact; `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s
   tests -t .`; the manual golden parity harness (`tests/golden_parity.py`)
   was deleted in Phase C3 (2026-09-28) with the pipeline it checked'
 status: active
 timestamp: '2026-09-29'
-updated_note: 'Kit seam (2026-09-29, branch kit-seam at 303af0a): 718 -> 737
+updated_note: 'Kit seam (2026-09-29, branch kit-seam at 303af0a): 718 -> 739
   tests, 3 skipped, 35 files. Earlier: post-C3 cleanup (2026-09-29, branch cleanup-c3): 729 -> 718
   tests, 4 -> 3 skipped -- the pending-TSV API and its 10 tests were
   deleted, a duplicate test_geom_template case went, and the managed-policy
@@ -35,7 +35,7 @@ updated_note: 'Kit seam (2026-09-29, branch kit-seam at 303af0a): 718 -> 737
 
 ## Summary
 Regression tests for the Python drivers in this project. **35 `test_*.py`
-files, 737 tests (3 skipped)** (2026-09-29, on branch `kit-seam` at 303af0a; 718 before it),
+files, 739 tests (3 skipped)** (2026-09-29, on branch `kit-seam`, after the final fix wave; 718 before it, 737 at 303af0a),
 run under
 `$AUTORESEARCH_PYTHON` with no grid contact (all mocks/tempdirs, or a temp
 `AUTORESEARCH_DATA_ROOT` for the engine's subprocess tests). The manual
