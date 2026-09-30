@@ -2,7 +2,7 @@
 through graph/pool.py's rolling pool, each child one `graph.run`
 point, picks from surrokit through core/botorch_predict.py.
   python -m graph.closed_loop --study branin --q 2 --max-evals 8 --picker budget_sob --name-prefix brn
-check_kits must pass before anything launches. To stop launching, touch
+contract.launch_problems must pass before anything launches. To stop launching, touch
 GRAPH_DATA/<name-prefix>/STOP; running children drain.
 """
 from __future__ import annotations
@@ -19,11 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes as _modes  # noqa: E402
 import paths  # noqa: E402
 from boards import board_for  # noqa: E402
-from contract import (EXECUTORS, check_kits, config_name_problems,  # noqa: E402
-                      launch_stagger)
+from contract import EXECUTORS, KitSet, launch_problems, launch_stagger  # noqa: E402
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
-from run import (launch_refusals, line_buffered_stdout,  # noqa: E402
-                 local_env_refusal, parse_context)
+from run import (line_buffered_stdout, local_env_refusal,  # noqa: E402
+                 parse_context)
 
 
 def state_dir(name: str) -> Path:
@@ -155,13 +154,17 @@ def main(argv=None) -> int:
     except ValueError as exc:
         print(f"[closed_loop] REFUSED: {exc}", flush=True)
         return 2
-    problems = launch_refusals(study, args.executor, args.parallel)
-    # The first child's name, as next_free_name gives it when nothing is
-    # busy: the prefix plus the suffix the pool adds. A later index changes
-    # only digits, so one name covers them all.
-    problems += config_name_problems(study, child_name(args.name_prefix, 0))
-    problems += check_kits(study, campaign=args.name_prefix,
-                           executor=args.executor, parallel=args.parallel)
+    kits = KitSet(args.name_prefix, executor=args.executor,
+                 parallel=args.parallel)
+    try:
+        # The first child's name, as next_free_name gives it when nothing is
+        # busy: the prefix plus the suffix the pool adds. A later index
+        # changes only digits, so one name covers them all.
+        problems = launch_problems(
+            study, kits, executor=args.executor, parallel=args.parallel,
+            config_names=[child_name(args.name_prefix, 0)])
+    finally:
+        kits.close()
     if problems:
         for problem in problems:
             print(f"[closed_loop] REFUSED: {problem}", flush=True)

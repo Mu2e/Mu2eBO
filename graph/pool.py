@@ -9,8 +9,9 @@ closed-loop-final-round-orphan-children, rolling-no-row-streak-false-increment.
 The caller (graph/closed_loop.py) supplies the run_child/next_pick/row_landed/
 broken callables and the stagger; stop_flag is optional. They are also the
 test seam. Nothing here renews credentials: a grid campaign whose kit needs
-Kerberos is refused at launch unless the ticket has 4 h left (graph/run.py
-launch_refusals, which graph/closed_loop.py runs before the pool starts).
+Kerberos is refused at launch unless the ticket has 4 h left
+(contract.launch_problems, which graph/closed_loop.py runs before the pool
+starts).
 """
 from __future__ import annotations
 

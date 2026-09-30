@@ -253,15 +253,15 @@ class TestNamePrefix(unittest.TestCase):
                 write_study(toy_doc(name="pfxtoy", layout="v2"), Path(td)))
         seen = []
 
-        def rule(study_, config):
-            seen.append(config)
-            return [f"kit 'x': config name {config!r} has character(s) '-'"]
+        def rule(study_, kits, *, config_names, **kw):
+            seen.extend(config_names)
+            return [f"kit 'x': config name {config_names[0]!r} has "
+                    f"character(s) '-'"]
 
         out = io.StringIO()
         with mock.patch.dict(closed_loop._modes.STUDIES, {"pfxtoy": study}), \
-                mock.patch.object(closed_loop, "config_name_problems",
+                mock.patch.object(closed_loop, "launch_problems",
                                   side_effect=rule), \
-                mock.patch.object(closed_loop, "check_kits", return_value=[]), \
                 mock.patch.object(closed_loop, "run_rolling") as rolling, \
                 contextlib.redirect_stdout(out):
             rc = closed_loop.main(["--study", "pfxtoy", "--q", "1",
@@ -272,6 +272,34 @@ class TestNamePrefix(unittest.TestCase):
         rolling.assert_not_called()
         self.assertIn("REFUSED", out.getvalue())
         self.assertIn("smoke-1R00_00", out.getvalue())
+
+
+    def test_the_launch_check_kits_are_closed_on_refusal(self):
+        with tempfile.TemporaryDirectory() as td:
+            study = st.load_study_file(
+                write_study(toy_doc(name="clstoy", layout="v2"), Path(td)))
+        made = []
+
+        class Kits:
+            def __init__(self, campaign, **kw):
+                self.closed = False
+                made.append(self)
+
+            def close(self):
+                self.closed = True
+
+        with mock.patch.dict(closed_loop._modes.STUDIES, {"clstoy": study}), \
+                mock.patch.object(closed_loop, "KitSet", Kits), \
+                mock.patch.object(closed_loop, "launch_problems",
+                                  return_value=["x"]), \
+                mock.patch.object(closed_loop, "run_rolling") as rolling, \
+                contextlib.redirect_stdout(io.StringIO()):
+            rc = closed_loop.main(["--study", "clstoy", "--q", "1",
+                                  "--max-evals", "1", "--name-prefix", "cls"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(len(made), 1)
+        self.assertTrue(made[0].closed)
+        rolling.assert_not_called()
 
 
 class TestAutoresearchLocalRefused(unittest.TestCase):

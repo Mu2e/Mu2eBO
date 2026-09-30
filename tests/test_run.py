@@ -1,4 +1,5 @@
 import contextlib
+import dataclasses
 import io
 import json
 import os
@@ -238,6 +239,9 @@ class _DeadKit:
     def _dead(self, call):
         raise KitError(self.name, call, "server did not start: boom")
 
+    def start(self):
+        self._dead("start")
+
     @property
     def tools(self):
         self._dead("start")
@@ -273,6 +277,12 @@ class _HookedKit:
 
     def __init__(self, name):
         self.name = name
+
+    def start(self):
+        pass
+
+    def describe(self):
+        return None
 
     def step_problems(self, study, step):
         return [f"step {step.step!r}: no analysis 'nosuch'"]
@@ -347,29 +357,70 @@ class TestExecutorFlag(_Point):
             self.assertTrue(_HookedKitSet.made[0].closed)
 
 
-class TestLaunchRefusals(unittest.TestCase):
-    def test_the_ticket_is_checked_only_when_a_kit_asks(self):
-        study = object()
-        calls = []
+class _RecordingKitSet:
+    """A KitSet that records whether any kit was asked for."""
+    made = []
 
-        def kerberos():
-            calls.append(1)
-            return "ticket has under 4 h left"
+    def __init__(self, campaign, *, executor="grid", parallel=None):
+        self.gets = []
+        self.closed = False
+        _RecordingKitSet.made.append(self)
 
-        with mock.patch.object(run, "executor_problems",
-                               return_value=[]), \
-                mock.patch.object(run, "requires_kerberos",
-                                  return_value=True):
-            self.assertEqual(run.launch_refusals(
-                study, "grid", None, kerberos=kerberos),
-                ["ticket has under 4 h left"])
-        with mock.patch.object(run, "executor_problems",
-                               return_value=[]), \
-                mock.patch.object(run, "requires_kerberos",
-                                  return_value=False):
-            self.assertEqual(run.launch_refusals(
-                study, "grid", None, kerberos=kerberos), [])
-        self.assertEqual(calls, [1])
+    def get(self, name):
+        self.gets.append(name)
+        return _HookedKit(name)
+
+    def close(self):
+        self.closed = True
+
+
+class TestNothingStartsBeforeTheChecks(unittest.TestCase):
+    def refuse_toy(self, *args, decl_patch=None, before=None):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            study = st.load_study_file(write_study(
+                toy_doc(name="gatetoy", layout="v2"), tmp / "studies"))
+            grid = tmp / "grid"
+            if before:
+                before(grid)
+            out = io.StringIO()
+            _RecordingKitSet.made = []
+            flat = sys.modules["kit_registry"]
+            patched = {}
+            if decl_patch:
+                patched = {"toykit": dataclasses.replace(
+                    flat.KITS["toykit"], **decl_patch)}
+            with mock.patch.dict(modes.STUDIES, {"gatetoy": study}), \
+                    mock.patch.dict(flat.KITS, patched), \
+                    mock.patch.object(run, "KitSet", _RecordingKitSet), \
+                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                    mock.patch.object(run, "board_for", mock.Mock()), \
+                    contextlib.redirect_stdout(out):
+                rc = run.main(["--study", "gatetoy", *args, "--campaign", "t",
+                               "--x=1.0,2.0"])
+            gets = [g for k in _RecordingKitSet.made for g in k.gets]
+            return rc, out.getvalue(), grid, gets
+
+    def test_a_bad_config_name_refuses_and_writes_nothing(self):
+        rc, out, grid, gets = self.refuse_toy(
+            "--config", "bad.name",
+            decl_patch={"names_runs_after_config": True})
+        self.assertEqual(rc, 2, out)
+        self.assertIn("REFUSED", out)
+        self.assertIn("'.'", out)
+        self.assertFalse((grid / "bad.name").exists())
+        self.assertEqual(gets, [])
+
+    def test_a_broken_point_starts_no_kit(self):
+        def before(grid):
+            state = grid / "p1" / "state"
+            state.mkdir(parents=True)
+            (state / "broken.txt").write_text("step toy failed")
+
+        rc, out, grid, gets = self.refuse_toy("--config", "p1", before=before)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("broken.txt", out)
+        self.assertEqual(gets, [])
 
 
 class TestKitStartCheck(unittest.TestCase):

@@ -17,13 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
-import kit_registry  # noqa: E402
 import modes as _modes  # noqa: E402
 from boards import board_for  # noqa: E402
-from contract import (ContractError, EXECUTORS, GRID_TICKET_SECONDS,  # noqa: E402
-                      KitSet, check_kerberos, executor_problems,
-                      kit_step_problems, requires_kerberos)
-from kits import KitError  # noqa: E402
+from contract import EXECUTORS, KitSet, launch_problems  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
 from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
 
@@ -53,22 +49,6 @@ def local_env_refusal() -> str | None:
                 f"pipeline's grid-free activation switch); unset it and use "
                 f"--executor local instead")
     return None
-
-
-def _kerberos():
-    return check_kerberos(GRID_TICKET_SECONDS)
-
-
-def launch_refusals(study, executor, parallel, *, kerberos=None) -> list:
-    """Why this launch must not start, before any kit does: the executor
-    rules, then (a grid launch whose kit asks) a Kerberos ticket with 4 h
-    left."""
-    problems = executor_problems(study, executor, parallel)
-    if not problems and requires_kerberos(study, executor):
-        err = (kerberos or _kerberos)()
-        if err:
-            problems.append(err)
-    return problems
 
 
 def parse_context(pairs, study) -> dict:
@@ -131,9 +111,6 @@ def main(argv=None) -> int:
         context = parse_context(args.context, study)
     except ValueError as exc:
         return refuse(str(exc))
-    problems = launch_refusals(study, args.executor, args.parallel)
-    if problems:
-        return refuse("; ".join(problems))
     state_dir = GRID_DATA_ROOT / args.config / "state"
     broken = state_dir / "broken.txt"
     if broken.exists():
@@ -148,24 +125,13 @@ def main(argv=None) -> int:
     kits = KitSet(args.campaign, executor=args.executor,
                  parallel=args.parallel)
     try:
-        # Start every kit now, through the KitSet the steps reuse: a kit that
-        # won't start is the environment, not this point, so it is refused
-        # before anything is written rather than recorded in broken.txt.
-        for name in sorted(kit_registry.kits_of(study)):
-            try:
-                kits.get(name).tools
-            except (KeyError, KitError) as exc:
-                return refuse(f"kit {name!r} did not start, so nothing ran: "
-                              f"{exc}")
-        # The per-step half of the launch check (check_kits runs it for a
-        # campaign): an adapter that can tell a step is wrong says so before
-        # anything is written.
-        problems = []
-        for name in sorted(kit_registry.kits_of(study)):
-            try:
-                problems += kit_step_problems(kits.get(name), study, name)
-            except (KeyError, KitError, ContractError) as exc:
-                problems.append(f"kit {name!r}: {exc}")
+        # The launch check starts every kit through the KitSet the steps
+        # reuse: a kit that won't start, or a step it rejects, is the
+        # environment or the study, not this point, so it is refused before
+        # anything is written rather than recorded in broken.txt.
+        problems = launch_problems(
+            study, kits, executor=args.executor, parallel=args.parallel,
+            config_names=[args.config])
         if problems:
             return refuse("; ".join(problems))
         graph = build_study_graph(

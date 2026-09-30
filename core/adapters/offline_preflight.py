@@ -56,6 +56,9 @@ class OfflinePreflightKit:
         self._timeout_s = pc.TIMEOUT_S if timeout_s is None else timeout_s
 
     # --- the Kit interface -------------------------------------------------
+    def start(self) -> None:
+        """Nothing to start: the check runs a local process per call."""
+
     @property
     def version(self) -> str:
         return VERSION

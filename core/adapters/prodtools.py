@@ -195,7 +195,7 @@ class ProdtoolsKit:
 
     @property
     def tools(self) -> frozenset:
-        self._ensure_started()
+        self.start()
         out = {"submit", "status", "results", "describe"}
         if "cancel_run" in self._write.tools:
             out.add("cancel")
@@ -321,7 +321,9 @@ class ProdtoolsKit:
         return parse_cancel({"state": reply.get("state")}, self.name)
 
     # --- submit ------------------------------------------------------------
-    def _ensure_started(self) -> None:
+    def start(self) -> None:
+        """Start both servers and check the tools the executor needs;
+        idempotent."""
         for client in (self._write, self._read):
             if not client.started:
                 client.start()

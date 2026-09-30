@@ -1,7 +1,7 @@
 """The evaluator contract (generic-study design, "The evaluator contract"):
 reply validation, the Kit interface the engine drives, NativeKit (a kit
 that speaks the contract over MCP), KitSet (the kits
-one child uses) and check_kits (the launch check).
+one child uses) and launch_problems (the launch check both runners call).
 
 A reply outside the contract raises ContractError: a failed evaluation,
 never success. Replies must carry the keys the contract names, with the
@@ -9,6 +9,7 @@ right types; keys it doesn't name are ignored, so a kit can add fields.
 
 The Kit interface, which NativeKit and every adapter implement:
   name, version, tools, accepts_lists, poll_s
+  start() -> None   (idempotent; raises KitError when the kit cannot start)
   submit(name, params, files, inputs, workflow) -> handle
   status(handle, workflow) -> Status
   results(handle, workflow) -> Results
@@ -230,18 +231,19 @@ class NativeKit:
         self.poll_s = config.poll_s
         self._pause = pause
 
-    def _ensure_started(self) -> None:
+    def start(self) -> None:
+        """Start the server if it is not running; idempotent."""
         if not self.client.started:
             self.client.start()
 
     @property
     def version(self) -> str:
-        self._ensure_started()
+        self.start()
         return self.client.server_version or ""
 
     @property
     def tools(self) -> frozenset:
-        self._ensure_started()
+        self.start()
         return self.client.tools
 
     def _call(self, tool, args, workflow, *, retry_tool_errors):
@@ -425,20 +427,6 @@ def check_kerberos(min_seconds: int, *, klist_text=_klist_text,
     return None
 
 
-def config_name_problems(study, config: str) -> List[str]:
-    """Why a kit of the study would refuse `config` as a config name: a kit
-    whose declaration says it names its runs after the config applies
-    kit_registry.config_name_problem. Empty means every kit accepts it."""
-    problems = []
-    for name in sorted(kit_registry.kits_of(study)):
-        if not kit_registry.KITS[name].names_runs_after_config:
-            continue
-        why = kit_registry.config_name_problem(config)
-        if why:
-            problems.append(f"kit {name!r}: {why}")
-    return problems
-
-
 KIT_FAILURES = (OSError, ValueError, KeyError, subprocess.SubprocessError)
 
 
@@ -541,24 +529,41 @@ def kit_step_problems(kit, study, name: str) -> List[str]:
     return [p for s in study.steps if s.kit == name for p in hook(study, s)]
 
 
-def check_kits(study, *, campaign: str, opener=None, executor: str = "grid",
-               parallel=None) -> List[str]:
-    """The launch check. Every kit the study names must start, offer the
-    contract's step tools when it runs a step (and `check` when it runs the
-    preflight), and report a server version, which measure_sha needs. When
-    a kit offers `describe`, the study's params must be ones it accepts and
-    its metrics ones it returns. Returns the problems; an empty list means
-    launch."""
-    opener = opener or functools.partial(open_kit, executor=executor,
-                                         parallel=parallel)
-    problems = []
-    for name in sorted(kit_registry.kits_of(study)):
+def launch_problems(study, kits, *, executor: str, parallel,
+                    config_names, kerberos=None) -> List[str]:
+    """The launch check both runners make. Static rules first, opening no
+    kit: the executor rules (a problem here returns at once), a Kerberos
+    ticket with GRID_TICKET_SECONDS left when a kit of the study asks for
+    one (`kerberos` is a callable returning a problem or None; it defaults
+    to check_kerberos), and each config name against the rule of every kit
+    that names its runs after the config. If any of those found a problem,
+    return them. Then every kit the study names, from `kits`, must start,
+    offer the contract's step tools when it runs a step (and `check` when
+    it runs the preflight), and report a server version, which measure_sha
+    needs. When a kit offers `describe`, the study's params must be ones it
+    accepts and its metrics ones it returns. Returns the problems; an empty
+    list means launch. `kits` stays open: the caller closes it."""
+    problems = executor_problems(study, executor, parallel)
+    if problems:
+        return problems
+    if requires_kerberos(study, executor):
+        err = (kerberos or (lambda: check_kerberos(GRID_TICKET_SECONDS)))()
+        if err:
+            problems.append(err)
+    kit_names = sorted(kit_registry.kits_of(study))
+    for config in config_names:
+        for name in kit_names:
+            if not kit_registry.KITS[name].names_runs_after_config:
+                continue
+            why = kit_registry.config_name_problem(config)
+            if why:
+                problems.append(f"kit {name!r}: {why}")
+    if problems:
+        return problems
+    for name in kit_names:
         try:
-            kit = opener(name, campaign)
-        except (KeyError, KitError) as exc:
-            problems.append(str(exc).strip("\"'"))
-            continue
-        try:
+            kit = kits.get(name)
+            kit.start()
             # A kit that runs a step needs the step calls; a kit used only
             # for the preflight needs only `check`.
             need = (set(REQUIRED_TOOLS)
@@ -595,6 +600,4 @@ def check_kits(study, *, campaign: str, opener=None, executor: str = "grid",
             problems.extend(kit_step_problems(kit, study, name))
         except (KitError, ContractError) as exc:
             problems.append(str(exc))
-        finally:
-            kit.close()
     return problems

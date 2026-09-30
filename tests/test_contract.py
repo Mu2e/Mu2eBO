@@ -474,15 +474,25 @@ class TestExecutors(unittest.TestCase):
             self.assertFalse(ct.requires_kerberos(self.study, "local"))
 
 
-class TestCheckKits(_Toy):
+class TestLaunchProblems(_Toy):
     def study(self, mutate=lambda doc: None):
         doc = toy_doc()
         mutate(doc)
         return st.load_study_file(write_study(doc, self.tmp / "studies"))
 
+    def kit_set(self, opener):
+        kits = ct.KitSet("c", opener=opener)
+        self.addCleanup(kits.close)
+        return kits
+
+    def launch(self, study, opener, **kw):
+        kw.setdefault("executor", "grid")
+        kw.setdefault("config_names", ["c1"])
+        return ct.launch_problems(study, self.kit_set(opener), parallel=None,
+                                  **kw)
+
     def check(self, study, cfg=None):
-        return ct.check_kits(study, campaign="c",
-                             opener=lambda n, c: self.open(n, c, cfg=cfg))
+        return self.launch(study, lambda n, c: self.open(n, c, cfg=cfg))
 
     def test_a_good_study_passes(self):
         self.assertEqual(self.check(self.study()), [])
@@ -525,7 +535,7 @@ class TestCheckKits(_Toy):
                 return op.OfflinePreflightKit(campaign)
             return self.open(name, campaign)
 
-        self.assertEqual(ct.check_kits(study, campaign="c", opener=opener), [])
+        self.assertEqual(self.launch(study, opener), [])
 
     def test_a_preflight_only_kit_without_check_is_refused(self):
         study = self.study(self.preflight_only)
@@ -534,6 +544,9 @@ class TestCheckKits(_Toy):
             accepts_lists = False
             tools = frozenset({"describe"})
             version = "1"
+
+            def start(self):
+                pass
 
             def describe(self):
                 return None
@@ -546,7 +559,7 @@ class TestCheckKits(_Toy):
                 return NoCheck()
             return self.open(name, campaign)
 
-        problems = ct.check_kits(study, campaign="c", opener=opener)
+        problems = self.launch(study, opener)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("['check']", problems[0])
 
@@ -568,7 +581,7 @@ class TestCheckKits(_Toy):
         def opener(name, campaign):
             return Hooked(self.open(name, campaign))
 
-        problems = ct.check_kits(study, campaign="c", opener=opener)
+        problems = self.launch(study, opener)
         self.assertEqual(asked, [s.step for s in study.steps
                                  if s.kit == "toykit"])
         self.assertIn("step 'toy': wrong analysis", problems)
@@ -578,24 +591,115 @@ class TestCheckKits(_Toy):
         kit = types.SimpleNamespace()
         self.assertEqual(ct.kit_step_problems(kit, study, "toykit"), [])
 
+    def test_a_static_problem_opens_no_kit(self):
+        study = self.study()
+        opened = []
 
-class TestConfigNames(unittest.TestCase):
-    @staticmethod
-    def study(*kits, preflight=None):
-        return types.SimpleNamespace(
-            steps=tuple(types.SimpleNamespace(kit=k) for k in kits),
-            preflight=preflight)
+        def opener(name, campaign):
+            opened.append(name)
+            return self.open(name, campaign)
+
+        toy = kit_registry.KITS["toykit"]
+        cases = {
+            "executor": (kit_registry.KITS, dict(executor="cloud"),
+                         "executor"),
+            "ticket": (replace(toy, requires_kerberos=True),
+                       dict(kerberos=lambda: "no ticket"), "no ticket"),
+            "config name": (replace(toy, names_runs_after_config=True),
+                            dict(config_names=["bad.name"]), "'.'"),
+        }
+        for label, (decl, kw, needle) in cases.items():
+            with self.subTest(label), mock.patch.dict(
+                    kit_registry.KITS, {"toykit": decl}
+                    if label != "executor" else {}):
+                problems = self.launch(study, opener, **kw)
+                self.assertTrue(problems)
+                self.assertIn(needle, " ".join(problems))
+                self.assertEqual(opened, [])
+
+    def test_an_executor_problem_skips_the_ticket(self):
+        toy = replace(kit_registry.KITS["toykit"], requires_kerberos=True)
+        asked = []
+        with mock.patch.dict(kit_registry.KITS, {"toykit": toy}):
+            problems = self.launch(self.study(), lambda n, c: self.open(n, c),
+                                   executor="cloud",
+                                   kerberos=lambda: asked.append(1))
+        self.assertTrue(problems)
+        self.assertEqual(asked, [])
+
+    def test_start_runs_before_the_tool_check(self):
+        order = []
+
+        class Fake:
+            accepts_lists = False
+            version = "1"
+
+            def start(self):
+                order.append("start")
+
+            @property
+            def tools(self):
+                order.append("tools")
+                return frozenset({"submit", "status", "results"})
+
+            def describe(self):
+                return None
+
+            def close(self):
+                pass
+
+        self.assertEqual(self.launch(self.study(), lambda n, c: Fake()), [])
+        self.assertEqual(order[:2], ["start", "tools"])
+
+    def test_a_kit_that_will_not_start_is_one_problem(self):
+        def mutate(doc):
+            self.preflight_only(doc)
+
+        study = self.study(mutate)
+        started = []
+
+        class Broken:
+            accepts_lists = False
+            version = "1"
+            tools = frozenset({"check"})
+
+            def start(self):
+                raise KitError("offline_preflight", "start", "boom")
+
+            def describe(self):
+                return None
+
+            def close(self):
+                pass
+
+        def opener(name, campaign):
+            if name == "offline_preflight":
+                return Broken()
+            started.append(name)
+            return self.open(name, campaign)
+
+        problems = self.launch(study, opener)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("offline_preflight", problems[0])
+        self.assertIn("boom", problems[0])
+        self.assertEqual(started, ["toykit"])
 
     def test_the_prodtools_rule_covers_its_steps_and_the_pre_check(self):
-        s = self.study("prodtools", preflight={"kit": "offline_preflight"})
-        problems = ct.config_name_problems(s, "smoke-1R00_00")
+        study = types.SimpleNamespace(
+            steps=(types.SimpleNamespace(kit="prodtools"),),
+            preflight={"kit": "offline_preflight"})
+        opened = []
+        kits = ct.KitSet("c", opener=lambda n, c: opened.append(n))
+        problems = ct.launch_problems(
+            study, kits, executor="local", parallel=None,
+            config_names=["smoke-1R00_00"])
         self.assertEqual(len(problems), 2, problems)
         self.assertTrue(all("'-'" in p for p in problems))
-        self.assertEqual(ct.config_name_problems(s, "smoke1R00_00"), [])
+        self.assertEqual(opened, [])
 
     def test_a_kit_without_a_rule_accepts_any_name(self):
-        self.assertEqual(ct.config_name_problems(self.study("toykit"),
-                                                 "a-b.c"), [])
+        self.assertEqual(self.launch(self.study(), lambda n, c: self.open(n, c),
+                                     config_names=["a-b.c"]), [])
 
 
 # A krbtgt line in klist's real shape; the expiry is far enough out that only

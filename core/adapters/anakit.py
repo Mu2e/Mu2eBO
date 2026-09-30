@@ -199,6 +199,9 @@ class AnakitKit:
         self._lock = threading.Lock()
 
     # --- the Kit interface -------------------------------------------------
+    def start(self) -> None:
+        """Nothing to start: each call starts and closes its own server."""
+
     @property
     def version(self) -> str:
         return self._version
