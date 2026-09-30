@@ -341,6 +341,19 @@ class TestKnobs(_Tmp):
             with self.subTest(name=name):
                 self.assertRejects(doc, name, "appears", "twice")
 
+    def test_knob_named_after_a_column_the_board_adds(self):
+        # The board appends handles/spec_sha/measure_sha/time to every row
+        # (leaderboard.V2_META). A study column of the same name loaded fine,
+        # then its header held the name twice, csv.DictReader kept the last
+        # one, and every load after the first append raised RowParseError.
+        for name in ("handles", "spec_sha", "measure_sha", "time"):
+            doc = _doc()
+            doc["knobs"][0]["name"] = name
+            doc["derive"]["exprs"] = {"ab": f"{name} * b"}
+            doc["derive"]["profiles"]["a_p"]["control"] = [name, "ab", name]
+            with self.subTest(name=name):
+                self.assertRejects(doc, name, "appears", "twice")
+
     def test_knob_fmt_without_replacement_field(self):
         # Ported from the old loader tests (R1): fmt "75.0" writes a CONSTANT
         # into every knob column, so every past eval collapses to one point

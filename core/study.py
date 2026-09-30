@@ -19,11 +19,13 @@ from typing import Any, Dict, Optional, Tuple
 
 if __package__:
     from core import kit_registry, paths
+    from core.leaderboard import V2_META
     from core.geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                     _validate_fmt, compile_expr, eval_expr)
 else:
     import kit_registry
     import paths
+    from leaderboard import V2_META
     from geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
                                _validate_fmt, compile_expr, eval_expr)
 
@@ -549,7 +551,10 @@ def _leaderboard(raw, where):
 
 
 def _check_columns(knobs, objectives, metrics, columns, context, where):
-    cols = [("config", "config")] + [
+    # The board adds V2_META to every row itself: a study column with one
+    # of those names would put it in the header twice, and csv.DictReader
+    # keeps only the last, so every load after the first append fails.
+    cols = [("config", "config")] + [(n, f"board.{n}") for n in V2_META] + [
         (x.name, f"{field}.{x.name}")
         for field, xs in (("knobs", knobs), ("objectives", objectives),
                           ("extra_metrics", metrics),
@@ -560,15 +565,18 @@ def _check_columns(knobs, objectives, metrics, columns, context, where):
     if dup:
         raise ValueError(f"{where}[{', '.join(dup)}]: a leaderboard column "
                          f"appears twice (config, knob, objective, extra "
-                         f"metric and extra column names must all differ)")
+                         f"metric and extra column names must all differ, "
+                         f"and differ from the columns the board adds: "
+                         f"{', '.join(V2_META)})")
     # A context name is allowed to equal an extra_column name -- that's how
     # an externally-supplied context value (e.g. alpha) is rendered as a
     # leaderboard column (an extra_column with a passthrough expr of the
-    # same name). It may not equal 'config', a knob, an objective or an
-    # extra metric: those already mean something computed elsewhere, so
-    # reusing the name for a context value would be ambiguous.
-    reserved = ({"config"} | {k.name for k in knobs} | {o.name for o in objectives}
-                | {m.name for m in metrics})
+    # same name). It may not equal 'config', a column the board adds, a
+    # knob, an objective or an extra metric: those already mean something
+    # computed elsewhere, so reusing the name for a context value would be
+    # ambiguous.
+    reserved = ({"config"} | set(V2_META) | {k.name for k in knobs}
+                | {o.name for o in objectives} | {m.name for m in metrics})
     clash = sorted(set(context) & reserved)
     if clash:
         raise ValueError(f"{where}[leaderboard.context]: {clash} collide "
