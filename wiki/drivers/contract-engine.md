@@ -308,6 +308,23 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   and drains the in-flight set once it's set.
 - Renamed from `graph/study_loop.py` in Phase C3 (2026-09-28); see
   "Pipeline deleted (Phase C3)" below.
+- **First real-problem loop from the CLI (2026-09-29, `c3loop01`):**
+  `graph.closed_loop --study foilspfbpz_local --q 2 --max-evals 4 --picker
+  budget_sob --executor local --parallel 4` in the `c3_sandbox/local`
+  sandbox (`AUTORESEARCH_STUDY_PATH=tests/fixtures/engine_studies`) ran
+  4/4 children ok, 4 rows, same `measure_sha` as the single-point rows, in
+  26.7 min (stagger 90 s, each child ~11.5 min). With the board holding
+  one distinct point (five repeats), `constrained_max` found 0 candidates
+  at k=1σ and relaxed (to 0σ, then 0.5σ); the later picks needed no
+  relaxation. All four picks landed under the budget (max flash
+  6.08e-07). Local-scale numbers, not physics.
+- **Parent log flushes line by line since 2026-09-29.** Launched with
+  stdout to a file, the parent's `[pool]` lines (and a hand-launched
+  `graph.run`'s `[steps]` lines) used to sit in the block buffer until
+  exit, so a live campaign log looked silent; only the children were
+  live, because the loop starts them under `python -u`. Both entry points
+  now call `run.line_buffered_stdout()` (`tests/test_run.py:
+  TestLineBufferedStdout`).
 
 **`toykit` (`tests/toykit.py`)**
 - The reference contract kit and the CI engine: a stdio MCP server

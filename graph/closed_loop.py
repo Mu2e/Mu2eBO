@@ -22,7 +22,8 @@ from boards import board_for  # noqa: E402
 from contract import (EXECUTORS, check_kits, config_name_problems,  # noqa: E402
                       launch_stagger)
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
-from run import launch_refusals, local_env_refusal, parse_context  # noqa: E402
+from run import (launch_refusals, line_buffered_stdout,  # noqa: E402
+                 local_env_refusal, parse_context)
 
 
 def state_dir(name: str) -> Path:
@@ -192,4 +193,5 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    line_buffered_stdout()
     raise SystemExit(main())

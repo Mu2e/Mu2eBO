@@ -448,5 +448,34 @@ class TestOldAndArchivedShapes(unittest.TestCase):
         self.assertIn("mode_specs/archive/", out.getvalue())
 
 
+class TestLineBufferedStdout(unittest.TestCase):
+    """An operator launches a runner with stdout sent to a log file, where
+    print() is block-buffered: before this fix a live campaign's parent log
+    showed no [pool] line until the process exited (c3loop01, 2026-09-29)."""
+
+    def test_a_line_reaches_a_pipe_before_the_process_exits(self):
+        code = (f"import sys, time; sys.path[:0] = [{str(ROOT / 'graph')!r}, "
+                f"{str(ROOT / 'core')!r}]; import run; "
+                f"run.line_buffered_stdout(); print('first'); time.sleep(120)")
+        p = subprocess.Popen([sys.executable, "-c", code],
+                             stdout=subprocess.PIPE, text=True)
+        try:
+            import select
+            ready, _, _ = select.select([p.stdout], [], [], 60)
+            self.assertTrue(ready, "no output within 60 s: stdout is buffered")
+            self.assertEqual(p.stdout.readline().strip(), "first")
+            self.assertIsNone(p.poll(), "the line must arrive while it runs")
+        finally:
+            p.kill()
+            p.wait()
+            p.stdout.close()
+
+    def test_both_entry_points_call_it(self):
+        for name in ("run.py", "closed_loop.py"):
+            text = (ROOT / "graph" / name).read_text()
+            tail = text.split('if __name__ == "__main__":')[1]
+            self.assertIn("line_buffered_stdout()", tail, name)
+
+
 if __name__ == "__main__":
     unittest.main()

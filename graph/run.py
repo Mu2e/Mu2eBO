@@ -33,6 +33,15 @@ def refuse(message: str) -> int:
     return 2
 
 
+def line_buffered_stdout() -> None:
+    """An operator launches a runner with stdout sent to a log file, where
+    print() is block-buffered: without this, [steps] and [pool] lines reach
+    the log only when the process exits, so a live campaign's parent log
+    looks silent. Called by both entry points; the children graph.closed_loop
+    launches already run under `python -u`."""
+    sys.stdout.reconfigure(line_buffering=True)
+
+
 def local_env_refusal() -> str | None:
     """AUTORESEARCH_LOCAL was the deleted pipeline's grid-free activation
     switch (wiki/drivers/local-executor.md); nothing in the engine reads it
@@ -172,4 +181,5 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    line_buffered_stdout()
     raise SystemExit(main())

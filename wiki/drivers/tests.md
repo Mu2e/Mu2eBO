@@ -1,7 +1,7 @@
 ---
 type: driver
 title: Self-tests (`tests/`)
-description: '`tests/` regression suite (35 files, 716 tests, 3 skipped), no
+description: '`tests/` regression suite (35 files, 718 tests, 3 skipped), no
   grid contact; `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s
   tests -t .`; the manual golden parity harness (`tests/golden_parity.py`)
   was deleted in Phase C3 (2026-09-28) with the pipeline it checked'
@@ -34,7 +34,7 @@ updated_note: 'Post-C3 cleanup (2026-09-29, branch cleanup-c3): 729 -> 718
 
 ## Summary
 Regression tests for the Python drivers in this project. **35 `test_*.py`
-files, 716 tests (3 skipped)** (2026-09-29, after the activate.sh kit defaults),
+files, 718 tests (3 skipped)** (2026-09-29, after the line-buffered stdout fix),
 run under
 `$AUTORESEARCH_PYTHON` with no grid contact (all mocks/tempdirs, or a temp
 `AUTORESEARCH_DATA_ROOT` for the engine's subprocess tests). The manual
@@ -58,7 +58,8 @@ test file plus `tests/golden_parity.py`, and renamed
 landing at 35 files / 729 tests / 4 skipped after the C3 final-fix
 review, then 718 tests / 3 skipped after the post-C3 cleanup (2026-09-29),
 then 713 / 3 skipped after its second batch the same day, then 716 when
-`test_activate.py` gained the three kit-checkout default tests.
+`test_activate.py` gained the three kit-checkout default tests, then
+718 with `test_run.py:TestLineBufferedStdout`.
 
 ## Key facts
 - **`tests/test_no_hardcoded_paths.py` only sees files git tracks**

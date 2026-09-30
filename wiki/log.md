@@ -6,6 +6,12 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [contract-engine](/drivers/contract-engine.md): first
+  real-problem closed loop from the CLI (`c3loop01`, foilspfbpz_local,
+  budget_sob, q=2, 4 evals, local): 4/4 ok, 4 rows, 26.7 min. It exposed
+  that a parent launched with stdout to a file logged no `[pool]` line
+  until exit (block buffering); both entry points now line-buffer stdout.
+  [tests](/drivers/tests.md) 716 -> 718.
 - **updated** [tests](/drivers/tests.md): `activate.sh` now exports
   `AUTORESEARCH_ANAKIT` / `AUTORESEARCH_PRODTOOLS` from sibling checkouts
   (`../analysis-mcp-server`, `../muse_050125/prodtools`) when unset and the
