@@ -416,6 +416,14 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   `core/pipeline.py`'s `_submit_lock` uses, so both runners serialize
   their grid submits on a host
   ([concurrent-token-contention](/incidents/concurrent-token-contention.md)).
+  **It sets the ramp rate of a big campaign (measured bpzax01, 2026-09-29):**
+  each `_ax` `submit_once` takes ~119 s (one per step; every step ships
+  its own content-keyed code tarball), and they complete back to back
+  every ~2 min, so a host submits ~30 steps/hour. At q=20 the first 40
+  submits (mubeam + elebeam_flash per child) take ~80 min while children
+  launch every 90 s; a child can wait over 10 min in preflight + queue
+  before its first submit. Steady state (3 submits per ~3.5 h child,
+  q=20: ~17/h) fits under the ceiling.
 - **No token refresh in the adapter:** the adapter never renews a
   Kerberos ticket; `graph/run.py:launch_refusals` refuses a grid
   launch up front when the study's kit(s) set `REQUIRES_KERBEROS` and

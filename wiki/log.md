@@ -6,6 +6,10 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-29
+- **updated** [contract-engine](/drivers/contract-engine.md): launched
+  `bpzax01` (first MDC2025ax campaign: foilspfbpz_ax, budget_sob, q=20,
+  40 evals, grid, 20:38 CDT); the host submit lock serializes
+  `submit_once` at ~119 s each, so a q=20 ramp takes ~80 min of submits.
 - **updated** [contract-engine](/drivers/contract-engine.md): first
   real-problem closed loop from the CLI (`c3loop01`, foilspfbpz_local,
   budget_sob, q=2, 4 evals, local): 4/4 ok, 4 rows, 26.7 min. It exposed
