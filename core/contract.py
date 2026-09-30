@@ -1,6 +1,6 @@
 """The evaluator contract (generic-study design, "The evaluator contract"):
 reply validation, the Kit interface the engine drives, NativeKit (a kit
-that speaks the contract over MCP), the adapter registry, KitSet (the kits
+that speaks the contract over MCP), KitSet (the kits
 one child uses) and check_kits (the launch check).
 
 A reply outside the contract raises ContractError: a failed evaluation,
@@ -17,10 +17,16 @@ The Kit interface, which NativeKit and every adapter implement:
   cancel(handle, workflow) -> state
   close()
   step_problems(study, step) -> [str]   (optional; the launch check)
+
+A kit is declared once, in kit_registry.KITS (an adapter kit there, a
+native kit from kits.toml): its executors, launch stagger, Kerberos need,
+config-name rule and, for an adapter, the factory string load_factory
+imports.
 """
 from __future__ import annotations
 
 import functools
+import importlib
 import subprocess
 import threading
 import time
@@ -279,42 +285,29 @@ class NativeKit:
         self.client.close()
 
 
-# Kits implemented in Python (core/adapters/). A factory is a class called
-# factory(campaign, executor=..., parallel=...), with LAUNCH_STAGGER_S and
-# EXECUTORS attributes (REQUIRES_KERBEROS optional); its kit needs a
-# kit_registry declaration and no kits.toml entry.
-ADAPTERS: Dict[str, Callable[..., Any]] = {}
-
-
-def register_adapter(name: str, factory) -> None:
-    if name in ADAPTERS:
-        raise ValueError(f"adapter {name!r} is registered twice")
-    decl = kit_registry.KITS.get(name)
-    if decl is None or name in kit_registry.NATIVE:
-        raise ValueError(f"adapter {name!r} needs a kit_registry declaration "
-                         f"and no kits.toml entry")
-    ADAPTERS[name] = factory
-
-
-def _load_adapters() -> None:
-    """Register core/adapters' kits once per process (idempotent): lazily,
-    because an adapter module imports this one."""
+def load_factory(decl):
+    """The adapter class `decl.factory` names ("module.path:Name", relative
+    to core/). Imported here, not at module top: an adapter module imports
+    this one. The module gets a `core.` prefix only when this module was
+    itself imported as core.contract, so a flat import (graph/run.py)
+    never loads a second copy of contract."""
+    module, _, attr = decl.factory.partition(":")
     if __package__:
-        from core.adapters import register_all
-    else:
-        from adapters import register_all
-    register_all(register_adapter, ADAPTERS)
+        module = f"core.{module}"
+    return getattr(importlib.import_module(module), attr)
 
 
 def open_kit(name: str, campaign: str, *, executor: str = "grid",
              parallel=None):
-    _load_adapters()
-    if name in ADAPTERS:
-        return ADAPTERS[name](campaign, executor=executor, parallel=parallel)
-    cfg = kit_registry.NATIVE.get(name)
-    if cfg is None:
-        raise KeyError(f"kit {name!r} has no adapter and no kits.toml entry, "
-                       f"so the contract engine cannot run it")
+    decl = kit_registry.KITS.get(name)
+    if decl is None:
+        raise KeyError(f"kit {name!r} is not declared in "
+                       f"core/kit_registry.py or kits.toml, so the contract "
+                       f"engine cannot run it")
+    if decl.factory is not None:
+        return load_factory(decl)(campaign, executor=executor,
+                                  parallel=parallel)
+    cfg = kit_registry.NATIVE[name]
     return NativeKit(cfg, KitClient(cfg, campaign=campaign,
                                     trace_dir=paths.GRAPH_DATA / campaign))
 
@@ -322,21 +315,12 @@ def open_kit(name: str, campaign: str, *, executor: str = "grid",
 def launch_stagger(study) -> float:
     """Seconds between a campaign's child launches: the largest any of the
     study's kits asks for."""
-    _load_adapters()
-    gap = 0.0
-    for name in kit_registry.kits_of(study):
-        if name in ADAPTERS:
-            gap = max(gap, float(ADAPTERS[name].LAUNCH_STAGGER_S))
-        else:
-            gap = max(gap, kit_registry.NATIVE[name].launch_stagger_s)
-    return gap
+    return max([0.0] + [kit_registry.KITS[name].launch_stagger_s
+                        for name in kit_registry.kits_of(study)])
 
 
 def _executors_of(name: str) -> tuple:
-    if name in ADAPTERS:
-        return tuple(ADAPTERS[name].EXECUTORS)
-    cfg = kit_registry.NATIVE.get(name)
-    return cfg.executors if cfg is not None else ()
+    return kit_registry.KITS[name].executors
 
 
 def executor_problems(study, executor: str, parallel) -> List[str]:
@@ -345,7 +329,6 @@ def executor_problems(study, executor: str, parallel) -> List[str]:
     if executor not in EXECUTORS:
         return [f"--executor must be one of {list(EXECUTORS)}, got "
                 f"{executor!r}"]
-    _load_adapters()
     problems = []
     if parallel is not None:
         if executor != "local":
@@ -363,11 +346,10 @@ def executor_problems(study, executor: str, parallel) -> List[str]:
 
 def requires_kerberos(study, executor: str) -> bool:
     """True when a grid launch of this study needs a Kerberos ticket: some
-    kit of it says so (the prodtools adapter does)."""
+    kit of it declares it (the prodtools kit does)."""
     if executor != "grid":
         return False
-    _load_adapters()
-    return any(getattr(ADAPTERS.get(n), "REQUIRES_KERBEROS", False)
+    return any(kit_registry.KITS[n].requires_kerberos
                for n in kit_registry.kits_of(study))
 
 
@@ -434,14 +416,14 @@ def check_kerberos(min_seconds: int, *, klist_text=_klist_text,
 
 
 def config_name_problems(study, config: str) -> List[str]:
-    """Why a kit of the study would refuse `config` as a config name: an
-    adapter declares its rule as config_problem(config) -> str | None.
-    Empty means every kit accepts the name."""
-    _load_adapters()
+    """Why a kit of the study would refuse `config` as a config name: a kit
+    whose declaration says it names its runs after the config applies
+    kit_registry.config_name_problem. Empty means every kit accepts it."""
     problems = []
     for name in sorted(kit_registry.kits_of(study)):
-        rule = getattr(ADAPTERS.get(name), "config_problem", None)
-        why = rule(config) if rule is not None else None
+        if not kit_registry.KITS[name].names_runs_after_config:
+            continue
+        why = kit_registry.config_name_problem(config)
         if why:
             problems.append(f"kit {name!r}: {why}")
     return problems

@@ -43,16 +43,13 @@ class OfflinePreflightKit:
 
     name = "offline_preflight"
     accepts_lists = False
-    EXECUTORS = ("grid", "local")
-    REQUIRES_KERBEROS = False       # no inputs, no grid
-    LAUNCH_STAGGER_S = 0
-    config_problem = staticmethod(kit_registry.config_name_problem)
 
     def __init__(self, campaign, *, executor="grid", parallel=None,
                  grid_root=None, runner=None, timeout_s=None):
-        if executor not in self.EXECUTORS:
-            raise ValueError(f"offline_preflight: executor must be one of "
-                             f"{list(self.EXECUTORS)}, got {executor!r}")
+        executors = kit_registry.KITS[self.name].executors
+        if executor not in executors:
+            raise ValueError(f"{self.name}: executor must be one of "
+                             f"{list(executors)}, got {executor!r}")
         self.campaign, self.executor = campaign, executor
         self._grid_root = Path(grid_root or paths.GRID_DATA_ROOT)
         self._runner = runner       # None: run_preflight's, pc.run_check

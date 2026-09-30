@@ -1,5 +1,7 @@
+import inspect
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -268,68 +270,60 @@ class TestKitSet(unittest.TestCase):
 
 
 class TestRegistry(unittest.TestCase):
-    def setUp(self):
-        decl = kit_registry.KitDecl("fakeadapter", study_keys={},
-                                    fixed_keys={}, required_fixed=frozenset(),
-                                    uses_entries=False, step_kit=True,
-                                    check_kit=False)
-        for patch in (mock.patch.dict(ct.ADAPTERS, {}, clear=True),
-                      mock.patch.dict(kit_registry.KITS,
-                                      {"fakeadapter": decl})):
-            patch.start()
-            self.addCleanup(patch.stop)
-
-    def test_register_and_open(self):
+    def test_open_calls_the_declared_factory(self):
         class Fake:
-            EXECUTORS = ("grid",)
-            LAUNCH_STAGGER_S = 7
-
             def __init__(self, campaign, *, executor, parallel):
                 self.campaign, self.executor, self.parallel = (
                     campaign, executor, parallel)
 
-        ct.register_adapter("fakeadapter", Fake)
-        kit = ct.open_kit("fakeadapter", "camp", executor="local", parallel=3)
+        decl = replace(kit_registry.KITS["toykit"], name="fakeadapter",
+                       factory="x:Fake")
+        with mock.patch.dict(kit_registry.KITS, {"fakeadapter": decl}), \
+                mock.patch.object(ct, "load_factory", return_value=Fake):
+            kit = ct.open_kit("fakeadapter", "camp", executor="local",
+                              parallel=3)
         self.assertEqual((kit.campaign, kit.executor, kit.parallel),
                          ("camp", "local", 3))
-        with self.assertRaises(ValueError):
-            ct.register_adapter("fakeadapter", Fake)
 
-    def test_only_a_declared_kit_without_a_kits_toml_entry_takes_an_adapter(self):
-        for name in ("toykit", "nosuchkit"):
-            with self.subTest(kit=name):
-                with self.assertRaises(ValueError):
-                    ct.register_adapter(name, object)
-
-    def test_a_kit_with_neither_is_refused(self):
+    def test_an_undeclared_kit_is_refused(self):
         with self.assertRaises(KeyError) as cm:
             ct.open_kit("nosuchkit", "c")
         self.assertIn("kits.toml", str(cm.exception))
+        self.assertIn("core/kit_registry.py", str(cm.exception))
+
+    def test_every_declared_factory_imports_and_names_a_class(self):
+        with_factory = [d for d in kit_registry.KITS.values() if d.factory]
+        self.assertTrue(with_factory, "no adapter kits declared")
+        for decl in with_factory:
+            with self.subTest(kit=decl.name):
+                cls = ct.load_factory(decl)
+                self.assertTrue(inspect.isclass(cls))
+                self.assertEqual(cls.name, decl.name)
+        for decl in kit_registry.KITS.values():
+            if not decl.factory:
+                self.assertIn(decl.name, kit_registry.NATIVE)
+
+    def test_a_flat_import_loads_the_flat_adapter(self):
+        code = ("import contract, kit_registry, sys; "
+                "cls = contract.load_factory(kit_registry.KITS['prodtools']); "
+                "print(cls.__module__, 'core.contract' in sys.modules)")
+        out = subprocess.run(
+            [sys.executable, "-c", code], cwd=ROOT, capture_output=True,
+            text=True, check=True,
+            env=dict(os.environ, PYTHONPATH=str(ROOT / "core")))
+        self.assertEqual(out.stdout.strip(), "adapters.prodtools False")
 
     def test_launch_stagger(self):
         with tempfile.TemporaryDirectory() as td:
             study = st.load_study_file(write_study(toy_doc(), Path(td)))
         self.assertEqual(ct.launch_stagger(study), 0.0)
 
-
-class TestLoadedMeansRunnable(unittest.TestCase):
-    """Spec ruling (Phase C3, "the `engine`/`pipeline` flags on `KitDecl`
-    go... So 'loaded' means 'runnable'"): once the two pipeline-only
-    KitDecls and the engine/pipeline flags are deleted, every kit
-    `kit_registry.KITS` declares must be runnable on the engine -- either
-    natively (a `kits.toml` entry, `kit_registry.NATIVE`) or through a
-    registered `core/adapters/` factory (`contract.ADAPTERS`, populated by
-    `contract._load_adapters` -> `core.adapters.register_all`)."""
-
-    def test_every_non_native_kit_has_a_registered_adapter(self):
-        ct._load_adapters()
-        non_native = set(kit_registry.KITS) - set(kit_registry.NATIVE)
-        self.assertTrue(non_native, "no adapter (non-kits.toml) kits "
-                                    "declared -- nothing to check")
-        missing = sorted(non_native - set(ct.ADAPTERS))
-        self.assertEqual(missing, [], f"declared in kit_registry.KITS but "
-                                      f"not a native kit and not registered "
-                                      f"in contract.ADAPTERS: {missing}")
+    def test_launch_stagger_is_the_largest_declared(self):
+        with tempfile.TemporaryDirectory() as td:
+            study = st.load_study_file(write_study(toy_doc(), Path(td)))
+        decl = replace(kit_registry.KITS["toykit"], launch_stagger_s=7.0)
+        with mock.patch.dict(kit_registry.KITS, {"toykit": decl}):
+            self.assertEqual(ct.launch_stagger(study), 7.0)
 
 
 class TestExecutors(unittest.TestCase):
@@ -353,21 +347,15 @@ class TestExecutors(unittest.TestCase):
                                                     None)[0])
 
     def test_a_kit_that_runs_only_on_the_grid(self):
-        cfg = replace(kit_registry.NATIVE["toykit"], executors=("grid",))
-        with mock.patch.dict(kit_registry.NATIVE, {"toykit": cfg}):
+        decl = replace(kit_registry.KITS["toykit"], executors=("grid",))
+        with mock.patch.dict(kit_registry.KITS, {"toykit": decl}):
             (problem,) = ct.executor_problems(self.study, "local", None)
         self.assertIn("toykit", problem)
 
     def test_kerberos_only_for_a_grid_adapter_that_asks(self):
         self.assertFalse(ct.requires_kerberos(self.study, "grid"))
-        doc = toy_doc()
-
-        class Grid:
-            EXECUTORS = ("grid", "local")
-            REQUIRES_KERBEROS = True
-            LAUNCH_STAGGER_S = 0
-
-        with mock.patch.dict(ct.ADAPTERS, {"toykit": Grid}):
+        decl = replace(kit_registry.KITS["toykit"], requires_kerberos=True)
+        with mock.patch.dict(kit_registry.KITS, {"toykit": decl}):
             self.assertTrue(ct.requires_kerberos(self.study, "grid"))
             self.assertFalse(ct.requires_kerberos(self.study, "local"))
 

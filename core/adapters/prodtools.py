@@ -161,18 +161,15 @@ class ProdtoolsKit:
 
     name = "prodtools"
     accepts_lists = False
-    EXECUTORS = ("grid", "local")
-    REQUIRES_KERBEROS = True
-    LAUNCH_STAGGER_S = 90.0
-    config_problem = staticmethod(kit_registry.config_name_problem)
 
     def __init__(self, campaign, *, executor="grid", parallel=None,
                  clients=None, clock=time.time, pause=time.sleep,
                  grid_root=None, pnfs_root=None, templates_root=None,
                  submit_lock=None):
-        if executor not in self.EXECUTORS:
-            raise ValueError(f"prodtools: executor must be one of "
-                             f"{list(self.EXECUTORS)}, got {executor!r}")
+        executors = kit_registry.KITS[self.name].executors
+        if executor not in executors:
+            raise ValueError(f"{self.name}: executor must be one of "
+                             f"{list(executors)}, got {executor!r}")
         self.campaign, self.executor = campaign, executor
         self.parallel = DEFAULT_PARALLEL if parallel is None else parallel
         self.poll_s, self._poll_ms = _POLL[executor]

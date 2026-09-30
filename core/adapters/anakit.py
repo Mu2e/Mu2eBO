@@ -30,7 +30,7 @@ import threading
 from pathlib import Path
 
 if __package__ == "core.adapters":
-    from core import kit_config, paths
+    from core import kit_config, kit_registry, paths
     from core.adapters import prodtools_entry as pe
     from core.contract import ContractError, parse_results, parse_status
     from core.kits import KitClient, KitError
@@ -38,6 +38,7 @@ if __package__ == "core.adapters":
     from core.study import expand_artifact
 else:
     import kit_config
+    import kit_registry
     import paths
     from adapters import prodtools_entry as pe
     from contract import ContractError, parse_results, parse_status
@@ -172,16 +173,15 @@ class AnakitKit:
 
     name = "anakit"
     accepts_lists = False
-    EXECUTORS = ("grid", "local")     # every analysis runs on this node
-    LAUNCH_STAGGER_S = 0.0
     poll_s = (1.0, 5.0)
 
     def __init__(self, campaign, *, executor="grid", parallel=None,
                  server=None, client_factory=None, grid_root=None,
                  fork=None):
-        if executor not in self.EXECUTORS:
-            raise ValueError(f"anakit: executor must be one of "
-                             f"{list(self.EXECUTORS)}, got {executor!r}")
+        executors = kit_registry.KITS[self.name].executors
+        if executor not in executors:
+            raise ValueError(f"{self.name}: executor must be one of "
+                             f"{list(executors)}, got {executor!r}")
         self.campaign = campaign
         self._fork_root = Path(fork) if fork is not None else fork_root()
         # Read again at the start of every submit (measure_sha must label

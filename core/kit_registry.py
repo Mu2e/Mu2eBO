@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from typing import Callable, Dict, FrozenSet
+from typing import Callable, Dict, FrozenSet, Optional, Tuple
 
 if __package__:
     from core.kit_config import load_kit_configs
@@ -139,6 +139,12 @@ class KitDecl:
     uses_entries: bool                # step "entry" names a stage template
     step_kit: bool                    # may appear in evaluate[]
     check_kit: bool                   # may be study["preflight"]["kit"]
+    executors: Tuple[str, ...]        # the --executor values it runs under
+    launch_stagger_s: float           # pause between a campaign's launches
+    requires_kerberos: bool           # a grid launch needs a ticket
+    names_runs_after_config: bool     # the config name goes into run names
+    factory: Optional[str]            # "module.path:Name" relative to core/;
+                                      # None for a native (kits.toml) kit
 
 
 KITS: Dict[str, KitDecl] = {d.name: d for d in (
@@ -148,14 +154,20 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             fixed_keys={"njobs": _job_count, "events_per_job": _positive_int,
                         "memory_mb": _positive_int, "quorum": _fraction},
             required_fixed=frozenset({"quorum"}),
-            uses_entries=True, step_kit=True, check_kit=False),
+            uses_entries=True, step_kit=True, check_kit=False,
+            executors=("grid", "local"), launch_stagger_s=90.0,
+            requires_kerberos=True, names_runs_after_config=True,
+            factory="adapters.prodtools:ProdtoolsKit"),
     KitDecl("offline_preflight",
             study_keys={"code_tarball": _path, "dumps_gdml": _flag,
                         "verifies_foil_gdml": _flag,
                         "checks_managed_overlap": _flag,
                         "require_zero_overlaps": _flag},
             fixed_keys={}, required_fixed=frozenset(), uses_entries=False,
-            step_kit=False, check_kit=True),
+            step_kit=False, check_kit=True,
+            executors=("grid", "local"), launch_stagger_s=0.0,
+            requires_kerberos=False, names_runs_after_config=True,
+            factory="adapters.offline_preflight:OfflinePreflightKit"),
     KitDecl("anakit",
             study_keys={"work_area": _path},
             fixed_keys={"analysis": _string, "input_correction": _number,
@@ -163,8 +175,17 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
                         "dio_fraction": _number, "dio_table": _path,
                         "pot_per_electron": _number},
             required_fixed=frozenset({"analysis"}), uses_entries=False,
-            step_kit=True, check_kit=False),
+            step_kit=True, check_kit=False,
+            executors=("grid", "local"), launch_stagger_s=0.0,
+            requires_kerberos=False, names_runs_after_config=False,
+            factory="adapters.anakit:AnakitKit"),
 )}
+
+for _decl in KITS.values():
+    if _decl.factory is not None and not re.fullmatch(
+            r"[A-Za-z_][\w.]*:[A-Za-z_]\w*", _decl.factory):
+        raise ValueError(f"kit {_decl.name!r}: factory {_decl.factory!r} "
+                         f"must have the form 'module.path:Name'")
 
 # Settings two kits must agree on when a study uses both:
 # (kit, key, other kit, other key, why).
@@ -221,7 +242,11 @@ def _native_decl(cfg) -> KitDecl:
                    fixed_keys={k: VALIDATORS[t]
                                for k, t in cfg.fixed_keys.items()},
                    required_fixed=frozenset(), uses_entries=False,
-                   step_kit=True, check_kit=cfg.check)
+                   step_kit=True, check_kit=cfg.check,
+                   executors=cfg.executors,
+                   launch_stagger_s=cfg.launch_stagger_s,
+                   requires_kerberos=False, names_runs_after_config=False,
+                   factory=None)
 
 
 _clash = sorted(set(NATIVE) & set(KITS))

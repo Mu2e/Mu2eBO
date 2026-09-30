@@ -175,8 +175,7 @@ class TestOpen(_Kit):
                          (True, False, False))
         self.assertEqual(sorted(decl.study_keys), ["work_area"])
         self.assertEqual(decl.required_fixed, frozenset({"analysis"}))
-        ct._load_adapters()
-        self.assertIs(ct.ADAPTERS["anakit"], ak.AnakitKit)
+        self.assertIs(ct.load_factory(decl), ak.AnakitKit)
         self.assertEqual(self.kit().tools,
                          frozenset({"submit", "status", "results"}))
 

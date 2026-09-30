@@ -257,10 +257,10 @@ class TestKitInterface(_Kit):
                          ("code_tarball", "dumps_gdml", "verifies_foil_gdml",
                           "checks_managed_overlap", "require_zero_overlaps"))
         self.assertEqual(kit.version, "offline-preflight-adapter/1")
-        self.assertEqual((op.OfflinePreflightKit.EXECUTORS,
-                          op.OfflinePreflightKit.REQUIRES_KERBEROS,
-                          op.OfflinePreflightKit.LAUNCH_STAGGER_S),
-                         (("grid", "local"), False, 0))
+        decl = kit_registry.KITS["offline_preflight"]
+        self.assertEqual((decl.executors, decl.requires_kerberos,
+                          decl.launch_stagger_s),
+                         (("grid", "local"), False, 0.0))
 
     def test_an_unknown_executor_is_refused(self):
         with self.assertRaises(ValueError):
