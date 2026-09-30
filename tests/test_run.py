@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "graph"))
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
+import contract  # noqa: E402
+import kit_config  # noqa: E402
 import modes  # noqa: E402
 import study as st  # noqa: E402
 import run  # noqa: E402
@@ -399,6 +401,93 @@ class TestKitStartCheck(unittest.TestCase):
             self.assertFalse((grid / "p1").exists(),
                              "state written for a point that never ran")
             self.assertTrue(_DeadKitSet.made and _DeadKitSet.made[0].closed)
+
+
+class _DiskFullKit:
+    """A whole kit whose server is up but whose status call hits a full disk,
+    as an adapter's OSError does mid-step."""
+    name, version = "toykit", "1"
+    accepts_lists, poll_s = False, (0.0, 0.0)
+    tools = frozenset({"submit", "status", "results"})
+
+    def start(self):
+        pass
+
+    def describe(self):
+        return None
+
+    def submit(self, name, params, files, inputs, workflow):
+        return name
+
+    def status(self, handle, workflow):
+        raise OSError("[Errno 122] Disk quota exceeded")
+
+    def close(self):
+        pass
+
+
+class _DiskFullKitSet(contract.KitSet):
+    def __init__(self, campaign, *, executor="grid", parallel=None):
+        super().__init__(campaign, opener=lambda name, campaign: _DiskFullKit())
+
+
+class TestKitErrorContract(unittest.TestCase):
+    """A kit failure the adapters used to let escape as ValueError or
+    OSError is a refusal at launch and a broken point mid-step, never a
+    traceback."""
+
+    def test_a_prodtools_kit_missing_a_server_timeout_refuses(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            study = st.load_study_file(
+                ROOT / "tests/fixtures/engine_studies/prodtools_smoke.json")
+            toml = tmp / "kits.toml"
+            toml.write_text(
+                "[servers.prodtools_write]\n"
+                'command = ["w"]\nenv_passthrough = []\nset = {}\n'
+                "timeouts = { start = 1, submit_once = 1 }\n"
+                "[servers.prodtools_read]\n"
+                'command = ["r"]\nenv_passthrough = []\nset = {}\n'
+                "timeouts = { start = 1, run_status = 1 }\n")
+            servers = kit_config.load_server_configs(toml)
+            grid = tmp / "grid"
+            out = io.StringIO()
+            with mock.patch.dict(modes.STUDIES, {"prodtools_smoke": study}), \
+                    mock.patch.object(kit_config, "load_server_configs",
+                                      return_value=servers), \
+                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                    mock.patch.object(run, "board_for", mock.Mock()), \
+                    contextlib.redirect_stdout(out):
+                rc = run.main(["--study", "prodtools_smoke", "--config",
+                               "smoke01", "--campaign", "t", "--executor",
+                               "local"])
+            self.assertEqual(rc, 2, out.getvalue())
+            self.assertIn("REFUSED", out.getvalue())
+            self.assertIn("run_local", out.getvalue())
+            self.assertFalse((grid / "smoke01").exists())
+
+    def test_an_adapter_oserror_mid_step_breaks_the_point(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            study = st.load_study_file(write_study(
+                toy_doc(name="fulltoy", layout="v2"), tmp / "studies"))
+            grid = tmp / "grid"
+            board = mock.Mock()
+            out = io.StringIO()
+            with mock.patch.dict(modes.STUDIES, {"fulltoy": study}), \
+                    mock.patch.object(run, "KitSet", _DiskFullKitSet), \
+                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                    mock.patch.object(run, "board_for",
+                                      mock.Mock(return_value=board)), \
+                    contextlib.redirect_stdout(out):
+                rc = run.main(["--study", "fulltoy", "--config", "p1",
+                               "--campaign", "t", "--x=1.0,2.0"])
+            self.assertEqual(rc, 0, out.getvalue())
+            broken = (grid / "p1" / "state" / "broken.txt").read_text()
+            self.assertIn("step toy", broken)
+            self.assertIn("OSError", broken)
+            board.assert_not_called()
+            self.assertFalse(board.mock_calls, "a row was appended")
 
 
 class TestAutoresearchLocalRefused(unittest.TestCase):

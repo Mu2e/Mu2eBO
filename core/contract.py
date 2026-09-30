@@ -18,6 +18,16 @@ The Kit interface, which NativeKit and every adapter implement:
   close()
   step_problems(study, step) -> [str]   (optional; the launch check)
 
+A kit raises only KitError or ContractError for a failure it expects: a
+server that died, a refused call, a missing timeout, a full disk. KitSet.get
+enforces this: it returns each kit inside a GuardedKit, which turns the
+OSError, ValueError, KeyError and SubprocessError a kit's own code lets
+escape (from its factory and from every attribute and method) into a
+KitError naming the kit and the call. A programming error (TypeError,
+AttributeError, ...) is not translated and crashes. Callers therefore catch
+(KitError, ContractError) around kit calls; engine-side code keeps its own
+ValueError/KeyError handling.
+
 A kit is declared once, in kit_registry.KITS (an adapter kit there, a
 native kit from kits.toml): its executors, launch stagger, Kerberos need,
 config-name rule and, for an adapter, the factory string load_factory
@@ -429,9 +439,46 @@ def config_name_problems(study, config: str) -> List[str]:
     return problems
 
 
+KIT_FAILURES = (OSError, ValueError, KeyError, subprocess.SubprocessError)
+
+
+class GuardedKit:
+    """A kit seen through the error contract: any attribute read or call
+    that raises one of KIT_FAILURES raises KitError(kit name, attribute
+    name, "<type>: <message>") instead, chained from the original. KitError
+    and ContractError (and every other exception, including AttributeError,
+    so getattr(kit, "step_problems", None) still works) pass unchanged.
+    Non-callable attributes are returned as they are."""
+
+    def __init__(self, name: str, kit):
+        self._name = name
+        self._kit = kit
+
+    def __getattr__(self, attr):
+        try:
+            value = getattr(self._kit, attr)
+        except KIT_FAILURES as exc:
+            raise self._as_kit_error(attr, exc) from exc
+        if not callable(value):
+            return value
+
+        @functools.wraps(value)
+        def guarded(*args, **kwargs):
+            try:
+                return value(*args, **kwargs)
+            except KIT_FAILURES as exc:
+                raise self._as_kit_error(attr, exc) from exc
+        return guarded
+
+    def _as_kit_error(self, attr, exc) -> KitError:
+        return KitError(self._name, attr, f"{type(exc).__name__}: {exc}")
+
+
 class KitSet:
     """The kits one child uses: opened on first use (one server per kit),
-    closed together. Thread-safe: run_steps' threads share it."""
+    closed together. Thread-safe: run_steps' threads share it. get returns
+    each kit as a GuardedKit, so a caller sees only KitError or
+    ContractError from a kit."""
 
     def __init__(self, campaign: str, opener=None, *, executor: str = "grid",
                 parallel=None):
@@ -444,14 +491,19 @@ class KitSet:
     def get(self, name: str):
         with self._lock:
             if name not in self._kits:
-                self._kits[name] = self._opener(name, self.campaign)
+                try:
+                    kit = self._opener(name, self.campaign)
+                except KIT_FAILURES as exc:
+                    raise KitError(name, "open",
+                                   f"{type(exc).__name__}: {exc}") from exc
+                self._kits[name] = GuardedKit(name, kit)
             return self._kits[name]
 
     def close(self) -> None:
         with self._lock:
             kits, self._kits = list(self._kits.values()), {}
         for kit in kits:
-            kit.close()
+            kit._kit.close()
 
 
 def _needs(study, kit_name):

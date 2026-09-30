@@ -86,12 +86,9 @@ class OfflinePreflightKit:
         workdir = self._grid_root / config / "preflight"
         cache_root = self._grid_root / "_code"
         # EDQUOT/ENOSPC in stage_workdir, a failed mkdtemp/rename in
-        # pe.unpacked, or a failed read of the geometry file all surface as
-        # a bare OSError here; node_preflight (graph/study_graph.py) only
-        # catches (KitError, ContractError, KeyError, ValueError), so an
-        # unwrapped OSError would crash the engine child instead of
-        # breaking the point (as prodtools' adapter already rewraps a
-        # staging OSError -- core/adapters/prodtools.py).
+        # pe.unpacked, or a failed read of the geometry file surface as a
+        # bare OSError; the rewrap names the workdir and the cache, which
+        # the bare one does not.
         try:
             verdict, _out = pc.run_preflight(
                 params["code_tarball"], geom.read_text(), config, workdir,

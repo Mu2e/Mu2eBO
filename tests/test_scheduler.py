@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "core"))
 import scheduler as sch  # noqa: E402
 import study as st_mod  # noqa: E402
 from contract import ContractError, Results, Status  # noqa: E402
+from contract import KitSet as ContractKits  # noqa: E402
 from kits import KitError  # noqa: E402
 from study import Step  # noqa: E402
 
@@ -77,6 +78,12 @@ class FakeKit:
             self.events.append(("cancel", handle.split(".", 1)[1]))
         return "cancelled"
 
+    def start(self):
+        pass
+
+    def describe(self):
+        return None
+
     def close(self):
         pass
 
@@ -114,6 +121,12 @@ class RaisingToolsKit:
 
     def cancel(self, *a, **kw):
         return self._inner.cancel(*a, **kw)
+
+    def start(self):
+        pass
+
+    def describe(self):
+        return None
 
     def close(self):
         self._inner.close()
@@ -218,6 +231,18 @@ class TestFailures(_Run):
         out = self.run_steps(study(step("a")), kit)
         self.assertFalse(out["a"].ok)
         self.assertIn("boom", out["a"].message)
+
+    def test_an_adapter_oserror_mid_step_fails_the_step(self):
+        class DiskFullKit(FakeKit):
+            def status(self, handle, workflow):
+                raise OSError("[Errno 122] Disk quota exceeded")
+
+        kits = ContractKits("c", opener=lambda name, campaign: DiskFullKit())
+        self.addCleanup(kits.close)
+        out = self.run_steps(study(step("a")), kits=kits)
+        self.assertFalse(out["a"].ok)
+        self.assertIn("OSError", out["a"].message)
+        self.assertIn("step a", (self.state / "broken.txt").read_text())
 
     def test_a_reply_outside_the_contract_fails_the_step(self):
         kit = FakeKit({"a": [ContractError("fake", "status", "bad state")]})

@@ -77,12 +77,8 @@ def fork_root() -> Path:
 
 
 def _git(root, *args, call) -> str:
-    # A quota-limited or flaky filesystem under `root`, or a missing git
-    # binary, must not crash the engine child: core/scheduler.py's run_steps
-    # only catches (KitError, ContractError, KeyError, ValueError), so both
-    # failures are rewrapped as KitError, naming the git command (as the
-    # sibling adapters rewrap OSError -- core/adapters/offline_preflight.py
-    # check(), core/adapters/prodtools.py _prepare()).
+    # A timeout or a missing git binary is rewrapped as KitError to name
+    # the git command and the checkout, which the bare exception does not.
     try:
         r = subprocess.run(["git", "-C", str(root), *args],
                            capture_output=True, text=True, timeout=60)
@@ -246,15 +242,10 @@ class AnakitKit:
         code = code_commit(work_area)
         sdir = self._step_dir(config, step)
         # GRID_DATA_ROOT sits on a quota-limited volume (EDQUOT has
-        # happened); an OSError here must not crash the engine child (see
-        # the note on _git).
-        try:
-            if sdir.exists():
-                shutil.rmtree(sdir)  # this step's own directory, from a rerun
-            sdir.mkdir(parents=True)
-        except OSError as exc:
-            raise ValueError(f"anakit: preparing step directory {sdir} "
-                             f"failed: {exc}") from exc
+        # happened); KitSet.get turns the OSError into a KitError.
+        if sdir.exists():
+            shutil.rmtree(sdir)  # this step's own directory, from a rerun
+        sdir.mkdir(parents=True)
         client = self._client(work_area)
         try:
             spec = self._analyses(client, workflow).get(analysis)
@@ -283,15 +274,11 @@ class AnakitKit:
         finally:
             client.close()
         result_path = sdir / RESULT_NAME
-        try:
-            write_atomic(result_path, json.dumps({
-                "handle": name, "analysis": analysis,
-                "work_area": str(work_area), "code": code,
-                "version": self._version, "metrics": list(spec["metrics"]),
-                "reply": reply}, indent=1, sort_keys=True))
-        except OSError as exc:
-            raise ValueError(f"anakit: writing {result_path} failed: "
-                             f"{exc}") from exc
+        write_atomic(result_path, json.dumps({
+            "handle": name, "analysis": analysis,
+            "work_area": str(work_area), "code": code,
+            "version": self._version, "metrics": list(spec["metrics"]),
+            "reply": reply}, indent=1, sort_keys=True))
         return name
 
     def status(self, handle, workflow):
@@ -444,11 +431,7 @@ class AnakitKit:
         path = self._step_dir(config, step) / RESULT_NAME
         if not path.exists():
             return None
-        try:
-            text = path.read_text()
-        except OSError as exc:
-            raise ValueError(f"anakit: reading {path} failed: {exc}") from exc
-        rec = json.loads(text)
+        rec = json.loads(path.read_text())
         if rec.get("handle") != handle:
             raise ContractError(self.name, "status", f"{path} holds "
                                 f"{rec.get('handle')!r}, not {handle!r}")

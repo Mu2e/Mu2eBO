@@ -163,6 +163,19 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
             return {"broken": False}
         verdict_path = state_dir / "preflight_verdict.json"
         basis = None
+
+        def finish(ok, message):
+            record = {"ok": ok, "message": message}
+            if basis is not None:
+                record["basis"] = basis
+            write_atomic(verdict_path, json.dumps(record, indent=1))
+            return {"broken": False} if ok else broken(f"preflight: {message}")
+
+        def refused(exc):
+            return finish(False, f"{type(exc).__name__}: {exc}")
+
+        # Engine-side work fails with KeyError/ValueError/OSError; a kit only
+        # ever raises KitError or ContractError.
         try:
             files = [shared["files"][f] for f in pre["files"]]
             basis = preflight_basis(pre, study.kits.get(pre["kit"], {}),
@@ -173,21 +186,26 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
                 log(f"[run] {config}: preflight passed earlier with "
                     f"the same settings and files; reusing that verdict")
                 return {"broken": False}
+        except (KeyError, ValueError, OSError) as exc:
+            return refused(exc)
+        try:
             kit = kits.get(pre["kit"])
+            accepts_lists = kit.accepts_lists
+        except (KitError, ContractError) as exc:
+            return refused(exc)
+        try:
             params = merge_params("preflight",
                                   map_params(pre["params"], shared["env"],
-                                             kit.accepts_lists),
+                                             accepts_lists),
                                   study.kits.get(pre["kit"], {}))
+        except (KeyError, ValueError, OSError) as exc:
+            return refused(exc)
+        try:
             ok, message = kit.check(f"{config}.preflight", params, files, [],
                                     workflow("preflight"))
-        except (KitError, ContractError, KeyError, ValueError,
-                OSError) as exc:
-            ok, message = False, f"{type(exc).__name__}: {exc}"
-        record = {"ok": ok, "message": message}
-        if basis is not None:
-            record["basis"] = basis
-        write_atomic(verdict_path, json.dumps(record, indent=1))
-        return {"broken": False} if ok else broken(f"preflight: {message}")
+        except (KitError, ContractError) as exc:
+            return refused(exc)
+        return finish(ok, message)
 
     def node_run_steps(state):
         outcomes = run_steps(study, config=config, state_dir=state_dir,

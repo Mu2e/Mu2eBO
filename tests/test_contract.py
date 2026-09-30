@@ -269,6 +269,120 @@ class TestKitSet(unittest.TestCase):
         self.assertTrue(all(k.closed for k in opened))
 
 
+class TestKitErrorContract(unittest.TestCase):
+    """KitSet.get hands out kits inside a guard: a kit raises only KitError
+    or ContractError."""
+
+    def kits_of(self, kit):
+        kits = ct.KitSet("c", opener=lambda name, campaign: kit)
+        self.addCleanup(kits.close)
+        return kits
+
+    def test_an_open_failure_becomes_a_kit_error(self):
+        original = ValueError("no timeout")
+
+        def opener(name, campaign):
+            raise original
+
+        with self.assertRaises(KitError) as caught:
+            ct.KitSet("c", opener=opener).get("k")
+        self.assertEqual((caught.exception.kit, caught.exception.tool),
+                         ("k", "open"))
+        self.assertIn("ValueError: no timeout", caught.exception.message)
+        self.assertIs(caught.exception.__cause__, original)
+
+    def test_a_failed_open_is_not_cached(self):
+        calls = []
+
+        def opener(name, campaign):
+            calls.append(name)
+            if len(calls) == 1:
+                raise OSError("first try")
+            return types.SimpleNamespace(close=lambda: None)
+
+        kits = ct.KitSet("c", opener=opener)
+        with self.assertRaises(KitError):
+            kits.get("k")
+        self.assertIsNotNone(kits.get("k"))
+        self.assertEqual(calls, ["k", "k"])
+
+    def test_a_method_failure_becomes_a_kit_error(self):
+        for exc in (OSError("disk"), KeyError("k"),
+                    subprocess.TimeoutExpired(["x"], 1)):
+            with self.subTest(exc=type(exc).__name__):
+                class K:
+                    def submit(self, *args):
+                        raise exc
+
+                    def close(self):
+                        pass
+
+                with self.assertRaises(KitError) as caught:
+                    self.kits_of(K()).get("k").submit("n")
+                self.assertEqual(caught.exception.kit, "k")
+                self.assertEqual(caught.exception.tool, "submit")
+                self.assertIn(type(exc).__name__, caught.exception.message)
+                self.assertIs(caught.exception.__cause__, exc)
+
+    def test_a_property_failure_becomes_a_kit_error(self):
+        class K:
+            @property
+            def tools(self):
+                raise OSError("gone")
+
+            def close(self):
+                pass
+
+        with self.assertRaises(KitError) as caught:
+            self.kits_of(K()).get("k").tools
+        self.assertEqual(caught.exception.tool, "tools")
+
+    def test_a_programming_error_passes_through(self):
+        class K:
+            def submit(self, *args):
+                raise TypeError("bug")
+
+            def close(self):
+                pass
+
+        with self.assertRaisesRegex(TypeError, "bug"):
+            self.kits_of(K()).get("k").submit("n")
+
+    def test_contract_and_tool_errors_pass_through_unchanged(self):
+        tool_error = KitToolError("k", "status", "refused")
+        contract_error = ct.ContractError("k", "results", "bad reply")
+
+        class K:
+            def status(self, *args):
+                raise tool_error
+
+            def results(self, *args):
+                raise contract_error
+
+            def close(self):
+                pass
+
+        kit = self.kits_of(K()).get("k")
+        with self.assertRaises(KitError) as caught:
+            kit.status("h")
+        self.assertIs(caught.exception, tool_error)
+        with self.assertRaises(ct.ContractError) as caught:
+            kit.results("h")
+        self.assertIs(caught.exception, contract_error)
+
+    def test_a_missing_optional_hook_reads_as_none(self):
+        kit = self.kits_of(types.SimpleNamespace(close=lambda: None)).get("k")
+        self.assertIsNone(getattr(kit, "step_problems", None))
+
+    def test_plain_attributes_pass_through(self):
+        inner = types.SimpleNamespace(accepts_lists=True, poll_s=(1.0, 2.0),
+                                      close=lambda: None)
+        kits = self.kits_of(inner)
+        self.assertEqual(kits.get("k").accepts_lists, True)
+        self.assertEqual(kits.get("k").poll_s, (1.0, 2.0))
+        self.assertIs(kits.get("k"), kits.get("k"))
+
+
 class TestRegistry(unittest.TestCase):
     def test_open_calls_the_declared_factory(self):
         class Fake:

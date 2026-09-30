@@ -210,27 +210,46 @@ def _cancel_running(study, names, state_dir, kits, workflow, log) -> None:
 
 def _run_one(study, step, config, state_dir, env, files, kits, upstream,
              workflow, sleep, log, stop) -> StepOutcome:
+    """Run one step: submit (or resume the handle an earlier run wrote), poll
+    to a terminal state, read the results. Two kinds of failure become a
+    failed StepOutcome: a kit failure (KitError or ContractError, which
+    KitSet.get guarantees is all a kit raises) and an engine-side lookup or
+    parameter error (KeyError, ValueError) while preparing the step. The
+    handle-file read and write are not caught: an OSError there is a bug."""
+    def failed(exc):
+        return StepOutcome(step.step, False, f"{type(exc).__name__}: {exc}",
+                           None)
+
     try:
         kit = kits.get(step.kit)
-        params = step_params(study, step, env, kit.accepts_lists)
+        accepts_lists = kit.accepts_lists
+    except (KitError, ContractError) as exc:
+        return failed(exc)
+    try:
+        params = step_params(study, step, env, accepts_lists)
         step_files = [files[f] for f in step.files]
         inputs = [ref for up in step.files_from for ref in upstream[up]["files"]]
-        handle_path = state_dir / f"{step.step}_cluster.txt"
-        if handle_path.exists():
-            handle = handle_path.read_text().strip()
-            log(f"[steps] {step.step}: polling {handle} (submitted by an "
-                f"earlier run)")
-        else:
-            if stop.is_set():
-                return StepOutcome(step.step, False, "cancelled: not "
-                                   "submitted, another step failed first",
-                                   None)
+    except (KeyError, ValueError) as exc:
+        return failed(exc)
+    handle_path = state_dir / f"{step.step}_cluster.txt"
+    if handle_path.exists():
+        handle = handle_path.read_text().strip()
+        log(f"[steps] {step.step}: polling {handle} (submitted by an "
+            f"earlier run)")
+    else:
+        if stop.is_set():
+            return StepOutcome(step.step, False, "cancelled: not "
+                               "submitted, another step failed first", None)
+        try:
             handle = kit.submit(f"{config}.{step.step}", params, step_files,
                                 inputs, workflow)
-            write_atomic(handle_path, handle + "\n")
-            log(f"[steps] {step.step}: submitted {handle}")
-            if stop.is_set():   # a step failed while this one submitted
-                _cancel_one(kit, step, handle, workflow, log)
+        except (KitError, ContractError) as exc:
+            return failed(exc)
+        write_atomic(handle_path, handle + "\n")
+        log(f"[steps] {step.step}: submitted {handle}")
+        if stop.is_set():   # a step failed while this one submitted
+            _cancel_one(kit, step, handle, workflow, log)
+    try:
         lo, hi = kit.poll_s
         while True:
             status = kit.status(handle, workflow)
@@ -241,14 +260,14 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
                                    f"{status.state}: {status.message}", None)
             sleep(min(max(status.poll_ms / 1000.0, lo), hi))
         res = kit.results(handle, workflow)
-        record = {"step": step.step, "kit": step.kit,
-                  "kit_version": kit.version, "handle": handle,
-                  "params": params, "inputs": inputs,
-                  "metrics": res.metrics, "files": list(res.files),
-                  "metadata": res.metadata}
-        write_atomic(state_dir / f"{step.step}_results.json",
-                     json.dumps(record, indent=1, sort_keys=True))
-        return StepOutcome(step.step, True, "completed", record)
-    except (KitError, ContractError, KeyError, ValueError) as exc:
-        return StepOutcome(step.step, False, f"{type(exc).__name__}: {exc}",
-                           None)
+        kit_version = kit.version
+    except (KitError, ContractError) as exc:
+        return failed(exc)
+    record = {"step": step.step, "kit": step.kit,
+              "kit_version": kit_version, "handle": handle,
+              "params": params, "inputs": inputs,
+              "metrics": res.metrics, "files": list(res.files),
+              "metadata": res.metadata}
+    write_atomic(state_dir / f"{step.step}_results.json",
+                 json.dumps(record, indent=1, sort_keys=True))
+    return StepOutcome(step.step, True, "completed", record)

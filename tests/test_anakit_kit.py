@@ -247,18 +247,18 @@ class TestSubmit(_Kit):
         self.assertFalse((self.sdir() / "nts.stale.root").exists())
         self.assertTrue((self.sdir() / ak.RESULT_NAME).exists())
 
-    def test_an_oserror_preparing_the_step_directory_is_a_value_error(self):
+    def test_an_oserror_preparing_the_step_directory_names_the_path(self):
         # GRID_DATA_ROOT sits on a quota-limited volume (EDQUOT has
-        # happened); the resulting OSError must become a ValueError, one of
-        # the exception types core/scheduler.py's run_steps catches, not
-        # crash the engine child. A grid_root that is itself a regular file
-        # makes sdir.mkdir(parents=True) fail with a real OSError.
+        # happened). The adapter lets the OSError escape, naming the path;
+        # KitSet.get turns it into a KitError. A grid_root that is itself a
+        # regular file makes sdir.mkdir(parents=True) fail with a real
+        # OSError.
         grid_root = self.tmp / "not_a_dir"
         grid_root.write_text("x\n")
         kit = self.kit(grid_root=grid_root)
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(OSError) as cm:
             kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
-        self.assertIn("step directory", str(cm.exception))
+        self.assertIn(str(grid_root), str(cm.exception))
 
     def test_two_steps_at_once_use_two_servers_and_two_directories(self):
         gate = threading.Barrier(2)

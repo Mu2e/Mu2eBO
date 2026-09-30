@@ -352,6 +352,8 @@ class ProdtoolsKit:
                        for ref in inputs]
             dest = (self._pnfs_root / config / "staged" / step
                     if self.executor == "grid" else sdir / "staged")
+            # The rewrap names the destination and the count, which the
+            # bare OSError does not.
             try:
                 staged = (dest, pe.link_inputs(
                     sources, dest, allow_copy=self.executor == "local"))
