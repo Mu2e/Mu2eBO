@@ -593,15 +593,19 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   `RUN_TIMEOUT_S + CALL_MARGIN_S` (300 s) so anakit reports its own timeout
   rather than the MCP call being cut off first (`AnakitKit._check_timeouts`);
   it is set to 3600 s.
-- **OSError and git failures are wrapped, not left to crash the engine
-  child:** a quota-limited or otherwise flaky `GRID_DATA_ROOT` (the step
-  directory's `mkdir`/`rmtree` in `submit`), and a hung or missing `git`
-  binary in the fork checkout (`_git`, used by `fork_commit` and
-  `code_commit`), both raise a `KitError`/`ValueError` naming the failing
-  command — matching the sibling adapters' OSError-wrapping
-  (`core/adapters/offline_preflight.py:check`,
-  `core/adapters/prodtools.py:_prepare`), so a full disk or a wedged `git`
-  breaks only the point, not the whole engine child.
+- **OSError and git failures do not crash the engine child.** Only three
+  adapter rewraps remain, each to add context: anakit's `_git` (a hung or
+  missing `git` in the fork checkout, used by `fork_commit` and
+  `code_commit`, names the git command), `core/adapters/prodtools.py:
+  _prepare` staging (names the destination and the count) and
+  `core/adapters/offline_preflight.py:check` (names the workdir and
+  cache). Any other `OSError` from a kit — a quota-limited or flaky
+  `GRID_DATA_ROOT` (the step directory in `submit`, the result-file
+  write, `_record`'s read) — reaches `KitSet.get`'s guard
+  (`contract.GuardedKit`), which turns it into a `KitError` naming the
+  kit and call, so a full disk or a wedged `git` breaks only the point.
+  (Anakit's own step-directory, result-write and `_record` rewraps were
+  deleted 2026-09-29.)
 - **A catalogue entry missing `metrics` or `takes_data_files` is an error,
   not a default:** anakit's `list_analyses` reply is checked for both keys
   explicitly in `submit` and in `step_problems` — a broken reply is a loud
@@ -1041,10 +1045,10 @@ Phase C follow-ups found in review (2026-09-25):
   launch checks the pipeline had and the engine still lacks are a
   follow-up, explicitly not part of C3 — data-quota, config-name-free and
   stale-cluster, previously done by `tools/run_grid.sh` via the now-deleted
-  `core/launch_checks.py`. (This is distinct from `config_name_problems` in
-  `core/contract.py`, which `graph/closed_loop.py` already calls at launch —
-  that checks the first child name against each kit's own character rule,
-  not whether the name is free of a prior claim, quota-under-limit, or a
+  `core/launch_checks.py`. (This is distinct from the config-name rule that
+  `contract.launch_problems` applies, for both runners, for each kit whose
+  declaration has `names_runs_after_config` — that checks the first child
+  name against the kit's own character rule, not whether the name is free of a prior claim, quota-under-limit, or a
   stale grid cluster.)
 - **A local run no longer checks for a live Kerberos ticket before
   starting.** the Kerberos check in `contract.launch_problems` runs only when
