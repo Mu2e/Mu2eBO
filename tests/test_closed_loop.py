@@ -252,14 +252,19 @@ class TestNamePrefix(unittest.TestCase):
             study = st.load_study_file(
                 write_study(toy_doc(name="pfxtoy", layout="v2"), Path(td)))
         seen = []
+        boards = []
+        study_board = object()
 
         def rule(study_, kits, *, config_names, **kw):
             seen.extend(config_names)
+            boards.append(kw.get("board"))
             return [f"kit 'x': config name {config_names[0]!r} has "
                     f"character(s) '-'"]
 
         out = io.StringIO()
         with mock.patch.dict(closed_loop._modes.STUDIES, {"pfxtoy": study}), \
+                mock.patch.object(closed_loop, "board_for",
+                                  return_value=study_board) as board_for, \
                 mock.patch.object(closed_loop, "launch_problems",
                                   side_effect=rule), \
                 mock.patch.object(closed_loop, "run_rolling") as rolling, \
@@ -269,6 +274,11 @@ class TestNamePrefix(unittest.TestCase):
                                   "smoke-1"])
         self.assertEqual(rc, 2)
         self.assertEqual(seen, ["smoke-1R00_00"])
+        # The board check is part of the launch check: dropping board=
+        # would pass every other assertion here.
+        board_for.assert_called_with(study)
+        self.assertEqual(len(boards), 1)
+        self.assertIs(boards[0], study_board)
         rolling.assert_not_called()
         self.assertIn("REFUSED", out.getvalue())
         self.assertIn("smoke-1R00_00", out.getvalue())
