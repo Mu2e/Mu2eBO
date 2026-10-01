@@ -4,6 +4,7 @@ adapter with a fake client; one test drives it through the real KitClient
 against tests/fakeanakit.py over stdio."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -32,11 +33,11 @@ CATALOGUE = {
         "parameters": {"input_correction": {"required": True},
                        "dio_table": {"required": True},
                        "dio_fraction": {"required": False}},
-        "takes_data_files": True},
+        "takes_data_files": True, "input_kind": "art_files"},
     "approx_ce_sensitivity": {
         "metrics": ["sensitivity"],
         "parameters": {"sig_eff": {"required": True}},
-        "takes_data_files": False},
+        "takes_data_files": False, "input_kind": "root_file"},
 }
 SUCCESS = {"status": "success", "files": [], "message": "ce_sensitivity ok",
            "metadata": {"s_over_sqrt_b": 4.15, "ce_abs_eff": 6.67e-4,
@@ -307,6 +308,31 @@ class TestSubmit(_Kit):
             kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
         self.assertIn("metrics", str(cm.exception))
 
+    def test_a_root_file_analysis_needs_no_mu2eoptana(self):
+        shutil.rmtree(self.wa / "Mu2eOptAna")
+        self.kit().submit("cfg1.l1", self.params(analysis="approx_ce_sensitivity",
+                                                 input_correction=None)
+                          | {"sig_eff": 1e-4}, [], self.inputs[:1], "w")
+        rec = json.loads((self.sdir(step="l1") / ak.RESULT_NAME).read_text())
+        self.assertIsNone(rec["code"])
+
+    def test_an_art_analysis_records_its_code(self):
+        self.kit().submit("cfg1.sob", self.params(), [], self.inputs, "w")
+        want = subprocess.run(
+            ["git", "-C", str(self.wa / "Mu2eOptAna"), "describe", "--always",
+             "--dirty"], capture_output=True, text=True,
+            check=True).stdout.strip()
+        rec = json.loads((self.sdir() / ak.RESULT_NAME).read_text())
+        self.assertEqual(rec["code"], want)
+
+    def test_a_catalogue_entry_without_input_kind_is_a_kit_error(self):
+        entry = {k: v for k, v in CATALOGUE["ce_sensitivity"].items()
+                 if k != "input_kind"}
+        kit = self.kit(catalogue={"ce_sensitivity": entry})
+        with self.assertRaises(KitError) as cm:
+            kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
+        self.assertIn("input_kind", str(cm.exception))
+
     def test_a_fork_commit_that_moved_since_open_refuses_submit(self):
         kit = self.kit()
         (self.fork / "analysis_mcp_server" / "extra.py").write_text("y\n")
@@ -442,6 +468,21 @@ class TestStepProblems(_Kit):
             with self.subTest(needle=needle):
                 problems = self.kit().step_problems(study, step)
                 self.assertTrue(any(needle in p for p in problems), problems)
+
+    def test_a_root_file_analysis_ignores_the_backing(self):
+        fixed = {"analysis": "approx_ce_sensitivity", "sig_eff": 1e-4}
+        study, step = self.study(
+            fixed, self.tarball("/cvmfs/x/Musings/SimJob/Run1Bap"),
+            "sob.sensitivity")
+        self.assertEqual(self.kit().step_problems(study, step), [])
+
+    def test_a_catalogue_entry_without_input_kind_is_named(self):
+        entry = {k: v for k, v in CATALOGUE["ce_sensitivity"].items()
+                 if k != "input_kind"}
+        study, step = self.study(self.GOOD, self.tarball(MDC))
+        problems = self.kit(catalogue={"ce_sensitivity": entry}
+                            ).step_problems(study, step)
+        self.assertTrue(any("input_kind" in p for p in problems), problems)
 
     def test_a_work_area_that_is_not_a_directory(self):
         study, step = self.study(self.GOOD)

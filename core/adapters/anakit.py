@@ -242,7 +242,6 @@ class AnakitKit:
             raise ValueError(f"anakit: {name} has no input files (its "
                              f"files_from steps gave none)")
         data = [str(pe.local_path(ref, "anakit: input")) for ref in inputs]
-        code = code_commit(work_area)
         sdir = self._step_dir(config, step)
         # GRID_DATA_ROOT sits on a quota-limited volume (EDQUOT has
         # happened); KitSet.get turns the OSError into a KitError.
@@ -264,6 +263,12 @@ class AnakitKit:
             if "metrics" not in spec:
                 raise _error("list_analyses", f"anakit's reply for analysis "
                              f"{analysis!r} has no 'metrics'")
+            if "input_kind" not in spec:
+                raise _error("list_analyses", f"anakit's reply for analysis "
+                             f"{analysis!r} has no 'input_kind'")
+            # Only an EdepAna art job has a Mu2eOptAna build to record.
+            code = (code_commit(work_area)
+                    if spec["input_kind"] == "art_files" else None)
             args = {"analysis": analysis, "output_dir": str(sdir),
                     "parameters": params, "timeout_s": RUN_TIMEOUT_S}
             if spec["takes_data_files"]:
@@ -332,18 +337,24 @@ class AnakitKit:
         if not Path(work_area).is_dir():
             return [f"{where}: work area {work_area} is not a directory"]
         problems = []
-        tarball = study.kits.get("prodtools", {}).get("code_tarball")
-        if tarball is not None:
-            why = backing_problem(work_area, tarball)
-            if why:
-                problems.append(f"{where}: {why}")
         analyses = self._catalogue(work_area,
                                    f"{self.campaign}/launch/{self.name}")
         analysis = step.fixed.get("analysis")
         spec = analyses.get(analysis)
         if spec is None:
-            return problems + [f"{where}: anakit has no analysis "
-                               f"{analysis!r}; it has {sorted(analyses)}"]
+            return [f"{where}: anakit has no analysis "
+                    f"{analysis!r}; it has {sorted(analyses)}"]
+        if "input_kind" not in spec:
+            # No silent fallback, as for 'metrics' below.
+            return [f"{where}: anakit's list_analyses reply for analysis "
+                    f"{analysis!r} has no 'input_kind'"]
+        tarball = study.kits.get("prodtools", {}).get("code_tarball")
+        # Only an EdepAna art job is built on the jobs' release; a root_file
+        # analysis is Python and runs from its own work area.
+        if tarball is not None and spec["input_kind"] == "art_files":
+            why = backing_problem(work_area, tarball)
+            if why:
+                problems.append(f"{where}: {why}")
         declared = spec.get("parameters", {})
         sent = (set(step.fixed) | set(step.params)) - set(OWN_PARAMS)
         unknown = sorted(sent - set(declared))

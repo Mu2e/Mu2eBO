@@ -15,11 +15,11 @@ CATALOGUE = {
     "ce_sensitivity": {
         "metrics": ["s_over_sqrt_b", "ce_abs_eff"],
         "parameters": {"input_correction": {"required": True}},
-        "takes_data_files": True},
+        "takes_data_files": True, "input_kind": "art_files"},
     "approx_ce_sensitivity": {
         "metrics": ["sensitivity"],
         "parameters": {"sig_eff": {"required": True}},
-        "takes_data_files": False},
+        "takes_data_files": False, "input_kind": "root_file"},
 }
 
 
