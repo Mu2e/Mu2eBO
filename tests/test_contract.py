@@ -577,6 +577,17 @@ class TestLaunchProblems(_Toy):
         self.assertIn(self.toy_sha(study)[:12], problems[0])
         self.assertIn("leaderboard.file", problems[0])
 
+    def test_an_archive_of_another_measure_sha_is_refused(self):
+        study = self.study()
+        arch = self.board(study, "b" * 64)
+        arch.path.rename(self.tmp / "arch.tsv")
+        lb = Leaderboard.for_study(study, path=self.tmp / "b.tsv",
+                                   archive_path=self.tmp / "arch.tsv")
+        problems = self.with_board(study, lb)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("bbbbbbbbbbbb", problems[0])
+        self.assertIn("leaderboard.file", problems[0])
+
     def test_a_board_of_this_measure_sha_passes(self):
         study = self.study()
         board = self.board(study, self.toy_sha(study))

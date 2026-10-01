@@ -238,13 +238,15 @@ class Leaderboard:
             return list(csv.DictReader(f, fieldnames=cols, delimiter="\t"))
 
     def measure_shas(self) -> set[str]:
-        """The measure_sha of every live-board row, read under the shared
-        lock; empty when the file is missing or holds only its header.
-        Raises SchemaMismatch on a wrong header."""
-        if not self.path.exists():
-            return set()
-        with _flock_sh(self.path):
-            return {r["measure_sha"] for r in self._raw_rows(self.path)}
+        """The measure_sha of every row `append` checks against: the
+        archive's (read without the lock, as load() does) and the live
+        board's (under the shared lock). Empty when neither file has a row.
+        Raises SchemaMismatch on a wrong header in either."""
+        shas = {r["measure_sha"] for r in self._raw_rows(self.archive_path)}
+        if self.path.exists():
+            with _flock_sh(self.path):
+                shas |= {r["measure_sha"] for r in self._raw_rows(self.path)}
+        return shas
 
     def _is_new_row(self, rows: list[dict], line: str) -> bool:
         """False when this exact row (apart from `time`) is already on the

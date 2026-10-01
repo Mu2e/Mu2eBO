@@ -362,6 +362,26 @@ class TestMeasureShas(unittest.TestCase):
                 .replace("c1", "c3") + "\n")
         self.assertEqual(self.lb.measure_shas(), {"a" * 64, "b" * 64})
 
+    def archive_with(self, sha):
+        arch = Leaderboard.for_study(self.study, path=self.tmp / "arch.tsv",
+                                     archive_path=None)
+        arch.append(Point("a1", [1.0, 2.0], {"branin": 1.5, "currin": 3.0}),
+                    {}, dict(META, measure_sha=sha))
+        return Leaderboard.for_study(self.study, path=self.tmp / "b.tsv",
+                                     archive_path=arch.path)
+
+    def test_an_archive_row_counts_with_no_live_file(self):
+        lb = self.archive_with("b" * 64)
+        self.assertEqual(lb.measure_shas(), {"b" * 64})
+
+    def test_the_archive_and_the_live_board_are_one_union(self):
+        lb = self.archive_with("b" * 64)
+        lb.append(Point("c1", [1.0, 2.0], {"branin": 1.5, "currin": 3.0}),
+                  {}, dict(META, measure_sha="b" * 64))
+        lb.path.write_text(lb.header() + lb.path.read_text().splitlines()[1]
+                           .replace("b" * 64, "a" * 64) + "\n")
+        self.assertEqual(lb.measure_shas(), {"a" * 64, "b" * 64})
+
     def test_a_wrong_header_is_refused(self):
         self.lb.path.write_text("config\tx\n")
         with self.assertRaises(SchemaMismatch):
