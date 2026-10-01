@@ -1042,8 +1042,14 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
 - **Never reuses a verdict:** the pre-check works in
   `<GRID_DATA_ROOT>/check_<study>/`, emptied at every run, but only when it
   holds the `.check_study` marker the command writes; a directory of that
-  name without it is a failed geometry and left untouched. Kit trace goes
-  to `GRAPH_DATA/check/`. No submit, no board append.
+  name without it is a failed geometry and left untouched. A non-blocking
+  `flock` on `<GRID_DATA_ROOT>/check_<study>.lock` lets one check of a
+  study run at a time: a second one (an agent checking the center and an
+  `--x` at once) is a failed geometry, "another check_study ... is
+  running", instead of emptying the first one's scratch and reading its
+  verdict. Kit trace goes to `GRAPH_DATA/check/`. No submit, no board
+  append. A non-finite `--x` is exit 2 (a NaN would make the report
+  invalid JSON).
 - **Must not import `modes` (or `run`, which imports it) at module level:**
   importing modes loads every study, so a broken draft on the study path
   would crash the check instead of being reported. `run.local_env_refusal`

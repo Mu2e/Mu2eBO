@@ -2,6 +2,7 @@
 its ${ARTIFACT} paths exist, the launch check passes and its geometry
 passes the pre-check at the center point -- with nothing submitted and no
 board row (spec docs/superpowers/specs/2026-10-01-check-study-design.md)."""
+import fcntl
 import json
 import os
 import subprocess
@@ -297,13 +298,18 @@ class TestMain(_Tmp):
         self.env = engine_env(self.data, self.studies)
         self.scratch = self.data / "autoresearch_grid" / "check_toystudy"
 
-    def check(self, *args, json_out=True):
+    def check(self, *args, json_out=True, child_tracebacks=False):
         argv = [sys.executable, "-m", "graph.check_study", *args, *self.LOCAL]
         if json_out:
             argv.append("--json")
         r = subprocess.run(argv, cwd=ROOT, env=self.env, capture_output=True,
                            text=True, timeout=120)
-        self.assertNotIn("Traceback", r.stderr)
+        if child_tracebacks:
+            # A kit server that dies prints its own traceback to the shared
+            # stderr; check_study's own would be the last one.
+            self.assertNotIn("check_study.py", r.stderr)
+        else:
+            self.assertNotIn("Traceback", r.stderr)
         out = json.loads(r.stdout) if json_out and r.returncode != 2 else None
         return r, out
 
@@ -432,6 +438,52 @@ class TestMain(_Tmp):
         self.assertEqual(geometry["status"], "failed")
         self.assertTrue(any("ZeroDivisionError" in p or "division" in p
                             for p in geometry["problems"]), geometry)
+
+    def test_a_second_check_of_the_same_study_is_refused_while_one_runs(self):
+        # An agent may check the same study twice at once (the center and
+        # an --x): the second must not empty the first one's scratch and
+        # read its verdict as its own.
+        write_study(toy_pre(), self.studies)
+        grid = self.data / "autoresearch_grid"
+        grid.mkdir(parents=True)
+        with open(grid / "check_toystudy.lock", "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            r, out = self.check("toystudy")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        geometry = self.checks(out)["geometry"]
+        self.assertEqual(geometry["status"], "failed")
+        self.assertTrue(any("another check_study of 'toystudy'" in p
+                            for p in geometry["problems"]), geometry)
+        self.assertFalse(self.scratch.exists())
+
+    def test_an_out_of_bounds_x_names_the_knob(self):
+        write_study(toy_pre(), self.studies)
+        r, out = self.check("toystudy", "--x=11,2")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        geometry = self.checks(out)["geometry"]
+        self.assertEqual(geometry["status"], "failed")
+        self.assertTrue(any("'x1'" in p for p in geometry["problems"]),
+                        geometry)
+
+    def test_a_kit_that_will_not_start_fails_launch(self):
+        write_study(toy_pre(), self.studies)
+        self.data.mkdir()
+        (self.data / "toykit").write_text("a file where its state dir goes")
+        r, out = self.check("toystudy", child_tracebacks=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        c = self.checks(out)
+        self.assertEqual(c["launch"]["status"], "failed")
+        self.assertTrue(any("toykit" in p for p in c["launch"]["problems"]),
+                        c["launch"])
+        self.assertEqual(c["geometry"]["status"], "skipped")
+
+    def test_a_non_finite_x_is_exit_2(self):
+        # NaN would make the report invalid JSON ("x1": NaN).
+        write_study(toy_pre(), self.studies)
+        for x in ("--x=nan,2", "--x=1,inf"):
+            r, _ = self.check("toystudy", x)
+            self.assertEqual(r.returncode, 2, x + r.stdout + r.stderr)
+            self.assertIn("finite", r.stderr)
 
     def test_an_unknown_name_is_exit_2(self):
         r, _ = self.check("nosuchstudy")

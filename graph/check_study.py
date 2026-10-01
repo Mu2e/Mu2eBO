@@ -6,7 +6,8 @@ board row is written. By hand:
   python -m graph.check_study /path/to/draft.json --x=1.5,2 --json
   python -m graph.check_study ce_chain --executor local --parallel 1
 The pre-check works in <GRID_DATA_ROOT>/check_<study>/, emptied at every run
-(only when it holds the .check_study marker this command writes there).
+(only when it holds the .check_study marker this command writes there);
+<GRID_DATA_ROOT>/check_<study>.lock lets one check of a study run at a time.
 Exit 0: every check passed. Exit 1: a check failed (the report says which
 and why). Exit 2: a bad command line, or a target that is neither a file
 nor a study on the study path.
@@ -15,7 +16,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import json
+import math
 import os
 import shutil
 import sys
@@ -237,6 +240,22 @@ def check_geometry(study, kits, *, x: List[float], config: str,
         check_x(study, x)
     except ValueError as exc:
         return Check("geometry", "failed", [str(exc)])
+    # Two checks of one study share its scratch directory: the second would
+    # empty it under the first and read the first one's verdict as its own.
+    lock = paths.GRID_DATA_ROOT / f"{config}.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock, "a") as held:
+        try:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return Check("geometry", "failed", [
+                f"another check_study of {study.name!r} is running ({lock} "
+                f"is locked); rerun when it ends"])
+        return _geometry_locked(study, kits, x=x, config=config,
+                                executor=executor)
+
+
+def _geometry_locked(study, kits, *, x, config, executor) -> Check:
     try:
         problem = prepare_scratch(config)
     except OSError as exc:
@@ -316,6 +335,10 @@ def main(argv=None) -> int:
         path = resolve_target(args.target)
         x_arg = (None if args.x is None
                  else [float(v) for v in args.x.split(",")])
+        if x_arg is not None and not all(math.isfinite(v) for v in x_arg):
+            # A NaN would also make the report invalid JSON.
+            raise ValueError(f"--x: every value must be a finite number, "
+                             f"got {args.x!r}")
     except ValueError as exc:
         print(f"check_study: {exc}", file=sys.stderr)
         return 2
