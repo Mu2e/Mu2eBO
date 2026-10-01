@@ -10,6 +10,7 @@ Exit 2: refused before anything ran. Anything else: a crash.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -122,6 +123,14 @@ def main(argv=None) -> int:
                       f"same job). To evaluate this x again from scratch, "
                       f"use a new config name")
 
+    # A retried point adopts the steps it finished (scheduler.run_steps reads
+    # the same files), so the board check must use the versions they ran under.
+    adopted = {}
+    for step in study.steps:
+        path = state_dir / f"{step.step}_results.json"
+        if path.exists():
+            adopted[step.step] = json.loads(path.read_text())
+
     kits = KitSet(args.campaign, executor=args.executor,
                  parallel=args.parallel)
     try:
@@ -132,7 +141,7 @@ def main(argv=None) -> int:
         problems = launch_problems(
             study, kits, executor=args.executor, parallel=args.parallel,
             config_names=[args.config],
-            board=board_for(study))
+            board=board_for(study), adopted=adopted)
         if problems:
             return refuse("; ".join(problems))
         graph = build_study_graph(

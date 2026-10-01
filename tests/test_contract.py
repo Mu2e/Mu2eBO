@@ -600,6 +600,54 @@ class TestLaunchProblems(_Toy):
         self.assertEqual(len(problems), 1)
         self.assertIn("header", problems[0])
 
+    def two_steps(self, doc):
+        doc["evaluate"].append(dict(doc["evaluate"][0], step="toy2"))
+        doc["extra_metrics"].append({"name": "b2", "metric": "toy2.branin",
+                                     "fmt": "{:.6f}"})
+
+    def adopted(self, **versions):
+        return {step: {"kit": "toykit", "kit_version": v}
+                for step, v in versions.items()}
+
+    def test_a_resumed_point_keeps_the_version_its_steps_ran_under(self):
+        study = self.study(self.two_steps)
+        board = self.board(study, study.measure_sha({"toykit": "V1"}))
+        problems = self.launch(
+            study, lambda n, c: self.open(n, c), board=board,
+            adopted=self.adopted(toy="V1", toy2="V1"))
+        self.assertEqual(problems, [])
+
+    def test_a_point_adopted_in_part_on_an_old_version_is_refused(self):
+        study = self.study(self.two_steps)
+        board = self.board(study, study.measure_sha({"toykit": "V1"}))
+        problems = self.launch(
+            study, lambda n, c: self.open(n, c), board=board,
+            adopted=self.adopted(toy="V1"))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("toykit", problems[0])
+        self.assertIn("new config name", problems[0])
+
+    def test_adopted_steps_of_a_kit_that_disagree_are_refused(self):
+        study = self.study(self.two_steps)
+        board = self.board(study, study.measure_sha({"toykit": "V1"}))
+        problems = self.launch(
+            study, lambda n, c: self.open(n, c), board=board,
+            adopted=self.adopted(toy="V1", toy2="V2"))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("toykit", problems[0])
+        self.assertIn("V1", problems[0])
+        self.assertIn("V2", problems[0])
+
+    def test_a_partly_adopted_point_at_the_current_version_passes(self):
+        study = self.study(self.two_steps)
+        board = self.board(study, self.toy_sha(study))
+        kit = self.kit_set(lambda n, c: self.open(n, c)).get("toykit")
+        kit.start()
+        problems = self.launch(
+            study, lambda n, c: self.open(n, c), board=board,
+            adopted=self.adopted(toy=kit.version))
+        self.assertEqual(problems, [])
+
     def test_no_board_check_when_a_kit_fails(self):
         study = self.study()
         problems = self.with_board(study, self.board(study, "a" * 64),

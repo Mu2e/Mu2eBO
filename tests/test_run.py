@@ -355,6 +355,29 @@ class TestExecutorFlag(_Point):
                              "state written for a point that never ran")
             self.assertTrue(_HookedKitSet.made[0].closed)
 
+    def test_the_launch_check_gets_the_adopted_step_records(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            study = st.load_study_file(write_study(
+                toy_doc(name="adoptoy", layout="v2"), tmp / "studies"))
+            grid = tmp / "grid"
+            state = grid / "p1" / "state"
+            state.mkdir(parents=True)
+            record = {"kit": "toykit", "kit_version": "V1", "handle": "h"}
+            (state / "toy_results.json").write_text(json.dumps(record))
+            with mock.patch.dict(modes.STUDIES, {"adoptoy": study}), \
+                    mock.patch.object(run, "KitSet", _RecordingKitSet), \
+                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                    mock.patch.object(run, "board_for", mock.Mock()), \
+                    mock.patch.object(run, "launch_problems",
+                                      return_value=["stop"]) as launch, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                rc = run.main(["--study", "adoptoy", "--config", "p1",
+                               "--campaign", "t", "--x=1.0,2.0"])
+            self.assertEqual(rc, 2)
+            self.assertEqual(launch.call_args.kwargs["adopted"],
+                             {"toy": record})
+
 
 class _RecordingKitSet:
     """A KitSet that records whether any kit was asked for."""
