@@ -1,0 +1,24 @@
+{
+ "_comment": "Step ce of ce_chain (docs/superpowers/specs/2026-09-30-ce-chain-design.md): CeEndpoint primary from production's MDC2025 target stops, as prodtools data/mdc2025/primary_muon.json does.",
+ "desc_fmt": "CeEndpoint_{cfg}",
+ "output_glob": "dts.*.CeEndpoint.*.art",
+ "njobs": 1,
+ "fcl": "Production/JobConfig/primary/CeEndpoint.fcl",
+ "fcl_overrides": {
+  "services.GeometryService.inputFile": "{geom}",
+  "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt",
+  "outputs.PrimaryOutput.fileName": "dts.owner.CeEndpoint.version.sequencer.art"
+ },
+ "resampler_name": "TargetStopResampler",
+ "input_data": {
+  "sim.mu2e.MuminusStopsCat.MDC2025ac.art": 1
+ },
+ "inloc": "disk",
+ "sequential_aux": true,
+ "run": 1430,
+ "events": 100,
+ "outloc": {
+  "*.art": "outstage",
+  "*.root": "outstage"
+ }
+}

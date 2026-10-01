@@ -108,8 +108,10 @@ class TestStudyDirectoryWiring(unittest.TestCase):
         self.assertEqual(Path(modes_dir), ROOT / "mode_specs")
         self.assertEqual(studies, want)
         # C2b: each foilspf study has an engine twin <name>_ax; since C3 the
-        # twins are the only studies shipped (the originals are archived).
-        self.assertTrue(all(n.endswith("_ax") for n in want), want)
+        # twins are the foilspf studies shipped (the originals are archived).
+        # ce_chain is the one zero-knob production-chain study.
+        self.assertTrue(all(n.endswith("_ax") for n in want if n != "ce_chain"),
+                        want)
 
     def test_a_study_on_the_study_path_is_loaded(self):
         name = "wiringprobe" + uuid.uuid4().hex[:8]
@@ -139,7 +141,7 @@ class TestStudyDirectoryWiring(unittest.TestCase):
     # here is loaded by EVERY process that imports modes, so the point of the
     # test below is that nothing arrives unnoticed -- adding a line here is a
     # conscious act, which is exactly the review checkpoint we want.
-    SHIPPED_SPECS = {"foilsflash_ax.json", "foilspf_ax.json",
+    SHIPPED_SPECS = {"ce_chain.json", "foilsflash_ax.json", "foilspf_ax.json",
                      "foilspf2k_ax.json", "foilspfbp_ax.json",
                      "foilspfbw_ax.json", "foilspfbpx_ax.json",
                      "foilspfbpz_ax.json"}

@@ -1,0 +1,18 @@
+{
+ "_comment": "Step mcs of ce_chain (docs/superpowers/specs/2026-09-30-ce-chain-design.md): reconstruction of the digitized events; needs the same DbService Sim_best v1_5 as digitization.",
+ "desc_fmt": "CeEndpointOnSpillReco_{cfg}",
+ "output_glob": "mcs.*.CeEndpointOnSpillTriggered.*.art",
+ "njobs": 1,
+ "fcl": "Production/JobConfig/recoMC/OnSpill.fcl",
+ "fcl_overrides": {
+  "services.GeometryService.inputFile": "{geom}",
+  "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt",
+  "outputs.LoopHelixOutput.fileName": "mcs.owner.CeEndpointOnSpillTriggered.version.sequencer.art",
+  "services.DbService.purpose": "Sim_best",
+  "services.DbService.version": "v1_5"
+ },
+ "outloc": {
+  "*.art": "outstage",
+  "*.root": "outstage"
+ }
+}

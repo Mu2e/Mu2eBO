@@ -163,12 +163,14 @@ class TestLoadedStudies(unittest.TestCase):
                            cwd=str(ROOT / "core"), capture_output=True,
                            text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
-        # mode_specs/ ships the seven foilspf engine twins (<name>_ax.json;
-        # the originals are archived since C3), and ENGINE_STUDIES holds
+        # mode_specs/ ships ce_chain and the seven foilspf engine twins
+        # (<name>_ax.json; the originals are archived since C3), and
+        # ENGINE_STUDIES holds
         # branin, prodtools_smoke and the two C2b acceptance fixtures
         # (foilspfbpz_local, foilspf_nominal).
         self.assertEqual(r.stdout.strip().splitlines()[-1],
-                         "['branin', 'foilsflash_ax', 'foilspf2k_ax', "
+                         "['branin', 'ce_chain', 'foilsflash_ax', "
+                         "'foilspf2k_ax', "
                          "'foilspf_ax', 'foilspf_nominal', 'foilspfbp_ax', "
                          "'foilspfbpx_ax', 'foilspfbpz_ax', "
                          "'foilspfbpz_local', 'foilspfbw_ax', "

@@ -1,0 +1,18 @@
+{
+ "_comment": "Step dig of ce_chain (docs/superpowers/specs/2026-09-30-ce-chain-design.md): OnSpill digitization without pileup. MDC2025ax digitization has a single Output module, and it needs DbService Sim_best v1_5 (an empty DbService fails at makeSD).",
+ "desc_fmt": "CeEndpointOnSpill_{cfg}",
+ "output_glob": "dig.*.CeEndpointOnSpill.*.art",
+ "njobs": 1,
+ "fcl": "Production/JobConfig/digitize/OnSpill.fcl",
+ "fcl_overrides": {
+  "services.GeometryService.inputFile": "{geom}",
+  "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt",
+  "outputs.Output.fileName": "dig.owner.CeEndpointOnSpill.version.sequencer.art",
+  "services.DbService.purpose": "Sim_best",
+  "services.DbService.version": "v1_5"
+ },
+ "outloc": {
+  "*.art": "outstage",
+  "*.root": "outstage"
+ }
+}
