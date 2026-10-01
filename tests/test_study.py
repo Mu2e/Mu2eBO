@@ -9,11 +9,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import study as st  # noqa: E402
 import kit_registry  # noqa: E402
 
+ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = Path(__file__).parent / "fixtures" / "studies" / "demo.json"
 
 
 def _doc():
     return json.loads(FIXTURE.read_text())
+
+
+def _add_digi(doc):
+    """A third prodtools step with its own desc_fmt (one per study)."""
+    template = json.loads((ROOT / "stage_entries" / "elebeam_flash.json").read_text())
+    template["desc_fmt"] = "Run1A_Digi_{cfg}"
+    doc["evaluate"].append(dict(_step(doc, "elebeam_flash"), step="digi",
+                                entry=template))
 
 
 def _step(doc, name):
@@ -390,6 +399,17 @@ class TestDeriveAndGeom(_Tmp):
 
 
 class TestSteps(_Tmp):
+    def test_two_steps_with_one_desc_fmt(self):
+        doc = _doc()
+        _step(doc, "mustops_ce")["entry"] = "mubeam"
+        self.assertRejects(doc, "mubeam", "mustops_ce", "desc_fmt")
+
+    def test_an_inline_entry_sharing_a_desc_fmt(self):
+        doc = _doc()
+        template = json.loads((ROOT / "stage_entries" / "mubeam.json").read_text())
+        _step(doc, "mustops_ce")["entry"] = template
+        self.assertRejects(doc, "mubeam", "mustops_ce", "desc_fmt")
+
     def test_unknown_kit(self):
         doc = _doc()
         _step(doc, "sob")["kit"] = "nosuchkit"
@@ -432,12 +452,12 @@ class TestSteps(_Tmp):
 
     def test_step_nothing_uses_is_rejected(self):
         doc = _doc()
-        doc["evaluate"].append(dict(_step(doc, "elebeam_flash"), step="digi"))
+        _add_digi(doc)
         self.assertRejects(doc, "evaluate.digi", "nothing uses")
 
     def test_an_extra_metric_makes_a_step_used(self):
         doc = _doc()
-        doc["evaluate"].append(dict(_step(doc, "elebeam_flash"), step="digi"))
+        _add_digi(doc)
         doc["extra_metrics"].append({"name": "digi_jobs",
                                      "metric": "digi.njobs_ok", "fmt": "{:.0f}"})
         self.assertEqual(self.load(doc).steps[-1].step,

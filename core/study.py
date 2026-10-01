@@ -620,6 +620,30 @@ def _stage_template(name: str, where: str) -> Dict[str, Any]:
                      f"searched {[str(d) for d in dirs]}")
 
 
+def _check_run_names(steps, where):
+    """prodtools names a run cnf.<owner>.<desc>.<dsconf>.0, so two steps whose
+    stage templates share a desc_fmt collide at submit -- after the first has
+    already run. Refuse the study up front. A template without desc_fmt is
+    not compared here (entry_for_step refuses it)."""
+    seen: Dict[str, str] = {}
+    for s in steps:
+        if not kit_registry.KITS[s.kit].uses_entries:
+            continue
+        sw = f"{where}[evaluate.{s.step}]"
+        template = (_stage_template(s.entry, sw) if isinstance(s.entry, str)
+                    else s.entry)
+        desc = template.get("desc_fmt")
+        if not isinstance(desc, str):
+            continue
+        if desc in seen:
+            raise ValueError(
+                f"{sw}[entry]: steps {seen[desc]!r} and {s.step!r} share "
+                f"desc_fmt {desc!r}; prodtools names a run "
+                f"cnf.<owner>.<desc>.<dsconf>.0, so the second would be "
+                f"refused at submit as a reused config name")
+        seen[desc] = s.step
+
+
 def _measure_basis(doc, steps, where) -> Dict[str, Any]:
     """What a row's numbers depend on (design, "Leaderboard rows"). kits are
     the RAW settings, so a ${ARTIFACT}/ value hashes the same for every
@@ -671,6 +695,7 @@ def load_study_file(path: Path) -> Study:
     names = (set(knob_names) | set(derive["consts"]) | set(derive["exprs"])
              | set(derive["profiles"]))
     steps = _steps(doc["evaluate"], geom is not None, names, where)
+    _check_run_names(steps, where)
     step_names = {s.step for s in steps}
     kits, preflight = _kits_and_preflight(doc, steps, geom is not None,
                                           names, where)
