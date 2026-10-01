@@ -11,9 +11,11 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   step), step_problems launch hook, <study>_ax engine twins on MDC2025ax;
   C3 (2026-09-28) deletes the pipeline — the engine is the only runner;
   ce-chain (2026-09-30) adds the launch board check, one desc_fmt per
-  study and the ce_chain production-chain study
+  study and the ce_chain production-chain study; check_study (2026-10-01)
+  checks a study file before launch (load, artifacts, launch, geometry
+  pre-check at the center point), submitting nothing
 status: active
-timestamp: '2026-09-30'
+timestamp: '2026-10-01'
 ---
 
 # Contract engine (Phase B)
@@ -1011,6 +1013,61 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   measures as 28a09663f81f"; nothing written, the board still 41 rows
   (bpzax01's 40 plus `c2bR11ax01`, the C2b acceptance row).
 
+**Checking a study file before launch (check_study, 2026-10-01)**
+- Branch `check-study` (worktree `../autoresearch-checkstudy`), spec
+  `docs/superpowers/specs/2026-10-01-check-study-design.md`. Piece 1 of the
+  study-writing line (then a Claude Code study-writing skill, then the
+  service on the autoresearch MCP server); both call it and read its JSON.
+- **`python -m graph.check_study <name-or-path> [--x=...] [--executor
+  grid|local] [--parallel N] [--json]`** (`graph/check_study.py`). A path
+  (ends in `.json` or holds a `/`) may be a draft anywhere; a name is
+  looked up in `mode_specs/` and `$AUTORESEARCH_STUDY_PATH`. Exit 0 every
+  check passed, 1 one failed, 2 a bad command line or unknown target.
+  Source `activate.sh` first, as for any launch: without
+  `AUTORESEARCH_ANAKIT`/`AUTORESEARCH_PRODTOOLS` the launch check fails
+  on the kits, correctly.
+- **Four checks, each passed/failed/skipped, all through the engine's own
+  code:** `load` (`load_study_file`; name equals the file stem; board
+  basename not used by a study of another name; every other study file on
+  the study path loads, since every launch loads them all; then
+  `load_study_dirs` itself as a catch-all), `artifacts` (every
+  `${ARTIFACT}/` string at any depth of the raw JSON exists; a problem
+  names the JSON location, e.g. `kits.prodtools.code_tarball`), `launch`
+  (`contract.launch_problems` with the board, exactly as `graph.run`), and
+  `geometry` (`build_study_graph(..., through="preflight")`: derive ->
+  render -> preflight -> END at the middle of each knob's bounds, an int
+  knob rounded down, or `--x`). A load failure skips the other three; a
+  launch failure skips geometry. A derive/render exception (a bad
+  expression at the point) is a failed geometry, not a traceback.
+- **Never reuses a verdict:** the pre-check works in
+  `<GRID_DATA_ROOT>/check_<study>/`, emptied at every run, but only when it
+  holds the `.check_study` marker the command writes; a directory of that
+  name without it is a failed geometry and left untouched. Kit trace goes
+  to `GRAPH_DATA/check/`. No submit, no board append.
+- **Must not import `modes` (or `run`, which imports it) at module level:**
+  importing modes loads every study, so a broken draft on the study path
+  would crash the check instead of being reported. `run.local_env_refusal`
+  is imported inside `check_launch`, after the load check proved every
+  study loads. With `--json`, stdout holds only the report (stdout is
+  redirected to stderr while the checks run).
+- **Acceptance (2026-10-01):** suite 811 tests OK (3 skipped); the seven
+  `_ax` `measure_basis_sha` and `ce_chain`'s unchanged. `foilspfbpz_ax`
+  against the live data root: exit 1 in 44 s, launch failed on the board
+  ('1a91751589c1' vs 28a09663f81f), geometry skipped. The same in sandbox
+  `claude-scratch/checkstudy_accept`: exit 0 in ~6.5 min, pre-check passed
+  at the center (rOut 90, hT 0.08, f 0.475, zmid 0; 49 foils verified
+  against the GDML, zero overlaps); no board, only `check_foilspfbpz_ax/`
+  and `_code/` under the grid root. `ce_chain --executor local --parallel 1`:
+  exit 0 in 45 s, geometry "rendered, not pre-checked". A copy
+  `bpzcopy.json` whose code tarball (both kits: the loader requires
+  `prodtools` and `offline_preflight` to name the same one) is missing:
+  exit 1, artifacts failed naming `kits.prodtools.code_tarball` and
+  `kits.offline_preflight.code_tarball`; the launch check failed too, on
+  anakit's step check that reads the tarball.
+- **Not checked:** stage-template FCL paths and prodtools' own entry
+  validation (needs `json2jobdef`/`fhicl-dump` under the tarball's setup
+  per step; a follow-up flag); corners of the knob box.
+
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded
   — the pipeline campaign runner this engine sat alongside, not on top of,
@@ -1025,6 +1082,7 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   `core/kits.py`, `core/contract.py`, `core/scheduler.py`,
   `core/study.py`, `core/score.py`, `core/leaderboard.py`, `core/boards.py`,
   `graph/study_graph.py`, `graph/run.py`, `graph/closed_loop.py`,
+  `graph/check_study.py`,
   `graph/pool.py`, `tests/toykit.py`, `tests/textkit.py`,
   `core/adapters/__init__.py`,
   `core/adapters/prodtools.py`, `core/adapters/prodtools_entry.py`,
@@ -1034,7 +1092,8 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   `mode_specs/foilspf_ax.json` and its six siblings
 - Design: `docs/superpowers/specs/2026-09-23-generic-study-design.md`,
   `docs/superpowers/specs/2026-09-27-c2b-anakit-analyses-design.md`,
-  `docs/superpowers/specs/2026-09-28-c3-delete-pipeline-design.md`
+  `docs/superpowers/specs/2026-09-28-c3-delete-pipeline-design.md`,
+  `docs/superpowers/specs/2026-10-01-check-study-design.md`
 
 ## Open questions / TODO
 P1 spike (2026-09-25): a `dir:` staging entry goes through prodtools'

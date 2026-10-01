@@ -5,6 +5,16 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-10-01
+- **updated** [contract-engine](/drivers/contract-engine.md): check_study —
+  `python -m graph.check_study <name-or-path>` checks a study file before
+  launch (load, `${ARTIFACT}` paths, the launch check, the geometry
+  pre-check at the center point through `build_study_graph(...,
+  through="preflight")`), submitting nothing; a marker-guarded scratch dir
+  so no verdict is reused. Acceptance: suite 811 OK, basis shas unchanged,
+  foilspfbpz_ax refused on the live board and passing its pre-check in a
+  sandbox, ce_chain "rendered, not pre-checked", a missing tarball named.
+
 ## 2026-09-30
 - **updated** [contract-engine](/drivers/contract-engine.md): ce-chain — the
   launch refuses a board holding rows of another `measure_sha` (archive or
