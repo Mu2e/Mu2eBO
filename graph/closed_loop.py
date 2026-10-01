@@ -162,7 +162,8 @@ def main(argv=None) -> int:
         # changes only digits, so one name covers them all.
         problems = launch_problems(
             study, kits, executor=args.executor, parallel=args.parallel,
-            config_names=[child_name(args.name_prefix, 0)])
+            config_names=[child_name(args.name_prefix, 0)],
+            board=board_for(study))
     finally:
         kits.close()
     if problems:

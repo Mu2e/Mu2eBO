@@ -131,7 +131,8 @@ def main(argv=None) -> int:
         # anything is written rather than recorded in broken.txt.
         problems = launch_problems(
             study, kits, executor=args.executor, parallel=args.parallel,
-            config_names=[args.config])
+            config_names=[args.config],
+            board=board_for(study))
         if problems:
             return refuse("; ".join(problems))
         graph = build_study_graph(

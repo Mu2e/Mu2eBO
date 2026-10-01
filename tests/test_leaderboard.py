@@ -334,6 +334,39 @@ class TestV2Rows(unittest.TestCase):
             self.lb.append(self.pt("c2"), {}, META)
         self.assertFalse(self.lb.path.exists())
 
+class TestMeasureShas(unittest.TestCase):
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.study = st.load_study_file(
+            write_study(toy_doc(layout="v2"), self.tmp / "studies"))
+        self.lb = Leaderboard.for_study(self.study, path=self.tmp / "b.tsv",
+                                        archive_path=None)
+
+    def test_a_missing_file_has_none(self):
+        self.assertEqual(self.lb.measure_shas(), set())
+
+    def test_a_header_only_board_has_none(self):
+        self.lb.path.write_text(self.lb.header())
+        self.assertEqual(self.lb.measure_shas(), set())
+
+    def test_the_shas_of_the_rows(self):
+        for name, sha in (("c1", "a" * 64), ("c2", "a" * 64)):
+            self.lb.append(Point(name, [1.0, 2.0], {"branin": 1.5, "currin": 3.0}),
+                           {}, dict(META, measure_sha=sha))
+        self.assertEqual(self.lb.measure_shas(), {"a" * 64})
+        self.lb.path.write_text(
+            self.lb.path.read_text()
+            + self.lb.path.read_text().splitlines()[1].replace("a" * 64, "b" * 64)
+                .replace("c1", "c3") + "\n")
+        self.assertEqual(self.lb.measure_shas(), {"a" * 64, "b" * 64})
+
+    def test_a_wrong_header_is_refused(self):
+        self.lb.path.write_text("config\tx\n")
+        with self.assertRaises(SchemaMismatch):
+            self.lb.measure_shas()
+
 
 if __name__ == "__main__":
     unittest.main()

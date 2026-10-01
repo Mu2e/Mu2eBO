@@ -52,11 +52,13 @@ if __package__:
     from core import kit_registry, paths
     from core.kit_config import EXECUTORS, _is_number
     from core.kits import KitClient, KitError, KitToolError
+    from core.leaderboard import SchemaMismatch
 else:
     import kit_registry
     import paths
     from kit_config import EXECUTORS, _is_number
     from kits import KitClient, KitError, KitToolError
+    from leaderboard import SchemaMismatch
 
 STATES = ("working", "completed", "failed", "cancelled")
 REQUIRED_TOOLS = ("submit", "status", "results")
@@ -544,8 +546,26 @@ def kit_step_problems(kit, study, name: str) -> List[str]:
     return [p for s in study.steps if s.kit == name for p in hook(study, s)]
 
 
+def board_problems(study, board, kit_versions: Dict[str, str]) -> List[str]:
+    """The board must not hold rows measured differently from this launch:
+    a row carrying another measure_sha is refused at `score`, after every
+    step has run. One problem when it does, or when the board's header is
+    not the study's; none for an empty or missing board."""
+    try:
+        found = board.measure_shas()
+    except SchemaMismatch as exc:
+        return [str(exc)]
+    this = study.measure_sha(kit_versions)
+    if not found or found == {this}:
+        return []
+    return [f"{board.path} holds rows measured as "
+            f"{sorted(sha[:12] for sha in found)}, but this launch measures "
+            f"as {this[:12]} (the study's measurement or a kit's version "
+            f"changed); set a new leaderboard.file to start a new board"]
+
+
 def launch_problems(study, kits, *, executor: str, parallel,
-                    config_names, kerberos=None) -> List[str]:
+                    config_names, kerberos=None, board=None) -> List[str]:
     """The launch check both runners make. Static rules first, opening no
     kit: the executor rules (a problem here returns at once), a Kerberos
     ticket with GRID_TICKET_SECONDS left when a kit of the study asks for
@@ -557,7 +577,9 @@ def launch_problems(study, kits, *, executor: str, parallel,
     it runs the preflight), and report a server version, which measure_sha
     needs. When a kit offers `describe`, the study's params must be ones it
     accepts and its metrics ones it returns. Returns the problems; an empty
-    list means launch. `kits` stays open: the caller closes it."""
+    list means launch. With `board`, and no problem found so far, the board's
+    rows must carry the measure_sha this launch would write (board_problems).
+    `kits` stays open: the caller closes it."""
     problems = executor_problems(study, executor, parallel)
     if problems:
         return problems
@@ -615,4 +637,8 @@ def launch_problems(study, kits, *, executor: str, parallel,
             problems.extend(kit_step_problems(kit, study, name))
         except (KitError, ContractError) as exc:
             problems.append(str(exc))
+    if board is not None and not problems:
+        problems = board_problems(study, board, {
+            name: kits.get(name).version
+            for name in {s.kit for s in study.steps}})
     return problems

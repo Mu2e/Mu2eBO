@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 import contract as ct  # noqa: E402
 import kit_registry  # noqa: E402
 import study as st  # noqa: E402
+from leaderboard import Leaderboard  # noqa: E402
 from adapters import offline_preflight as op  # noqa: E402
 from kits import KitClient, KitError, KitTimeout, KitToolError  # noqa: E402
 from tests.engine_fixtures import toy_config, toy_doc, write_study  # noqa: E402
@@ -535,6 +536,65 @@ class TestLaunchProblems(_Toy):
     def test_an_unknown_metric(self):
         study = self.study(lambda d: d["objectives"][0].update(metric="toy.nope"))
         self.assertTrue(any("nope" in p for p in self.check(study)))
+
+    def board(self, study, *shas, header=None):
+        lb = Leaderboard.for_study(study, path=self.tmp / "b.tsv",
+                                   archive_path=None)
+        cols = lb.header().rstrip("\n").split("\t")
+        lines = [header or lb.header()]
+        for i, sha in enumerate(shas):
+            row = {c: "1.0" for c in cols}
+            row.update(config=f"r{i}", handles="toy=x", spec_sha="s" * 64,
+                       measure_sha=sha, time="2026-09-30T00:00:00Z")
+            lines.append("\t".join(row[c] for c in cols) + "\n")
+        lb.path.write_text("".join(lines))
+        return lb
+
+    def with_board(self, study, board, cfg=None):
+        return self.launch(study, lambda n, c: self.open(n, c, cfg=cfg),
+                           board=board)
+
+    def toy_sha(self, study):
+        kit = self.kit_set(lambda n, c: self.open(n, c)).get("toykit")
+        kit.start()
+        return study.measure_sha({"toykit": kit.version})
+
+    def test_no_board_passes(self):
+        study = self.study()
+        lb = Leaderboard.for_study(study, path=self.tmp / "b.tsv",
+                                   archive_path=None)
+        self.assertEqual(self.with_board(study, lb), [])
+
+    def test_a_header_only_board_passes(self):
+        study = self.study()
+        self.assertEqual(self.with_board(study, self.board(study)), [])
+
+    def test_a_board_of_another_measure_sha_is_refused(self):
+        study = self.study()
+        problems = self.with_board(study, self.board(study, "a" * 64))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("aaaaaaaaaaaa", problems[0])
+        self.assertIn(self.toy_sha(study)[:12], problems[0])
+        self.assertIn("leaderboard.file", problems[0])
+
+    def test_a_board_of_this_measure_sha_passes(self):
+        study = self.study()
+        board = self.board(study, self.toy_sha(study))
+        self.assertEqual(self.with_board(study, board), [])
+
+    def test_a_board_with_the_wrong_header_is_refused(self):
+        study = self.study()
+        board = self.board(study, "a" * 64, header="config\tx\n")
+        problems = self.with_board(study, board)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("header", problems[0])
+
+    def test_no_board_check_when_a_kit_fails(self):
+        study = self.study()
+        problems = self.with_board(study, self.board(study, "a" * 64),
+                                   cfg=replace(self.cfg, set_env={}))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("TOYKIT_STATE_DIR", problems[0])
 
     def test_a_server_that_cannot_start(self):
         problems = self.check(self.study(), cfg=replace(self.cfg, set_env={}))

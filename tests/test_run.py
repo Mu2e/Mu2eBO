@@ -135,14 +135,13 @@ class TestFailedPoints(_Point):
         self.assertEqual(self.submits(), [])
         self.assertEqual(self.board_rows(s), [])
 
-    def test_a_board_measured_another_way_refuses_the_row(self):
+    def test_a_board_measured_another_way_refuses_the_launch(self):
         s = self.add_study()
         self.assertEqual(self.run_point(s).returncode, 0)
         self.add_study(lambda d: d["evaluate"][0]["fixed"].update(delay_s=0.1))
         r = self.run_point(s, config="p2")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("measure_sha",
-                      (self.state("p2") / "broken.txt").read_text())
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("leaderboard.file", r.stdout)
         self.assertEqual(len(self.board_rows(s)), 1)
 
 
@@ -524,6 +523,7 @@ class TestKitErrorContract(unittest.TestCase):
                 toy_doc(name="fulltoy", layout="v2"), tmp / "studies"))
             grid = tmp / "grid"
             board = mock.Mock()
+            board.measure_shas.return_value = set()
             out = io.StringIO()
             with mock.patch.dict(modes.STUDIES, {"fulltoy": study}), \
                     mock.patch.object(run, "KitSet", _DiskFullKitSet), \
@@ -537,7 +537,7 @@ class TestKitErrorContract(unittest.TestCase):
             broken = (grid / "p1" / "state" / "broken.txt").read_text()
             self.assertIn("step toy", broken)
             self.assertIn("OSError", broken)
-            self.assertFalse(board.mock_calls, "a row was appended")
+            self.assertFalse(board.append.called, "a row was appended")
 
 
 class TestAutoresearchLocalRefused(unittest.TestCase):
