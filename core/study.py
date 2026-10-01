@@ -15,7 +15,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 if __package__:
     from core import kit_registry, paths
@@ -718,10 +718,11 @@ def load_study_file(path: Path) -> Study:
                  measure_basis=_measure_basis(doc, steps, where))
 
 
-def load_study_dirs(primary: Path, extra: Optional[str]) -> Dict[str, Study]:
+def study_files(primary: Path, extra: Optional[str]) -> List[Path]:
     """Every *.json in `primary` (flat: archive/ stays unloaded) and in each
     directory of the colon-separated `extra` ($AUTORESEARCH_STUDY_PATH),
-    whose entries must be absolute paths."""
+    whose entries must be absolute paths: the files load_study_dirs loads,
+    in its order. A missing `primary` contributes nothing."""
     dirs = [Path(primary)]
     for d in (extra or "").split(":"):
         if not d:
@@ -736,25 +737,28 @@ def load_study_dirs(primary: Path, extra: Optional[str]) -> Dict[str, Study]:
             raise ValueError(f"AUTORESEARCH_STUDY_PATH names {d!r}, which is "
                              f"not a directory")
         dirs.append(Path(d))
+    return [p for d in dirs if d.is_dir() for p in sorted(d.glob("*.json"))]
+
+
+def load_study_dirs(primary: Path, extra: Optional[str]) -> Dict[str, Study]:
+    """Every study in study_files(primary, extra): each file's name must
+    equal its study's, and no two studies may share a name or a board."""
     out: Dict[str, Study] = {}
     boards: Dict[str, Path] = {}
-    for d in dirs:
-        if not d.is_dir():
-            continue
-        for p in sorted(d.glob("*.json")):
-            s = load_study_file(p)
-            if s.name != p.stem:
-                raise ValueError(f"{p}: study name {s.name!r} does not match "
-                                 f"its file name {p.stem!r}")
-            if s.name in out:
-                raise ValueError(f"{p}: study {s.name!r} is defined twice "
-                                 f"(also {out[s.name].path})")
-            board = Path(s.leaderboard_rel).name
-            if board in boards:
-                raise ValueError(f"{p}: leaderboard basename {board!r} is "
-                                 f"already used by {boards[board]}; two "
-                                 f"studies sharing one board contaminate "
-                                 f"each other's GP history")
-            boards[board] = p
-            out[s.name] = s
+    for p in study_files(primary, extra):
+        s = load_study_file(p)
+        if s.name != p.stem:
+            raise ValueError(f"{p}: study name {s.name!r} does not match "
+                             f"its file name {p.stem!r}")
+        if s.name in out:
+            raise ValueError(f"{p}: study {s.name!r} is defined twice "
+                             f"(also {out[s.name].path})")
+        board = Path(s.leaderboard_rel).name
+        if board in boards:
+            raise ValueError(f"{p}: leaderboard basename {board!r} is "
+                             f"already used by {boards[board]}; two "
+                             f"studies sharing one board contaminate "
+                             f"each other's GP history")
+        boards[board] = p
+        out[s.name] = s
     return out

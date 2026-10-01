@@ -83,7 +83,14 @@ def reusable_pass(path: Path, basis: dict) -> bool:
 
 def build_study_graph(study, *, config: str, campaign: str, context: dict,
                       kits, state_dir: Path, board, log=print,
-                      executor: str = "grid") -> StateGraph:
+                      executor: str = "grid",
+                      through: str = "score") -> StateGraph:
+    """through="preflight" ends the graph after the pre-check: no step runs
+    and nothing is scored (graph/check_study.py)."""
+    if through not in ("score", "preflight"):
+        raise ValueError(f"through must be 'score' or 'preflight', got "
+                         f"{through!r}")
+
     def workflow(step: str) -> str:
         return f"{campaign}/{config}/{step}"
 
@@ -232,13 +239,18 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
         return END if state.get("broken") else "next"
 
     g = StateGraph(PointState)
-    for name, fn in (("derive", node_derive), ("render", node_render),
-                     ("preflight", node_preflight),
-                     ("run_steps", node_run_steps), ("score", node_score)):
+    nodes = [("derive", node_derive), ("render", node_render),
+             ("preflight", node_preflight)]
+    if through == "score":
+        nodes += [("run_steps", node_run_steps), ("score", node_score)]
+    for name, fn in nodes:
         g.add_node(name, fn)
     g.add_edge(START, "derive")
     g.add_edge("derive", "render")
     g.add_edge("render", "preflight")
+    if through == "preflight":
+        g.add_edge("preflight", END)
+        return g
     g.add_conditional_edges("preflight", route, {"next": "run_steps", END: END})
     g.add_conditional_edges("run_steps", route, {"next": "score", END: END})
     g.add_edge("score", END)
