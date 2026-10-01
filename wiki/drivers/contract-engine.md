@@ -169,7 +169,19 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   whose header does not match the study's columns (`SchemaMismatch`) is
   refused the same way. Before this, both cases ran every step and were
   refused only at `score`. An empty or missing board passes. Both runners
-  pass the board (`graph/run.py`, `graph/closed_loop.py`).
+  pass the board (`graph/run.py`, `graph/closed_loop.py`). A board row with
+  no `measure_sha` raises `RowParseError` (line number) rather than a
+  traceback.
+- **A resumed point is measured as `score` will measure it**
+  (`contract.board_versions`, final-review fix 59d9329): `graph.run` passes
+  the records of steps already finished (`state/<step>_results.json`, as
+  `run_steps` adopts them) as `launch_problems(..., adopted=)`. A kit whose
+  steps were all adopted is checked at its recorded `kit_version`, not its
+  current one, so a retry after a kit bump still lands on its own board. A
+  kit adopted in part at an old version (or adopted records that disagree)
+  is refused at launch: `score.kit_versions` would refuse the point after
+  running the rest, so it cannot complete as measured — use a new config
+  name. `closed_loop` passes none (it never resumes a point).
 
 **`run_steps` (`core/scheduler.py`)**
 - One LangGraph node (`run_steps`, called from
@@ -996,7 +1008,8 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   records `"code": null`. `graph.run --study foilspfbpz_ax --config
   bpzaxchk01` at bpzax01R36_00's x against the live board: exit 2 at
   launch, "holds rows measured as ['1a91751589c1'], but this launch
-  measures as 28a09663f81f"; nothing written, the board still 40 rows.
+  measures as 28a09663f81f"; nothing written, the board still 41 rows
+  (bpzax01's 40 plus `c2bR11ax01`, the C2b acceptance row).
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded

@@ -48,7 +48,8 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   adapter reports the fork's branch commit as the kit version, and
   `measure_sha` hashes every step kit's version. The ce-chain commits did
   exactly that (operator's decision, 2026-09-30): bpzax01's board
-  (`leaderboard_bo_foilspfbpz_ax.tsv`, 40 rows) holds `measure_sha`
+  (`leaderboard_bo_foilspfbpz_ax.tsv`, 41 rows: bpzax01's 40 plus the C2b
+  acceptance row `c2bR11ax01`) holds `measure_sha`
   `1a91751589c1…` and now refuses new rows; a launch today measures as
   `28a09663f81f…` and is refused at launch
   ([contract-engine](/drivers/contract-engine.md), the board check). The
@@ -138,7 +139,9 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   tarball's) and `code_commit` (`git describe` in
   `<work_area>/Mu2eOptAna`). A `root_file` analysis records `"code":
   null`. Both read `input_kind` from the server's `list_analyses`
-  catalogue; an analysis without one is refused at launch. Before this the
+  catalogue; an analysis without one, or with a value outside
+  `INPUT_KINDS = ("art_files", "root_file")`, is refused at launch (and at
+  `submit`) — an unknown kind never silently drops the checks. Before this the
   spike needed a work area backed by AnalysisMDC2025 and a `Mu2eOptAna`
   symlink just to plot an ntuple.
 
