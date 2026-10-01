@@ -6,6 +6,9 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-30
+- **created** [production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md):
+  a full CeEndpoint chain (sim -> dig -> mcs -> nts -> anakit plot) runs on
+  the engine as a zero-knob study; seven config/adapter findings recorded.
 - **merged** branch `kit-seam` into `generic-study-phase-c1` (fast-forward
   to 5e5a28d) after bpzax01 finished — [contract-engine](/drivers/contract-engine.md).
 - **updated** [contract-engine](/drivers/contract-engine.md): bpzax01 measured the straggler cost — the prodtools kit applies `quorum` only after every job ends, so five single jobs of ~5,200 (6–14 h against a ~1.5 h step) held their points and pool slots into the afternoon of day 2; a tail cutoff is the open design item.
