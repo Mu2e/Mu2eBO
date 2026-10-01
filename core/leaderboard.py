@@ -237,15 +237,28 @@ class Leaderboard:
             cols = self.header().rstrip("\n").split("\t")
             return list(csv.DictReader(f, fieldnames=cols, delimiter="\t"))
 
+    def _shas_of(self, path: Path | None) -> set[str]:
+        """The measure_sha of each row of `path`. A row without one (short,
+        or empty cell) raises RowParseError: it cannot be compared."""
+        shas = set()
+        for line_no, row in enumerate(self._raw_rows(path), start=2):
+            sha = row.get("measure_sha")
+            if not sha:
+                raise RowParseError(path, line_no, KeyError(
+                    f"measure_sha missing or empty in row "
+                    f"{row.get('config')!r}"))
+            shas.add(sha)
+        return shas
+
     def measure_shas(self) -> set[str]:
         """The measure_sha of every row `append` checks against: the
         archive's (read without the lock, as load() does) and the live
         board's (under the shared lock). Empty when neither file has a row.
         Raises SchemaMismatch on a wrong header in either."""
-        shas = {r["measure_sha"] for r in self._raw_rows(self.archive_path)}
+        shas = self._shas_of(self.archive_path)
         if self.path.exists():
             with _flock_sh(self.path):
-                shas |= {r["measure_sha"] for r in self._raw_rows(self.path)}
+                shas |= self._shas_of(self.path)
         return shas
 
     def _is_new_row(self, rows: list[dict], line: str) -> bool:

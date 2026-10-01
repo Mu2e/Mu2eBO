@@ -387,6 +387,23 @@ class TestMeasureShas(unittest.TestCase):
         with self.assertRaises(SchemaMismatch):
             self.lb.measure_shas()
 
+    def test_a_short_live_row_is_a_parse_error(self):
+        self.lb.path.write_text(self.lb.header() + "c1\t1.0\n")
+        with self.assertRaises(RowParseError) as cm:
+            self.lb.measure_shas()
+        self.assertEqual(cm.exception.path, self.lb.path)
+        self.assertEqual(cm.exception.line_no, 2)
+        self.assertIn("measure_sha", str(cm.exception))
+
+    def test_an_empty_measure_sha_in_the_archive_is_a_parse_error(self):
+        lb = self.archive_with("b" * 64)
+        text = lb.archive_path.read_text()
+        lb.archive_path.write_text(text.replace("b" * 64, ""))
+        with self.assertRaises(RowParseError) as cm:
+            lb.measure_shas()
+        self.assertEqual(cm.exception.path, lb.archive_path)
+        self.assertEqual(cm.exception.line_no, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
