@@ -44,6 +44,16 @@ knobs and geometry on SimJob MDC2025ax, with sob and flash from the `anakit`
 kit and its own v2 board. These seven `_ax` studies are the production lines
 now; the originals they were cloned from are archived (see `archive/` below).
 
+`ce_chain.json` is the one other shipped study: the CeEndpoint production
+chain dts -> dig -> mcs -> nts, then an anakit `nts_momentum` plot, with no
+knobs (so `graph.run` only; spec
+`docs/superpowers/specs/2026-09-30-ce-chain-design.md`).
+
+Since 2026-09-30 the launch itself is refused when the study's board holds
+rows of another `measure_sha` (or a header that does not match the study's
+columns): set a new `"leaderboard.file"` to start a new board. Any commit on
+the anakit fork changes every `_ax` study's `measure_sha` this way.
+
 The rules, as the code enforces them:
 
 - A prodtools step must set `quorum` in `fixed` (below it the step

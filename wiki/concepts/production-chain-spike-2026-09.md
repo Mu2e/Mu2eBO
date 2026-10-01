@@ -2,9 +2,11 @@
 type: concept
 title: Production-chain spike (CeEndpoint sim -> dig -> mcs -> nts -> plot)
 description: 'Spike 2026-09-30: the contract engine runs a full CeEndpoint chain (prodtools for dts/dig/mcs/nts, anakit for a plot) as a zero-knob study, locally in ~7 min at 100 events; seven config/adapter findings, all fixable without engine changes except the anakit EdepAna assumptions'
-status: open
-status_note: spike done 2026-09-30, nothing made permanent; files in scratch
+status: resolved
+status_note: spike done 2026-09-30; made permanent the same day as the
+  ce_chain study (branch ce-chain); spike scratch removed
 timestamp: '2026-09-30'
+updated_note: made permanent as ce_chain (ce-chain branch)
 ---
 
 # Production-chain spike (CeEndpoint, 2026-09-30)
@@ -17,12 +19,15 @@ surrokit) ran all five steps locally through `graph.run --executor local`
 and landed a row (`cechain05`: 45 downstream e- fits in 50 triggered events
 of 100 generated; reconstructed |p| at the tracker front median 104.02
 MeV/c against MC truth 104.05). Four Offline steps took ~5.6 min at 100
-events; the anakit plot step ~1.5 min. Everything is throwaway scratch:
-`/exp/mu2e/data/users/oksuzian/claude-scratch/spike_cechain/` (study,
-`stage_entries/ce_{dts,dig,mcs,nts}.json`, sandbox data root), the anakit
-worktree `analysis-mcp-server-spike` (branch `spike-ntplot`, commit 8b36827,
-analysis `nts_momentum`), and two `${ARTIFACT}` items:
-`autoresearch_muse/Code_ana_v020202.tar.bz2` and `autoresearch_muse_ana/`.
+events; the anakit plot step ~1.5 min. **Made permanent the same day** as the
+committed study `ce_chain` (branch `ce-chain`; see
+[contract-engine](/drivers/contract-engine.md), "The CeEndpoint production
+chain as a study"): the templates are `stage_entries/ce_{dts,dig,mcs,nts}.json`,
+the analysis is `nts_momentum` on the anakit fork's `autoresearch` branch,
+and the code tarball `${ARTIFACT}/autoresearch_muse/Code_ana_v020202.tar.bz2`
+is kept. The spike scratch (`claude-scratch/spike_cechain/`, the anakit
+worktree `analysis-mcp-server-spike` and its branch `spike-ntplot`, and
+`${ARTIFACT}/autoresearch_muse_ana/`) was removed after acceptance.
 
 ## Key facts
 - **One code tarball covers sim through ntuple:** the AnalysisMDC2025
@@ -55,8 +60,9 @@ analysis `nts_momentum`), and two `${ARTIFACT}` items:
   ntuples needs neither; the spike satisfied both with a work area backed by
   AnalysisMDC2025 v02_02_02 and a symlink to the real Mu2eOptAna checkout.
 - **A study whose columns change cannot score onto its old board:** the
-  header check refuses at `score`, after every step has run. That is the case
-  the planned `check_study` board check catches before launch.
+  header check refused at `score`, after every step had run. Since ce-chain
+  the launch check refuses it, and a board of another `measure_sha`, before
+  any step runs.
 - **EventNtuple layout (v02_02_02):** `EventNtuple/ntuple`; `trksegs` is ONE
   unsplit `vector<vector<TrkSegInfo>>` branch (uproot reads it whole; there are
   no `trksegs.mom...` sub-branches); `trk` is split (`trk.pdg`, ...). An event
@@ -70,10 +76,11 @@ analysis `nts_momentum`), and two `${ARTIFACT}` items:
   `core/adapters/anakit.py`, `core/study.py` (`_stage_template`)
 
 ## Open questions / TODO
-- Make permanent: the four stage templates, a plot analysis in the anakit fork
-  (any fork commit changes every `_ax` `measure_sha`), and an anakit adapter
-  that applies the EdepAna checks only to analyses that run art jobs.
-- Loader: refuse two steps with one `desc_fmt`; optional objectives for a
-  stages-only study.
-- A study-level geometry for `geom: null` studies, or a check that every
-  step's `GeometryService` agrees.
+- ~~Make permanent: the four stage templates, a plot analysis in the anakit
+  fork, an anakit adapter with art-only EdepAna checks; loader refuses two
+  steps with one `desc_fmt`.~~ Done in ce-chain (2026-09-30).
+- ~~A study-level geometry~~: `ce_chain` gives every step one rendered
+  geometry (`geom` with no lines, `"files": ["geom"]`, `{geom}` in each
+  template). A `geom: null` study still has no check that its steps agree.
+- Optional objectives for a stages-only study, and output locations on the
+  row: not done (out of ce-chain's scope).

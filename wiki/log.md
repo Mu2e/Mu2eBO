@@ -6,6 +6,19 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-30
+- **updated** [contract-engine](/drivers/contract-engine.md): ce-chain — the
+  launch refuses a board holding rows of another `measure_sha` (archive or
+  live) or a mismatched header, naming both shas; the loader refuses two
+  steps sharing a `desc_fmt`; new study `ce_chain` (CeEndpoint
+  dts -> dig -> mcs -> nts -> anakit plot, zero knobs, one `{geom}` for every
+  step). Acceptance: suite 764 OK, `_ax` basis shas unchanged, cechainL01
+  median |p| 104.022, foilspfbpz_ax refused at launch.
+- **updated** [anakit](/external/anakit.md): `nts_momentum` (fork `1f831a1`);
+  the adapter's EdepAna checks apply only to `art_files` analyses; the
+  ce-chain fork commits changed every `_ax` `measure_sha`, so the next `_ax`
+  campaign needs a new `leaderboard.file`.
+- **updated** [production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md):
+  resolved — made permanent as `ce_chain`; spike scratch removed.
 - **created** [production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md):
   a full CeEndpoint chain (sim -> dig -> mcs -> nts -> anakit plot) runs on
   the engine as a zero-knob study; seven config/adapter findings recorded.

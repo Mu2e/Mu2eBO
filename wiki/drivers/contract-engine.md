@@ -9,7 +9,9 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   offline_preflight adapter (the geometry pre-check from the code
   tarball), dsconf study setting; C2b anakit adapter (one server per
   step), step_problems launch hook, <study>_ax engine twins on MDC2025ax;
-  C3 (2026-09-28) deletes the pipeline — the engine is the only runner
+  C3 (2026-09-28) deletes the pipeline — the engine is the only runner;
+  ce-chain (2026-09-30) adds the launch board check, one desc_fmt per
+  study and the ce_chain production-chain study
 status: active
 timestamp: '2026-09-30'
 ---
@@ -157,6 +159,17 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
   `KitSet` so the steps reuse those servers. A kit that won't start is
   refused — no submit, no `point.json`, no `broken.txt` — so an
   environment problem is never recorded as a failed evaluation.
+- **The board check, last (ce-chain, 2026-09-30, `contract.board_problems`):**
+  once every kit has started and reported its version, `launch_problems(...,
+  board=board_for(study))` computes the `measure_sha` this launch would
+  write and compares it with `Leaderboard.measure_shas()` — the shas on the
+  board's archive rows plus its live rows, the same rows `append` and
+  `score` check. A board with rows and none of this sha is refused,
+  naming both shas and saying to set a new `leaderboard.file`; a board
+  whose header does not match the study's columns (`SchemaMismatch`) is
+  refused the same way. Before this, both cases ran every step and were
+  refused only at `score`. An empty or missing board passes. Both runners
+  pass the board (`graph/run.py`, `graph/closed_loop.py`).
 
 **`run_steps` (`core/scheduler.py`)**
 - One LangGraph node (`run_steps`, called from
@@ -224,7 +237,9 @@ the pipeline's harvest; the `_ax` twins are the production lines now. See
 - `core/leaderboard.py:Leaderboard._is_new_row` (`_check_v2` until
   2026-09-29) refuses an append whose `measure_sha` differs from what's
   already on the board, quarantining the row (`<board>.quarantine.tsv`)
-  rather than mixing measurements.
+  rather than mixing measurements. Since ce-chain (2026-09-30) the launch
+  check refuses such a point before any step runs (the board check,
+  above); the append-time refusal remains for a board changed mid-run.
 - **A resume is guarded too, one step earlier:** `point.json` records
   `measure_basis_sha` (`core/study.py:Study.measure_basis_sha`, the
   SHA-256 of `measure_basis` alone — the part of `measure_sha` the study
@@ -943,6 +958,46 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
     written. Branin `graph.closed_loop` `ksbrn01` (q=3, 6 evals,
     budget_sob, local): exit 0, launched=6 rows=6.
 
+**The CeEndpoint production chain as a study (ce-chain, 2026-09-30)**
+- Branch `ce-chain` (worktree `../autoresearch-cechain`), spec
+  `docs/superpowers/specs/2026-09-30-ce-chain-design.md`, from the spike in
+  [production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md).
+- **`ce_chain`** (`mode_specs/ce_chain.json`): zero knobs, so it runs only
+  through `graph.run` (`graph.closed_loop` refuses it, the surrogate does
+  not list it). Steps `ce` (dts, 1 job × 100 events) -> `dig` -> `mcs` ->
+  `nts`, all prodtools on `${ARTIFACT}/autoresearch_muse/Code_ana_v020202.tar.bz2`
+  (AnalysisMDC2025 v02_02_02, backed by SimJob MDC2025ax plus
+  EventNtuple), then `plot`, anakit `nts_momentum`. The objective `n_fits`
+  stands in for the one the loader demands (objectives are mandatory);
+  extra metrics `median_p_front`, `mean_p_front`, `n_events`.
+- **One geometry for every step, by construction:** `geom` is the
+  `offline_simpleconfig` writer over `geom_run1_a.txt` with no lines;
+  every prodtools step lists `"files": ["geom"]` and its template points
+  `services.GeometryService.inputFile` at `{geom}`. A `geom: null` study
+  has no shared geometry, and each template would set (or default) its own.
+- Stage templates `stage_entries/ce_{dts,dig,mcs,nts}.json` stay
+  CeEndpoint-specific: output file names must be literal, since
+  placeholder substitution knows only `{cfg}` and `{geom}`.
+- **One `desc_fmt` per study** (`core/study.py:_check_run_names`): the
+  loader refuses two steps of a `uses_entries` kit whose templates (named
+  or inline) resolve to the same `desc_fmt`. prodtools names a run
+  `cnf.<owner>.<desc>.<dsconf>.0`, so the second step would be refused at
+  submit ("the config name was used before"), after the first had run.
+- The anakit adapter applies its EdepAna checks only to `art_files`
+  analyses ([anakit](/external/anakit.md)).
+- **Acceptance (2026-09-30, at 13b86ba):** suite 764 tests OK (3
+  skipped); the seven `_ax` `measure_basis_sha` unchanged (`ce_chain`'s is
+  `79b9b3e2…`). Local `graph.run --study ce_chain --config cechainL01
+  --executor local --parallel 1` (sandbox `claude-scratch/cechain_accept`):
+  exit 0, five steps in ~6 min, row `n_fits` 45, `median_p_front` 104.022,
+  `mean_p_front` 105.832, `n_events` 50 — identical to the spike's
+  cechain05, so the shared `{geom}` geometry measures the same as the
+  spike's per-template pin; `measure_sha` `b73bef8d…`; the plot step
+  records `"code": null`. `graph.run --study foilspfbpz_ax --config
+  bpzaxchk01` at bpzax01R36_00's x against the live board: exit 2 at
+  launch, "holds rows measured as ['1a91751589c1'], but this launch
+  measures as 28a09663f81f"; nothing written, the board still 40 rows.
+
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded
   — the pipeline campaign runner this engine sat alongside, not on top of,
@@ -1043,9 +1098,10 @@ and `core/pipeline.py` itself, `desc_fmt`-reading line included, is
 deleted along with the rest of the pipeline.
 
 Phase C follow-ups found in review (2026-09-25):
-- No launch-time check that the board's `measure_sha` matches the study's
+- ~~No launch-time check that the board's `measure_sha` matches the study's
   current one — a child runs its steps and is refused only at append.
-  `graph/closed_loop.py`.
+  `graph/closed_loop.py`.~~ Resolved 2026-09-30 (ce-chain): the board
+  check in `contract.launch_problems`.
 - ~~A resumed child re-runs preflight; a transient `check` failure then
   marks a point broken while its grid job still runs. `graph/study_graph.py`.~~
   **Done in C2b:** `preflight_basis`/`reusable_pass` record what a PASSING

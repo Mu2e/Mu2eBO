@@ -3,15 +3,14 @@ type: external
 title: anakit — our fork of M. MacKenzie's analysis MCP server
 description: 'our fork of M. MacKenzie''s analysis MCP server ($AUTORESEARCH_ANAKIT,
   branch autoresearch): ce_sensitivity + flash_edep_per_pot for the foilspf
-  engine twins; needs mcp<2 (ana 2.7.0, -P); one analysis per server at a
-  time; work area autoresearch_muse_ax (MDC2025ax, p107, full-precision
-  EdepAna)'
+  engine twins, nts_momentum for ce_chain; needs mcp<2 (ana 2.7.0, -P); one
+  analysis per server at a time; work area autoresearch_muse_ax (MDC2025ax,
+  p107, full-precision EdepAna)'
 status: active
-timestamp: '2026-09-28'
-updated_note: corrected the 9b197e2 rationale (EdepAna's own summary
-  precision, not the macro's %.3g) and the edep.fcl v40 attribution
-  (upstream, not our change); added the DIO-table personal-path fact
-  (final-fix wave, F6)
+timestamp: '2026-09-30'
+updated_note: ce-chain (2026-09-30) — nts_momentum, the EdepAna checks now
+  apply only to art_files analyses, and the fork commits that changed every
+  _ax measure_sha
 ---
 
 # anakit — our fork of M. MacKenzie's analysis MCP server
@@ -40,6 +39,20 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
     files
   - `3561c79` — `flash_edep_per_pot`: tracker energy per POT from
     early-flash files
+  - `60cb434`, `e232d43`, `fb17702` — C2b/C3 review fixes (F7, F3, F4);
+    the last two sat on a parked branch `cleanup-c3` until ce-chain
+    folded them in
+  - `1f831a1` (ce-chain, 2026-09-30) — `nts_momentum`: reconstructed |p|
+    at the tracker front from EventNtuple files (below)
+- **Any fork commit changes every `_ax` study's `measure_sha`:** the
+  adapter reports the fork's branch commit as the kit version, and
+  `measure_sha` hashes every step kit's version. The ce-chain commits did
+  exactly that (operator's decision, 2026-09-30): bpzax01's board
+  (`leaderboard_bo_foilspfbpz_ax.tsv`, 40 rows) holds `measure_sha`
+  `1a91751589c1…` and now refuses new rows; a launch today measures as
+  `28a09663f81f…` and is refused at launch
+  ([contract-engine](/drivers/contract-engine.md), the board check). The
+  next `_ax` campaign names a new `leaderboard.file`; the old rows stay.
 - Suite: `cd $AUTORESEARCH_ANAKIT && TMPDIR=/exp/mu2e/data/users/oksuzian/claude-scratch/tmp
   PYTHONPATH= /cvmfs/mu2e.opensciencegrid.org/env/ana/2.7.0/bin/python
   tests/test_tools.py` (global-constraints.md).
@@ -109,6 +122,25 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   still needs that file present on disk or the module fails to construct.
   Open question: make it an fcl parameter on our branch (mirroring
   `approx_ce_sensitivity`'s own `dio_table`) and tell M. MacKenzie upstream.
+
+**`nts_momentum` and the art-only checks (ce-chain, 2026-09-30)**
+- `tools/analyses/nts_momentum.py` (fork `1f831a1`): a `root_file`
+  analysis (`combines_files=True`) over EventNtuple files, the plot step of
+  the `ce_chain` study ([production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md)).
+  Keeps, per event, the tracker-front segment (`sid == 0`) of downstream
+  e- fits (`trk.pdg == 11`, `pz > 0` there). Metrics `n_events`, `n_fits`,
+  `median_p_front`, `mean_p_front`; writes `nts_momentum.png` (95–110
+  MeV/c, 0.25 MeV/c bins). The selection, `front_momenta(segs, pdg)`, is a
+  pure function over awkward arrays, unit-tested without ROOT files.
+- **The adapter's EdepAna checks apply only to `input_kind ==
+  "art_files"`** (`core/adapters/anakit.py`, `step_problems` and
+  `submit`): `backing_problem` (work-area backing == the study's code
+  tarball's) and `code_commit` (`git describe` in
+  `<work_area>/Mu2eOptAna`). A `root_file` analysis records `"code":
+  null`. Both read `input_kind` from the server's `list_analyses`
+  catalogue; an analysis without one is refused at launch. Before this the
+  spike needed a work area backed by AnalysisMDC2025 and a `Mu2eOptAna`
+  symlink just to plot an ntuple.
 
 **GenEventCount and the Task 1 gate (measured on gridphaseA01's archived
 files, first file per stage)**
