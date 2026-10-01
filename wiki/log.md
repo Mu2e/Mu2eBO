@@ -6,7 +6,13 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-09-30
+- **merged** branch `kit-seam` into `generic-study-phase-c1` (fast-forward
+  to 5e5a28d) after bpzax01 finished — [contract-engine](/drivers/contract-engine.md).
 - **updated** [contract-engine](/drivers/contract-engine.md): bpzax01 measured the straggler cost — the prodtools kit applies `quorum` only after every job ends, so five single jobs of ~5,200 (6–14 h against a ~1.5 h step) held their points and pool slots into the afternoon of day 2; a tail cutoff is the open design item.
+- **updated** [contract-engine](/drivers/contract-engine.md): bpzax01, the
+  first full engine campaign, finished 40/40 rows with zero failures; one
+  straggler `mustops_ce` job held the last point ~14 h; best-in-budget R36
+  sob 3.843.
 
 ## 2026-09-29
 - **updated** [contract-engine](/drivers/contract-engine.md): the kit seam

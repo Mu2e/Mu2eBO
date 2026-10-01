@@ -11,7 +11,7 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   step), step_problems launch hook, <study>_ax engine twins on MDC2025ax;
   C3 (2026-09-28) deletes the pipeline — the engine is the only runner
 status: active
-timestamp: '2026-09-29'
+timestamp: '2026-09-30'
 ---
 
 # Contract engine (Phase B)
@@ -448,6 +448,12 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   run-time-held job as failed. And `fixed` values are in `measure_basis`,
   so a lifetime set there would change every `_ax` `measure_sha` unless
   it is kept out of the basis.
+- **First full engine campaign, bpzax01 (foilspfbpz_ax, budget_sob, q=20,
+  40 evals, grid): done 2026-09-30, launched=40 rows=40 ok=40, zero
+  failed children.** The wall clock was set by the stragglers above: R32
+  waited ~14 h on a single `mustops_ce` job. Best within the MDC2025ax budget (flash_edep ≤ 6.50684e-07):
+  R36 sob 3.84285 (flash 5.699e-07), R12 3.82018; best overall R15 4.08057
+  at flash 1.009e-06, and R33 4.0647 just over budget (6.548e-07).
 - **No token refresh in the adapter:** the adapter never renews a
   Kerberos ticket; `contract.launch_problems` refuses a grid
   launch up front when the study's kit(s) declare `requires_kerberos` and
@@ -885,9 +891,9 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   - **No grid run:** the engine changed only by renames, by losing
     fallbacks it never used, and by the new `AUTORESEARCH_LOCAL` refusal.
 
-- **Kit seam (2026-09-29, branch `kit-seam`, local and unmerged; merges
-  into `generic-study-phase-c1` after the live `bpzax01` campaign
-  finishes or on the operator's word; acceptance passed 2026-09-29).** Design:
+- **Kit seam (2026-09-29; acceptance passed 2026-09-29; merged into
+  `generic-study-phase-c1` 2026-09-30, fast-forward to 5e5a28d, after
+  `bpzax01` finished).** Design:
   `docs/superpowers/specs/2026-09-29-kit-seam-design.md`.
   - **One declaration per kit** (b3d9c88): `kit_registry.KitDecl` carries
     `executors`, `launch_stagger_s`, `requires_kerberos`,
