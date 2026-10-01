@@ -1,10 +1,23 @@
 """Check a study file before launch: it loads, its ${ARTIFACT} paths exist,
-the launch check passes and its geometry passes the pre-check at one point.
-Nothing is submitted and no board row is written."""
+the launch check passes, and its geometry passes the pre-check at one point
+(the middle of every knob's bounds, or --x). Nothing is submitted and no
+board row is written. By hand:
+  python -m graph.check_study foilspfbpz_ax
+  python -m graph.check_study /path/to/draft.json --x=1.5,2 --json
+  python -m graph.check_study ce_chain --executor local --parallel 1
+The pre-check works in <GRID_DATA_ROOT>/check_<study>/, emptied at every run
+(only when it holds the .check_study marker this command writes there).
+Exit 0: every check passed. Exit 1: a check failed (the report says which
+and why). Exit 2: a bad command line, or a target that is neither a file
+nor a study on the study path.
+"""
 from __future__ import annotations
 
+import argparse
+import contextlib
 import json
 import os
+import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,10 +30,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 # so one broken file would crash this check instead of being reported.
 import paths  # noqa: E402
 import study as st  # noqa: E402
+from boards import board_for  # noqa: E402
+from contract import EXECUTORS, ContractError, KitSet, launch_problems  # noqa: E402
+from kits import KitError  # noqa: E402
+from leaderboard import LeaderboardError  # noqa: E402
+from study_graph import build_study_graph, check_x  # noqa: E402
 
 MODES_DIR = paths.REPO_ROOT / "mode_specs"
 STUDY_PATH_ENV = "AUTORESEARCH_STUDY_PATH"
 ALL_STUDIES = "every launch loads all studies"
+MARKER = ".check_study"
+CAMPAIGN = "check"
 
 
 @dataclass
@@ -169,3 +189,145 @@ def render_text(rep: dict) -> str:
         lines.extend(f"    - {p}" for p in c["problems"])
     lines.append("OK" if rep["ok"] else "FAILED")
     return "\n".join(lines)
+
+
+def check_launch(study, kits, *, executor: str, parallel, config: str) -> Check:
+    """The check graph.run makes before it writes anything: executor rules,
+    Kerberos, the config name, every kit starts and reports a version, the
+    params/metrics cross-check, each kit's step checks, and the board."""
+    # run imports modes, which loads every study: safe only once the load
+    # check has proved they all load.
+    from run import local_env_refusal
+    problems = []
+    refusal = local_env_refusal()
+    if refusal:
+        problems.append(refusal)
+    try:
+        problems += launch_problems(study, kits, executor=executor,
+                                    parallel=parallel, config_names=[config],
+                                    board=board_for(study))
+    except (KitError, ContractError, LeaderboardError, OSError) as exc:
+        problems.append(f"{type(exc).__name__}: {exc}")
+    if problems:
+        return Check("launch", "failed", problems)
+    return Check("launch", "passed")
+
+
+def prepare_scratch(config: str) -> Optional[str]:
+    """Empty <GRID_DATA_ROOT>/<config>/ so no verdict of an earlier run is
+    reused, but only a directory this command made (it holds the marker).
+    Returns the problem, or None."""
+    d = paths.GRID_DATA_ROOT / config
+    marker = d / MARKER
+    if d.exists() or d.is_symlink():
+        if not marker.is_file() or d.is_symlink():
+            return (f"{d} exists but was not made by check_study (no "
+                    f"{MARKER} marker); left untouched")
+        shutil.rmtree(d)
+    d.mkdir(parents=True)
+    marker.write_text("made by graph/check_study.py, which empties this "
+                      "directory at every run\n")
+    return None
+
+
+def check_geometry(study, kits, *, x: List[float], config: str,
+                   executor: str) -> Check:
+    """derive -> render -> preflight at x, in a fresh scratch directory."""
+    try:
+        check_x(study, x)
+    except ValueError as exc:
+        return Check("geometry", "failed", [str(exc)])
+    try:
+        problem = prepare_scratch(config)
+    except OSError as exc:
+        problem = f"{type(exc).__name__}: {exc}"
+    if problem:
+        return Check("geometry", "failed", [problem])
+    state_dir = paths.GRID_DATA_ROOT / config / "state"
+    graph = build_study_graph(
+        study, config=config, campaign=CAMPAIGN, context={}, kits=kits,
+        state_dir=state_dir, board=None, executor=executor,
+        log=lambda m: print(m, file=sys.stderr, flush=True),
+        through="preflight").compile()
+    try:
+        out = graph.invoke({"config_name": config, "x_point": x})
+    except Exception as exc:
+        # derive and render raise for a bad expression or profile; graph.run
+        # would crash on it, here it is the check's verdict.
+        return Check("geometry", "failed", [f"{type(exc).__name__}: {exc}"])
+    if out.get("broken"):
+        return Check("geometry", "failed", [out.get("reason", "")])
+    if study.preflight is not None:
+        verdict = json.loads((state_dir / "preflight_verdict.json").read_text())
+        note = verdict.get("message") or "pre-check passed"
+    elif study.geom is not None:
+        note = "rendered, not pre-checked"
+    else:
+        note = "no geometry"
+    return Check("geometry", "passed", note=note)
+
+
+def run_checks(path: Path, x_arg: Optional[List[float]], *, executor: str,
+               parallel) -> dict:
+    load, study = check_load(path)
+    if study is None:
+        return report(path.stem, str(path.resolve()), None, [load] + [
+            Check(name, "skipped", note="skipped: load failed")
+            for name in ("artifacts", "launch", "geometry")])
+    x = x_arg if x_arg is not None else center_point(study)
+    # An --x that does not fit the knobs has no point to name: the geometry
+    # check says why.
+    point = (dict(zip(study.knob_names, x))
+             if len(x) == len(study.knob_names) else None)
+    config = f"check_{study.name}"
+    checks = [load, check_artifacts(path)]
+    kits = KitSet(CAMPAIGN, executor=executor, parallel=parallel)
+    try:
+        launch = check_launch(study, kits, executor=executor,
+                              parallel=parallel, config=config)
+        checks.append(launch)
+        if launch.status == "passed":
+            checks.append(check_geometry(study, kits, x=x, config=config,
+                                         executor=executor))
+        else:
+            checks.append(Check("geometry", "skipped",
+                                note="skipped: launch failed"))
+    finally:
+        kits.close()
+    return report(study.name, str(path.resolve()), point, checks)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("target", help="a study file's path, or the name of a "
+                                   "study on the study path")
+    ap.add_argument("--x", default=None,
+                    help="comma-separated knob values, in the study's knob "
+                         "order; default the middle of each knob's bounds")
+    ap.add_argument("--executor", choices=EXECUTORS, default="grid",
+                    help="the executor the launch check assumes, as graph.run")
+    ap.add_argument("--parallel", type=int, default=None,
+                    help="jobs at once on this node, with --executor local only")
+    ap.add_argument("--json", action="store_true",
+                    help="print one JSON object; log lines go to stderr")
+    args = ap.parse_args(argv)
+    try:
+        path = resolve_target(args.target)
+        x_arg = (None if args.x is None
+                 else [float(v) for v in args.x.split(",")])
+    except ValueError as exc:
+        print(f"check_study: {exc}", file=sys.stderr)
+        return 2
+    # Whatever the engine prints while checking goes to stderr, so stdout
+    # holds the report alone.
+    with contextlib.redirect_stdout(sys.stderr):
+        rep = run_checks(path, x_arg, executor=args.executor,
+                         parallel=args.parallel)
+    print(json.dumps(rep, indent=1) if args.json else render_text(rep),
+          flush=True)
+    return 0 if rep["ok"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

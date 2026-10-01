@@ -4,6 +4,7 @@ passes the pre-check at the center point -- with nothing submitted and no
 board row (spec docs/superpowers/specs/2026-10-01-check-study-design.md)."""
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,7 +19,8 @@ import check_study as cs  # noqa: E402
 import paths  # noqa: E402
 import study as st  # noqa: E402
 from study_graph import build_study_graph  # noqa: E402
-from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
+from leaderboard import Leaderboard  # noqa: E402
+from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
 
 PRE = {"kit": "toykit", "files": [], "params": {}}
 
@@ -274,6 +276,178 @@ class TestReport(unittest.TestCase):
         text = cs.render_text(rep)
         self.assertIn("    - it broke", text)
         self.assertEqual(text.splitlines()[-1], "FAILED")
+
+
+def toy_pre(**kits):
+    doc = toy_doc()
+    doc["preflight"] = dict(PRE)
+    doc["kits"]["toykit"].update(kits)
+    return doc
+
+
+class TestMain(_Tmp):
+    """python -m graph.check_study, as the skill and the MCP tool call it."""
+    LOCAL = ("--executor", "local", "--parallel", "1")
+
+    def setUp(self):
+        super().setUp()
+        self.studies = self.tmp / "studies"
+        self.studies.mkdir()
+        self.data = self.tmp / "data"
+        self.env = engine_env(self.data, self.studies)
+        self.scratch = self.data / "autoresearch_grid" / "check_toystudy"
+
+    def check(self, *args, json_out=True):
+        argv = [sys.executable, "-m", "graph.check_study", *args, *self.LOCAL]
+        if json_out:
+            argv.append("--json")
+        r = subprocess.run(argv, cwd=ROOT, env=self.env, capture_output=True,
+                           text=True, timeout=120)
+        self.assertNotIn("Traceback", r.stderr)
+        out = json.loads(r.stdout) if json_out and r.returncode != 2 else None
+        return r, out
+
+    @staticmethod
+    def checks(out):
+        return {c["name"]: c for c in out["checks"]}
+
+    def test_a_good_study_passes_every_check(self):
+        write_study(toy_pre(), self.studies)
+        r, out = self.check("toystudy")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(out["ok"])
+        self.assertEqual([c["status"] for c in out["checks"]], ["passed"] * 4)
+        self.assertEqual(list(self.checks(out)),
+                         ["load", "artifacts", "launch", "geometry"])
+        self.assertEqual(out["point"], {"x1": 2.5, "x2": 7.5})
+        self.assertFalse((self.data / "autoresearch_leaderboards"
+                          / "leaderboard_toystudy.tsv").exists())
+        for name in ("toy_results.json", "toy_cluster.txt"):
+            self.assertEqual(list(self.scratch.rglob(name)), [], name)
+
+    def test_a_failing_precheck_is_a_failed_geometry(self):
+        write_study(toy_pre(function="reject"), self.studies)
+        r, out = self.check("toystudy")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        c = self.checks(out)
+        self.assertEqual(c["launch"]["status"], "passed", c["launch"])
+        self.assertEqual(c["geometry"]["status"], "failed")
+        self.assertTrue(any("fails the check" in p
+                            for p in c["geometry"]["problems"]), c["geometry"])
+
+    def test_a_load_failure_skips_the_rest(self):
+        doc = toy_pre()
+        doc["objectives"] = []
+        path = write_study(doc, self.tmp / "drafts")
+        r, out = self.check(str(path))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIsNone(out["point"])
+        c = self.checks(out)
+        self.assertEqual(c["load"]["status"], "failed")
+        for name in ("artifacts", "launch", "geometry"):
+            self.assertEqual(c[name]["status"], "skipped", c[name])
+
+    def test_a_broken_draft_on_the_study_path_is_a_failed_load(self):
+        bad = self.studies / "bad.json"
+        bad.write_text("{}")
+        r, out = self.check(str(bad))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(self.checks(out)["load"]["status"], "failed")
+
+    def test_a_board_of_another_measure_sha_fails_launch_and_skips_geometry(self):
+        path = write_study(toy_pre(), self.studies)
+        board = self.data / "autoresearch_leaderboards" / "leaderboard_toystudy.tsv"
+        board.parent.mkdir(parents=True)
+        header = Leaderboard.for_study(st.load_study_file(path), path=board,
+                                       archive_path=None).header()
+        cols = header.rstrip("\n").split("\t")
+        row = ["old1" if c == "config" else "b" * 64 if c == "measure_sha"
+               else "1" for c in cols]
+        board.write_text(header + "\t".join(row) + "\n")
+        r, out = self.check("toystudy")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        c = self.checks(out)
+        self.assertEqual(c["launch"]["status"], "failed")
+        self.assertTrue(any("bbbbbbbbbbbb" in p
+                            for p in c["launch"]["problems"]), c["launch"])
+        self.assertEqual(c["geometry"]["status"], "skipped")
+
+    def test_x_overrides_the_center(self):
+        write_study(toy_pre(), self.studies)
+        r, out = self.check("toystudy", "--x=1,2")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(out["point"], {"x1": 1.0, "x2": 2.0})
+
+    def test_a_wrong_length_x_is_a_failed_geometry(self):
+        write_study(toy_pre(), self.studies)
+        r, out = self.check("toystudy", "--x=1")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        geometry = self.checks(out)["geometry"]
+        self.assertEqual(geometry["status"], "failed")
+        self.assertTrue(any("2 knobs" in p for p in geometry["problems"]),
+                        geometry)
+
+    def test_the_marker_dir_is_emptied_and_a_bare_dir_is_refused(self):
+        write_study(toy_pre(), self.studies)
+        self.assertEqual(self.check("toystudy")[0].returncode, 0)
+        stale = self.scratch / "stale.txt"
+        stale.write_text("old")
+        r, _ = self.check("toystudy")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(stale.exists())
+        self.assertTrue((self.scratch / ".check_study").exists())
+        (self.scratch / ".check_study").unlink()
+        stale.write_text("old")
+        r, out = self.check("toystudy")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        geometry = self.checks(out)["geometry"]
+        self.assertEqual(geometry["status"], "failed")
+        self.assertTrue(any("no .check_study marker" in p
+                            for p in geometry["problems"]), geometry)
+        self.assertTrue(stale.exists())
+
+    def test_a_geometry_without_precheck_is_rendered(self):
+        doc = toy_doc()
+        doc["geom"] = {"writer": "offline_simpleconfig",
+                       "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+                       "lines": []}
+        doc["evaluate"][0]["files"] = ["geom"]
+        write_study(doc, self.studies)
+        r, out = self.check("toystudy")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.checks(out)["geometry"]["note"],
+                         "rendered, not pre-checked")
+        self.assertTrue((self.scratch / "state" / "geom.txt").exists())
+
+    def test_a_derive_error_at_the_point_is_a_failed_geometry(self):
+        doc = toy_doc()
+        doc["derive"]["exprs"] = {"inv": "1 / (x1 - 2.5)"}
+        doc["geom"] = {"writer": "offline_simpleconfig",
+                       "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+                       "lines": []}
+        write_study(doc, self.studies)
+        r, out = self.check("toystudy")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        geometry = self.checks(out)["geometry"]
+        self.assertEqual(geometry["status"], "failed")
+        self.assertTrue(any("ZeroDivisionError" in p or "division" in p
+                            for p in geometry["problems"]), geometry)
+
+    def test_an_unknown_name_is_exit_2(self):
+        r, _ = self.check("nosuchstudy")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("nosuchstudy", r.stderr)
+
+    def test_a_non_numeric_x_is_exit_2(self):
+        write_study(toy_pre(), self.studies)
+        r, _ = self.check("toystudy", "--x=a,2")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+
+    def test_text_mode_ends_with_ok(self):
+        write_study(toy_pre(), self.studies)
+        r, _ = self.check("toystudy", json_out=False)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.splitlines()[-1], "OK")
 
 
 if __name__ == "__main__":
