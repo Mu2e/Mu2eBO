@@ -55,6 +55,9 @@ RESULT_NAME = "anakit_result.json"
 # anakit reports its own timeout instead of the call being cut off.
 RUN_TIMEOUT_S = 3000
 CALL_MARGIN_S = 300
+# The input_kind values list_analyses may report; "art_files" is the EdepAna
+# art job (backing and Mu2eOptAna checks), "root_file" a Python analysis.
+INPUT_KINDS = ("art_files", "root_file")
 OWN_PARAMS = ("work_area", "analysis")  # read here, never sent to anakit
 
 
@@ -266,6 +269,11 @@ class AnakitKit:
             if "input_kind" not in spec:
                 raise _error("list_analyses", f"anakit's reply for analysis "
                              f"{analysis!r} has no 'input_kind'")
+            if spec["input_kind"] not in INPUT_KINDS:
+                raise _error("list_analyses", f"anakit's reply for analysis "
+                             f"{analysis!r} has input_kind "
+                             f"{spec['input_kind']!r}; known kinds "
+                             f"{list(INPUT_KINDS)}")
             # Only an EdepAna art job has a Mu2eOptAna build to record.
             code = (code_commit(work_area)
                     if spec["input_kind"] == "art_files" else None)
@@ -348,6 +356,11 @@ class AnakitKit:
             # No silent fallback, as for 'metrics' below.
             return [f"{where}: anakit's list_analyses reply for analysis "
                     f"{analysis!r} has no 'input_kind'"]
+        if spec["input_kind"] not in INPUT_KINDS:
+            # A typo or a new upstream kind must not skip the art checks.
+            return [f"{where}: anakit's list_analyses reply for analysis "
+                    f"{analysis!r} has input_kind {spec['input_kind']!r}; "
+                    f"known kinds {list(INPUT_KINDS)}"]
         tarball = study.kits.get("prodtools", {}).get("code_tarball")
         # Only an EdepAna art job is built on the jobs' release; a root_file
         # analysis is Python and runs from its own work area.

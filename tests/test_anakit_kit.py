@@ -333,6 +333,16 @@ class TestSubmit(_Kit):
             kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
         self.assertIn("input_kind", str(cm.exception))
 
+    def test_an_unknown_input_kind_is_a_kit_error(self):
+        entry = {**CATALOGUE["ce_sensitivity"], "input_kind": "art_file"}
+        kit = self.kit(catalogue={"ce_sensitivity": entry})
+        with self.assertRaises(KitError) as cm:
+            kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
+        msg = str(cm.exception)
+        self.assertIn("art_file", msg)
+        self.assertIn("ce_sensitivity", msg)
+        self.assertIn("root_file", msg)
+
     def test_a_fork_commit_that_moved_since_open_refuses_submit(self):
         kit = self.kit()
         (self.fork / "analysis_mcp_server" / "extra.py").write_text("y\n")
@@ -482,7 +492,18 @@ class TestStepProblems(_Kit):
         study, step = self.study(self.GOOD, self.tarball(MDC))
         problems = self.kit(catalogue={"ce_sensitivity": entry}
                             ).step_problems(study, step)
-        self.assertTrue(any("input_kind" in p for p in problems), problems)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("input_kind", problems[0])
+
+    def test_an_unknown_input_kind_is_named(self):
+        entry = {**CATALOGUE["ce_sensitivity"], "input_kind": "art_file"}
+        study, step = self.study(self.GOOD, self.tarball(MDC))
+        problems = self.kit(catalogue={"ce_sensitivity": entry}
+                            ).step_problems(study, step)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("art_file", problems[0])
+        self.assertIn("ce_sensitivity", problems[0])
+        self.assertIn("root_file", problems[0])
 
     def test_a_work_area_that_is_not_a_directory(self):
         study, step = self.study(self.GOOD)
