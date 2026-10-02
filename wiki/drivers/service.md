@@ -171,6 +171,18 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   - **`ce_chain` dry run:** refused "has no knobs: … run graph.run".
   - **branin,** local, q=2, max_evals=4: launched, 4 children scored,
     `exit_code` 0, and `leaderboard` gave 4 rows.
+- **Live from a Claude Code session (2026-10-02, after the merge and
+  `/mcp`):**
+  - `campaign_status bpzax01` showed 40 children scored, best
+    `bpzax01R15_00` at sob 4.081, parent not alive (it was shell-launched
+    and has ended);
+  - `leaderboard foilspfbpz_ax top=5` gave 41 rows, best `c2bR11ax01` at
+    sob 4.143;
+  - a grid dry run (q=10, max_evals=40, alpha=100000) was refused by
+    closed_loop's board check, which is correct: the live board holds
+    measure_sha 1a91751589c1 and a launch now measures 28a09663f81f (the
+    anakit fork moved). The next `_ax` campaign needs a new
+    `leaderboard.file`. Budget: 130 jobs per point, 5,200 in total.
 - **Tests:** `tests/test_campaigns.py` (17), `TestCheckOnly` in
   `tests/test_closed_loop.py` (2), `TestSpawn` in `tests/test_service.py`
   (1), and the stdio test sees nine tools. The suite is 858 OK
