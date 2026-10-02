@@ -113,7 +113,12 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
     - a live parent has the prefix;
     - `<prefix>/STOP` exists;
     - `<prefix>/campaign.json` exists. It is claimed with `O_EXCL`, so of
-      two concurrent confirms only one launches.
+      two concurrent confirms only one launches;
+    - the prefix already has child logs. That covers a campaign on another
+      node, which the process scan cannot see; a second parent on one
+      prefix would double its grid submits.
+  - **The dry run reports those refusals too** (final-review fix), so the
+    check and the launch never disagree.
   - **One MCP launch per prefix:** a launch closed_loop refuses spends the
     prefix (`state: "refused"`, note "dry-run again and launch under a new
     prefix").
@@ -136,6 +141,10 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   - **`rows` and `best`** come from the board by the same exact match.
   - **A study file that no longer loads** gives `board_error`, not a
     failure.
+  - **`host`:** liveness (a running parent or child) is what this host's
+    process table shows, while the files are shared by every node.
+  - **A prefix must match `[A-Za-z0-9_]+`,** so `""` or `/dir` cannot
+    point the reads at another directory (final-review fix).
   - **With no prefix,** it lists live parents plus every
     `<prefix>/campaign.json`. In the server that list comes back as
     `{"campaigns": [...]}`, because a union of return types is not
@@ -145,8 +154,13 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   - The board is built from the service's own data root
     (`Leaderboard.for_study`), not `board_for`, which uses the process's
     data root. In the server they agree.
-- **Known limit:** the process scan covers the whole host, so a campaign
-  with the same prefix under another data root counts as live.
+- **Known limits:**
+  - the process scan covers the whole host, so a campaign with the same
+    prefix under another data root counts as live;
+  - it sees no other node, so a parent there reads as not alive (the
+    child-log refusal keeps the launch side safe);
+  - confirm is not tied to a dry run: the gate is the operator's
+    permission prompt, so never allowlist `start_campaign`.
 - **The `_ax` studies need `--context alpha=…`.** Without it closed_loop
   refuses "needs --context for ['alpha']". The live `foilspfbpz_ax`
   board's 41 rows all carry `alpha=100000`.
@@ -157,9 +171,9 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   - **`ce_chain` dry run:** refused "has no knobs: … run graph.run".
   - **branin,** local, q=2, max_evals=4: launched, 4 children scored,
     `exit_code` 0, and `leaderboard` gave 4 rows.
-- **Tests:** `tests/test_campaigns.py` (15), `TestCheckOnly` in
+- **Tests:** `tests/test_campaigns.py` (17), `TestCheckOnly` in
   `tests/test_closed_loop.py` (2), `TestSpawn` in `tests/test_service.py`
-  (1), and the stdio test sees nine tools. The suite is 856 OK
+  (1), and the stdio test sees nine tools. The suite is 858 OK
   (skipped=3).
 
 ## Cross-links

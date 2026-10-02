@@ -4,6 +4,7 @@ branin engine study, locally (spec
 docs/superpowers/specs/2026-10-02-campaign-tools-design.md)."""
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -106,8 +107,14 @@ class TestStatus(_Camp):
         self.assertEqual(children["cstR01_00"]["state"],
                          "ended without a row")
 
+    def test_a_prefix_that_is_a_path_is_refused(self):
+        for prefix in ("", "..", "../x", "/etc", "a-b"):
+            with self.assertRaises(ValueError, msg=prefix):
+                self.svc.campaign_status(prefix)
+
     def test_an_unknown_prefix(self):
         st = self.svc.campaign_status("nothing")
+        self.assertEqual(st["host"], socket.gethostname())
         self.assertIsNone(st["study"])
         self.assertEqual(st["children"], [])
         self.assertEqual(st["rows"], 0)
@@ -241,6 +248,27 @@ class TestStart(_Camp):
             self.launch("busy", 1)
         self.assertIn("already running", str(cm.exception))
         self.assertFalse((self.svc.graph_data / "busy").exists())
+
+    def test_the_dry_run_sees_the_launch_refusals(self):
+        # Whatever confirm would refuse, the dry run already says.
+        self.svc.stop_campaign("stp2")
+        out = self.svc.start_campaign("branin", "stp2", 1, 1, **self.KW)
+        self.assertFalse(out["ok"], out)
+        self.assertTrue(any("STOP" in p for p in out["problems"]), out)
+        self.child_log("oldR00_00")
+        out = self.svc.start_campaign("branin", "old", 1, 1, **self.KW)
+        self.assertFalse(out["ok"], out)
+        self.assertTrue(any("already has children" in p
+                            for p in out["problems"]), out)
+        with self.assertRaises(ValueError) as cm:
+            self.launch("old", 1)
+        self.assertIn("already has children", str(cm.exception))
+        self.assertEqual(self.launch("spt", 1, context=["alpha=1"])["state"],
+                         "refused")
+        out = self.svc.start_campaign("branin", "spt", 1, 1, **self.KW)
+        self.assertFalse(out["ok"], out)
+        self.assertTrue(any("already launched from MCP" in p
+                            for p in out["problems"]), out)
 
     def test_a_refused_launch_spends_the_prefix(self):
         out = self.launch("ctx", 1, context=["alpha=1"])

@@ -27,6 +27,7 @@ import os
 import re
 import shlex
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -249,6 +250,8 @@ class CampaignService:
         return None
 
     def campaign_status(self, name_prefix: Optional[str] = None):
+        if name_prefix is not None:
+            _check_prefix(name_prefix)
         parents, running = self._scan()
         if name_prefix is None:
             return self._campaigns(parents)
@@ -281,7 +284,10 @@ class CampaignService:
             children.append({"name": name, "state": state,
                              "last_line": _last_line(
                                  self.logs_dir / f"{name}.log")})
+        # Liveness (a running parent or child) is what this host's process
+        # table shows; the files are shared by every node.
         return {"prefix": prefix, "study": study_name,
+                "host": socket.gethostname(),
                 "parent": self._parent(prefix, parents),
                 "stopping": (self.camp_dir(prefix) / "STOP").exists(),
                 "children": children, "rows": rows, "best": best,
@@ -380,23 +386,44 @@ class CampaignService:
                    + shlex.join(argv))
         if not confirm:
             out = self._dry_run(argv)
+            # What confirm would refuse, the dry run says too: the check and
+            # the launch never disagree.
+            refusals = self._launch_refusals(name_prefix)
+            if refusals:
+                out.update(ok=False, problems=refusals + out["problems"])
             out.update(command=command,
                        budget=self.budget(study, max_evals, executor))
             return out
         return self._launch(name_prefix, study, argv, command)
 
-    def _launch(self, prefix: str, study: str, argv: List[str],
-                command: str) -> Dict[str, Any]:
+    def _launch_refusals(self, prefix: str) -> List[str]:
+        """Why the server would refuse to launch `prefix` (read only)."""
+        out = []
         parents, _ = self._scan()
         if prefix in parents:
-            raise ValueError(f"campaign {prefix!r} is already running (pid "
-                             f"{parents[prefix][0]}); stop it or use a new "
-                             f"prefix")
+            out.append(f"campaign {prefix!r} is already running (pid "
+                       f"{parents[prefix][0]}); stop it or use a new prefix")
         cdir = self.camp_dir(prefix)
         if (cdir / "STOP").exists():
-            raise ValueError(f"{cdir / 'STOP'} exists: the campaign would "
-                             f"drain at once and launch nothing; use a new "
-                             f"prefix")
+            out.append(f"{cdir / 'STOP'} exists: the campaign would drain at "
+                       f"once and launch nothing; use a new prefix")
+        if (cdir / "campaign.json").exists():
+            out.append(f"campaign {prefix!r} was already launched from MCP "
+                       f"({cdir / 'campaign.json'}); use a new prefix")
+        if self._children(prefix):
+            # Also a campaign on another node, which the process scan cannot
+            # see: a second parent on one prefix would double its submits.
+            out.append(f"prefix {prefix!r} already has children "
+                       f"({self.logs_dir}/{prefix}R*_00.log): another "
+                       f"campaign used it; use a new prefix")
+        return out
+
+    def _launch(self, prefix: str, study: str, argv: List[str],
+                command: str) -> Dict[str, Any]:
+        refusals = self._launch_refusals(prefix)
+        if refusals:
+            raise ValueError("; ".join(refusals))
+        cdir = self.camp_dir(prefix)
         cdir.mkdir(parents=True, exist_ok=True)
         record_path = cdir / "campaign.json"
         try:

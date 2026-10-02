@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""The autoresearch MCP server: study tools over stdio, each a thin wrapper
+"""The autoresearch MCP server over stdio: the study tools, thin wrappers
 over service/checks.py's CheckService (spec
-docs/superpowers/specs/2026-10-02-autoresearch-mcp-design.md). Registered in
-.mcp.json. The campaign tools planned for this server come later.
+docs/superpowers/specs/2026-10-02-autoresearch-mcp-design.md), and the
+campaign tools over service/campaigns.py's CampaignService (spec
+docs/superpowers/specs/2026-10-02-campaign-tools-design.md). Registered in
+.mcp.json.
 """
 from __future__ import annotations
 
