@@ -4,6 +4,8 @@ point, picks from surrokit through core/botorch_predict.py.
   python -m graph.closed_loop --study branin --q 2 --max-evals 8 --picker budget_sob --name-prefix brn
 contract.launch_problems must pass before anything launches. To stop
 launching, touch GRAPH_DATA/<name-prefix>/STOP; running children drain.
+--check-only: run every check, print OK, launch nothing (exit 0; a refusal
+is exit 2 as without it).
 """
 from __future__ import annotations
 
@@ -131,6 +133,9 @@ def main(argv=None) -> int:
     ap.add_argument("--parallel", type=int, default=None,
                     help="jobs at once on this node, with --executor local "
                          "only (1..16); passed to every child")
+    ap.add_argument("--check-only", action="store_true",
+                    help="run every launch check, print OK and exit 0 "
+                         "without launching anything")
     args = ap.parse_args(argv)
 
     removed = local_env_refusal()
@@ -170,6 +175,12 @@ def main(argv=None) -> int:
         for problem in problems:
             print(f"[closed_loop] REFUSED: {problem}", flush=True)
         return 2
+    if args.check_only:
+        print(f"[closed_loop] OK: would launch study={study.name} q={args.q} "
+              f"max_evals={args.max_evals} prefix={args.name_prefix} "
+              f"board={board_for(study).path} executor={args.executor}",
+              flush=True)
+        return 0
     stagger = launch_stagger(study) if args.stagger is None else args.stagger
     stop = paths.GRAPH_DATA / args.name_prefix / "STOP"
     print(f"[closed_loop] study={study.name} q={args.q} "

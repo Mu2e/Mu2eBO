@@ -362,5 +362,43 @@ class TestRenamedHints(unittest.TestCase):
         self.assertIn("mode_specs/archive/", out.getvalue())
 
 
+class TestCheckOnly(unittest.TestCase):
+    """--check-only: every launch check, then exit; nothing launched. The
+    autoresearch MCP server's start_campaign dry run is this command."""
+
+    def run_loop(self, argv, data):
+        return subprocess.run(argv, cwd=ROOT,
+                              env=engine_env(data, ENGINE_STUDIES),
+                              capture_output=True, text=True, timeout=180)
+
+    def test_check_only_launches_nothing(self):
+        with tempfile.TemporaryDirectory() as td:
+            data = Path(td)
+            r = self.run_loop(loop_cmd("branin", 1, 2, "chk")
+                              + ["--check-only"], data)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("[closed_loop] OK: would launch study=branin q=1 "
+                          "max_evals=2 prefix=chk", r.stdout)
+            self.assertFalse((data / "autoresearch_graph_data"
+                              / "closed_loop_logs").exists())
+            self.assertEqual(board_rows(data, "branin"), [])
+            self.assertEqual(submits(data), [])
+
+    def test_check_only_refusals(self):
+        cases = [
+            (loop_cmd("nope", 1, 2, "chk"), "unknown study 'nope'"),
+            (loop_cmd("ce_chain", 1, 2, "chk"), "has no knobs"),
+            (loop_cmd("branin", 1, 2, "chk") + ["--context", "alpha=1"],
+             "--context 'alpha'"),
+        ]
+        for argv, fragment in cases:
+            with self.subTest(fragment=fragment), \
+                    tempfile.TemporaryDirectory() as td:
+                r = self.run_loop(argv + ["--check-only"], Path(td))
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("[closed_loop] REFUSED: ", r.stdout)
+                self.assertIn(fragment, r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
