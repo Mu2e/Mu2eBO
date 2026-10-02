@@ -1,0 +1,298 @@
+"""The autoresearch MCP server's campaign tools, as plain Python: start a
+`graph.closed_loop` campaign (a dry run through --check-only, then a
+confirmed detached launch), stop it, follow it, and read a study's
+leaderboard. No MCP here; service/server.py wraps each method as a tool.
+
+A campaign is named by its --name-prefix; its children are
+<prefix>R<n>_00 (matched exactly by is_child, so `foo` never takes `foo2`).
+Status reads only what every campaign leaves behind, so it covers campaigns
+started from a shell too:
+  <graph data>/closed_loop_logs/<child>.log   one log per child
+  <grid data>/<child>/state/                  point.json, broken.txt, ...
+  the study's board                           the rows
+  <graph data>/<prefix>/STOP                  draining
+A campaign launched here also has <graph data>/<prefix>/campaign.json,
+parent.log, lock (held by the parent for as long as it lives; see
+service/jobs.py) and rc. A shell-launched parent is found by a scan of this
+user's processes (/proc/*/cmdline), which covers the whole host: a campaign
+of the same prefix under another data root counts as live.
+
+Only the standard library and bare core/ modules (paths, study, leaderboard):
+never modes, so one broken study file cannot stop the server.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+
+import paths  # noqa: E402
+import study as st  # noqa: E402
+from leaderboard import Leaderboard  # noqa: E402
+
+from service.checks import CheckService  # noqa: E402
+from service.jobs import lock_held  # noqa: E402
+
+PREFIX_RE = re.compile(r"[A-Za-z0-9_]+")
+LOG_TAIL = 20
+
+
+def is_child(prefix: str, name: str) -> bool:
+    """`name` is a child of the campaign `prefix`: <prefix>R<n>_00."""
+    return re.fullmatch(re.escape(prefix) + r"R\d+_00", name) is not None
+
+
+def _check_prefix(prefix: str) -> None:
+    if not (isinstance(prefix, str) and PREFIX_RE.fullmatch(prefix)):
+        raise ValueError(f"name_prefix must match [A-Za-z0-9_]+ (it names "
+                         f"the campaign's folder and its children); got "
+                         f"{prefix!r}")
+
+
+def _flag(argv: List[str], flag: str) -> Optional[str]:
+    """The value of `flag` in argv, as `flag value` or `flag=value`."""
+    for i, a in enumerate(argv):
+        if a == flag and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith(flag + "="):
+            return a[len(flag) + 1:]
+    return None
+
+
+def _last_line(path: Path) -> str:
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    return next((ln for ln in reversed(lines) if ln.strip()), "")
+
+
+def _tail(path: Path, n: int) -> str:
+    try:
+        return "\n".join(path.read_text(errors="replace").splitlines()[-n:])
+    except OSError:
+        return ""
+
+
+class CampaignService:
+    def __init__(self, env: Optional[Mapping[str, str]] = None):
+        self.checks = CheckService(env)
+        self.env = self.checks.env
+        self.data_root = self.checks.data_root
+        self.graph_data = self.data_root / paths.GRAPH_DATA.name
+        self.grid_data = self.data_root / paths.GRID_DATA_ROOT.name
+        self.logs_dir = self.graph_data / "closed_loop_logs"
+
+    def camp_dir(self, prefix: str) -> Path:
+        return self.graph_data / prefix
+
+    # -- what is running ---------------------------------------------------
+
+    @staticmethod
+    def _processes() -> List[Tuple[int, List[str]]]:
+        """(pid, argv) of this user's processes."""
+        out = []
+        uid = os.getuid()
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                if os.stat(f"/proc/{entry}").st_uid != uid:
+                    continue
+                raw = Path(f"/proc/{entry}/cmdline").read_bytes()
+            except OSError:
+                continue            # gone while we looked, or not ours
+            argv = [a.decode(errors="replace") for a in raw.split(b"\0") if a]
+            if argv:
+                out.append((int(entry), argv))
+        return out
+
+    def _scan(self) -> Tuple[Dict[str, Tuple[int, Optional[str]]], set]:
+        """Live closed_loop parents {prefix: (pid, study)} and the configs
+        of live graph.run children."""
+        parents, children = {}, set()
+        for pid, argv in self._processes():
+            if "graph.closed_loop" in argv:
+                prefix = _flag(argv, "--name-prefix")
+                if prefix:
+                    parents.setdefault(prefix, (pid, _flag(argv, "--study")))
+            elif "graph.run" in argv:
+                config = _flag(argv, "--config")
+                if config:
+                    children.add(config)
+        return parents, children
+
+    # -- the board ---------------------------------------------------------
+
+    def _load_study(self, name: str):
+        files = self.checks.study_files()
+        for path in files:
+            if path.stem == name:
+                return st.load_study_file(path)
+        raise ValueError(f"no study named {name!r} on the study path; "
+                         f"known: {sorted(p.stem for p in files)}")
+
+    def _board(self, study) -> Leaderboard:
+        # Built from this service's data root, as board_for builds it from
+        # the process's (they agree in the server, where env is the
+        # process's own).
+        rel = study.leaderboard_rel
+        return Leaderboard.for_study(
+            study,
+            path=(self.data_root / paths.LEADERBOARD_LIVE.name
+                  / Path(rel).name),
+            archive_path=paths.leaderboard_archive(rel))
+
+    @staticmethod
+    def _rows(study, points, prefix: Optional[str]) -> List[Dict[str, Any]]:
+        obj = study.objectives[0]
+        if prefix is not None:
+            points = [p for p in points if is_child(prefix, p.cfg)]
+
+        def key(p):
+            v = p.y.get(obj.name)
+            if v is None:
+                return (1, 0.0)
+            return (0, -v if obj.direction == "max" else v)
+        return [{"config": p.cfg, "x": dict(zip(study.knob_names, p.x)),
+                 "values": dict(p.y)} for p in sorted(points, key=key)]
+
+    def leaderboard(self, study: str, name_prefix: Optional[str] = None,
+                    top: int = 20) -> Dict[str, Any]:
+        s = self._load_study(study)
+        board = self._board(s)
+        points = board.load()
+        obj = s.objectives[0]
+        return {"study": s.name, "board": str(board.path),
+                "n_rows": len(points),
+                "objective": {"name": obj.name, "direction": obj.direction},
+                "rows": self._rows(s, points, name_prefix)[:max(top, 0)]}
+
+    # -- status ------------------------------------------------------------
+
+    def _campaign_json(self, prefix: str) -> Optional[dict]:
+        try:
+            return json.loads((self.camp_dir(prefix) / "campaign.json")
+                              .read_text())
+        except (OSError, ValueError):
+            return None
+
+    def _children(self, prefix: str) -> List[str]:
+        if not self.logs_dir.is_dir():
+            return []
+        return sorted(p.stem for p in self.logs_dir.glob("*.log")
+                      if is_child(prefix, p.stem))
+
+    def _parent(self, prefix: str, parents) -> Dict[str, Any]:
+        cdir = self.camp_dir(prefix)
+        record = self._campaign_json(prefix)
+        if (cdir / "campaign.json").exists():
+            rc = cdir / "rc"
+            exit_code = None
+            if rc.exists():
+                try:
+                    exit_code = int(rc.read_text())
+                except ValueError:
+                    exit_code = None
+            return {"alive": lock_held(cdir / "lock"),
+                    "pid": (record or {}).get("pid"),
+                    "launched_by": "mcp", "exit_code": exit_code,
+                    "log_tail": _tail(cdir / "parent.log", LOG_TAIL)}
+        if prefix in parents:
+            return {"alive": True, "pid": parents[prefix][0],
+                    "launched_by": "shell", "exit_code": None,
+                    "log_tail": ""}
+        return {"alive": False, "pid": None, "launched_by": None,
+                "exit_code": None, "log_tail": ""}
+
+    def _study_of(self, prefix: str, parents, children) -> Optional[str]:
+        record = self._campaign_json(prefix)
+        if record and record.get("study"):
+            return record["study"]
+        if prefix in parents and parents[prefix][1]:
+            return parents[prefix][1]
+        for name in children:
+            try:
+                point = json.loads((self.grid_data / name / "state"
+                                    / "point.json").read_text())
+            except (OSError, ValueError):
+                continue
+            if point.get("study"):
+                return point["study"]
+        return None
+
+    def campaign_status(self, name_prefix: Optional[str] = None):
+        parents, running = self._scan()
+        if name_prefix is None:
+            return self._campaigns(parents)
+        prefix = name_prefix
+        names = self._children(prefix)
+        study_name = self._study_of(prefix, parents, names)
+        scored, rows, best, board_error = set(), 0, None, None
+        if study_name is not None:
+            try:
+                s = self._load_study(study_name)
+                mine = [p for p in self._board(s).load()
+                        if is_child(prefix, p.cfg)]
+            except ValueError as exc:
+                board_error = str(exc)
+            else:
+                scored = {p.cfg for p in mine}
+                rows = len(mine)
+                ranked = self._rows(s, mine, None)
+                best = ranked[0] if ranked else None
+        children = []
+        for name in names:
+            if name in scored:
+                state = "scored"
+            elif (self.grid_data / name / "state" / "broken.txt").exists():
+                state = "broken"
+            elif name in running:
+                state = "running"
+            else:
+                state = "ended without a row"
+            children.append({"name": name, "state": state,
+                             "last_line": _last_line(
+                                 self.logs_dir / f"{name}.log")})
+        return {"prefix": prefix, "study": study_name,
+                "parent": self._parent(prefix, parents),
+                "stopping": (self.camp_dir(prefix) / "STOP").exists(),
+                "children": children, "rows": rows, "best": best,
+                "board_error": board_error}
+
+    def _campaigns(self, parents) -> List[Dict[str, Any]]:
+        out = {}
+        if self.graph_data.is_dir():
+            for record_path in self.graph_data.glob("*/campaign.json"):
+                prefix = record_path.parent.name
+                record = self._campaign_json(prefix) or {}
+                out[prefix] = {"prefix": prefix, "study": record.get("study"),
+                               "alive": lock_held(record_path.parent / "lock"),
+                               "launched_by": "mcp"}
+        for prefix, (pid, study_name) in parents.items():
+            out.setdefault(prefix, {"prefix": prefix, "study": study_name,
+                                    "alive": True, "launched_by": "shell"})
+        return [out[p] for p in sorted(out)]
+
+    # -- stop --------------------------------------------------------------
+
+    def stop_campaign(self, name_prefix: str) -> Dict[str, Any]:
+        _check_prefix(name_prefix)
+        parents, running = self._scan()
+        names = self._children(name_prefix)
+        parent = self._parent(name_prefix, parents)
+        cdir = self.camp_dir(name_prefix)
+        warning = None
+        if (parent["launched_by"] is None and not names):
+            warning = f"no sign of a campaign named {name_prefix!r}"
+        cdir.mkdir(parents=True, exist_ok=True)
+        (cdir / "STOP").touch()
+        return {"stop_file": str(cdir / "STOP"),
+                "parent_alive": parent["alive"],
+                "children_running": sum(1 for n in names if n in running),
+                "warning": warning}
