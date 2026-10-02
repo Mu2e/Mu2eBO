@@ -56,7 +56,9 @@ import, never hours into a campaign.
    check passed. 1: a check failed; its `problems` say why and `detail`
    holds any traceback. 2: a bad command line. 3: check_study itself broke
    (`error` has the traceback). "another check_study of '<name>' is
-   running" means wait and rerun, not edit the draft.
+   running" means wait and rerun, not edit the draft. Through MCP, the
+   `autoresearch` server's `start_check`/`check_result` run this same
+   check (`wiki/drivers/service.md`).
 4. **Install, then check again by name**: copy the file into `mode_specs/`
    (a production line, committed) or a directory on
    `$AUTORESEARCH_STUDY_PATH` (a toy or one-off), then

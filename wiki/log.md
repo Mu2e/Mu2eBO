@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-02
+- **created** [service](/drivers/service.md): the `autoresearch` MCP
+  server's study tools — start_check/check_result over a detached
+  `graph.check_study --json` job (liveness by a flock the server hands to
+  the job), list_studies/show_study/study_guide; mcp 2.0 SDK traps; a
+  qualified `core.study` import breaks the single-module-copy test.
 - **updated** [contract-engine](/drivers/contract-engine.md): the
   study-writing skill was not built — four no-skill baselines already wrote
   correct studies; instead `mode_specs/README.md` gained "From draft to
