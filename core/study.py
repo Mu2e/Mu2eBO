@@ -319,6 +319,28 @@ def _knobs(raw, where):
     return tuple(out)     # duplicate names: _check_columns
 
 
+def _check_profile_clips(knobs, profiles, where):
+    """A profile whose controls are all knobs clips to exactly the span of
+    their bounds. Wider (bounds narrowed, clip left as it was), the profile
+    leaves the search box between control points; narrower, a knob value is
+    clamped, a flat region the search cannot see. A profile with an
+    expression among its controls sets its clip freely."""
+    bounds = {k.name: (k.min, k.max) for k in knobs}
+    for pname, p in profiles.items():
+        if not all(c in bounds for c in p["control"]):
+            continue
+        span = [min(bounds[c][0] for c in p["control"]),
+                max(bounds[c][1] for c in p["control"])]
+        clip = [float(v) for v in p["clip"]]
+        if clip != span:
+            raise ValueError(
+                f"{where}[derive.profiles.{pname}.clip]: {clip} must equal "
+                f"the bounds of its control knobs {list(p['control'])}, "
+                f"{span}; set the clip to the knobs' bounds (a wider clip "
+                f"lets the profile leave the search box, a narrower one "
+                f"clamps knob values the search still proposes)")
+
+
 def _derive_and_geom(doc, knob_names, where):
     derive = _obj(doc["derive"], _DERIVE, f"{where}[derive]")
     for k in _DERIVE:
@@ -692,6 +714,7 @@ def load_study_file(path: Path) -> Study:
     knobs = _knobs(doc["knobs"], where)
     knob_names = tuple(k.name for k in knobs)
     derive, geom = _derive_and_geom(doc, knob_names, where)
+    _check_profile_clips(knobs, derive["profiles"], where)
     names = (set(knob_names) | set(derive["consts"]) | set(derive["exprs"])
              | set(derive["profiles"]))
     steps = _steps(doc["evaluate"], geom is not None, names, where)

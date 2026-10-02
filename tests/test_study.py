@@ -378,6 +378,33 @@ class TestDeriveAndGeom(_Tmp):
         doc["derive"]["profiles"]["a_p"]["kind"] = "spline"
         self.assertRejects(doc, "lagrange")
 
+    def _knob_profile(self, clip):
+        doc = _doc()
+        doc["derive"]["profiles"]["a_p"].update(control=["a", "a", "a"],
+                                               clip=clip)
+        return doc
+
+    def test_a_knob_profile_clip_wider_than_its_knobs_is_refused(self):
+        # Knob bounds narrowed but the clip left as it was: the profile
+        # leaves the search box between control points.
+        self.assertRejects(self._knob_profile([0.0, 10.0]), "a_p", "clip",
+                           "[1.0, 3.0]")
+
+    def test_a_knob_profile_clip_narrower_than_its_knobs_is_refused(self):
+        # A knob value outside the clip is clamped: a flat region the
+        # search cannot see.
+        self.assertRejects(self._knob_profile([1.5, 2.5]), "a_p", "clip",
+                           "[1.0, 3.0]")
+
+    def test_a_knob_profile_clip_equal_to_its_knobs_loads(self):
+        self.assertIn("a_p", self.load(self._knob_profile([1.0, 3.0])).derive[
+            "profiles"])
+
+    def test_a_profile_with_an_expression_control_keeps_its_clip(self):
+        doc = _doc()          # a_p controls a, ab (an expression), a
+        self.assertEqual(doc["derive"]["profiles"]["a_p"]["clip"], [0.0, 10.0])
+        self.load(doc)
+
     def test_derive_without_geom_rejected_in_phase_a(self):
         doc = _doc()
         doc["geom"] = None

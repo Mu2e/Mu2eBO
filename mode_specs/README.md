@@ -26,6 +26,54 @@ There is no template file — copy an existing `_ax` study (e.g.
 Every key is required and unknown keys are rejected, so a typo fails at
 import, never hours into a campaign.
 
+### From draft to launch
+
+1. **Draft outside the study path**, in
+   `$AUTORESEARCH_DATA_ROOT/study_drafts/<name>.json`. A file dropped
+   straight into `mode_specs/` (or a directory on `$AUTORESEARCH_STUDY_PATH`)
+   is loaded by every command at once, broken or not.
+2. **A new name and a new board.** Never reuse a loaded study's name: a
+   second file of that name on the study path makes every load fail
+   ("defined twice"), and a draft with an existing name is checked as that
+   study's replacement, so it passes and, installed into `mode_specs/`,
+   overwrites the original. To change
+   an existing study, copy it under a new name with a new
+   `leaderboard.file`. Changing a knob's bounds means changing the clip of
+   every profile built from it: the loader refuses a profile whose controls
+   are all knobs unless its `clip` equals their bounds.
+3. **Check it** (`graph/check_study.py`; load, `${ARTIFACT}` paths, the
+   launch check, the geometry pre-check at the middle of the knob box):
+
+       source ./activate.sh
+       PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.check_study \
+           $AUTORESEARCH_DATA_ROOT/study_drafts/<name>.json --json \
+           [--executor grid|local] [--parallel N] [--x=v1,...]
+
+   Use `$AUTORESEARCH_PYTHON`: the system `python3` has no `tomllib` and
+   fails at import. Pass the executor the study will launch with (grid
+   needs a Kerberos ticket with 4 h left). The pre-check takes about 6
+   minutes; run it in the background and wait for it to end. Exit 0: every
+   check passed. 1: a check failed; its `problems` say why and `detail`
+   holds any traceback. 2: a bad command line. 3: check_study itself broke
+   (`error` has the traceback). "another check_study of '<name>' is
+   running" means wait and rerun, not edit the draft.
+4. **Install, then check again by name**: copy the file into `mode_specs/`
+   (a production line, committed) or a directory on
+   `$AUTORESEARCH_STUDY_PATH` (a toy or one-off), then
+   `... -m graph.check_study <name>`.
+5. **Launch** (`--help` on either lists every flag):
+
+       PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.run --study <name> \
+           --config <point> --campaign <campaign> --x=v1,... \
+           [--context name=value ...] [--executor local --parallel N]
+       PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.closed_loop --study <name> \
+           --q <in-flight> --max-evals <total> --picker <picker> \
+           --name-prefix <prefix> [--context name=value ...] [--executor ...]
+
+   A zero-knob study runs with `graph.run` and no `--x`. Every name in the
+   study's `leaderboard.context` needs a `--context name=value` (the `_ax`
+   studies declare `alpha`).
+
 Keep the shipped files' layout: one knob, profile, geom line, kit, step,
 objective or column per line. Only the parsed JSON matters (`spec_sha`
 hashes it), so the layout is for readable diffs.

@@ -13,9 +13,10 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   ce-chain (2026-09-30) adds the launch board check, one desc_fmt per
   study and the ce_chain production-chain study; check_study (2026-10-01)
   checks a study file before launch (load, artifacts, launch, geometry
-  pre-check at the center point), submitting nothing
+  pre-check at the center point), submitting nothing; a knob-built
+  profile's clip must equal its knobs' bounds (2026-10-02)
 status: active
-timestamp: '2026-10-01'
+timestamp: '2026-10-02'
 ---
 
 # Contract engine (Phase B)
@@ -1091,6 +1092,29 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
 - **Not checked:** stage-template FCL paths and prodtools' own entry
   validation (needs `json2jobdef`/`fhicl-dump` under the tarball's setup
   per step; a follow-up flag); corners of the knob box.
+
+**Writing a study without a skill (2026-10-02)**
+- The planned study-writing skill (spec
+  `docs/superpowers/specs/2026-10-01-write-study-skill-design.md`) was not
+  built: four baseline runs (fresh sonnet subagents, no skill) wrote
+  correct studies for a knob-subset variant of foilspfbpz_ax, ce_chain at
+  200 events per job, and an edit of foilspfbpz_ax (new name, not an
+  overwrite), and stopped cleanly on an ask needing a new anakit analysis.
+  What carried them: `mode_specs/README.md`, the wiki's check_study entry,
+  the existing studies. Two of them also read the skill's spec in `docs/`.
+- Their misses went into `mode_specs/README.md` ("From draft to launch"):
+  draft in `$AUTORESEARCH_DATA_ROOT/study_drafts/`, run check_study with
+  `$AUTORESEARCH_PYTHON` (the system `python3` has no `tomllib`), never
+  reuse a study name or board, install then re-check by name, the exact
+  `graph.run`/`graph.closed_loop` launch lines including `--context`.
+- **Profile clip rule** (`core/study.py:_check_profile_clips`): a profile
+  whose three controls are all knobs must have `clip` equal to the span of
+  their bounds. One baseline narrowed `rOut_*` to [70, 110] and left
+  `rOut_p`'s clip at [30, 150], so the quadratic could leave the box between
+  control points; check_study passed it, since it checks the center only.
+  Every shipped study already had clip == bounds, so nothing changed;
+  profiles with an expression control (`zpos_p`) set their clip freely.
+  Suite 824 OK; every `measure_basis_sha` unchanged.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded

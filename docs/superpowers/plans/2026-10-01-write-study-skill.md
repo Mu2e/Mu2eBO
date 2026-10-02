@@ -1,5 +1,9 @@
 # write-study Skill Implementation Plan
 
+> **Outcome (2026-10-02):** stopped after Task 1. The baselines passed
+> without the skill; the operator chose a README section and a loader
+> rule instead (see the spec's "Outcome"). Tasks 2-4 were not carried out.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A project skill, `.claude/skills/write-study/SKILL.md`, that turns an operator's one-sentence description into a schema-2 study file that passes `python -m graph.check_study`, then installs it where the operator says.

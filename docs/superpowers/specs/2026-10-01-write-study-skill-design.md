@@ -1,6 +1,28 @@
 # write-study: a Claude Code skill that drafts a study until it passes check_study
 
-Date: 2026-10-01. Status: draft for review. Branch `write-study` (from
+Date: 2026-10-01. Status: superseded 2026-10-02 (see "Outcome" below);
+no skill was built.
+
+## Outcome (2026-10-02)
+
+The plan's first task ran the baseline the writing-skills method requires:
+fresh sonnet subagents, without the skill, on four asks (scenario 1, the
+variant; 2, the zero-knob ce_chain; 3, out of scope; and an edit of an
+existing study, the namesake trap). All four reached the right outcome
+without it: three check_study exit-0 studies with fresh names and boards,
+and a clean stop on the out-of-scope ask. They found check_study through the
+wiki and `mode_specs/README.md`, which every one of them read first. Their
+misses were small: the system `python3` (no `tomllib`) before
+`$AUTORESEARCH_PYTHON`, a guessed launch command, no draft stage, polling a
+background run; and one real gotcha, a profile `clip` left at the old knob
+bounds after the bounds were narrowed (check_study cannot see it: it checks
+the center point only). With no failure for a skill to fix, the operator
+chose instead (2026-10-02): a "From draft to launch" section in
+`mode_specs/README.md`, and a loader rule that a profile whose controls are
+all knobs clips to exactly their bounds. The design below is kept as the
+record of what was considered.
+
+Original status: draft for review. Branch `write-study` (from
 `generic-study-phase-c1` 3478ece), worktree `../autoresearch-checkstudy`.
 Piece 2 of the study-writing line: 1 check_study (merged 2026-10-01),
 2 this skill, 3 the same service on the autoresearch MCP server, 4 geometry

@@ -5,6 +5,13 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-10-02
+- **updated** [contract-engine](/drivers/contract-engine.md): the
+  study-writing skill was not built — four no-skill baselines already wrote
+  correct studies; instead `mode_specs/README.md` gained "From draft to
+  launch", and the loader refuses a knob-built profile whose `clip` is not
+  its knobs' bounds.
+
 ## 2026-10-01
 - **updated** [contract-engine](/drivers/contract-engine.md): check_study
   hardening — exit 3 when check_study itself breaks, with the whole error
