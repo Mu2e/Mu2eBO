@@ -12,9 +12,12 @@ restart of the server or the client, and a killed one reads as "lost", not
 "running" forever. The pid in job.json is there to kill a stuck job by hand;
 liveness never depends on it.
 
-Only the standard library and core.paths / core.study: never modes (nor
-graph.run, which imports it), so one broken study file on the study path
-cannot stop the server that reports it.
+Only the standard library and core/paths.py, core/study.py, imported bare
+with core/ on sys.path like every engine module (a qualified core.study
+would load a second copy of core/geom_template.py beside the bare one; see
+tests/test_modes.py TestSingleModuleCopy). Never modes (nor graph.run, which
+imports it), so one broken study file on the study path cannot stop the
+server that reports it.
 """
 from __future__ import annotations
 
@@ -25,13 +28,16 @@ import re
 import secrets
 import shlex
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-from core import paths
-from core import study as st
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+
+import paths  # noqa: E402
+import study as st  # noqa: E402
 
 MODES_DIR = paths.REPO_ROOT / "mode_specs"
 TAIL_LINES = 40

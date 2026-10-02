@@ -179,5 +179,58 @@ class TestJobs(_Svc):
         self.assertFalse(self.svc.drafts_dir.exists())
 
 
+class TestStdio(_Svc):
+    """service/server.py over stdio, through the SDK's own client."""
+
+    def test_a_check_through_mcp(self):
+        import anyio
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+        write_study(toy_pre(), self.studies)
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=[str(ROOT / "service" / "server.py")],
+            env=self.env, cwd=str(ROOT))
+
+        async def session():
+            async with stdio_client(params) as (read, write):
+                async with ClientSession(read, write) as s:
+                    init = await s.initialize()
+                    self.assertIn("check_result", init.instructions)
+                    self.assertIn("submits", init.instructions)
+                    names = sorted(t.name for t in (await s.list_tools()).tools)
+                    self.assertEqual(names, ["check_result", "list_studies",
+                                             "show_study", "start_check",
+                                             "study_guide"])
+                    res = await s.call_tool("start_check", {
+                        "study": "toystudy", "executor": "local",
+                        "parallel": 1})
+                    self.assertFalse(res.is_error, res.content)
+                    job_id = res.structured_content["job_id"]
+                    # The job must not write on this stream: the session
+                    # keeps answering while it runs.
+                    res = await s.call_tool("list_studies", {})
+                    self.assertFalse(res.is_error, res.content)
+                    self.assertIn("toystudy", [e["name"] for e in
+                                               res.structured_content["result"]])
+                    with anyio.fail_after(120):
+                        while True:
+                            res = await s.call_tool("check_result",
+                                                    {"job_id": job_id})
+                            self.assertFalse(res.is_error, res.content)
+                            out = res.structured_content
+                            if out["state"] != "running":
+                                break
+                            await anyio.sleep(0.5)
+                    self.assertEqual(out["state"], "done", out)
+                    self.assertEqual(out["exit_code"], 0, out)
+                    self.assertTrue(out["report"]["ok"], out)
+                    res = await s.call_tool("check_result", {"job_id": "nope"})
+                    self.assertTrue(res.is_error)
+                    self.assertIn("no check job", res.content[0].text)
+
+        anyio.run(session)
+
+
 if __name__ == "__main__":
     unittest.main()
