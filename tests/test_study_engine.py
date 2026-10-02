@@ -163,8 +163,9 @@ class TestLoadedStudies(unittest.TestCase):
                            cwd=str(ROOT / "core"), capture_output=True,
                            text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
-        # mode_specs/ ships ce_chain and the seven foilspf engine twins
-        # (<name>_ax.json; the originals are archived since C3), and
+        # mode_specs/ ships ce_chain, the seven foilspf engine twins
+        # (<name>_ax.json; the originals are archived since C3) and ptg4bl
+        # (G4beamline through beamkit), and
         # ENGINE_STUDIES holds
         # branin, prodtools_smoke and the two C2b acceptance fixtures
         # (foilspfbpz_local, foilspf_nominal).
@@ -174,7 +175,7 @@ class TestLoadedStudies(unittest.TestCase):
                          "'foilspf_ax', 'foilspf_nominal', 'foilspfbp_ax', "
                          "'foilspfbpx_ax', 'foilspfbpz_ax', "
                          "'foilspfbpz_local', 'foilspfbw_ax', "
-                         "'prodtools_smoke']")
+                         "'prodtools_smoke', 'ptg4bl']")
 
 
 X_GRIDPHASEA01 = [67.7974, 111.1044, 132.7585, 0.140557, 0.027008, 0.107443,

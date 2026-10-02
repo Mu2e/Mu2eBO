@@ -56,7 +56,10 @@ class TestAutoresearchAdapter(unittest.TestCase):
             study = _modes.STUDIES[name]
             self.assertEqual(prob.dim, len(study.knobs))
             self.assertEqual(prob.noise, tuple(o.noise for o in study.objectives))
-            self.assertIsNotNone(prob.constraint)
+            # A constraint exactly when the study declares one (ptg4bl, the
+            # G4beamline study, has none; every foilspf twin has one).
+            self.assertEqual(prob.constraint is not None,
+                             bool(study.constraints), name)
 
     def test_problems_refuse_a_removed_env_override(self):
         """The MCP door takes the same build_problem path, so a stale

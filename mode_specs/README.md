@@ -76,6 +76,17 @@ import, never hours into a campaign.
    study's `leaderboard.context` needs a `--context name=value` (the `_ax`
    studies declare `alpha`).
 
+**A knob a deck reads (G4beamline, kit `beamkit`).** A G4beamline study
+has no geometry writer (`geom: null`): its knobs are deck parameters, given
+on the g4bl command line by mapping them in the step's `params`. The deck
+must declare each one `param -unset` (a plain `param` line overrides the
+command line), on a deck branch pinned by `kits.beamkit.deck_ref` (a full
+sha) at `deck_url`. Fixed deck values go in `kits.beamkit.deck_params`.
+Example: `ptg4bl.json` and the deck branch `ptarget-polycone`; the job log
+echoes every command with its values, which shows what reached the deck.
+A `beamkit` study runs on the grid only, and campaigns use
+`--picker qlnei` when it has one objective.
+
 Keep the shipped files' layout: one knob, profile, geom line, kit, step,
 objective or column per line. Only the parsed JSON matters (`spec_sha`
 hashes it), so the layout is for readable diffs.

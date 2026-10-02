@@ -109,9 +109,10 @@ class TestStudyDirectoryWiring(unittest.TestCase):
         self.assertEqual(studies, want)
         # C2b: each foilspf study has an engine twin <name>_ax; since C3 the
         # twins are the foilspf studies shipped (the originals are archived).
-        # ce_chain is the one zero-knob production-chain study.
-        self.assertTrue(all(n.endswith("_ax") for n in want if n != "ce_chain"),
-                        want)
+        # ce_chain is the one zero-knob production-chain study; ptg4bl the
+        # G4beamline production-target study (kit beamkit, 2026-10-02).
+        self.assertTrue(all(n.endswith("_ax") for n in want
+                            if n not in ("ce_chain", "ptg4bl")), want)
 
     def test_a_study_on_the_study_path_is_loaded(self):
         name = "wiringprobe" + uuid.uuid4().hex[:8]
@@ -144,7 +145,7 @@ class TestStudyDirectoryWiring(unittest.TestCase):
     SHIPPED_SPECS = {"ce_chain.json", "foilsflash_ax.json", "foilspf_ax.json",
                      "foilspf2k_ax.json", "foilspfbp_ax.json",
                      "foilspfbw_ax.json", "foilspfbpx_ax.json",
-                     "foilspfbpz_ax.json"}
+                     "foilspfbpz_ax.json", "ptg4bl.json"}
 
     def test_mode_specs_directory_holds_only_the_readme(self):
         """The real directory holds the README plus exactly the shipped specs:

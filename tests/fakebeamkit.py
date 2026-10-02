@@ -5,8 +5,9 @@ tests/test_beamkit_kit.py, driven through the real KitClient over stdio.
 
 State lives in $FAKEBEAMKIT_STATE: calls.jsonl (every call, in order) and
 <run_id>.json per run, holding the queue block and the output file paths a
-test sets. The reply shapes follow beamkit's: beamline_status wraps
-prodtools' campaign_status ({campaigns: [{queue: ...}]}), beamline_outputs
+test sets (or preset.json, copied into every new run: a finished run). The
+reply shapes follow beamkit's: beamline_status wraps prodtools'
+campaign_status ({campaigns: [{queue: ...}]}), beamline_outputs
 lists {path, size}. A deck_ref of forty "f" is refused, as an unfetchable
 sha would be.
 
@@ -57,10 +58,13 @@ def make_server():
         if deck_ref == BAD_SHA:
             raise ValueError(f"deck sha not found: {deck_ref} at {deck_url}")
         run_id = f"{tag}.{deck_ref[:7]}"
-        (STATE / f"{run_id}.json").write_text(json.dumps({
-            "args": args, "files": [],
-            "queue": {"state": "known", "idle": njobs, "running": 0,
-                      "held": 0}}))
+        run = {"args": args, "files": [],
+               "queue": {"state": "known", "idle": njobs, "running": 0,
+                         "held": 0}}
+        preset = STATE / "preset.json"
+        if preset.exists():     # a test's finished run: queue and files
+            run.update(json.loads(preset.read_text()))
+        (STATE / f"{run_id}.json").write_text(json.dumps(run))
         return {"run_id": run_id, "tag": tag, "state": "submitted"}
 
     @server.tool()

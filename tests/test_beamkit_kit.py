@@ -5,6 +5,8 @@ docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md). No grid, no
 Kerberos, no real beamkit."""
 import copy
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -20,7 +22,7 @@ import study as st  # noqa: E402
 from adapters import beamkit as bk  # noqa: E402
 from kit_config import ServerConfig  # noqa: E402
 from kits import KitError  # noqa: E402
-from tests.engine_fixtures import write_study  # noqa: E402
+from tests.engine_fixtures import engine_env, write_study  # noqa: E402
 
 DECK_URL = "https://github.com/oksuzian/G4BeamlineScripts"
 KNOBS = ("Tlength", "R_up", "R_mid", "R_dn")
@@ -276,6 +278,77 @@ class TestAdapter(_Tmp):
     def test_version_names_beamkit_and_fom(self):
         self.assertIn("beamkit-0.5.1-fake", self.kit.version)
         self.assertIn("fom1", self.kit.version)
+
+
+KLIST = """Ticket cache: FILE:/tmp/krb5cc_fake
+Default principal: someone@FNAL.GOV
+
+Valid starting       Expires              Service principal
+01/01/2030 11:35:23  01/02/2099 13:35:19  krbtgt/FNAL.GOV@FNAL.GOV
+"""
+
+
+class TestEndToEnd(_Tmp):
+    """check_study and graph.run on a copy of ptg4bl against the fake, with
+    a fake klist: no grid, no ticket, no real beamkit."""
+
+    def setUp(self):
+        super().setUp()
+        self.data = self.tmp / "data"
+        self.studies = self.tmp / "studies"
+        self.state = self.tmp / "state"
+        self.state.mkdir()
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        (bindir / "klist").write_text("#!/bin/bash\ncat <<'EOF'\n" + KLIST
+                                      + "EOF\n")
+        (bindir / "klist").chmod(0o755)
+        venv = self.tmp / "beamkit" / ".venv" / "bin"
+        venv.mkdir(parents=True)
+        (venv / "beamkit-mcp").write_text(
+            f"#!/bin/bash\nexport FAKEBEAMKIT_STATE={self.state}\n"
+            f"exec {sys.executable} {ROOT / 'tests' / 'fakebeamkit.py'} \"$@\"\n")
+        (venv / "beamkit-mcp").chmod(0o755)
+        doc = json.loads((ROOT / "mode_specs" / "ptg4bl.json").read_text())
+        doc["name"] = "ptg4blfake"
+        doc["leaderboard"]["file"] = "leaderboards/leaderboard_bo_ptg4blfake.tsv"
+        write_study(doc, self.studies)
+        self.env = engine_env(self.data, self.studies)
+        self.env.update(AUTORESEARCH_BEAMKIT=str(self.tmp / "beamkit"),
+                        AUTORESEARCH_PRODTOOLS=str(self.tmp),
+                        PATH=f"{bindir}:{os.environ['PATH']}")
+
+    def run_module(self, *argv, timeout=180):
+        return subprocess.run([sys.executable, "-m", *argv], cwd=ROOT,
+                              env=self.env, capture_output=True, text=True,
+                              timeout=timeout)
+
+    def test_check_study_passes_against_the_fake(self):
+        r = self.run_module("graph.check_study", "ptg4blfake", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        checks = {c["name"]: c for c in json.loads(r.stdout)["checks"]}
+        for name in ("load", "artifacts", "launch", "geometry"):
+            self.assertEqual(checks[name]["status"], "passed", checks[name])
+
+    def test_graph_run_lands_a_row(self):
+        files = [nts(self.tmp / f"nts.{i}.root", ROWS_A) for i in range(20)]
+        (self.state / "preset.json").write_text(json.dumps({
+            "queue": {"state": "known", "idle": 0, "running": 0, "held": 0},
+            "files": files}))
+        r = self.run_module("graph.run", "--study", "ptg4blfake", "--config",
+                            "e2eR00_00", "--campaign", "e2e",
+                            "--x=160,3.1495,3.1495,3.1495")
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        board = (self.data / "autoresearch_leaderboards"
+                 / "leaderboard_bo_ptg4blfake.tsv")
+        lines = board.read_text().splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
+        self.assertEqual(row["config"], "e2eR00_00")
+        # Two selected tracks per file (ROWS_A), 20 files of 1000 POT.
+        self.assertAlmostEqual(float(row["mu_pi_per_pot"]), 40 / 20000)
+        self.assertEqual(float(row["n_selected"]), 40)
+        self.assertEqual(float(row["pot"]), 20000)
 
 
 if __name__ == "__main__":
