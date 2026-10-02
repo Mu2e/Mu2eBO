@@ -1,12 +1,12 @@
 ---
 type: driver
-title: autoresearch MCP server (study tools)
-description: service/ — the `autoresearch` MCP server (stdio, .mcp.json); start_check/check_result run `graph.check_study --json` as a detached job polled for its report, plus list_studies/show_study/study_guide; liveness is a flock the server hands to the job (pass_fds); never imports modes; accepted 2026-10-02 (ce_chain local 58 s, foilspfbpz_ax grid pre-check 314 s, broken draft 1.3 s)
+title: autoresearch MCP server (study and campaign tools)
+description: service/ — the `autoresearch` MCP server (stdio, .mcp.json); start_check/check_result run `graph.check_study --json` as a detached job polled for its report, plus list_studies/show_study/study_guide; liveness is a flock the server hands to the job (pass_fds); never imports modes; accepted 2026-10-02 (ce_chain local 58 s, foilspfbpz_ax grid pre-check 314 s, broken draft 1.3 s). Campaign tools (2026-10-02): start_campaign (a dry run through `graph.closed_loop --check-only`, confirm=true launches detached; one MCP launch per prefix), stop_campaign, campaign_status (any campaign, shell-started too), leaderboard
 status: active
 timestamp: '2026-10-02'
 ---
 
-# autoresearch MCP server (study tools)
+# autoresearch MCP server (study and campaign tools)
 
 ## Summary
 `service/` is the `autoresearch` MCP server, piece 3 of the study-writing
@@ -87,10 +87,85 @@ The campaign tools planned for this server (`campaign_status`,
   Side effects were clean.
 - **Live from a Claude Code session (2026-10-02, after the merge and `/mcp`):** `list_studies` listed all 8 studies, each loading; `start_check` on `ce_chain` (local, parallel 1) followed by `check_result` gave exit 0 and `report.ok` true in 50.2 s, against the live data root (job `ce_chain-20261002-151322-3608`).
 
+## Campaign tools (2026-10-02)
+
+Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
+`docs/superpowers/plans/2026-10-02-campaign-tools.md`; code
+`service/campaigns.py` (`CampaignService`), `service/jobs.py`
+(`spawn_detached`, `lock_held`, shared with the check jobs).
+
+- **`start_campaign(study, name_prefix, q, max_evals, picker, executor,
+  parallel, context, stagger, confirm=False)`:**
+  - **The dry run is the default.** It runs `graph.closed_loop <argv>
+    --check-only`: every check a real launch makes, then
+    `[closed_loop] OK: would launch …` and exit 0, or the usual
+    `REFUSED:` lines and exit 2. It returns `{ok, problems, command,
+    budget, output_tail, error}`.
+  - **The budget** is the sum of the prodtools steps' `fixed.njobs`:
+    `foilspfbpz_ax` gives 130 per point (15 + 15 + 100).
+  - **Timeouts:** the dry run is capped at 600 s and kills its whole
+    process group on timeout.
+  - **What it writes:** the server writes nothing. closed_loop's `KitSet`
+    writes `kit_trace.jsonl` to `GRAPH_DATA/<prefix>/` during any launch
+    check (`core/contract.py:329`), so that folder exists after a dry run.
+  - **`confirm=true` relaunches the same argv without the flag,** so
+    closed_loop's own checks run again. It is refused at once when:
+    - a live parent has the prefix;
+    - `<prefix>/STOP` exists;
+    - `<prefix>/campaign.json` exists. It is claimed with `O_EXCL`, so of
+      two concurrent confirms only one launches.
+  - **One MCP launch per prefix:** a launch closed_loop refuses spends the
+    prefix (`state: "refused"`, note "dry-run again and launch under a new
+    prefix").
+  - **The answer:** it watches `<prefix>/parent.log` for up to 600 s for
+    `[closed_loop] study=` (`launched`) or `rc` (`refused`); otherwise it
+    returns `starting`.
+- **`stop_campaign(prefix)`** touches `<prefix>/STOP`: running children
+  drain. It warns "no sign of a campaign" when there is no
+  `campaign.json`, no live parent and no child log.
+- **`campaign_status(prefix)`** reads only files every campaign leaves:
+  - **Parent:**
+    - an MCP launch's liveness is its lock, and `exit_code` comes from `rc`;
+    - a shell launch is found by a scan of `/proc/*/cmdline` for this
+      user, an argv holding `graph.closed_loop` and `--name-prefix
+      <prefix>`.
+  - **Children** are the `closed_loop_logs/<prefix>R<n>_00.log` files,
+    matched with `re.fullmatch` so `foo` never takes `foo2`. Each is
+    `scored` (row on the board), `broken` (`state/broken.txt`), `running`
+    (a live `graph.run --config <name>`) or `ended without a row`.
+  - **`rows` and `best`** come from the board by the same exact match.
+  - **A study file that no longer loads** gives `board_error`, not a
+    failure.
+  - **With no prefix,** it lists live parents plus every
+    `<prefix>/campaign.json`. In the server that list comes back as
+    `{"campaigns": [...]}`, because a union of return types is not
+    structured output.
+- **`leaderboard(study, name_prefix=None, top=20)`:** the rows, best first
+  by the first objective's direction, each `{config, x, values}`.
+  - The board is built from the service's own data root
+    (`Leaderboard.for_study`), not `board_for`, which uses the process's
+    data root. In the server they agree.
+- **Known limit:** the process scan covers the whole host, so a campaign
+  with the same prefix under another data root counts as live.
+- **The `_ax` studies need `--context alpha=…`.** Without it closed_loop
+  refuses "needs --context for ['alpha']". The live `foilspfbpz_ax`
+  board's 41 rows all carry `alpha=100000`.
+- **Acceptance (2026-10-02),** through the stdio client in a sandbox data
+  root, with nothing on the grid:
+  - **`foilspfbpz_ax` grid dry run** (q=10, max_evals=40, alpha=100000):
+    `ok`, with a budget of 130 per point and 5,200 in total.
+  - **`ce_chain` dry run:** refused "has no knobs: … run graph.run".
+  - **branin,** local, q=2, max_evals=4: launched, 4 children scored,
+    `exit_code` 0, and `leaderboard` gave 4 rows.
+- **Tests:** `tests/test_campaigns.py` (15), `TestCheckOnly` in
+  `tests/test_closed_loop.py` (2), `TestSpawn` in `tests/test_service.py`
+  (1), and the stdio test sees nine tools. The suite is 856 OK
+  (skipped=3).
+
 ## Cross-links
 - Related: [contract-engine](/drivers/contract-engine.md) (check_study), [surrogate](/drivers/surrogate.md)
 - Source files: `service/checks.py`, `service/server.py`, `tests/test_service.py`, `.mcp.json`
 - Spec: `docs/superpowers/specs/2026-10-02-autoresearch-mcp-design.md`; plan: `docs/superpowers/plans/2026-10-02-autoresearch-mcp.md`
 
 ## Open questions / TODO
-- The campaign tools on this server.
+- A real grid campaign launched over MCP (waits for the operator's word).

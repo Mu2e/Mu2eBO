@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-02
+- **updated** [service](/drivers/service.md): campaign tools —
+  `start_campaign` (a dry run through the new `graph.closed_loop
+  --check-only`; confirm=true launches detached; one MCP launch per
+  prefix), `stop_campaign`, `campaign_status` (reads the files any
+  campaign leaves, a /proc scan for shell-started parents), `leaderboard`.
 - **created** [service](/drivers/service.md): the `autoresearch` MCP
   server's study tools — start_check/check_result over a detached
   `graph.check_study --json` job (liveness by a flock the server hands to
