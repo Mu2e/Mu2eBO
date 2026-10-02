@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-02
+- **created** [bo-ptg4bl](/projects/bo-ptg4bl.md): the first G4beamline
+  study (production-target rod, length + 3-point polycone radius, μ⁻+π⁻
+  per POT at Coll_01_Det); deck override checked locally with g4bl 3.08b.
+- **updated** [contract-engine](/drivers/contract-engine.md): the beamkit
+  adapter (deck params, queue-and-quorum status, FoM from the ntuples).
 - **updated** [service](/drivers/service.md): campaign tools —
   `start_campaign` (a dry run through the new `graph.closed_loop
   --check-only`; confirm=true launches detached; one MCP launch per

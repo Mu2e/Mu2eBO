@@ -14,7 +14,9 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   study and the ce_chain production-chain study; check_study (2026-10-01)
   checks a study file before launch (load, artifacts, launch, geometry
   pre-check at the center point), submitting nothing; a knob-built
-  profile's clip must equal its knobs' bounds (2026-10-02)
+  profile's clip must equal its knobs' bounds (2026-10-02); beamkit adapter
+  (2026-10-02): G4beamline studies through beamkit, knobs as deck params,
+  status from queue and quorum, the FoM counted from the ntuples
 status: active
 timestamp: '2026-10-02'
 ---
@@ -1115,6 +1117,38 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   Every shipped study already had clip == bounds, so nothing changed;
   profiles with an expression control (`zpos_p`) set their clip freely.
   Suite 824 OK; every `measure_basis_sha` unchanged.
+
+### beamkit adapter (2026-10-02)
+
+`core/adapters/beamkit.py` (`BeamkitKit`) runs G4beamline steps through
+the beamkit MCP server ([bo-ptg4bl](/projects/bo-ptg4bl.md) is its first
+study).
+
+- **Registration:**
+  - **`KitDecl("beamkit")`:** grid only, Kerberos required.
+  - **`kits.beamkit` settings:** `deck_url`, `deck_ref` (a 40-hex sha), `main_input` and `deck_params` (fixed deck values).
+  - **Fixed per step:** `njobs`, `events_per_job`, `quorum`, `plane`, `pdg`.
+  - **Every other step param is a deck param,** given as `key=value` on the g4bl command line. The loader refuses a step param named like an adapter setting or a beamkit worker param (`KitDecl.reserved_params`, new: empty for the other kits).
+- **`kits.toml [servers.beamkit]`:**
+  - it runs `${AUTORESEARCH_BEAMKIT}/.venv/bin/beamkit-mcp`, and `activate.sh` defaults that variable to the sibling `../beamkit`;
+  - it sets `BEAMKIT_PRODTOOLS_ROOT=${AUTORESEARCH_PRODTOOLS}`, the dev checkout. The cvmfs prodtools has no MCP venv.
+  - Claude Code's own beamkit MCP entry is not set up this way: it points at the cvmfs prodtools, so its `beamline_status` and `beamline_outputs` fail in a session, though the ledger-only tools work.
+- **submit:**
+  - `run_beamline` as `run_as="self"`, with outputs to scratch;
+  - the tag is the step name's letters and digits plus 6 hex of its sha256, unique per name;
+  - a step record, `<grid>/<config>/state/<step>_beamkit.json`, makes a rerun adopt the run;
+  - a refused submit removes the record.
+- **status:** beamkit has no "finished" state on Fermilab.
+  - **working** while the campaign's queue (prodtools `campaign_status` inside `beamline_status`) has idle or running jobs;
+  - **completed** when at least `ceil(quorum × njobs)` files exist;
+  - **failed** otherwise, with "k of n files, m held";
+  - **an unreadable queue** fails after 6 h, the prodtools adapter's limit.
+  - `make_recoveries` is never called: it acts on the whole ledger.
+- **results:** uproot reads `NTuple/<plane>` from the files `beamline_outputs` lists, and counts unique `(file, EventID, TrackID)` with a listed PDG id per POT (files × `events_per_job`). The version is `beamkit-adapter/1+beamkit-<server>+fom<N>`.
+- **Tests:**
+  - **The fake server,** `tests/fakebeamkit.py`, driven through the real KitClient. Its `preset.json` stands for a finished run.
+  - **End to end,** `check_study` and `graph.run` against the fake. A fake `klist` on `PATH` satisfies the Kerberos launch check without a ticket.
+  - **Pinned lists:** two existing tests pinned assumptions a non-`_ax`, unconstrained study breaks (the exact list of loaded studies; "every problem has a constraint"). Both were updated.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded
