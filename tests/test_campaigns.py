@@ -134,5 +134,131 @@ class TestLeaderboard(_Camp):
             self.svc.stop_campaign("a-b")
 
 
+class TestStart(_Camp):
+    KW = dict(picker="budget_sob", executor="local", parallel=1)
+
+    def launch(self, prefix, max_evals, **kw):
+        out = self.svc.start_campaign("branin", prefix, 1, max_evals,
+                                      confirm=True, **dict(self.KW, **kw))
+        self.addCleanup(self._stop_launch, prefix)
+        return out
+
+    def _stop_launch(self, prefix):
+        """A failed test must not leave a campaign running into a deleted
+        data root."""
+        cdir = self.svc.camp_dir(prefix)
+        try:
+            pid = __import__("json").loads(
+                (cdir / "campaign.json").read_text()).get("pid")
+        except (OSError, ValueError):
+            return
+        if pid:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def wait_parent(self, prefix, timeout=180):
+        deadline = time.time() + timeout
+        while True:
+            st = self.svc.campaign_status(prefix)
+            if not st["parent"]["alive"]:
+                return st
+            self.assertLess(time.time(), deadline, st)
+            time.sleep(1)
+
+    def test_budget(self):
+        self.assertEqual(self.svc.budget("branin", 4, "local"),
+                         {"grid_jobs_per_point": 0, "grid_jobs_total": 0,
+                          "local_jobs_per_point": 0})
+        self.assertEqual(self.svc.budget("foilspfbpz_ax", 10, "grid"),
+                         {"grid_jobs_per_point": 130,
+                          "grid_jobs_total": 1300})
+
+    def test_a_dry_run(self):
+        out = self.svc.start_campaign("branin", "dry", 1, 2, **self.KW)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["problems"], [])
+        self.assertNotIn("--check-only", out["command"])
+        self.assertIn("--name-prefix dry", out["command"])
+        # The server writes nothing (closed_loop's launch check leaves its
+        # kit trace in that folder, as any launch check does).
+        for name in ("campaign.json", "parent.log", "lock", "STOP"):
+            self.assertFalse((self.svc.camp_dir("dry") / name).exists(), name)
+
+    def test_a_refused_dry_run(self):
+        out = self.svc.start_campaign("branin", "dry", 1, 2,
+                                      context=["alpha=1"], **self.KW)
+        self.assertFalse(out["ok"], out)
+        self.assertIn("--context 'alpha'", out["problems"][0])
+
+    def test_a_hung_dry_run_times_out(self):
+        self.svc.check_timeout_s = 0.01
+        out = self.svc.start_campaign("branin", "dry", 1, 2, **self.KW)
+        self.assertFalse(out["ok"], out)
+        self.assertIn("did not finish (timed out)", out["error"])
+
+    def test_an_activate_failure_in_a_dry_run(self):
+        env = dict(self.env, AUTORESEARCH_PYENV="ana")
+        env.pop("AUTORESEARCH_VENV", None)
+        out = CampaignService(env=env).start_campaign("branin", "dry", 1, 2,
+                                                      **self.KW)
+        self.assertFalse(out["ok"], out)
+        self.assertIn("did not finish (exit 1)", out["error"])
+        self.assertIn("NAME VERSION", out["output_tail"])
+
+    def test_a_launch_runs_to_the_end(self):
+        out = self.launch("mcpa", 2)
+        self.assertEqual(out["state"], "launched", out)
+        st = self.wait_parent("mcpa")
+        self.assertEqual(st["parent"]["launched_by"], "mcp")
+        self.assertEqual(st["parent"]["exit_code"], 0, st)
+        self.assertEqual([c["state"] for c in st["children"]],
+                         ["scored", "scored"])
+        self.assertEqual(st["rows"], 2)
+        self.assertIn("[closed_loop] done", st["parent"]["log_tail"])
+
+    def test_launch_refusals(self):
+        self.assertEqual(self.launch("dup", 1)["state"], "launched")
+        with self.assertRaises(ValueError) as cm:
+            self.launch("dup", 1)
+        self.assertIn("already running", str(cm.exception))
+        self.wait_parent("dup")
+        with self.assertRaises(ValueError) as cm:
+            self.launch("dup", 1)
+        self.assertIn("already launched from MCP", str(cm.exception))
+        self.svc.stop_campaign("stp")
+        with self.assertRaises(ValueError) as cm:
+            self.launch("stp", 1)
+        self.assertIn("STOP", str(cm.exception))
+        # A stand-in parent: its argv is all the scan reads.
+        busy = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)",
+             "graph.closed_loop", "--study", "branin",
+             "--name-prefix", "busy"])
+        self.addCleanup(lambda: (busy.kill(), busy.wait()))
+        with self.assertRaises(ValueError) as cm:
+            self.launch("busy", 1)
+        self.assertIn("already running", str(cm.exception))
+        self.assertFalse((self.svc.graph_data / "busy").exists())
+
+    def test_a_refused_launch_spends_the_prefix(self):
+        out = self.launch("ctx", 1, context=["alpha=1"])
+        self.assertEqual(out["state"], "refused", out)
+        self.assertIn("--context 'alpha'", out["problems"][0])
+        self.assertIn("spent", out["note"])
+        with self.assertRaises(ValueError) as cm:
+            self.launch("ctx", 1)
+        self.assertIn("already launched from MCP", str(cm.exception))
+
+    def test_stop_drains_a_launch(self):
+        self.assertEqual(self.launch("drn", 6)["state"], "launched")
+        self.assertTrue(self.svc.stop_campaign("drn")["parent_alive"])
+        st = self.wait_parent("drn")
+        self.assertLess(len(st["children"]), 6, st)
+        self.assertTrue(st["stopping"])
+        self.assertEqual(st["parent"]["exit_code"], 0, st)
+
+
 if __name__ == "__main__":
     unittest.main()

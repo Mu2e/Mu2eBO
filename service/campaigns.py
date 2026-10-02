@@ -25,9 +25,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
@@ -36,10 +40,20 @@ import study as st  # noqa: E402
 from leaderboard import Leaderboard  # noqa: E402
 
 from service.checks import CheckService  # noqa: E402
-from service.jobs import lock_held  # noqa: E402
+from service.jobs import lock_held, spawn_detached  # noqa: E402
 
 PREFIX_RE = re.compile(r"[A-Za-z0-9_]+")
 LOG_TAIL = 20
+OUTPUT_TAIL = 40
+DRY_SCRIPT = ('source ./activate.sh >/dev/null && PYTHONPATH= '
+              '"$AUTORESEARCH_PYTHON" -m graph.closed_loop "$@" --check-only')
+LAUNCH_SCRIPT = ('source ./activate.sh >/dev/null 2>"$1/parent.log" && '
+                 'PYTHONPATH= "$AUTORESEARCH_PYTHON" -u -m graph.closed_loop '
+                 '"${@:2}" >>"$1/parent.log" 2>&1; '
+                 'echo $? >"$1/rc.tmp" && mv "$1/rc.tmp" "$1/rc"')
+BANNER = "[closed_loop] study="
+REFUSED = "[closed_loop] REFUSED: "
+SPENT = "this prefix is spent: dry-run again and launch under a new prefix"
 
 
 def is_child(prefix: str, name: str) -> bool:
@@ -79,7 +93,15 @@ def _tail(path: Path, n: int) -> str:
         return ""
 
 
+def _refusals(text: str) -> List[str]:
+    return [ln[len(REFUSED):] for ln in text.splitlines()
+            if ln.startswith(REFUSED)]
+
+
 class CampaignService:
+    check_timeout_s = 600
+    launch_wait_s = 600
+
     def __init__(self, env: Optional[Mapping[str, str]] = None):
         self.checks = CheckService(env)
         self.env = self.checks.env
@@ -296,3 +318,120 @@ class CampaignService:
                 "parent_alive": parent["alive"],
                 "children_running": sum(1 for n in names if n in running),
                 "warning": warning}
+
+    # -- start -------------------------------------------------------------
+
+    def budget(self, study: str, max_evals: int,
+               executor: str) -> Optional[Dict[str, int]]:
+        """Jobs a campaign would run: prodtools steps' njobs per point."""
+        try:
+            s = self._load_study(study)
+        except ValueError:
+            return None
+        per = sum(int(step.fixed.get("njobs", 0)) for step in s.steps
+                  if step.kit == "prodtools")
+        if executor == "local":
+            return {"grid_jobs_per_point": 0, "grid_jobs_total": 0,
+                    "local_jobs_per_point": per}
+        return {"grid_jobs_per_point": per,
+                "grid_jobs_total": per * max_evals}
+
+    def _dry_run(self, argv: List[str]) -> Dict[str, Any]:
+        proc = subprocess.Popen(
+            ["bash", "-c", DRY_SCRIPT, "_", *argv], cwd=paths.REPO_ROOT,
+            env=self.env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        try:
+            output, _ = proc.communicate(timeout=self.check_timeout_s)
+        except subprocess.TimeoutExpired:
+            # The whole group: closed_loop and the kits it started.
+            os.killpg(proc.pid, signal.SIGKILL)
+            output, _ = proc.communicate()
+            why = "timed out"
+        else:
+            why = None if proc.returncode in (0, 2) \
+                else f"exit {proc.returncode}"
+        tail = "\n".join(output.splitlines()[-OUTPUT_TAIL:])
+        if why is not None:
+            return {"ok": False, "problems": _refusals(output),
+                    "output_tail": tail,
+                    "error": f"closed_loop's check did not finish ({why})"}
+        return {"ok": proc.returncode == 0, "problems": _refusals(output),
+                "output_tail": tail, "error": None}
+
+    def start_campaign(self, study: str, name_prefix: str, q: int,
+                       max_evals: int, picker: str = "hybrid",
+                       executor: str = "grid", parallel: Optional[int] = None,
+                       context: Optional[Sequence[str]] = None,
+                       stagger: Optional[float] = None,
+                       confirm: bool = False) -> Dict[str, Any]:
+        _check_prefix(name_prefix)
+        argv = ["--study", study, "--q", str(q), "--max-evals",
+                str(max_evals), "--picker", picker, "--name-prefix",
+                name_prefix]
+        for pair in context or []:
+            argv += ["--context", pair]
+        argv += ["--executor", executor]
+        if parallel is not None:
+            argv += ["--parallel", str(parallel)]
+        if stagger is not None:
+            argv += ["--stagger", repr(float(stagger))]
+        command = ('PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.closed_loop '
+                   + shlex.join(argv))
+        if not confirm:
+            out = self._dry_run(argv)
+            out.update(command=command,
+                       budget=self.budget(study, max_evals, executor))
+            return out
+        return self._launch(name_prefix, study, argv, command)
+
+    def _launch(self, prefix: str, study: str, argv: List[str],
+                command: str) -> Dict[str, Any]:
+        parents, _ = self._scan()
+        if prefix in parents:
+            raise ValueError(f"campaign {prefix!r} is already running (pid "
+                             f"{parents[prefix][0]}); stop it or use a new "
+                             f"prefix")
+        cdir = self.camp_dir(prefix)
+        if (cdir / "STOP").exists():
+            raise ValueError(f"{cdir / 'STOP'} exists: the campaign would "
+                             f"drain at once and launch nothing; use a new "
+                             f"prefix")
+        cdir.mkdir(parents=True, exist_ok=True)
+        record_path = cdir / "campaign.json"
+        try:
+            fd = os.open(record_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                         0o644)
+        except FileExistsError:
+            raise ValueError(f"campaign {prefix!r} was already launched from "
+                             f"MCP ({record_path}); use a new prefix") \
+                from None
+        record = {"prefix": prefix, "study": study, "args": argv,
+                  "command": command, "pid": None, "started": time.time()}
+        with os.fdopen(fd, "w") as fh:
+            fh.write(json.dumps(record, indent=1) + "\n")
+        record["pid"] = spawn_detached(cdir, LAUNCH_SCRIPT, argv, self.env)
+        record_path.write_text(json.dumps(record, indent=1) + "\n")
+        log, rc = cdir / "parent.log", cdir / "rc"
+        deadline = time.time() + self.launch_wait_s
+        while True:
+            text = log.read_text(errors="replace") if log.exists() else ""
+            if BANNER in text:
+                return {"state": "launched", "prefix": prefix,
+                        "pid": record["pid"], "log": str(log)}
+            if rc.exists():
+                problems = _refusals(text)
+                return {"state": "refused", "prefix": prefix,
+                        "problems": problems,
+                        "exit_code": int(rc.read_text() or -1),
+                        "error": (None if problems else
+                                  "closed_loop exited before starting; see "
+                                  "log_tail"),
+                        "log_tail": "\n".join(
+                            text.splitlines()[-OUTPUT_TAIL:]),
+                        "note": SPENT}
+            if time.time() > deadline:
+                return {"state": "starting", "prefix": prefix,
+                        "pid": record["pid"], "log": str(log),
+                        "note": "poll campaign_status"}
+            time.sleep(1)
