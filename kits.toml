@@ -62,3 +62,17 @@ command = ["/cvmfs/mu2e.opensciencegrid.org/env/ana/2.7.0/bin/python", "-P", "-m
 env_passthrough = []
 set = { PYTHONPATH = "${AUTORESEARCH_ANAKIT}", SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
 timeouts = { start = 120, list_analyses = 120, run_analysis = 3600 }
+
+# G4beamline through beamkit (core/adapters/beamkit.py drives it; spec
+# docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md). beamkit runs
+# from its own checkout's venv ($AUTORESEARCH_BEAMKIT). It submits through
+# prodtools, so it gets the prodtools_write credentials and site settings,
+# and BEAMKIT_PRODTOOLS_ROOT names the same dev checkout the prodtools kit
+# uses (the cvmfs prodtools has no MCP venv).
+[servers.beamkit]
+command = ["${AUTORESEARCH_BEAMKIT}/.venv/bin/beamkit-mcp"]
+env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR", "JOBSUB_DROPBOX_SERVER_LIST",
+                   "JOBSUB_OUTPUT_URL", "JOBSUB_FETCHLOG_URL", "JOBSUB_AUTH_METHODS",
+                   "JOBSUB_POOL_MAP"]
+set = { BEAMKIT_PRODTOOLS_ROOT = "${AUTORESEARCH_PRODTOOLS}" }
+timeouts = { start = 120, get_server_info = 60, run_beamline = 900, beamline_status = 120, beamline_outputs = 120 }

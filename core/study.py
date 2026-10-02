@@ -394,6 +394,10 @@ def _steps(raw, has_geom, names, where):
                              f"name or an inline template object")
         if not decl.uses_entries and entry is not None:
             raise ValueError(f"{sw}[entry]: kit {kit!r} takes no entry; use null")
+        if isinstance(s["params"], dict):
+            for name in sorted(set(s["params"]) & decl.reserved_params):
+                raise ValueError(f"{sw}[params.{name}]: a {kit} setting, not "
+                                 f"a deck param; kit {kit!r} reads it itself")
         fixed = kit_registry.validate(kit, s["fixed"], decl.fixed_keys,
                                       f"{sw}[fixed]", required=False)
         # A fixed path follows the kit-settings rule ('${ARTIFACT}/' only,

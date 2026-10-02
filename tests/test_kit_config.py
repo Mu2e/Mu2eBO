@@ -251,7 +251,13 @@ class TestServersAndExecutors(unittest.TestCase):
     def test_the_repo_declares_both_prodtools_servers(self):
         servers = kc.load_server_configs()
         self.assertEqual(sorted(servers),
-                         ["anakit", "prodtools_read", "prodtools_write"])
+                         ["anakit", "beamkit", "prodtools_read",
+                          "prodtools_write"])
+        self.assertIn("run_beamline", servers["beamkit"].timeouts)
+        # beamkit submits through prodtools: the same credentials and
+        # jobsub site settings as the write server.
+        self.assertEqual(servers["beamkit"].env_passthrough,
+                         servers["prodtools_write"].env_passthrough)
         self.assertIn("submit_once", servers["prodtools_write"].timeouts)
         self.assertIn("run_status", servers["prodtools_read"].timeouts)
         # The bearer token is found at $XDG_RUNTIME_DIR/bt_u<uid>; without

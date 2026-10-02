@@ -124,6 +124,49 @@ def _dsconf(v, where):
     return v
 
 
+def _sha40(v, where):
+    if not (isinstance(v, str) and re.fullmatch(r"[0-9a-f]{40}", v)):
+        raise ValueError(f"{where}: must be a full 40-hex git sha (the deck "
+                         f"pin), got {v!r}")
+    return v
+
+
+def _int_list(v, where):
+    if not (isinstance(v, list) and v and all(
+            isinstance(i, int) and not isinstance(i, bool) for i in v)):
+        raise ValueError(f"{where}: must be a non-empty list of integers, "
+                         f"got {v!r}")
+    return list(v)
+
+
+# Names beamkit's worker sets on the g4bl command line itself (beamkit
+# compose.py): a study may not pass them.
+BEAMKIT_RESERVED = ("First_Event", "Num_Events", "histoFile", "viewer")
+# The beamkit adapter's own settings: every other step param is a deck param.
+BEAMKIT_OWN = ("deck_url", "deck_ref", "main_input", "deck_params", "njobs",
+               "events_per_job", "quorum", "plane", "pdg")
+_DECK_PARAM = re.compile(r"[A-Za-z_]\w*")
+
+
+def _deck_params(v, where):
+    """Fixed G4beamline deck parameters: name -> number or string."""
+    if not isinstance(v, dict):
+        raise ValueError(f"{where}: must be an object of deck parameters, "
+                         f"got {v!r}")
+    for name, value in v.items():
+        if not _DECK_PARAM.fullmatch(name):
+            raise ValueError(f"{where}[{name!r}]: a deck parameter name is "
+                             f"letters, digits and _, not starting with a "
+                             f"digit")
+        if name in BEAMKIT_RESERVED or name in BEAMKIT_OWN:
+            raise ValueError(f"{where}[{name!r}]: set by beamkit's worker or "
+                             f"the adapter, not by a study")
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValueError(f"{where}[{name!r}]: must be a number or a "
+                             f"string, got {value!r}")
+    return dict(v)
+
+
 # kits.toml names value types by these keys (kit_config.VALUE_TYPES).
 VALIDATORS: Dict[str, Callable] = {
     "string": _string, "number": _number, "positive_int": _positive_int,
@@ -145,6 +188,7 @@ class KitDecl:
     names_runs_after_config: bool     # the config name goes into run names
     factory: Optional[str]            # "module.path:Name" relative to core/;
                                       # None for a native (kits.toml) kit
+    reserved_params: FrozenSet[str]   # names a step's params may not map
 
 
 KITS: Dict[str, KitDecl] = {d.name: d for d in (
@@ -157,7 +201,8 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             uses_entries=True, step_kit=True, check_kit=False,
             executors=("grid", "local"), launch_stagger_s=90.0,
             requires_kerberos=True, names_runs_after_config=True,
-            factory="adapters.prodtools:ProdtoolsKit"),
+            factory="adapters.prodtools:ProdtoolsKit",
+            reserved_params=frozenset()),
     KitDecl("offline_preflight",
             study_keys={"code_tarball": _path, "dumps_gdml": _flag,
                         "verifies_foil_gdml": _flag,
@@ -167,7 +212,8 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             step_kit=False, check_kit=True,
             executors=("grid", "local"), launch_stagger_s=0.0,
             requires_kerberos=False, names_runs_after_config=True,
-            factory="adapters.offline_preflight:OfflinePreflightKit"),
+            factory="adapters.offline_preflight:OfflinePreflightKit",
+            reserved_params=frozenset()),
     KitDecl("anakit",
             study_keys={"work_area": _path},
             fixed_keys={"analysis": _string, "input_correction": _number,
@@ -178,7 +224,24 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             step_kit=True, check_kit=False,
             executors=("grid", "local"), launch_stagger_s=0.0,
             requires_kerberos=False, names_runs_after_config=False,
-            factory="adapters.anakit:AnakitKit"),
+            factory="adapters.anakit:AnakitKit",
+            reserved_params=frozenset()),
+    # G4beamline through the beamkit MCP server (core/adapters/beamkit.py).
+    # Knobs reach the deck as command-line params, so a step's params name
+    # deck params; the adapter's own settings and beamkit's worker params
+    # may not be among them.
+    KitDecl("beamkit",
+            study_keys={"deck_url": _string, "deck_ref": _sha40,
+                        "main_input": _string, "deck_params": _deck_params},
+            fixed_keys={"njobs": _job_count, "events_per_job": _positive_int,
+                        "quorum": _fraction, "plane": _string,
+                        "pdg": _int_list},
+            required_fixed=frozenset({"quorum", "plane", "pdg"}),
+            uses_entries=False, step_kit=True, check_kit=False,
+            executors=("grid",), launch_stagger_s=0.0,
+            requires_kerberos=True, names_runs_after_config=True,
+            factory="adapters.beamkit:BeamkitKit",
+            reserved_params=frozenset(BEAMKIT_OWN + BEAMKIT_RESERVED)),
 )}
 
 for _decl in KITS.values():
@@ -246,7 +309,7 @@ def _native_decl(cfg) -> KitDecl:
                    executors=cfg.executors,
                    launch_stagger_s=cfg.launch_stagger_s,
                    requires_kerberos=False, names_runs_after_config=False,
-                   factory=None)
+                   factory=None, reserved_params=frozenset())
 
 
 _clash = sorted(set(NATIVE) & set(KITS))

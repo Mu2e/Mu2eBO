@@ -12,8 +12,9 @@
 #
 # AUTORESEARCH_SURROKIT: path to the surrokit engine checkout
 # (default: the repo's sibling directory ../surrokit; see core/paths.py).
-# AUTORESEARCH_ANAKIT / AUTORESEARCH_PRODTOOLS: the kit checkouts; exported
-# here from sibling directories when unset (see the end of this file).
+# AUTORESEARCH_ANAKIT / AUTORESEARCH_PRODTOOLS / AUTORESEARCH_BEAMKIT: the kit
+# checkouts; exported here from sibling directories when unset (see the end
+# of this file).
 #
 # Why a published env: a personal /exp venv is one operator's directory, so a
 # second person, a cron job, or a fresh node has nothing to point at.
@@ -96,5 +97,8 @@ if [[ -z "${AUTORESEARCH_ANAKIT:-}" && -d "$_parent/analysis-mcp-server" ]]; the
 fi
 if [[ -z "${AUTORESEARCH_PRODTOOLS:-}" && -d "$_parent/muse_050125/prodtools" ]]; then
     export AUTORESEARCH_PRODTOOLS="$_parent/muse_050125/prodtools"
+fi
+if [[ -z "${AUTORESEARCH_BEAMKIT:-}" && -d "$_parent/beamkit" ]]; then
+    export AUTORESEARCH_BEAMKIT="$_parent/beamkit"
 fi
 unset _parent
