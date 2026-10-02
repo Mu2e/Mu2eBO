@@ -5,11 +5,10 @@ studies. No MCP here; service/server.py wraps each method as a tool.
 A check is a detached job (bash, then check_study --json) with its own
 directory, <data root>/autoresearch_graph_data/check_jobs/<job_id>/:
 job.json (target, args, command, pid, start time), lock, report.json,
-stderr.log, and rc, written last. The server takes an exclusive flock on
-`lock` before the launch and hands that file to the job (pass_fds), so the
-lock is held exactly as long as the job's processes live: a check survives a
-restart of the server or the client, and a killed one reads as "lost", not
-"running" forever. The pid in job.json is there to kill a stuck job by hand;
+stderr.log, and rc, written last. It is launched by service/jobs.py, which
+hands the job a lock it holds exactly as long as its processes live: a check
+survives a restart of the server or the client, and a killed one reads as
+"lost", not "running" forever. The pid in job.json is there to kill a stuck job by hand;
 liveness never depends on it.
 
 Only the standard library and core/paths.py, core/study.py, imported bare
@@ -21,15 +20,12 @@ server that reports it.
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
 import secrets
 import shlex
-import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
@@ -38,6 +34,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
 import paths  # noqa: E402
 import study as st  # noqa: E402
+
+from service.jobs import lock_held, spawn_detached  # noqa: E402
 
 MODES_DIR = paths.REPO_ROOT / "mode_specs"
 TAIL_LINES = 40
@@ -146,24 +144,10 @@ class CheckService:
         job_dir.mkdir(parents=True, exist_ok=False)
         command = ('PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.check_study '
                    + shlex.join([*args, "--json"]))
-        fd = os.open(job_dir / "lock", os.O_CREAT | os.O_RDWR)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            proc = subprocess.Popen(
-                ["bash", "-c", JOB_SCRIPT, "_", str(job_dir), *args],
-                cwd=paths.REPO_ROOT, env=self.env,
-                # The server's own stdin/stdout carry the MCP stream.
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, start_new_session=True,
-                pass_fds=(fd,))
-        finally:
-            os.close(fd)
-        # Reap the job when it ends: no zombie in a long-lived server (the
-        # lock, not this thread, says whether it is running).
-        threading.Thread(target=proc.wait, daemon=True).start()
+        pid = spawn_detached(job_dir, JOB_SCRIPT, args, self.env)
         (job_dir / "job.json").write_text(json.dumps({
             "job_id": job_id, "target": target, "args": args,
-            "command": command, "pid": proc.pid, "started": time.time(),
+            "command": command, "pid": pid, "started": time.time(),
         }, indent=1) + "\n")
         return {"job_id": job_id, "target": target, "command": command}
 
@@ -173,17 +157,6 @@ class CheckService:
             raise ValueError(f"no check job {job_id!r} in {self.jobs_dir}")
         return self.jobs_dir / job_id
 
-    @staticmethod
-    def _locked(path: Path) -> bool:
-        fd = os.open(path, os.O_RDWR)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return True
-        finally:
-            os.close(fd)
-        return False
-
     def check_result(self, job_id: str) -> Dict[str, Any]:
         job_dir = self._job_dir(job_id)
         job = json.loads((job_dir / "job.json").read_text())
@@ -192,7 +165,7 @@ class CheckService:
         # the two reads is done, never lost.
         if rc.exists():
             state = "done"
-        elif self._locked(job_dir / "lock"):
+        elif lock_held(job_dir / "lock"):
             state = "running"
         else:
             state = "done" if rc.exists() else "lost"

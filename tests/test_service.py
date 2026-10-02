@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from service.checks import CheckService  # noqa: E402
+from service.jobs import lock_held, spawn_detached  # noqa: E402
 from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
 
 LOCAL = dict(executor="local", parallel=1)
@@ -54,6 +55,21 @@ class _Svc(unittest.TestCase):
         self.assertEqual(res["exit_code"], 0, res)
         self.assertIsNone(res["error"], res)
         self.assertTrue(res["report"]["ok"], res)
+
+
+class TestSpawn(_Svc):
+    def test_the_lock_lives_with_the_job(self):
+        job = self.tmp / "job"
+        job.mkdir()
+        spawn_detached(job, 'sleep 2; echo done >"$1/out"', [],
+                       dict(os.environ))
+        self.assertTrue(lock_held(job / "lock"))
+        deadline = time.time() + 15
+        while lock_held(job / "lock"):
+            self.assertLess(time.time(), deadline, "lock still held")
+            time.sleep(0.2)
+        self.assertEqual((job / "out").read_text(), "done\n")
+        self.assertFalse(lock_held(job / "missing"))
 
 
 class TestQueries(_Svc):
