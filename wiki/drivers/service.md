@@ -75,7 +75,7 @@ The campaign tools planned for this server (`campaign_status`,
 - **Bare core imports:** `service/checks.py` imports `core/` modules bare, with `core/` on `sys.path`, as every engine module does.
   - A qualified `from core import study` loaded `core.geom_template` beside the bare copy.
   - That failed `tests/test_modes.py` `TestSingleModuleCopy` in the full suite, though not in `tests/test_service.py` on its own.
-- **Tests:** `tests/test_service.py`, 13 tests: the queries, toykit jobs with `--executor local --parallel 1`, and one stdio MCP client session. The suite is 837 OK (skipped=3).
+- **Tests:** `tests/test_service.py`, 14 tests: the queries, toykit jobs with `--executor local --parallel 1`, and one stdio MCP client session. The suite is 838 OK (skipped=3).
 - **Acceptance (2026-10-02),** through a stdio client in a sandbox data root:
 
   | Run | Result | Time |

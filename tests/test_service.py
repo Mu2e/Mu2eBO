@@ -178,6 +178,15 @@ class TestJobs(_Svc):
         self.assertFalse(self.svc.jobs_dir.exists())
         self.assertFalse(self.svc.drafts_dir.exists())
 
+    def test_a_study_that_looks_like_an_option_is_refused(self):
+        # check_study would parse it as an option: "--help" printed its usage
+        # into report.json and came back exit 0 with no report.
+        for study in ("--help", "-h", "--x=1"):
+            with self.assertRaises(ValueError, msg=study) as cm:
+                self.svc.start_check(study)
+            self.assertIn("starts with '-'", str(cm.exception))
+        self.assertFalse(self.svc.jobs_dir.exists())
+
 
 class TestStdio(_Svc):
     """service/server.py over stdio, through the SDK's own client."""
@@ -198,6 +207,10 @@ class TestStdio(_Svc):
                     init = await s.initialize()
                     self.assertIn("check_result", init.instructions)
                     self.assertIn("submits", init.instructions)
+                    # Exit 0 alone is not a pass: with `error` set there is no
+                    # report and the exit code is not check_study's verdict.
+                    self.assertIn("report.ok", init.instructions)
+                    self.assertIn("`error` is set", init.instructions)
                     names = sorted(t.name for t in (await s.list_tools()).tools)
                     self.assertEqual(names, ["check_result", "list_studies",
                                              "show_study", "start_check",

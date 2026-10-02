@@ -32,10 +32,13 @@ the operator's OK, then check it again by name.
 
 Exit codes in check_result: 0 every check passed; 1 a check failed (the
 report says which and why); 2 a bad target, --x or executor (see
-stderr_tail); 3 check_study itself broke (see report.error). A check that
-fails with "another check_study of '<name>' is running" means wait and
-start again, not edit the draft. State "lost" means the job was killed
-before it ended.
+stderr_tail); 3 check_study itself broke (see report.error). A check passed
+only when exit_code is 0 and report.ok is true. When `error` is set there is
+no report, and the exit code is not check_study's verdict (activate.sh
+failed, or the job was killed): read stderr_tail, and do not edit the draft
+over it. A check that fails with "another check_study of '<name>' is
+running" means wait and start again, not edit the draft. State "lost" means
+the job was killed before it ended.
 
 Nothing here submits jobs, launches a campaign or writes a board: the only
 writes are the draft (study_drafts/<name>.json under the data root) and the

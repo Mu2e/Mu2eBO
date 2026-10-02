@@ -127,6 +127,11 @@ class CheckService:
         elif study.endswith(".json") or "/" in study:
             # The job runs from the repo root, not this server's directory.
             target = str(Path(study).absolute())
+        elif study.startswith("-"):
+            # check_study would parse it as an option ("--help": usage on
+            # stdout, exit 0, no report).
+            raise ValueError(f"study {study!r} starts with '-': give a study "
+                             f"name or a .json path")
         else:
             target = study
         args = [target]
