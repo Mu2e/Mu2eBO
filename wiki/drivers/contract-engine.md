@@ -1022,7 +1022,25 @@ TestBraninCampaign.test_eight_points_in_under_a_minute`; the test file was
   grid|local] [--parallel N] [--json]`** (`graph/check_study.py`). A path
   (ends in `.json` or holds a `/`) may be a draft anywhere; a name is
   looked up in `mode_specs/` and `$AUTORESEARCH_STUDY_PATH`. Exit 0 every
-  check passed, 1 one failed, 2 a bad command line or unknown target.
+  check passed, 1 one failed, 2 a bad command line or unknown target, 3
+  check_study itself broke (hardening, 2026-10-01).
+- **The JSON report:** `{study, path, ok, crashed, error, point, checks:
+  [{name, status, problems, note, detail}]}`. `problems` are one readable
+  line each; `detail` holds the full traceback of every exception a check
+  caught (a kit or board error in launch, a derive/render error in
+  geometry, an unexpected loader exception; the loader's own ValueError
+  messages are the whole story and get none). On exit 3, `crashed` is true
+  and `error` is `{type, message, traceback}`, with `checks` holding the
+  checks finished before the crash; the traceback is also on stderr. A
+  consumer branches on the exit code, never on "Traceback" in stderr
+  (caught exceptions print theirs there too).
+- **A draft outside the study path is checked as if installed:** it takes
+  the place of the study file of its name (or joins the path if new), so a
+  broken installed `foo.json` does not block checking its fixed draft. The
+  across-files rules run through `study.load_study_list(files)`
+  (`load_study_dirs` is now `load_study_list(study_files(...))`). `--x` is
+  checked right after load, so a bad one fails geometry even when launch
+  fails.
   Source `activate.sh` first, as for any launch: without
   `AUTORESEARCH_ANAKIT`/`AUTORESEARCH_PRODTOOLS` the launch check fails
   on the kits, correctly.

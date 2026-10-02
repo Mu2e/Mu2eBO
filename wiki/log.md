@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-01
+- **updated** [contract-engine](/drivers/contract-engine.md): check_study
+  hardening — exit 3 when check_study itself breaks, with the whole error
+  (`crashed`, `error.traceback`) in the JSON; a `detail` traceback on any
+  check that caught an exception; `--x` checked right after load; a draft
+  outside the study path checked as if installed in its namesake's place.
 - **updated** [contract-engine](/drivers/contract-engine.md): check_study —
   `python -m graph.check_study <name-or-path>` checks a study file before
   launch (load, `${ARTIFACT}` paths, the launch check, the geometry

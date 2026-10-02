@@ -741,11 +741,16 @@ def study_files(primary: Path, extra: Optional[str]) -> List[Path]:
 
 
 def load_study_dirs(primary: Path, extra: Optional[str]) -> Dict[str, Study]:
-    """Every study in study_files(primary, extra): each file's name must
-    equal its study's, and no two studies may share a name or a board."""
+    """Every study in study_files(primary, extra), as load_study_list."""
+    return load_study_list(study_files(primary, extra))
+
+
+def load_study_list(files: List[Path]) -> Dict[str, Study]:
+    """Every study in `files`: each file's name must equal its study's, and
+    no two studies may share a name or a board."""
     out: Dict[str, Study] = {}
     boards: Dict[str, Path] = {}
-    for p in study_files(primary, extra):
+    for p in files:
         s = load_study_file(p)
         if s.name != p.stem:
             raise ValueError(f"{p}: study name {s.name!r} does not match "

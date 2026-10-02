@@ -2,7 +2,9 @@
 its ${ARTIFACT} paths exist, the launch check passes and its geometry
 passes the pre-check at the center point -- with nothing submitted and no
 board row (spec docs/superpowers/specs/2026-10-01-check-study-design.md)."""
+import contextlib
 import fcntl
+import io
 import json
 import os
 import subprocess
@@ -171,6 +173,16 @@ class TestLoad(_Studies):
         check, _ = cs.check_load(write_study(toy_doc(), self.tmp / "drafts"))
         self.assertEqual(check.status, "passed", check.problems)
 
+    def test_a_draft_replaces_its_broken_namesake(self):
+        # Fixing a broken study: the draft is checked as if installed in
+        # its namesake's place, so the broken original does not block it.
+        broken = toy_doc()
+        broken["objectives"] = []
+        write_study(broken, self.studies)
+        check, study = cs.check_load(write_study(toy_doc(), self.tmp / "drafts"))
+        self.assertEqual(check.status, "passed", check.problems)
+        self.assertEqual(study.name, "toystudy")
+
     def test_another_broken_study_is_a_load_problem(self):
         target = write_study(toy_doc(), self.studies)
         (self.studies / "bad.json").write_text("{}")
@@ -190,6 +202,28 @@ class TestLoad(_Studies):
         self.assertEqual(check.status, "failed")
         self.assertTrue(any("defined twice" in p for p in check.problems),
                         check.problems)
+
+
+class TestCrash(_Studies):
+    def test_a_crash_is_exit_3_with_the_whole_error(self):
+        path = write_study(toy_doc(), self.studies)
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(cs, "check_artifacts",
+                               side_effect=TypeError("boom")), \
+                contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            rc = cs.main([str(path), "--json"])
+        self.assertEqual(rc, 3)
+        rep = json.loads(out.getvalue())
+        self.assertIs(rep["ok"], False)
+        self.assertIs(rep["crashed"], True)
+        self.assertEqual(rep["error"]["type"], "TypeError")
+        self.assertEqual(rep["error"]["message"], "boom")
+        self.assertIn("Traceback", rep["error"]["traceback"])
+        self.assertIn("check_artifacts", rep["error"]["traceback"])
+        self.assertEqual([(c["name"], c["status"]) for c in rep["checks"]],
+                         [("load", "passed")])
+        self.assertIn("boom", err.getvalue())
 
 
 class TestArtifacts(_Tmp):
@@ -269,7 +303,13 @@ class TestReport(unittest.TestCase):
                         [cs.Check("load", "failed", ["bad"])])
         self.assertEqual(json.loads(json.dumps(rep)), rep)
         self.assertEqual(rep["checks"][0], {"name": "load", "status": "failed",
-                                            "problems": ["bad"], "note": ""})
+                                            "problems": ["bad"], "note": "",
+                                            "detail": ""})
+
+    def test_a_report_says_it_did_not_crash(self):
+        rep = cs.report("s", "/p/s.json", None, [cs.Check("load", "passed")])
+        self.assertIs(rep["crashed"], False)
+        self.assertIsNone(rep["error"])
 
     def test_text_lists_problems_and_ends_failed(self):
         rep = cs.report("s", "/p/s.json", None,
@@ -298,19 +338,18 @@ class TestMain(_Tmp):
         self.env = engine_env(self.data, self.studies)
         self.scratch = self.data / "autoresearch_grid" / "check_toystudy"
 
-    def check(self, *args, json_out=True, child_tracebacks=False):
+    def check(self, *args, json_out=True):
         argv = [sys.executable, "-m", "graph.check_study", *args, *self.LOCAL]
         if json_out:
             argv.append("--json")
         r = subprocess.run(argv, cwd=ROOT, env=self.env, capture_output=True,
                            text=True, timeout=120)
-        if child_tracebacks:
-            # A kit server that dies prints its own traceback to the shared
-            # stderr; check_study's own would be the last one.
-            self.assertNotIn("check_study.py", r.stderr)
-        else:
-            self.assertNotIn("Traceback", r.stderr)
+        # Exit 3 is check_study itself breaking; tracebacks on stderr alone
+        # are no signal (a caught exception's is printed there too).
+        self.assertNotEqual(r.returncode, 3, r.stdout + r.stderr)
         out = json.loads(r.stdout) if json_out and r.returncode != 2 else None
+        if out is not None:
+            self.assertIs(out["crashed"], False)
         return r, out
 
     @staticmethod
@@ -378,6 +417,35 @@ class TestMain(_Tmp):
                             for p in c["launch"]["problems"]), c["launch"])
         self.assertEqual(c["geometry"]["status"], "skipped")
 
+    def test_a_board_row_without_measure_sha_fails_launch_with_detail(self):
+        path = write_study(toy_pre(), self.studies)
+        board = self.data / "autoresearch_leaderboards" / "leaderboard_toystudy.tsv"
+        board.parent.mkdir(parents=True)
+        header = Leaderboard.for_study(st.load_study_file(path), path=board,
+                                       archive_path=None).header()
+        cols = header.rstrip("\n").split("\t")
+        row = ["old1" if c == "config" else "" if c == "measure_sha"
+               else "1" for c in cols]
+        board.write_text(header + "\t".join(row) + "\n")
+        r, out = self.check("toystudy")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        launch = self.checks(out)["launch"]
+        self.assertEqual(launch["status"], "failed")
+        self.assertTrue(any("RowParseError" in p for p in launch["problems"]),
+                        launch)
+        self.assertIn("Traceback", launch["detail"])
+
+    def test_a_bad_x_is_reported_even_when_launch_fails(self):
+        write_study(toy_pre(), self.studies)
+        self.env["AUTORESEARCH_LOCAL"] = "1"
+        r, out = self.check("toystudy", "--x=1,2,3")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        c = self.checks(out)
+        self.assertEqual(c["launch"]["status"], "failed")
+        self.assertEqual(c["geometry"]["status"], "failed", c["geometry"])
+        self.assertTrue(any("2 knobs" in p for p in c["geometry"]["problems"]),
+                        c["geometry"])
+
     def test_x_overrides_the_center(self):
         write_study(toy_pre(), self.studies)
         r, out = self.check("toystudy", "--x=1,2")
@@ -438,6 +506,8 @@ class TestMain(_Tmp):
         self.assertEqual(geometry["status"], "failed")
         self.assertTrue(any("ZeroDivisionError" in p or "division" in p
                             for p in geometry["problems"]), geometry)
+        self.assertIn("Traceback", geometry["detail"])
+        self.assertIn("ZeroDivisionError", geometry["detail"])
 
     def test_a_second_check_of_the_same_study_is_refused_while_one_runs(self):
         # An agent may check the same study twice at once (the center and
@@ -469,7 +539,7 @@ class TestMain(_Tmp):
         write_study(toy_pre(), self.studies)
         self.data.mkdir()
         (self.data / "toykit").write_text("a file where its state dir goes")
-        r, out = self.check("toystudy", child_tracebacks=True)
+        r, out = self.check("toystudy")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         c = self.checks(out)
         self.assertEqual(c["launch"]["status"], "failed")
