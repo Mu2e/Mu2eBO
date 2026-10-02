@@ -85,6 +85,7 @@ The campaign tools planned for this server (`campaign_status`,
   | a `study_json` with `"objectives": []` | exit 1, load failed "at least one objective is required", the rest skipped | 1.3 s |
 
   Side effects were clean.
+- **Live from a Claude Code session (2026-10-02, after the merge and `/mcp`):** `list_studies` listed all 8 studies, each loading; `start_check` on `ce_chain` (local, parallel 1) followed by `check_result` gave exit 0 and `report.ok` true in 50.2 s, against the live data root (job `ce_chain-20261002-151322-3608`).
 
 ## Cross-links
 - Related: [contract-engine](/drivers/contract-engine.md) (check_study), [surrogate](/drivers/surrogate.md)
@@ -92,5 +93,4 @@ The campaign tools planned for this server (`campaign_status`,
 - Spec: `docs/superpowers/specs/2026-10-02-autoresearch-mcp-design.md`; plan: `docs/superpowers/plans/2026-10-02-autoresearch-mcp.md`
 
 ## Open questions / TODO
-- A live call from a Claude Code session, which needs the main checkout's `.mcp.json` after the merge and a restart or `/mcp`.
 - The campaign tools on this server.
