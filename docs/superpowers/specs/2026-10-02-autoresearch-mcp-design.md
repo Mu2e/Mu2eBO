@@ -60,22 +60,27 @@ Not named `mcp/`: a top-level `mcp` directory would shadow the SDK.
   `$AUTORESEARCH_DATA_ROOT/study_drafts/<name>.json`, replacing an earlier
   draft of that name, and checked from there. `x` is a list of numbers
   (`--x=`); `executor` is `"grid"` or `"local"`; `parallel` only with
-  `"local"`. Refused at once, with a message: both or neither of
+  `"local"`. Refused at once, with a message: anything but exactly one of
   `study`/`study_json`; a `study_json` that is not an object or whose
-  `name` is missing or not `[A-Za-z0-9_]+`; an unknown executor; `parallel`
-  without `"local"`. Everything else (a name that is not a study, a bad
-  `--x`) is left to check_study, which reports it (exit 2): one set of rules.
+  `name` is missing or not `[A-Za-z0-9_]+` (it names the draft file).
+  Everything else is left to check_study, one set of rules: a name that is
+  not a study, a bad `--x` or an unknown executor is exit 2, and `parallel`
+  with `"grid"` fails its launch check.
 - **`check_result`** states:
   - `done`: `rc` exists. Exit 0, 1 or 3: `report` is check_study's JSON
     (on exit 3 it carries `crashed` and `error.traceback`). Exit 2: `report`
     is null and `stderr_tail` says why. A report that does not parse:
     `report` null, `error` "check_study's output is not JSON", and the tail.
-  - `running`: no `rc`, the job's process alive; `elapsed_s` since start.
-  - `lost`: no `rc` and the process gone (killed); `stderr_tail` included.
+  - `running`: no `rc`, and the job still holds its lock; `elapsed_s` since
+    start.
+  - `lost`: no `rc` and the lock free (the job was killed); `stderr_tail`
+    included.
   - An unknown `job_id` is an error naming it.
 - **`list_studies`**: every file of `study.study_files(mode_specs/,
-  $AUTORESEARCH_STUDY_PATH)`, each loaded on its own; a file that does not
-  load is listed with `loads: false` and its error, the rest as usual.
+  $AUTORESEARCH_STUDY_PATH)`, each loaded on its own: `knobs` and
+  `objectives` are name lists and `board` the board's basename (`show_study`
+  has the rest); a file that does not load is listed with `loads: false`
+  and its error.
 - **`show_study`**: by name, the same lookup as check_study; an unknown name
   is an error listing the known ones.
 - **Server instructions** (sent to the client at start-up), in substance:
@@ -89,18 +94,27 @@ Not named `mcp/`: a top-level `mcp` directory would shadow the SDK.
 ### How a check job runs
 
 - The command is
-  `bash -c 'source ./activate.sh >/dev/null 2>&1 && PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.check_study "${@:2}" --json > "$1/report.json" 2> "$1/stderr.log"; echo $? > "$1/rc.tmp" && mv "$1/rc.tmp" "$1/rc"' _ <job dir> <target> [--x=...] [--executor ...] [--parallel N]`
+  `bash -c 'source ./activate.sh >/dev/null 2>"$1/stderr.log" && PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.check_study "${@:2}" --json >"$1/report.json" 2>>"$1/stderr.log"; echo $? >"$1/rc.tmp" && mv "$1/rc.tmp" "$1/rc"' _ <job dir> <target> [--x=...] [--executor ...] [--parallel N]`
   (the job directory is an absolute path),
   run from the repo root under
   `subprocess.Popen(..., start_new_session=True)`, so a restart of the
-  client or the server does not kill a check in flight. It inherits the
-  server's environment (Kerberos ticket, `AUTORESEARCH_DATA_ROOT`,
-  `AUTORESEARCH_STUDY_PATH`).
+  client or the server does not kill a check in flight. Its stdin, stdout
+  and stderr are `/dev/null` (the server's own carry the MCP stream). It
+  inherits the server's environment (Kerberos ticket,
+  `AUTORESEARCH_DATA_ROOT`, `AUTORESEARCH_STUDY_PATH`).
+- **Liveness is a lock, not a pid.** Before the launch the server opens
+  `<job dir>/lock`, takes an exclusive `flock` on it and hands that file
+  to the job (`pass_fds`), closing its own copy; the lock is then held
+  exactly as long as the job's processes live, with no race at start and
+  nothing to confuse after a restart (a reused pid, a zombie).
+  `check_result` tries the lock without blocking: taken means the job
+  ended.
 - If `activate.sh` itself fails, check_study never runs and `rc` holds
   that failure: `done` with an empty report, so `error` says "check_study's
   output is not JSON" and the stderr tail shows why. Never silent.
 - Job directory `$GRAPH_DATA/check_jobs/<job_id>/`: `job.json` (target,
-  argv, pid, start time), `report.json`, `stderr.log`, and `rc` written last.
+  argv, start time, and the pid, to kill a stuck job by hand), `lock`, `report.json`, `stderr.log`, and `rc` written
+  last.
 - `job_id` is `<study>-<YYYYmmdd-HHMMSS>-<4 hex>`; `<study>` is the target's
   file stem (or name).
 - Two checks of one study at once: check_study's own per-study lock reports
@@ -115,22 +129,25 @@ Not named `mcp/`: a top-level `mcp` directory would shadow the SDK.
 
 - **`service/checks.py`** (`tests/test_service.py`), with toykit studies in
   a temporary data root and study path, `--executor local --parallel 1`:
-  - a good study by name, by path, and as `study_json`: `done`, exit 0,
-    `report.ok` true; the `study_json` draft file exists;
-  - a failing pre-check (toykit `function` "reject"): exit 1, the geometry
-    problem in the report;
+  - a good study by name (with `x`), by relative path, and as
+    `study_json`: `done`, exit 0, `report.ok` true; the `study_json` draft
+    file exists;
   - an unknown name: exit 2, `report` null, the name in `stderr_tail`;
-  - a job whose process is killed before it ends: `lost`;
-  - refused at once: an unknown `job_id`; both and neither of
+  - a job killed before it ends: `lost`;
+  - `activate.sh` failing: `done`, the "not JSON" error, its message in
+    `stderr_tail`;
+  - refused at once: an unknown or path-like `job_id`; not exactly one of
     `study`/`study_json`; a `study_json` name that is missing or not an
-    identifier; `parallel` without `"local"`;
+    identifier;
   - `list_studies` with a broken file beside good ones: the good ones
     listed, the broken one with `loads: false` and its error;
-  - `show_study` and `study_guide` return the file and the README.
+  - `show_study` and `study_guide` return the file and the README;
+  - `service/checks.py` imports no `modes`.
 - **Through MCP**: start `service/server.py` over stdio with the SDK's
   client (`mcp.client.stdio.stdio_client`, `ClientSession`), list the tools,
-  `start_check` a toy study, poll `check_result` until `done` with exit 0.
-- Full suite green; every `measure_basis_sha` unchanged.
+  `start_check` a toy study, call `list_studies` while it runs, poll
+  `check_result` until `done` with exit 0.
+- Full suite green.
 
 ## Acceptance
 
@@ -139,7 +156,7 @@ Through the stdio client, in a sandbox data root:
 1. `ce_chain`, `executor="local"`, `parallel=1`: exit 0, geometry "rendered,
    not pre-checked".
 2. `foilspfbpz_ax`, grid: exit 0, the pre-check passed (about 6 minutes).
-3. A `study_json` with a broken field: exit 1, `load` failed with the
+3. A `study_json` with `"objectives": []`: exit 1, `load` failed with the
    loader's message.
 
 Then the server goes into `.mcp.json`; after a Claude Code restart (or
