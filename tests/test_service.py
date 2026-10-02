@@ -228,9 +228,21 @@ class TestStdio(_Svc):
                     self.assertIn("report.ok", init.instructions)
                     self.assertIn("`error` is set", init.instructions)
                     names = sorted(t.name for t in (await s.list_tools()).tools)
-                    self.assertEqual(names, ["check_result", "list_studies",
-                                             "show_study", "start_check",
-                                             "study_guide"])
+                    self.assertEqual(names, [
+                        "campaign_status", "check_result", "leaderboard",
+                        "list_studies", "show_study", "start_campaign",
+                        "start_check", "stop_campaign", "study_guide"])
+                    self.assertIn("confirm=false", init.instructions)
+                    res = await s.call_tool("start_campaign", {
+                        "study": "toystudy", "name_prefix": "mcpdry",
+                        "q": 1, "max_evals": 2, "executor": "local",
+                        "parallel": 1})
+                    self.assertFalse(res.is_error, res.content)
+                    self.assertTrue(res.structured_content["ok"],
+                                    res.structured_content)
+                    res = await s.call_tool("campaign_status", {})
+                    self.assertFalse(res.is_error, res.content)
+                    self.assertIn("campaigns", res.structured_content)
                     res = await s.call_tool("start_check", {
                         "study": "toystudy", "executor": "local",
                         "parallel": 1})
