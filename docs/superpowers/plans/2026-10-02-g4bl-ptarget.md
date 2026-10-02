@@ -72,7 +72,6 @@
     - `param Tradius=6.299*.5`;
     - `param -unset R_up=3.1495 R_mid=3.1495 R_dn=3.1495`.
   - **The solid:** replace the `tubs pTarget ...` command with `polycone pTarget z=-$Tlength/2,0,$Tlength/2 innerRadius=0,0,0 outerRadius=$R_up,$R_mid,$R_dn material=$Tmaterial color=$Tungsten`. The `place pTarget` stays as it is.
-  - **The log line:** add `printf "ptarget: Tlength=%g R_up=%g R_mid=%g R_dn=%g" $Tlength $R_up $R_mid $R_dn` after the `place`.
 - [ ] **Step 2: Check the deck parses without a grid job, if possible.** If `g4bl` is available through `source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh; setup G4beamline` (look at `$G4BEAMLINE_DIR`, never search /cvmfs), run `g4bl Mu2E.in viewer=none Num_Events=0 epsMax=0.01 Use_Proton_Target=4 R_mid=2.0` and grep the output for `ptarget: Tlength=160 R_up=3.1495 R_mid=2 R_dn=3.1495`. If it is not available, record that in the ledger; acceptance step 2 then proves it on the grid.
 - [ ] **Step 3: Commit on the deck branch** (`git -C <deck clone> commit -am "ptarget: polycone target; Tlength and three radii from the command line"`), and record the sha in the ledger.
 - [ ] **Step 4: Ask the operator to push.** Tell them: fork `Mu2e/G4BeamlineScripts` on GitHub, then push from the deck clone with `git remote add fork git@github.com:<user>/G4BeamlineScripts.git && git push fork ptarget-polycone`. Record the fork URL they confirm. Tasks 2-5 do not wait for this; Task 6 does.
@@ -255,8 +254,8 @@
   - **Expected:** exit 0 and one row.
   - **Record:**
     - `yield_per_pot`, `n_selected`;
-    - the wall time per job, from one job's `log.*` (`ptarget:` line plus timing);
+    - the wall time per job, from one job's `log.*`;
     - the Poisson σ, `sqrt(n)/pot`.
-- [ ] **Step 3: The override check.** `--config ptgrmid01 --x=160,3.1495,2.0,3.1495`. Its job logs show `ptarget: Tlength=160 R_up=3.1495 R_mid=2 R_dn=3.1495`, and the nominal point's show `R_mid=3.1495`. Record both yields.
+- [ ] **Step 3: The override check.** `--config ptgrmid01 --x=160,3.1495,2.0,3.1495`. Its job logs echo `polycone pTarget … outerRadius=3.1495,2.0,3.1495`, and the nominal point's echo `3.1495,3.1495,3.1495`. Record both yields.
 - [ ] **Step 4: Set the noise.** Set `ptg4bl.json`'s objective `noise` to the measured σ, rounded up to 2 significant figures. Check that the board's rows still pass the launch check: a noise change does not enter `measure_sha`, which the spec's study design says. Then commit `ptg4bl: noise from the nominal point`.
 - [ ] **Step 5: Wiki and ledger.** Add the results to `projects/bo-ptg4bl.md` and the ledger. A campaign starts only on the operator's word (`start_campaign`: a dry run, then confirm, q=5, max_evals=20, `--picker qlnei`).

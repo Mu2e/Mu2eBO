@@ -31,7 +31,7 @@ In `Geometry/Proton_Target_W.txt`:
 - `Tlength`, `R_up`, `R_mid` and `R_dn` are declared `param -unset`, with today's values as defaults (160, and 3.1495 for all three). A command-line value then wins; a plain `param` line would override it.
 - `R_up` is the radius at the upstream end (local z = −Tlength/2), `R_dn` at the downstream end.
 - The `Use_Proton_Target==5` support block keeps using `R=$Tradius` (left at 3.1495), and is unused with 4.
-- A `printf "ptarget: Tlength=%g R_up=%g R_mid=%g R_dn=%g" $Tlength $R_up $R_mid $R_dn` line puts the values in effect into every job log, the proof that the command line reached the target.
+- g4bl echoes every command with its values expanded into the job log (`polycone pTarget innerRadius=0,0,0 outerRadius=3.1495,2.0,3.1495`). That echo is the proof that the command line reached the target. (g4bl's `printf` is a per-track print element, not a parse-time echo: checked locally 2026-10-02.)
 
 The branch also carries the `epsMax=0.01` fix (local commit adba281). Current Geant4 rejects g4bl's 0.05 default. The study pins the branch's sha as `deck_ref` and the fork as `deck_url`.
 
@@ -134,7 +134,7 @@ Nothing is retried silently, and nothing is resubmitted by the adapter.
 ## Acceptance (the operator's fork pushed; grid; Kerberos)
 
 1. **The nominal point** (Tlength 160, all radii 3.1495) through `graph.run` lands a row. It records the yield per POT, the counts, the wall time per job (from the job logs), and the Poisson σ, which becomes the objective's `noise`.
-2. **The override check:** a point with `R_mid = 2.0`. Its job logs show `ptarget: … R_mid=2` (the deck's `printf`), and the nominal point's show `R_mid=3.1495`. That proves the command-line value reaches the polycone. Both yields are recorded; no threshold, since a difference in physics is not guaranteed at 20k POT.
+2. **The override check:** a point with `R_mid = 2.0`. Its job logs echo `polycone pTarget … outerRadius=3.1495,2.0,3.1495`, and the nominal point's echo `3.1495,3.1495,3.1495`. That proves the command-line value reaches the polycone (already seen in a local `g4bl` parse, 2026-10-02). Both yields are recorded; no threshold, since a difference in physics is not guaranteed at 20k POT.
 3. **Campaigns** come only on the operator's word, through `start_campaign`: a dry run, then confirm. The first proposed is q=5 and max_evals=20, with `--picker qlnei`.
 
 ## Records
