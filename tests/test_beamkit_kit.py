@@ -336,6 +336,22 @@ class TestAdapter(_Tmp):
         self.assertEqual(len([c for c in self.calls()
                               if c["tool"] == "run_beamline"]), 1)
 
+    def test_a_run_whose_tick_submitted_nothing_is_refused(self):
+        """beamkit returns the record, not an error, when the first tick
+        submits nothing (state needs_attention): that is no submit."""
+        name = "cfgR00_00.g4bl"
+        with self.assertRaises(KitError) as cm:
+            self.kit.submit(name, step_params(deck_ref="d" * 40), [], [], "w")
+        self.assertIn("needs_attention", str(cm.exception))
+        self.assertIn("queue count failed", str(cm.exception))
+        rec = json.loads(next((self.tmp / "grid").rglob("*_beamkit.json"))
+                         .read_text())
+        self.assertEqual(rec["run_id"], f"{bk.tag_for(name)}.{'d' * 7}")
+        # The run exists: a rerun adopts it rather than making a second.
+        self.kit.submit(name, step_params(deck_ref="d" * 40), [], [], "w")
+        self.assertEqual(len([c for c in self.calls()
+                              if c["tool"] == "run_beamline"]), 1)
+
     def test_a_record_without_run_id_adopts_the_run(self):
         name = "cfgR00_00.g4bl"
         self.kit.submit(name, step_params(), [], [], "w")

@@ -120,6 +120,18 @@ def count_tracks(paths_: Sequence[str], plane: str, pdg: Sequence[int]) -> int:
     return total
 
 
+def _not_submitted(reply: dict) -> str:
+    """Why beamkit's run is not running: its state and its last tick."""
+    ticks = ((reply.get("fermilab") or {}).get("ticks") or [])
+    summary = str(ticks[-1].get("summary", "")).strip() if ticks else ""
+    tail = "\n".join(summary.splitlines()[-6:])
+    return (f"run {reply.get('run_id')} is {reply.get('state')!r}, not "
+            f"'submitted': its first tick submitted no jobs"
+            + (f"; the tick said:\n{tail}" if tail else "")
+            + "\nFix the cause, then make_recoveries on the run (or a "
+              "prodtools tick) submits its jobs; rerun this point to adopt it")
+
+
 class BeamkitKit:
     """One campaign child's handle on beamkit; run_steps' threads share it."""
 
@@ -227,6 +239,10 @@ class BeamkitKit:
                 if not run_id:
                     raise _error("run_beamline", f"reply has no run_id: "
                                  f"{str(reply)[:200]}")
+                if reply.get("state") != "submitted":
+                    # beamkit returns the record, not an error, when its
+                    # first tick submits nothing (rc 2: needs_attention).
+                    raise _error("run_beamline", _not_submitted(reply))
             except Exception as exc:
                 # A run may exist although the call failed (a timeout, or
                 # "created but the first tick failed"): keep it, so a rerun

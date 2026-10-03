@@ -23,6 +23,7 @@ from typing import Optional
 STATE = Path(os.environ["FAKEBEAMKIT_STATE"])
 BAD_SHA = "f" * 40          # refused before anything exists
 HALF_SHA = "e" * 40         # the run is created, then its first tick fails
+IDLE_SHA = "d" * 40         # the run is created, its tick submits nothing
 
 
 def _log(tool, args):
@@ -71,6 +72,12 @@ def make_server():
         if deck_ref == HALF_SHA:
             raise ValueError("campaign 7 was created but the first tick "
                              "failed: another submissions run holds the lock")
+        if deck_ref == IDLE_SHA:    # beamkit's reply when the tick's rc is 2
+            return {"run_id": run_id, "tag": tag, "state": "needs_attention",
+                    "fermilab": {"campaign_id": 19, "ticks": [{
+                        "rc": 2, "needs_attention": True,
+                        "summary": "top-up: queue count failed \u2014 top-up "
+                                   "skipped this tick"}]}}
         return {"run_id": run_id, "tag": tag, "state": "submitted"}
 
     @server.tool()

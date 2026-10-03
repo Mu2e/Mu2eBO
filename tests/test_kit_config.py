@@ -254,10 +254,15 @@ class TestServersAndExecutors(unittest.TestCase):
                          ["anakit", "beamkit", "prodtools_read",
                           "prodtools_write"])
         self.assertIn("run_beamline", servers["beamkit"].timeouts)
-        # beamkit submits through prodtools: the same credentials and
-        # jobsub site settings as the write server.
-        self.assertEqual(servers["beamkit"].env_passthrough,
-                         servers["prodtools_write"].env_passthrough)
+        # beamkit submits through prodtools: the write server's credentials
+        # and jobsub site settings, plus jobsub's tracing endpoint -- without
+        # it jobsub_q prints "Continuing without tracing..." into its table
+        # and prodtools' tick refuses the queue count, submitting nothing
+        # (ptg4bl grid acceptance, 2026-10-02).
+        self.assertTrue(set(servers["prodtools_write"].env_passthrough)
+                        <= set(servers["beamkit"].env_passthrough))
+        self.assertIn("OTEL_EXPORTER_JAEGER_ENDPOINT",
+                      servers["beamkit"].env_passthrough)
         self.assertIn("submit_once", servers["prodtools_write"].timeouts)
         self.assertIn("run_status", servers["prodtools_read"].timeouts)
         # The bearer token is found at $XDG_RUNTIME_DIR/bt_u<uid>; without

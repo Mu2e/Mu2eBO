@@ -68,11 +68,16 @@ timeouts = { start = 120, list_analyses = 120, run_analysis = 3600 }
 # from its own checkout's venv ($AUTORESEARCH_BEAMKIT). It submits through
 # prodtools, so it gets the prodtools_write credentials and site settings,
 # and BEAMKIT_PRODTOOLS_ROOT names the same dev checkout the prodtools kit
-# uses (the cvmfs prodtools has no MCP venv).
+# uses (the cvmfs prodtools has no MCP venv). The OTEL_* pair is jobsub's
+# tracing endpoint from /etc/profile.d/jobsub_lite.sh: without it jobsub_q
+# prints "Continuing without tracing..." into its queue table, prodtools'
+# tick refuses the count ("top-up: queue count failed") and submits nothing
+# (found in the ptg4bl grid acceptance, 2026-10-02).
 [servers.beamkit]
 command = ["${AUTORESEARCH_BEAMKIT}/.venv/bin/beamkit-mcp"]
 env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR", "JOBSUB_DROPBOX_SERVER_LIST",
                    "JOBSUB_OUTPUT_URL", "JOBSUB_FETCHLOG_URL", "JOBSUB_AUTH_METHODS",
-                   "JOBSUB_POOL_MAP"]
+                   "JOBSUB_POOL_MAP", "OTEL_EXPORTER_JAEGER_ENDPOINT",
+                   "OTEL_EXPORTER_JAEGER_TIMEOUT"]
 set = { BEAMKIT_PRODTOOLS_ROOT = "${AUTORESEARCH_PRODTOOLS}" }
 timeouts = { start = 120, get_server_info = 60, run_beamline = 900, beamline_status = 120, beamline_outputs = 120, list_beamline_runs = 60 }
