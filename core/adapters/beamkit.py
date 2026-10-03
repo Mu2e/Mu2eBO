@@ -65,6 +65,7 @@ VERSION = "beamkit-adapter/1"
 FOM_VERSION = 1                 # bump when the count would change
 SERVER = "beamkit"              # kits.toml [servers.beamkit]
 UNKNOWN_LIMIT_S = 6 * 3600      # an unreadable queue, as the prodtools adapter
+HELD_LIMIT_S = 2 * 3600         # only held jobs left: in flight this long
 POLL_MS = 120_000               # condor and SAM per poll: every 2 min
 RECORD = "{step}_beamkit.json"
 
@@ -222,7 +223,8 @@ class BeamkitKit:
                   "events_per_job": int(own["events_per_job"]),
                   "quorum": float(own["quorum"]), "plane": own["plane"],
                   "pdg": list(own["pdg"]), "submitted": self._clock(),
-                  "unknown_since": None, "verdict": None}
+                  "unknown_since": None, "held_since": None,
+                  "verdict": None}
         path.parent.mkdir(parents=True, exist_ok=True)
         run_id = self._find_run(tag, workflow)    # a run whose record was lost
         if run_id is None:
@@ -295,20 +297,40 @@ class BeamkitKit:
             rec["unknown_since"] = None
             write_atomic(path, json.dumps(rec, indent=1) + "\n")
         live = int(queue.get("idle", 0)) + int(queue.get("running", 0))
+        held = int(queue.get("held", 0))
         files = self._files(rec, workflow)
         n_files = len(files)
         progress = {"done": n_files, "total": rec["njobs"], "ok": n_files}
         if live:
+            if rec.get("held_since") is not None:
+                rec["held_since"] = None
+                write_atomic(path, json.dumps(rec, indent=1) + "\n")
             return self._status("working", f"{live} job(s) queued or "
-                                f"running, {n_files} file(s)", progress,
-                                poll_ms=POLL_MS)
+                                f"running, {held} held, {n_files} file(s)",
+                                progress, poll_ms=POLL_MS)
         need = math.ceil(rec["quorum"] * rec["njobs"])
         if n_files >= need:
             return self._decide(rec, path, "completed", f"{n_files} of "
                                 f"{rec['njobs']} files", files)
+        if held:
+            # jobsub can hold a just-submitted cluster for a moment (campaign
+            # ptg5k01, 2026-10-03: 20 held, then 20 running a minute later):
+            # held is in flight until it has been all that is left for
+            # HELD_LIMIT_S.
+            if rec.get("held_since") is None:
+                rec["held_since"] = now
+                write_atomic(path, json.dumps(rec, indent=1) + "\n")
+            reasons = str(queue.get("hold_reasons", ""))[:300]
+            if now - rec["held_since"] > HELD_LIMIT_S:
+                return self._decide(rec, path, "failed", f"{held} job(s) "
+                                    f"held for {HELD_LIMIT_S // 3600} h, "
+                                    f"{n_files} of {rec['njobs']} files "
+                                    f"(quorum {need}): {reasons}")
+            return self._status("working", f"{held} held, {n_files} "
+                                f"file(s): {reasons}", progress,
+                                poll_ms=POLL_MS)
         return self._decide(rec, path, "failed", f"{n_files} of "
-                            f"{rec['njobs']} files (quorum {need}), "
-                            f"{int(queue.get('held', 0))} held")
+                            f"{rec['njobs']} files (quorum {need}), 0 held")
 
     def results(self, handle, workflow):
         rec, _ = self._record(handle, workflow)

@@ -261,12 +261,12 @@ class TestAdapter(_Tmp):
         name = "cfgR01_00.g4bl"
         self.kit.submit(name, step_params(), [], [], "w")
         self.set_run(name, queue={"state": "known", "idle": 0, "running": 0,
-                                  "held": 3}, files=[f"/x/{i}.root"
+                                  "held": 0}, files=[f"/x/{i}.root"
                                                      for i in range(17)])
         st = self.kit.status(name, "w")
         self.assertEqual(st.state, "failed")
         self.assertIn("17 of 20 files", st.message)
-        self.assertIn("3 held", st.message)
+        self.assertIn("0 held", st.message)
 
     def test_an_unreadable_queue_fails_after_the_limit(self):
         name = "cfgR00_00.g4bl"
@@ -292,6 +292,33 @@ class TestAdapter(_Tmp):
         st = self.kit.status(name, "w")
         self.assertEqual(st.state, "failed")
         self.assertIn("queue unreadable", st.message)
+
+    def test_held_jobs_are_in_flight_until_the_limit(self):
+        """jobsub can hold a just-submitted cluster for a moment (seen in
+        campaign ptg5k01: 20 held at the first poll, 20 running a minute
+        later). Held is in flight, not failed, until every remaining job
+        has been held for HELD_LIMIT_S."""
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        held = {"state": "known", "idle": 0, "running": 0, "held": 20,
+                "hold_reasons": {"transfer input files failed": 20}}
+        self.set_run(name, queue=held)
+        st = self.kit.status(name, "w")
+        self.assertEqual(st.state, "working")
+        self.assertIn("20 held", st.message)
+        # Running again resets the clock.
+        self.now[0] += bk.HELD_LIMIT_S - 1
+        self.set_run(name, queue={"state": "known", "idle": 0, "running": 20,
+                                  "held": 0})
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+        self.set_run(name, queue=held)
+        self.now[0] += 10
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+        self.now[0] += bk.HELD_LIMIT_S + 1
+        st = self.kit.status(name, "w")
+        self.assertEqual(st.state, "failed")
+        self.assertIn("held", st.message)
+        self.assertIn("transfer input files failed", st.message)
 
     def test_a_transient_status_error_is_retried(self):
         name = "cfgR00_00.g4bl"
