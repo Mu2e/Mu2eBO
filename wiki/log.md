@@ -5,6 +5,12 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-10-03
+- **updated** [bo-ptg4bl](/projects/bo-ptg4bl.md): campaign ptg5k01, 9 rows,
+  best 0.0471 μ⁻+π⁻/POT (+17% over nominal) at the Tlength-max, R_up-min,
+  R_mid-max corner; the box widened. [contract-engine](/drivers/contract-engine.md):
+  held jobs are in flight (a transient hold at submit failed two children).
+
 ## 2026-10-02
 - **updated** [bo-ptg4bl](/projects/bo-ptg4bl.md): grid acceptance passed
   (rows ptgnom02/ptgrmid02); three grid-only findings fixed — jobsub's

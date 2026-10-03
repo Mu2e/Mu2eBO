@@ -1145,6 +1145,7 @@ study).
   - **completed** when at least `ceil(quorum × njobs)` files exist;
   - **failed** otherwise, with "k of n files, m held";
   - **an unreadable queue** fails after 6 h in a row, counted from the first unreadable poll (the prodtools adapter's rule);
+  - **held jobs are in flight** until they have been all that is left for 2 h (`held_since`, reset when a job runs or idles). jobsub can hold a just-submitted cluster for a moment: in campaign ptg5k01, a cluster was all held at its first poll and running a minute later. Judging held terminal failed two children whose jobs ran on (fixed in 87a19a2). A quorum of files completes the step without waiting on held stragglers;
   - the verdict and the files judged are kept in the step record, and `results` counts exactly those files;
   - read calls are retried, and polls are 2 minutes apart.
   - `make_recoveries` is never called: it acts on the whole ledger.

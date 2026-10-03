@@ -58,6 +58,30 @@ timestamp: '2026-10-02'
 
   The first batch, counted offline, gave 0.0415 and 0.0380. σ ≈ 0.0014 (3.5%), so R_mid=2.0 cannot be resolved at 20k POT. Hence 100k POT per point from here.
 
+## Campaign ptg5k01 (2026-10-02/03)
+- **Setup:** launched through the MCP `start_campaign` (a dry run, then confirm): q=5, `qlnei`, 100k POT per point.
+- **What happened:** two children (R05, R06) were falsely failed. Their whole clusters were *held* at the first status poll and running a minute later, and the adapter then judged held as terminal. New launches were stopped (STOP) at a no-row streak of 2/5, and the parent ended with launched=9, rows=7, broken=2.
+- **The fix,** 87a19a2: held jobs count as in flight until they have been all that is left for 2 h. R05 and R06 were then re-landed by clearing their verdict and broken mark and rerunning `graph.run`, which adopted the finished runs.
+- **9 rows** (σ ≈ 0.0007):
+
+  | point | Tlength | R_up | R_mid | R_dn | μ⁻+π⁻ per POT |
+  |---|---|---|---|---|---|
+  | R05 | 220 | 2.00 | 4.50 | 4.06 | 0.04712 |
+  | R07 | 220 | 2.00 | 4.50 | 3.95 | 0.04703 |
+  | R00 | 219.7 | 2.26 | 4.06 | 3.05 | 0.04556 |
+  | R03 | 169.1 | 2.57 | 3.95 | 2.14 | 0.04414 |
+  | R08 | 220 | 2.00 | 2.89 | 2.89 | 0.04365 |
+  | R06 | 220 | 2.00 | 2.90 | 2.81 | 0.04293 |
+  | R01 | 150.6 | 4.08 | 3.52 | 4.41 | 0.04129 |
+  | R04 | 115.4 | 2.35 | 3.80 | 4.46 | 0.03618 |
+  | R02 | 108.4 | 2.59 | 3.09 | 3.19 | 0.03450 |
+
+  - The best is 17% above the nominal rod (~0.040).
+  - The two best points sit at the same corner and agree within σ, a natural replicate.
+- **The optimum hugs three bounds:** Tlength at its maximum, R_up at its minimum, R_mid at its maximum. So the next campaign widens the box to Tlength 100–300 mm and radii 1.5–6.0 mm.
+  - Bounds are not part of `measure_sha`, so the board stays valid.
+  - The FoM counts yield only; it is blind to heat load and radiation damage, which a real target design must also meet.
+
 ## Cross-links
 - Related: [contract-engine](/drivers/contract-engine.md) (the beamkit adapter), [service](/drivers/service.md) (start_campaign), [production-target-stickman](/concepts/production-target-stickman.md) (the Offline production target), [bo-prodtarget](/projects/bo-prodtarget.md) (the Offline-side design)
 - Source files: `mode_specs/ptg4bl.json`, `core/adapters/beamkit.py`, `tests/test_beamkit_kit.py`, `tests/fakebeamkit.py`
