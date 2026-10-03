@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-02
+- **updated** [bo-ptg4bl](/projects/bo-ptg4bl.md): grid acceptance passed
+  (rows ptgnom02/ptgrmid02); three grid-only findings fixed — jobsub's
+  OTEL_* env for the beamkit server, a needs_attention reply refused, the
+  plane is a tree path (VirtualDetector/<name>); 100k POT per point on a
+  fresh board.
 - **created** [bo-ptg4bl](/projects/bo-ptg4bl.md): the first G4beamline
   study (production-target rod, length + 3-point polycone radius, μ⁻+π⁻
   per POT at Coll_01_Det); deck override checked locally with g4bl 3.08b.

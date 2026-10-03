@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "ptg4bl",
- "note": "Production target on G4beamline through beamkit: a bare tungsten rod (Use_Proton_Target=4) whose length and outer-radius profile are knobs (R_up at local z=-Tlength/2, the Mu2e-upstream end where the protons, travelling along -z, leave the rod; R_mid; R_dn at +z, where they enter; linear between), from the deck branch ptarget-polycone on the operator's fork. Objective: mu- plus pi- per POT crossing the virtual detector Coll_01_DetIn (tree VirtualDetector/Coll_01_DetIn) (the upstream face of COL1, the TS entrance; unique tracks), maximized. Spec docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md.",
+ "note": "Production target on G4beamline through beamkit: a bare tungsten rod (Use_Proton_Target=4) whose length and outer-radius profile are knobs (R_up at local z=-Tlength/2, the Mu2e-upstream end where the protons, travelling along -z, leave the rod; R_mid; R_dn at +z, where they enter; linear between), from the deck branch ptarget-polycone on the operator's fork. Objective: mu- plus pi- per POT crossing the virtual detector Coll_01_DetIn (tree VirtualDetector/Coll_01_DetIn) (the upstream face of COL1, the TS entrance; unique tracks), maximized. Spec docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md. 100k POT per point (20 jobs x 5000 protons, about 42 min per job at 0.5 s per proton); noise 0.00065 = the nominal point's Poisson sigma at 20k POT (0.0014) scaled by 1/sqrt(5). The 20k-POT acceptance rows (ptgnom02, ptgrmid02) stay on leaderboard_bo_ptg4bl.tsv, outside the training set.",
  "knobs": [
   {
    "name": "Tlength",
@@ -9,7 +9,7 @@
    "min": 100.0,
    "max": 220.0,
    "unit": "mm",
-   "fmt": "{:.3f}"
+   "fmt": "{:.4f}"
   },
   {
    "name": "R_up",
@@ -17,7 +17,7 @@
    "min": 2.0,
    "max": 4.5,
    "unit": "mm",
-   "fmt": "{:.3f}"
+   "fmt": "{:.4f}"
   },
   {
    "name": "R_mid",
@@ -25,7 +25,7 @@
    "min": 2.0,
    "max": 4.5,
    "unit": "mm",
-   "fmt": "{:.3f}"
+   "fmt": "{:.4f}"
   },
   {
    "name": "R_dn",
@@ -33,7 +33,7 @@
    "min": 2.0,
    "max": 4.5,
    "unit": "mm",
-   "fmt": "{:.3f}"
+   "fmt": "{:.4f}"
   }
  ],
  "derive": {
@@ -69,7 +69,7 @@
    },
    "fixed": {
     "njobs": 20,
-    "events_per_job": 1000,
+    "events_per_job": 5000,
     "quorum": 0.9,
     "plane": "VirtualDetector/Coll_01_DetIn",
     "pdg": [
@@ -85,7 +85,7 @@
    "metric": "g4bl.yield_per_pot",
    "direction": "max",
    "transform": "none",
-   "noise": 0.002,
+   "noise": 0.00065,
    "fmt": "{:.5f}"
   }
  ],
@@ -104,7 +104,7 @@
  ],
  "extra_columns": [],
  "leaderboard": {
-  "file": "leaderboards/leaderboard_bo_ptg4bl.tsv",
+  "file": "leaderboards/leaderboard_bo_ptg4bl_5k.tsv",
   "layout": "v2",
   "context": []
  }

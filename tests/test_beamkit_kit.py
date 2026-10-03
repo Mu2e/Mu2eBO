@@ -458,6 +458,8 @@ class TestEndToEnd(_Tmp):
             self.assertEqual(checks[name]["status"], "passed", checks[name])
 
     def test_graph_run_lands_a_row(self):
+        epj = json.loads((ROOT / "mode_specs" / "ptg4bl.json").read_text())[
+            "evaluate"][0]["fixed"]["events_per_job"]
         files = [nts(self.tmp / f"nts.{i}.root", ROWS_A) for i in range(20)]
         (self.state / "preset.json").write_text(json.dumps({
             "queue": {"state": "known", "idle": 0, "running": 0, "held": 0},
@@ -472,10 +474,11 @@ class TestEndToEnd(_Tmp):
         self.assertEqual(len(lines), 2, lines)
         row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         self.assertEqual(row["config"], "e2eR00_00")
-        # Two selected tracks per file (ROWS_A), 20 files of 1000 POT.
-        self.assertAlmostEqual(float(row["mu_pi_per_pot"]), 40 / 20000)
+        # Two selected tracks per file (ROWS_A), 20 files of epj POT.
+        self.assertAlmostEqual(float(row["mu_pi_per_pot"]), 40 / (20 * epj),
+                               places=7)
         self.assertEqual(float(row["n_selected"]), 40)
-        self.assertEqual(float(row["pot"]), 20000)
+        self.assertEqual(float(row["pot"]), 20 * epj)
 
 
 if __name__ == "__main__":

@@ -1132,6 +1132,7 @@ study).
 - **`kits.toml [servers.beamkit]`:**
   - it runs `${AUTORESEARCH_BEAMKIT}/.venv/bin/beamkit-mcp`, and `activate.sh` defaults that variable to the sibling `../beamkit`;
   - it sets `BEAMKIT_PRODTOOLS_ROOT=${AUTORESEARCH_PRODTOOLS}`, the dev checkout. The cvmfs prodtools has no MCP venv.
+  - it passes jobsub's `OTEL_EXPORTER_JAEGER_*` along with the write server's variables. Without them, `jobsub_q` prints tracing notes into its table, prodtools' tick refuses the queue count and submits nothing (beamkit state `needs_attention`, found in the grid acceptance on 2026-10-02). The adapter refuses such a reply.
   - Claude Code's own beamkit MCP entry is not set up this way: it points at the cvmfs prodtools, so its `beamline_status` and `beamline_outputs` fail in a session, though the ledger-only tools work.
 - **submit:**
   - `run_beamline` as `run_as="self"`, with outputs to scratch;
@@ -1147,7 +1148,7 @@ study).
   - the verdict and the files judged are kept in the step record, and `results` counts exactly those files;
   - read calls are retried, and polls are 2 minutes apart.
   - `make_recoveries` is never called: it acts on the whole ledger.
-- **results:** uproot reads `NTuple/<plane>` from the files `beamline_outputs` lists, and counts unique `(file, EventID, TrackID)` with a listed PDG id per POT (files × `events_per_job`). The version is `beamkit-adapter/1+beamkit-<server>+fom<N>`.
+- **results:** uproot reads the tree at `plane`, a path in the file (`VirtualDetector/<name>` for a virtualdetector, `NTuple/<name>` for a zntuple), from the files `beamline_outputs` lists, and counts unique `(file, EventID, TrackID)` with a listed PDG id per POT (files × `events_per_job`). The version is `beamkit-adapter/1+beamkit-<server>+fom<N>`.
 - **Tests:**
   - **The fake server,** `tests/fakebeamkit.py`, driven through the real KitClient. Its `preset.json` stands for a finished run.
   - **End to end,** `check_study` and `graph.run` against the fake. A fake `klist` on `PATH` satisfies the Kerberos launch check without a ticket.
