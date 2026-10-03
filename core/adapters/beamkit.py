@@ -25,8 +25,10 @@ deck, how many jobs, and what to count.
   never called; note that every run_beamline's own tick still runs
   prodtools' recovery pass over the whole personal ledger.
 - results: the figure of merit, counted here from the job ntuples with
-  uproot: unique (file, EventID, TrackID) at NTuple/<plane> whose PDGid is
-  listed, per proton on target (files x events_per_job). FOM_VERSION is in
+  uproot: unique (file, EventID, TrackID) in the tree at `plane` -- its
+  path in the file: g4bl writes a virtualdetector under
+  VirtualDetector/<name> and a zntuple under NTuple/<name> -- whose PDGid
+  is listed, per proton on target (files x events_per_job). FOM_VERSION is in
   `version`, so a changed count changes measure_sha.
 """
 from __future__ import annotations
@@ -96,13 +98,14 @@ def split_handle(name: str):
 
 
 def count_tracks(paths_: Sequence[str], plane: str, pdg: Sequence[int]) -> int:
-    """Unique (file, EventID, TrackID) in NTuple/<plane> with a listed PDG
-    id: a track looping in the solenoid field crosses a virtual detector
-    more than once, and counts once."""
+    """Unique (file, EventID, TrackID) in the tree at path `plane` (e.g.
+    VirtualDetector/Coll_01_DetIn) with a listed PDG id: a track looping in
+    the solenoid field crosses a virtual detector more than once, and
+    counts once."""
     import numpy as np
     import uproot
     wanted = np.array(sorted(set(int(p) for p in pdg)))
-    key = f"NTuple/{plane}"
+    key = plane
     total = 0
     for path in paths_:
         try:

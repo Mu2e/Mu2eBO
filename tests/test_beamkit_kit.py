@@ -48,7 +48,7 @@ def ptg_doc(name="ptg4bltest", deck_ref="a" * 40):
             "step": "g4bl", "kit": "beamkit", "entry": None, "files": [],
             "files_from": [], "params": {k: k for k in KNOBS},
             "fixed": {"njobs": 20, "events_per_job": 1000, "quorum": 0.9,
-                      "plane": "Coll_01_DetIn", "pdg": [13, -211]}}],
+                      "plane": PLANE, "pdg": [13, -211]}}],
         "objectives": [{"name": "mu_pi_per_pot",
                         "metric": "g4bl.yield_per_pot", "direction": "max",
                         "transform": "none", "noise": 0.002,
@@ -133,9 +133,10 @@ class TestRegistry(_Tmp):
     def test_the_shipped_plane_is_the_ts_entrance(self):
         doc = json.loads((ROOT / "mode_specs" / "ptg4bl.json").read_text())
         # Basic_Detectors.txt places Coll_01_Det twice, renamed
-        # Coll_01_DetIn and Coll_01_DetOut; g4bl names the NTuples so.
+        # Coll_01_DetIn and Coll_01_DetOut; a virtualdetector's tree is
+        # VirtualDetector/<name> (seen in the first grid files, 2026-10-02).
         self.assertEqual(doc["evaluate"][0]["fixed"]["plane"],
-                         "Coll_01_DetIn")
+                         "VirtualDetector/Coll_01_DetIn")
 
     def test_grid_only(self):
         decl = kit_registry.KITS["beamkit"]
@@ -145,13 +146,18 @@ class TestRegistry(_Tmp):
         self.assertEqual(decl.factory, "adapters.beamkit:BeamkitKit")
 
 
-def nts(path, rows, plane="Coll_01_DetIn"):
-    """A g4bl-like ntuple file: NTuple/<plane> with (PDGid, EventID,
-    TrackID) rows, stored as float32 as g4bl stores them."""
+PLANE = "VirtualDetector/Coll_01_DetIn"
+
+
+def nts(path, rows, plane=PLANE):
+    """A g4bl-like output file: the tree at `plane` (g4bl writes a
+    virtualdetector under VirtualDetector/<name>, a zntuple under
+    NTuple/<name>) with (PDGid, EventID, TrackID) rows, float32 as g4bl
+    stores them."""
     import uproot
     cols = np.array(rows, dtype=np.float32).reshape(-1, 3)
     with uproot.recreate(path) as f:
-        f[f"NTuple/{plane}"] = {"PDGid": cols[:, 0], "EventID": cols[:, 1],
+        f[plane] = {"PDGid": cols[:, 0], "EventID": cols[:, 1],
                                 "TrackID": cols[:, 2]}
     return str(path)
 
@@ -165,7 +171,7 @@ def step_params(**over):
          "deck_url": DECK_URL, "deck_ref": "a" * 40, "main_input": "Mu2E.in",
          "deck_params": {"Use_Proton_Target": 4, "epsMax": 0.01},
          "njobs": 20, "events_per_job": 1000, "quorum": 0.9,
-         "plane": "Coll_01_DetIn", "pdg": [13, -211]}
+         "plane": PLANE, "pdg": [13, -211]}
     p.update(over)
     return p
 
@@ -368,10 +374,10 @@ class TestAdapter(_Tmp):
     def test_counts(self):
         a = nts(self.tmp / "a.root", ROWS_A)
         b = nts(self.tmp / "b.root", ROWS_B)
-        self.assertEqual(bk.count_tracks([a, b], "Coll_01_DetIn", [13, -211]), 3)
-        other = nts(self.tmp / "o.root", ROWS_B, plane="Other")
+        self.assertEqual(bk.count_tracks([a, b], PLANE, [13, -211]), 3)
+        other = nts(self.tmp / "o.root", ROWS_B, plane="NTuple/Coll_01_DetIn")
         with self.assertRaises(KitError) as cm:
-            bk.count_tracks([a, other], "Coll_01_DetIn", [13])
+            bk.count_tracks([a, other], PLANE, [13])
         self.assertIn("o.root", str(cm.exception))
 
     def test_results(self):
