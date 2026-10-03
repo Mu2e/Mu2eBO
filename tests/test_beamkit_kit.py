@@ -48,7 +48,7 @@ def ptg_doc(name="ptg4bltest", deck_ref="a" * 40):
             "step": "g4bl", "kit": "beamkit", "entry": None, "files": [],
             "files_from": [], "params": {k: k for k in KNOBS},
             "fixed": {"njobs": 20, "events_per_job": 1000, "quorum": 0.9,
-                      "plane": "Coll_01_Det", "pdg": [13, -211]}}],
+                      "plane": "Coll_01_DetIn", "pdg": [13, -211]}}],
         "objectives": [{"name": "mu_pi_per_pot",
                         "metric": "g4bl.yield_per_pot", "direction": "max",
                         "transform": "none", "noise": 0.002,
@@ -115,14 +115,37 @@ class TestRegistry(_Tmp):
             self.assertIn("a beamkit setting, not a deck param",
                           str(cm.exception))
 
+    def test_deck_params_may_not_shadow_a_knob(self):
+        doc = ptg_doc()
+        doc["kits"]["beamkit"]["deck_params"]["R_mid"] = 3.0
+        with self.assertRaises(ValueError) as cm:
+            self.load(doc)
+        self.assertIn("R_mid", str(cm.exception))
+
+    def test_job_counts_are_required(self):
+        for key in ("njobs", "events_per_job"):
+            doc = ptg_doc()
+            del doc["evaluate"][0]["fixed"][key]
+            with self.subTest(key=key), self.assertRaises(ValueError) as cm:
+                self.load(doc)
+            self.assertIn(key, str(cm.exception))
+
+    def test_the_shipped_plane_is_the_ts_entrance(self):
+        doc = json.loads((ROOT / "mode_specs" / "ptg4bl.json").read_text())
+        # Basic_Detectors.txt places Coll_01_Det twice, renamed
+        # Coll_01_DetIn and Coll_01_DetOut; g4bl names the NTuples so.
+        self.assertEqual(doc["evaluate"][0]["fixed"]["plane"],
+                         "Coll_01_DetIn")
+
     def test_grid_only(self):
         decl = kit_registry.KITS["beamkit"]
+        self.assertEqual(decl.launch_stagger_s, 90.0)
         self.assertEqual(decl.executors, ("grid",))
         self.assertTrue(decl.requires_kerberos)
         self.assertEqual(decl.factory, "adapters.beamkit:BeamkitKit")
 
 
-def nts(path, rows, plane="Coll_01_Det"):
+def nts(path, rows, plane="Coll_01_DetIn"):
     """A g4bl-like ntuple file: NTuple/<plane> with (PDGid, EventID,
     TrackID) rows, stored as float32 as g4bl stores them."""
     import uproot
@@ -142,7 +165,7 @@ def step_params(**over):
          "deck_url": DECK_URL, "deck_ref": "a" * 40, "main_input": "Mu2E.in",
          "deck_params": {"Use_Proton_Target": 4, "epsMax": 0.01},
          "njobs": 20, "events_per_job": 1000, "quorum": 0.9,
-         "plane": "Coll_01_Det", "pdg": [13, -211]}
+         "plane": "Coll_01_DetIn", "pdg": [13, -211]}
     p.update(over)
     return p
 
@@ -160,11 +183,14 @@ class TestAdapter(_Tmp):
             command=(sys.executable, str(ROOT / "tests" / "fakebeamkit.py")),
             env_passthrough=(), set_env={"FAKEBEAMKIT_STATE": str(self.state)},
             timeouts={"start": 60, "get_server_info": 30, "run_beamline": 30,
-                      "beamline_status": 30, "beamline_outputs": 30})
+                      "beamline_status": 30, "beamline_outputs": 30,
+                      "list_beamline_runs": 30})
+        self.lock = self.tmp / "submit.lock"
         self.kit = bk.BeamkitKit("camp", server=cfg,
                                  grid_root=self.tmp / "grid",
                                  trace_dir=self.tmp / "trace",
-                                 clock=lambda: self.now[0])
+                                 clock=lambda: self.now[0],
+                                 submit_lock=self.lock, pause=lambda s: None)
         self.addCleanup(self.kit.close)
         self.kit.start()
 
@@ -219,11 +245,15 @@ class TestAdapter(_Tmp):
         self.kit.submit(name, step_params(), [], [], "w")
         self.set_run(name, queue={"state": "known", "idle": 3, "running": 2,
                                   "held": 0})
-        self.assertEqual(self.kit.status(name, "w").state, "working")
+        st = self.kit.status(name, "w")
+        self.assertEqual(st.state, "working")
+        self.assertEqual(st.poll_ms, 120000)
         self.set_run(name, queue={"state": "known", "idle": 0, "running": 0,
                                   "held": 0}, files=[f"/x/{i}.root"
                                                      for i in range(18)])
         self.assertEqual(self.kit.status(name, "w").state, "completed")
+        name = "cfgR01_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
         self.set_run(name, queue={"state": "known", "idle": 0, "running": 0,
                                   "held": 3}, files=[f"/x/{i}.root"
                                                      for i in range(17)])
@@ -235,22 +265,97 @@ class TestAdapter(_Tmp):
     def test_an_unreadable_queue_fails_after_the_limit(self):
         name = "cfgR00_00.g4bl"
         self.kit.submit(name, step_params(), [], [], "w")
-        self.set_run(name, queue={"state": "unknown", "reason": "schedd"})
+        unknown = {"state": "unknown", "reason": "schedd"}
+        busy = {"state": "known", "idle": 1, "running": 0, "held": 0}
+        # A run queued 7 h: the limit counts from the first unreadable
+        # poll, not from the submit.
+        self.now[0] = 7 * 3600
+        self.set_run(name, queue=unknown)
         st = self.kit.status(name, "w")
         self.assertEqual(st.state, "working")
         self.assertIn("schedd", st.message)
-        self.now[0] = bk.UNKNOWN_LIMIT_S + 1
+        self.now[0] += bk.UNKNOWN_LIMIT_S - 1
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+        # A readable queue in between resets the clock.
+        self.set_run(name, queue=busy)
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+        self.set_run(name, queue=unknown)
+        self.now[0] += 10
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+        self.now[0] += bk.UNKNOWN_LIMIT_S + 1
         st = self.kit.status(name, "w")
         self.assertEqual(st.state, "failed")
         self.assertIn("queue unreadable", st.message)
 
+    def test_a_transient_status_error_is_retried(self):
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        self.set_run(name, fail_status=1)
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+
+    def test_results_count_the_files_status_judged(self):
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(njobs=2, quorum=1.0), [], [], "w")
+        files = [nts(self.tmp / "a.root", ROWS_A),
+                 nts(self.tmp / "b.root", ROWS_B)]
+        self.set_run(name, queue={"state": "known", "idle": 0, "running": 0,
+                                  "held": 0}, files=files)
+        self.assertEqual(self.kit.status(name, "w").state, "completed")
+        # A recovery job queued later (prodtools' ledger-wide pass) must
+        # not undo the verdict, nor change what is counted.
+        self.set_run(name, queue={"state": "known", "idle": 1, "running": 0,
+                                  "held": 0}, files=files[:1])
+        self.assertEqual(self.kit.status(name, "w").state, "completed")
+        self.assertEqual(self.kit.results(name, "w").metrics["n_selected"], 3)
+
+    def test_submits_are_serialized_by_the_host_lock(self):
+        import fcntl
+        import threading
+        import time
+        with open(self.lock, "w") as fh:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            th = threading.Thread(target=self.kit.submit, args=(
+                "cfgR00_00.g4bl", step_params(), [], [], "w"))
+            th.start()
+            time.sleep(1.5)
+            self.assertEqual([c for c in self.calls()
+                              if c["tool"] == "run_beamline"], [])
+        th.join(30)
+        self.assertEqual(len([c for c in self.calls()
+                              if c["tool"] == "run_beamline"]), 1)
+
+    def test_a_created_run_survives_a_failed_submit(self):
+        name = "cfgR00_00.g4bl"
+        with self.assertRaises(KitError) as cm:
+            self.kit.submit(name, step_params(deck_ref="e" * 40), [], [], "w")
+        self.assertIn("first tick failed", str(cm.exception))
+        rec = json.loads(next((self.tmp / "grid").rglob("*_beamkit.json"))
+                         .read_text())
+        self.assertEqual(rec["run_id"], f"{bk.tag_for(name)}.{'e' * 7}")
+        self.kit.submit(name, step_params(deck_ref="e" * 40), [], [], "w")
+        self.assertEqual(len([c for c in self.calls()
+                              if c["tool"] == "run_beamline"]), 1)
+
+    def test_a_record_without_run_id_adopts_the_run(self):
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        path = next((self.tmp / "grid").rglob("*_beamkit.json"))
+        rec = json.loads(path.read_text())
+        run_id, rec["run_id"] = rec["run_id"], None
+        path.write_text(json.dumps(rec))     # died before saving run_id
+        self.kit.submit(name, step_params(), [], [], "w")
+        self.assertEqual(len([c for c in self.calls()
+                              if c["tool"] == "run_beamline"]), 1)
+        self.assertEqual(json.loads(path.read_text())["run_id"], run_id)
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+
     def test_counts(self):
         a = nts(self.tmp / "a.root", ROWS_A)
         b = nts(self.tmp / "b.root", ROWS_B)
-        self.assertEqual(bk.count_tracks([a, b], "Coll_01_Det", [13, -211]), 3)
+        self.assertEqual(bk.count_tracks([a, b], "Coll_01_DetIn", [13, -211]), 3)
         other = nts(self.tmp / "o.root", ROWS_B, plane="Other")
         with self.assertRaises(KitError) as cm:
-            bk.count_tracks([a, other], "Coll_01_Det", [13])
+            bk.count_tracks([a, other], "Coll_01_DetIn", [13])
         self.assertIn("o.root", str(cm.exception))
 
     def test_results(self):

@@ -479,6 +479,7 @@ def _kits_and_preflight(doc, steps, has_geom, names, where):
                              f"{sorted(kit_registry.KITS[kit].study_keys)}")
     kit_registry.check_matching_settings(kits_raw, where)
     kit_registry.check_offline_preflight_overlap_policy(kits_raw, where)
+    kit_registry.check_deck_params_shadowing(kits_raw, steps, where)
     return kits, pre
 
 

@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "ptg4bl",
- "note": "Production target on G4beamline through beamkit: a bare tungsten rod (Use_Proton_Target=4) whose length and outer-radius profile (upstream, middle, downstream; linear between) are knobs, from the deck branch ptarget-polycone on the operator's fork. Objective: mu- plus pi- per POT crossing Coll_01_Det (unique tracks), maximized. Spec docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md.",
+ "note": "Production target on G4beamline through beamkit: a bare tungsten rod (Use_Proton_Target=4) whose length and outer-radius profile are knobs (R_up at local z=-Tlength/2, the Mu2e-upstream end where the protons, travelling along -z, leave the rod; R_mid; R_dn at +z, where they enter; linear between), from the deck branch ptarget-polycone on the operator's fork. Objective: mu- plus pi- per POT crossing Coll_01_DetIn (the upstream face of COL1, the TS entrance; unique tracks), maximized. Spec docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md.",
  "knobs": [
   {
    "name": "Tlength",
@@ -71,7 +71,7 @@
     "njobs": 20,
     "events_per_job": 1000,
     "quorum": 0.9,
-    "plane": "Coll_01_Det",
+    "plane": "Coll_01_DetIn",
     "pdg": [
      13,
      -211

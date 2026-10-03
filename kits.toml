@@ -75,4 +75,4 @@ env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR", "JOBSUB_DROPBOX_SERVER_LIST"
                    "JOBSUB_OUTPUT_URL", "JOBSUB_FETCHLOG_URL", "JOBSUB_AUTH_METHODS",
                    "JOBSUB_POOL_MAP"]
 set = { BEAMKIT_PRODTOOLS_ROOT = "${AUTORESEARCH_PRODTOOLS}" }
-timeouts = { start = 120, get_server_info = 60, run_beamline = 900, beamline_status = 120, beamline_outputs = 120 }
+timeouts = { start = 120, get_server_info = 60, run_beamline = 900, beamline_status = 120, beamline_outputs = 120, list_beamline_runs = 60 }

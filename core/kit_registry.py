@@ -236,9 +236,14 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             fixed_keys={"njobs": _job_count, "events_per_job": _positive_int,
                         "quorum": _fraction, "plane": _string,
                         "pdg": _int_list},
-            required_fixed=frozenset({"quorum", "plane", "pdg"}),
+            required_fixed=frozenset({"njobs", "events_per_job", "quorum",
+                                      "plane", "pdg"}),
             uses_entries=False, step_kit=True, check_kit=False,
-            executors=("grid",), launch_stagger_s=0.0,
+            # Each run_beamline ends in a prodtools submissions tick, which
+            # takes the personal ledger's lock without waiting: launches
+            # 90 s apart, as prodtools', plus the adapter's host-wide
+            # submit lock.
+            executors=("grid",), launch_stagger_s=90.0,
             requires_kerberos=True, names_runs_after_config=True,
             factory="adapters.beamkit:BeamkitKit",
             reserved_params=frozenset(BEAMKIT_OWN + BEAMKIT_RESERVED)),
@@ -272,6 +277,29 @@ def check_matching_settings(kits: dict, where: str) -> None:
                     f"{where}[kits.{kit}.{key}]: {mine!r} differs from "
                     f"kits.{other}.{other_key} {theirs!r}; the two must "
                     f"name the same file: {why}")
+
+
+def check_deck_params_shadowing(kits: dict, steps, where: str) -> None:
+    """Refuse a beamkit step whose knob-mapped deck param is also a fixed
+    kits.beamkit.deck_params value: the adapter would send the fixed value
+    while the board records the knob's."""
+    fixed = (kits.get("beamkit") or {}).get("deck_params")
+    if not isinstance(fixed, dict):
+        return
+    for step in steps:
+        if step.kit != "beamkit":
+            continue
+        clash = sorted(set(step.params) & set(fixed))
+        if clash:
+            raise ValueError(
+                f"{where}[evaluate.{step.step}.params]: {clash} also set in "
+                f"kits.beamkit.deck_params; a deck param is either a knob or "
+                f"fixed, not both")
+        bad = sorted(n for n in step.params if not _DECK_PARAM.fullmatch(n))
+        if bad:
+            raise ValueError(
+                f"{where}[evaluate.{step.step}.params]: {bad} cannot be g4bl "
+                f"deck parameter names (letters, digits and _)")
 
 
 def check_offline_preflight_overlap_policy(kits: dict, where: str) -> None:

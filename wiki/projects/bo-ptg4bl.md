@@ -1,7 +1,7 @@
 ---
 type: project
 title: ptg4bl — production target on G4beamline through beamkit
-description: The first G4beamline study on the contract engine (2026-10-02). A bare tungsten production-target rod whose length and 3-point outer-radius profile are knobs (a polycone on deck branch ptarget-polycone), scored by μ⁻+π⁻ per POT crossing Coll_01_Det (unique tracks), maximized; kit beamkit (core/adapters/beamkit.py), grid only; built and tested against a fake beamkit, grid acceptance pending the deck branch's push to the operator's fork
+description: The first G4beamline study on the contract engine (2026-10-02). A bare tungsten production-target rod whose length and 3-point outer-radius profile are knobs (a polycone on deck branch ptarget-polycone), scored by μ⁻+π⁻ per POT crossing Coll_01_DetIn (unique tracks), maximized; kit beamkit (core/adapters/beamkit.py), grid only; built and tested against a fake beamkit, grid acceptance pending the deck branch's push to the operator's fork
 status: active
 status_note: code done 2026-10-02; grid acceptance waits for the deck branch on the operator's GitHub fork
 timestamp: '2026-10-02'
@@ -13,7 +13,7 @@ timestamp: '2026-10-02'
 `mode_specs/ptg4bl.json` is the first study the contract engine runs on G4beamline rather than Offline. It is the first real case of piece 4 of the study-writing line: a configuration a study file alone could not express. It needed a deck change, a new kit and its own figure of merit.
 
 - **The target:** the deck's tungsten rod (`Use_Proton_Target=4`, bare, with no bicycle-wheel supports) becomes a G4beamline `polycone`. Its length and three outer radii (upstream end, middle, downstream end, linear between) are knobs.
-- **The objective:** μ⁻ (PDG 13) plus π⁻ (−211) crossing the `Coll_01_Det` virtual detector, at the transport-solenoid entrance, per proton on target, maximized.
+- **The objective:** μ⁻ (PDG 13) plus π⁻ (−211) crossing the `Coll_01_DetIn` virtual detector (COL1's upstream face, the transport-solenoid entrance; the deck places `Coll_01_Det` twice, renamed `…In`/`…Out`, and g4bl names the NTuples so), per proton on target, maximized.
 
 ## Key facts
 - **Deck:**
@@ -25,14 +25,14 @@ timestamp: '2026-10-02'
   - **The warnings:** the other G4Exceptions in that log (transport-solenoid pipe overlaps, extrusion vertices, a duplicated triton decay) are existing deck warnings.
   - **No `printf`:** g4bl's `printf` is a per-track print element, not a parse-time echo. g4bl already echoes every command with its values, so the job log itself shows what reached the target.
 - **Knobs:** `Tlength` 100–220 mm, and `R_up`, `R_mid`, `R_dn` 2.0–4.5 mm. Fixed deck params: `Use_Proton_Target=4`, `epsMax=0.01`.
-- **Step:** one step, `g4bl`, with 20 jobs × 1,000 POT, quorum 0.9, plane `Coll_01_Det`, pdg [13, −211].
+- **Step:** one step, `g4bl`, with 20 jobs × 1,000 POT, quorum 0.9, plane `Coll_01_DetIn`, pdg [13, −211]. `R_up` is at local −z, the Mu2e-upstream end where the protons (travelling along −z) leave the rod.
 - **The figure of merit** is counted by the adapter (`count_tracks`):
   - unique `(file, EventID, TrackID)` per file, since a track looping in the solenoid field crosses a virtual detector more than once;
   - divided by POT = files × `events_per_job`;
   - metrics `yield_per_pot`, `n_selected`, `pot`, `n_files`;
   - `FOM_VERSION` is in the kit version, so a changed count changes `measure_sha`.
 - **Objective:** `mu_pi_per_pot`, maximized, no transform, with a provisional `noise` of 0.002 until the nominal point measures the Poisson σ. No constraint, so campaigns use `--picker qlnei`, which uses the primary objective.
-- **Board:** `leaderboards/leaderboard_bo_ptg4bl.tsv`; `measure_basis_sha` 43edef92.
+- **Board:** `leaderboards/leaderboard_bo_ptg4bl.tsv`; `measure_basis_sha` 24be5167 (after the plane fix; 43edef92 before).
 - **Acceptance protocol** (grid, after the push, Kerberos ≥ 4 h):
   1. the nominal point (160, 3.1495 ×3) lands a row, and measures the yield, the time per job and σ;
   2. `R_mid=2.0`: the job logs echo `outerRadius=3.1495,2.0,3.1495`;

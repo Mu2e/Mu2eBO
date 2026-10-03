@@ -400,5 +400,27 @@ class TestCheckOnly(unittest.TestCase):
                 self.assertIn(fragment, r.stdout)
 
 
+    def test_a_one_objective_study_needs_qlnei(self):
+        """qnehvi, hybrid and budget_sob need two objectives (or a
+        constraint); surrokit refuses only once rows exist, so the launch
+        check must."""
+        with tempfile.TemporaryDirectory() as td:
+            data, studies = Path(td) / "data", Path(td) / "studies"
+            doc = json.loads((ENGINE_STUDIES / "branin.json").read_text())
+            doc["name"] = "branin1"
+            doc["objectives"] = doc["objectives"][:1]
+            doc["constraints"] = []
+            doc["leaderboard"]["file"] = "leaderboards/leaderboard_branin1.tsv"
+            write_study(doc, studies)
+            env = engine_env(data, studies)
+            for picker, rc in (("hybrid", 2), ("qlnei", 0)):
+                argv = loop_cmd("branin1", 1, 2, "one", picker=picker)
+                r = subprocess.run(argv + ["--check-only"], cwd=ROOT, env=env,
+                                   capture_output=True, text=True, timeout=180)
+                self.assertEqual(r.returncode, rc, r.stdout + r.stderr)
+                if rc:
+                    self.assertIn("one objective", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

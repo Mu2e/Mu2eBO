@@ -153,6 +153,13 @@ def main(argv=None) -> int:
         print(f"[closed_loop] REFUSED: study {args.study!r} has no knobs: "
               f"there is nothing to pick; run graph.run", flush=True)
         return 2
+    if len(study.objectives) < 2 and args.picker != "qlnei":
+        # qnehvi/hybrid need two objectives and budget_sob a constraint;
+        # surrokit refuses only once rows exist, after grid time is spent.
+        print(f"[closed_loop] REFUSED: study {args.study!r} has one "
+              f"objective; use --picker qlnei (it optimizes the primary "
+              f"objective), not {args.picker!r}", flush=True)
+        return 2
     try:
         # Once here, not by every child refusing until the pool aborts.
         parse_context(args.context, study)

@@ -9,7 +9,9 @@ test sets (or preset.json, copied into every new run: a finished run). The
 reply shapes follow beamkit's: beamline_status wraps prodtools'
 campaign_status ({campaigns: [{queue: ...}]}), beamline_outputs
 lists {path, size}. A deck_ref of forty "f" is refused, as an unfetchable
-sha would be.
+sha would be; forty "e" creates the run and then fails, as beamkit does
+when the first tick loses prodtools' ledger lock. A run's "fail_status": n
+fails the next n beamline_status calls (a transient error).
 
 No `from __future__ import annotations` here (see tests/toykit.py).
 """
@@ -19,7 +21,8 @@ from pathlib import Path
 from typing import Optional
 
 STATE = Path(os.environ["FAKEBEAMKIT_STATE"])
-BAD_SHA = "f" * 40
+BAD_SHA = "f" * 40          # refused before anything exists
+HALF_SHA = "e" * 40         # the run is created, then its first tick fails
 
 
 def _log(tool, args):
@@ -65,12 +68,29 @@ def make_server():
         if preset.exists():     # a test's finished run: queue and files
             run.update(json.loads(preset.read_text()))
         (STATE / f"{run_id}.json").write_text(json.dumps(run))
+        if deck_ref == HALF_SHA:
+            raise ValueError("campaign 7 was created but the first tick "
+                             "failed: another submissions run holds the lock")
         return {"run_id": run_id, "tag": tag, "state": "submitted"}
+
+    @server.tool()
+    def list_beamline_runs(state: Optional[str] = None) -> dict:
+        _log("list_beamline_runs", {"state": state})
+        runs = sorted((p for p in STATE.glob("*.json")
+                       if p.name not in ("preset.json",)),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        out = [{"run_id": p.stem, "tag": json.loads(p.read_text())
+                ["args"]["tag"]} for p in runs]
+        return {"records_dir": str(STATE), "count": len(out), "runs": out}
 
     @server.tool()
     def beamline_status(run_id: str) -> dict:
         _log("beamline_status", {"run_id": run_id})
         run = _run(run_id)
+        if run.get("fail_status", 0) > 0:     # a transient failure
+            run["fail_status"] -= 1
+            (STATE / f"{run_id}.json").write_text(json.dumps(run))
+            raise ValueError("transient: schedd query failed")
         return {"record": {"run_id": run_id}, "site": "fermilab",
                 "status": {"db_path": "fake",
                            "campaigns": [{"id": 1, "state": "complete",

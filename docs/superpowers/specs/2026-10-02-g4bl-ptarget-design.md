@@ -15,7 +15,7 @@ A production-target study runs on the contract engine through beamkit and lands 
 ## Decisions taken (operator, 2026-10-02)
 
 - **First piece-4 case:** G4beamline via beamkit.
-- **Study:** the production target. Figure of merit: μ⁻ (PDG 13) plus π⁻ (PDG −211) crossing the `Coll_01_Det` virtual detector, per POT, maximized.
+- **Study:** the production target. Figure of merit: μ⁻ (PDG 13) plus π⁻ (PDG −211) crossing the `Coll_01_DetIn` virtual detector (the deck places `Coll_01_Det` twice, renamed `Coll_01_DetIn` at COL1's upstream face and `Coll_01_DetOut`; g4bl names the NTuples so: final-review fix), per POT, maximized.
 - **Where the FoM is computed:** in the beamkit adapter itself (one step), with the plane and particle list given by the study file.
 - **Radius profile:** three control radii along the target, made a G4beamline `polycone`, so the radius is linear between them.
 - **The rod is bare:** `Use_Proton_Target=4`, so no support geometry has to follow the profile.
@@ -29,7 +29,7 @@ A production-target study runs on the contract engine through beamkit and lands 
 In `Geometry/Proton_Target_W.txt`:
 - `tubs pTarget outerRadius=$Tradius length=$Tlength` becomes `polycone pTarget z=-$Tlength/2,0,$Tlength/2 innerRadius=0,0,0 outerRadius=$R_up,$R_mid,$R_dn`, with the same `place`.
 - `Tlength`, `R_up`, `R_mid` and `R_dn` are declared `param -unset`, with today's values as defaults (160, and 3.1495 for all three). A command-line value then wins; a plain `param` line would override it.
-- `R_up` is the radius at the upstream end (local z = −Tlength/2), `R_dn` at the downstream end.
+- `R_up` is the radius at local z = −Tlength/2, the Mu2e-upstream end, where the protons (travelling along −z) leave the rod; `R_dn` is at +z, where they enter.
 - The `Use_Proton_Target==5` support block keeps using `R=$Tradius` (left at 3.1495), and is unused with 4.
 - g4bl echoes every command with its values expanded into the job log (`polycone pTarget innerRadius=0,0,0 outerRadius=3.1495,2.0,3.1495`). That echo is the proof that the command line reached the target. (g4bl's `printf` is a per-track print element, not a parse-time echo: checked locally 2026-10-02.)
 
@@ -59,9 +59,9 @@ The constructor is `BeamkitKit(campaign, *, executor, parallel)`. It is register
   - `deck_params`: a table of fixed deck parameters, name to number or string, with names `[A-Za-z_]\w*`. beamkit's reserved names (`First_Event`, `Num_Events`, `histoFile`, `viewer`) are refused.
 - **`fixed_keys`:**
   - `njobs`, `events_per_job`;
-  - `quorum` (required);
-  - `plane` (required, string);
-  - `pdg` (required, a list of integers).
+  - `quorum`, `plane` (string), `pdg` (a list of integers);
+  - all five fixed keys are required: no silent defaults (final-review fix).
+  - A knob-mapped deck param may not also be in `deck_params` (final-review fix).
 
 **The contract:**
 - **`submit(name, params, ...)`:**
@@ -97,7 +97,7 @@ The constructor is `BeamkitKit(campaign, *, executor, parallel)`. It is register
   - `deck_params: {Use_Proton_Target: 4, epsMax: 0.01}`.
 - **One step** `g4bl` (kit `beamkit`):
   - `params`: the four knobs by name;
-  - `fixed: {njobs: 20, events_per_job: 1000, quorum: 0.9, plane: "Coll_01_Det", pdg: [13, -211]}`.
+  - `fixed: {njobs: 20, events_per_job: 1000, quorum: 0.9, plane: "Coll_01_DetIn", pdg: [13, -211]}`.
 - **Objective:**
   - `{name: "mu_pi_per_pot", metric: "g4bl.yield_per_pot", direction: "max", transform: "none", fmt: "{:.5f}"}`;
   - `noise: 0.002` at first (2% of a yield near 0.1, provisional); after acceptance step 1 it becomes the measured Poisson σ, before any campaign.
@@ -105,6 +105,17 @@ The constructor is `BeamkitKit(campaign, *, executor, parallel)`. It is register
 - **No constraint.**
 - **Board:** `leaderboards/leaderboard_bo_ptg4bl.tsv`.
 - **Launch:** campaigns use `--picker qlnei`. It uses the primary objective only, which suits a single-objective study.
+
+## Final-review fixes (2026-10-02)
+
+- **Submits:** under the prodtools adapter's host-wide submit lock, with `launch_stagger_s` 90. Each `run_beamline` ends in a prodtools submissions tick, which refuses to run beside another.
+- **A run is never submitted twice:**
+  - a record without a run id, or a failed call whose run exists anyway ("created but the first tick failed", a timeout), is matched to beamkit's run by its unique tag (`list_beamline_runs`);
+  - its record is kept, so a rerun adopts it.
+- **The verdict:** completed or failed, with the files judged, is kept in the record. `results` counts exactly those files: prodtools' recovery pass, run by every `run_beamline`'s own tick, can queue jobs after completion.
+- **The 6 h unreadable-queue limit** counts from the first unreadable poll and resets on a readable one.
+- **Read calls** (`beamline_status`, `beamline_outputs`, `list_beamline_runs`) are retried as NativeKit's are, and status polls every 2 minutes.
+- **`graph.closed_loop`** refuses a one-objective study with any picker but `qlnei`, so the dry run catches it.
 
 ## Error handling
 

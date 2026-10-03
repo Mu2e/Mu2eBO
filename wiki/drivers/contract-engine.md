@@ -1137,12 +1137,15 @@ study).
   - `run_beamline` as `run_as="self"`, with outputs to scratch;
   - the tag is the step name's letters and digits plus 6 hex of its sha256, unique per name;
   - a step record, `<grid>/<config>/state/<step>_beamkit.json`, makes a rerun adopt the run;
-  - a refused submit removes the record.
+  - a refused submit removes the record, but a failed call whose run exists anyway (a timeout, or "created but the first tick failed") keeps it with the run found by its tag (`list_beamline_runs`), so a rerun adopts it;
+  - submits run under the prodtools adapter's host-wide lock, 90 s apart. Each `run_beamline` ends in a prodtools submissions tick, which refuses to run beside another, and which also runs prodtools' recovery pass over the whole personal ledger.
 - **status:** beamkit has no "finished" state on Fermilab.
   - **working** while the campaign's queue (prodtools `campaign_status` inside `beamline_status`) has idle or running jobs;
   - **completed** when at least `ceil(quorum × njobs)` files exist;
   - **failed** otherwise, with "k of n files, m held";
-  - **an unreadable queue** fails after 6 h, the prodtools adapter's limit.
+  - **an unreadable queue** fails after 6 h in a row, counted from the first unreadable poll (the prodtools adapter's rule);
+  - the verdict and the files judged are kept in the step record, and `results` counts exactly those files;
+  - read calls are retried, and polls are 2 minutes apart.
   - `make_recoveries` is never called: it acts on the whole ledger.
 - **results:** uproot reads `NTuple/<plane>` from the files `beamline_outputs` lists, and counts unique `(file, EventID, TrackID)` with a listed PDG id per POT (files × `events_per_job`). The version is `beamkit-adapter/1+beamkit-<server>+fom<N>`.
 - **Tests:**
