@@ -1,9 +1,9 @@
 ---
 type: driver
 title: autoresearch MCP server (study and campaign tools)
-description: service/ — the `autoresearch` MCP server (stdio, .mcp.json); start_check/check_result run `graph.check_study --json` as a detached job polled for its report, plus list_studies/show_study/study_guide; liveness is a flock the server hands to the job (pass_fds); never imports modes; accepted 2026-10-02 (ce_chain local 58 s, foilspfbpz_ax grid pre-check 314 s, broken draft 1.3 s). Campaign tools (2026-10-02): start_campaign (a dry run through `graph.closed_loop --check-only`, confirm=true launches detached; one MCP launch per prefix), stop_campaign, campaign_status (any campaign, shell-started too), leaderboard
+description: service/ — the `autoresearch` MCP server (stdio, .mcp.json); start_check/check_result run `graph.check_study --json` as a detached job polled for its report, plus list_studies/show_study/study_guide; liveness is a flock the server hands to the job (pass_fds); never imports modes; accepted 2026-10-02 (ce_chain local 58 s, foilspfbpz_ax grid pre-check 314 s, broken draft 1.3 s). Campaign tools (2026-10-02): start_campaign (a dry run through `graph.closed_loop --check-only`, confirm=true launches detached; one MCP launch per prefix), stop_campaign, campaign_status (any campaign, shell-started too), leaderboard. Dashboard (2026-10-04): `python -m service.dashboard`, a live flow graph of every campaign from the files (snapshot.json every 2 min, served on 127.0.0.1)
 status: active
-timestamp: '2026-10-02'
+timestamp: '2026-10-04'
 ---
 
 # autoresearch MCP server (study and campaign tools)
@@ -187,6 +187,30 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   `tests/test_closed_loop.py` (2), `TestSpawn` in `tests/test_service.py`
   (1), and the stdio test sees nine tools. The suite is 858 OK
   (skipped=3).
+
+## Dashboard (2026-10-04)
+- **What:** `python -m service.dashboard` rebuilds
+  `<data root>/autoresearch_dashboard/snapshot.json` every `--every` s
+  (default 120) and serves that directory on `127.0.0.1:<port>` (default
+  8765); `service/dashboard.html` draws each campaign as a flow graph
+  (campaign → points → steps → result). Start line and tunnel: README
+  "Dashboard". Spec `docs/superpowers/specs/2026-10-04-dashboard-design.md`.
+- **Source of a step's progress:** the scheduler writes
+  `<point>/state/<step>_status.json` on every kit poll (state, the kit's
+  message, done/total, time, the chosen `poll_s`). Nothing else reads it;
+  resume still keys on `_cluster.txt` / `_results.json`.
+- **Stall rule:** a working step of a running point whose last poll is older
+  than `max(3 * poll_s, 600 s)` turns amber. Kit-agnostic: prodtools grid
+  polls up to 600 s, beamkit every 120 s, so a fixed 15 min would false-alarm.
+- **Which campaigns:** live ones always, others while their child logs or
+  `campaign.json` changed within `--days` (default 7). A finished
+  shell-started campaign has no q/max_evals (its argv is gone).
+- **Host caveat:** liveness is this host's process table, as in
+  `campaign_status`; it also lists live `graph.closed_loop` processes under
+  another data root (a running test suite shows up as e.g. `mcpa · branin`
+  with a study-not-found error while it runs).
+- **Cost:** about 3 s per snapshot on the live data root (3059 child logs,
+  three campaigns), ~160 kB JSON; no grid, no Kerberos.
 
 ## Cross-links
 - Related: [contract-engine](/drivers/contract-engine.md) (check_study), [surrogate](/drivers/surrogate.md)

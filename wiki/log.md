@@ -5,6 +5,12 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-10-04
+- **updated** [service](/drivers/service.md): the live campaign dashboard
+  (`python -m service.dashboard`): a flow graph per campaign from a file
+  snapshot; the scheduler now writes `<step>_status.json` per poll; stall =
+  last poll older than max(3·poll_s, 600 s).
+
 ## 2026-10-03
 - **updated** [bo-ptg4bl](/projects/bo-ptg4bl.md): campaign ptg5k01, 9 rows,
   best 0.0471 μ⁻+π⁻/POT (+17% over nominal) at the Tlength-max, R_up-min,
