@@ -65,8 +65,9 @@ or the live parent's argv when present (else null).
 | working | `<step>_status.json` state working, or `<step>_cluster.txt` without a status file (a pre-feature run) |
 | waiting | none of the above |
 
-plus, for a working step, the status file's message, progress, age
-(`now - time`) and a **stall** flag: the point is running and
+plus, for a working step, the status file's message and progress, its
+age in the step (`now -` the `_cluster.txt` mtime, the submit time) and a
+**stall** flag: the point is running and
 `now - time > max(3 * poll_s, 600)`. A pre-feature step (no status file)
 never stalls.
 
