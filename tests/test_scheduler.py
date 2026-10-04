@@ -349,6 +349,49 @@ class TestPolling(_Run):
                 self.assertEqual(slept, [expected])
 
 
+class TestStatusFile(_Run):
+    """Each poll lands in <step>_status.json for the dashboard (spec
+    docs/superpowers/specs/2026-10-04-dashboard-design.md)."""
+
+    def status(self, step_name="a"):
+        return json.loads((self.state / f"{step_name}_status.json")
+                          .read_text())
+
+    def test_each_poll_is_recorded(self):
+        kit = FakeKit({"a": ["working", "completed"]}, poll_s=(0.5, 2.0),
+                      poll_ms=1500)
+        seen = []
+        before = time.time()
+        self.run_steps(study(step("a")), kit,
+                       sleep=lambda s: seen.append(self.status()))
+        after = time.time()
+        self.assertEqual(len(seen), 1)
+        rec = seen[0]
+        self.assertEqual((rec["state"], rec["message"], rec["progress"],
+                          rec["poll_s"]), ("working", "a working", None, 1.5))
+        self.assertTrue(before <= rec["time"] <= after, rec)
+
+    def test_the_last_write_is_terminal(self):
+        self.run_steps(study(step("a")), FakeKit({"a": ["working",
+                                                       "completed"]}))
+        rec = self.status()
+        self.assertEqual((rec["state"], rec["poll_s"]), ("completed", 0.0))
+        state = self.state / "f"
+        self.run_steps(study(step("a")), FakeKit({"a": ["failed"]}),
+                       state=state)
+        rec = json.loads((state / "a_status.json").read_text())
+        self.assertEqual((rec["state"], rec["poll_s"]), ("failed", 0.0))
+
+    def test_a_resume_does_not_read_it(self):
+        self.state.mkdir(parents=True)
+        (self.state / "a_cluster.txt").write_text("c.a\n")
+        (self.state / "a_status.json").write_text("not json")
+        kit = FakeKit()
+        out = self.run_steps(study(step("a")), kit)
+        self.assertTrue(out["a"].ok)
+        self.assertEqual(kit.submits, [])
+
+
 class TestParams(unittest.TestCase):
     def test_mapped_then_settings_then_fixed(self):
         st_ = study(step("a", params={"p": "x"}, fixed={"n": 3, "mode": "fast"}),

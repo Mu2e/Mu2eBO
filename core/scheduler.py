@@ -253,12 +253,20 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
         lo, hi = kit.poll_s
         while True:
             status = kit.status(handle, workflow)
+            terminal = status.state in ("completed", "failed", "cancelled")
+            pause = 0.0 if terminal else min(max(status.poll_ms / 1000.0, lo),
+                                             hi)
+            # For the dashboard only: resume never reads it.
+            write_atomic(state_dir / f"{step.step}_status.json", json.dumps(
+                {"state": status.state, "message": status.message,
+                 "progress": status.progress, "time": time.time(),
+                 "poll_s": pause}))
             if status.state == "completed":
                 break
-            if status.state in ("failed", "cancelled"):
+            if terminal:
                 return StepOutcome(step.step, False,
                                    f"{status.state}: {status.message}", None)
-            sleep(min(max(status.poll_ms / 1000.0, lo), hi))
+            sleep(pause)
         res = kit.results(handle, workflow)
         kit_version = kit.version
     except (KitError, ContractError) as exc:
