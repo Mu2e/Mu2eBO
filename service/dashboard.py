@@ -128,6 +128,23 @@ def _step(sd: Path, step: str, running: bool, now: float) -> Dict[str, Any]:
     return out
 
 
+BROKEN_RE = re.compile(r"step (\S+): (.*)")
+
+
+def _mark_broken(sd: Path, step_recs: Dict[str, Dict[str, Any]]) -> None:
+    """broken.txt names the step that broke the point ("step <name>:
+    <message>", written by the scheduler); that step is failed, whatever
+    its last status poll said."""
+    try:
+        first = (sd / "broken.txt").read_text().splitlines()[0]
+    except (OSError, IndexError):
+        return
+    m = BROKEN_RE.match(first)
+    if m and m.group(1) in step_recs:
+        rec = step_recs[m.group(1)]
+        rec.update(state="failed", message=m.group(2), stall=False)
+
+
 def campaign_data(svc: CampaignService, prefix: str,
                   now: float) -> Dict[str, Any]:
     """One campaign as the dashboard shows it (keys: see the spec)."""
@@ -168,13 +185,16 @@ def campaign_data(svc: CampaignService, prefix: str,
             except (OSError, ValueError, KeyError, TypeError):
                 x = None
         value = values.get(name)
+        step_recs = {s["step"]: _step(sd, s["step"], state == "running",
+                                      now) for s in steps}
+        if state == "broken":
+            _mark_broken(sd, step_recs)
         points.append({
             "name": name, "state": state, "x": x,
             "last_line": child["last_line"], "value": value,
             "value_label": (None if value is None
                             else study.objectives[0].fmt.format(value)),
-            "steps": {s["step"]: _step(sd, s["step"], state == "running",
-                                       now) for s in steps}})
+            "steps": step_recs})
     return {"prefix": prefix, "study": status["study"],
             "alive": parent["alive"], "exit_code": parent["exit_code"],
             "launched_by": parent["launched_by"], "host": status["host"],

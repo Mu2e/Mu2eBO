@@ -6,6 +6,7 @@ import threading
 import time
 import types
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -381,6 +382,24 @@ class TestStatusFile(_Run):
                        state=state)
         rec = json.loads((state / "a_status.json").read_text())
         self.assertEqual((rec["state"], rec["poll_s"]), ("failed", 0.0))
+
+    def test_a_failed_status_write_does_not_fail_the_step(self):
+        real = sch.write_atomic
+
+        def flaky(path, text):
+            if path.name.endswith("_status.json"):
+                raise OSError(122, "Disk quota exceeded")
+            return real(path, text)
+        lines = []
+        with unittest.mock.patch.object(sch, "write_atomic", flaky):
+            out = self.run_steps(study(step("a")), FakeKit(
+                {"a": ["working", "working", "completed"]}),
+                log=lines.append)
+        self.assertTrue(out["a"].ok)
+        self.assertFalse((self.state / "broken.txt").exists())
+        warned = [ln for ln in lines if "status file not written" in ln]
+        self.assertEqual(len(warned), 1, lines)
+        self.assertIn("Disk quota exceeded", warned[0])
 
     def test_a_resume_does_not_read_it(self):
         self.state.mkdir(parents=True)

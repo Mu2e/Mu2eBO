@@ -198,7 +198,14 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
 - **Source of a step's progress:** the scheduler writes
   `<point>/state/<step>_status.json` on every kit poll (state, the kit's
   message, done/total, time, the chosen `poll_s`). Nothing else reads it;
-  resume still keys on `_cluster.txt` / `_results.json`.
+  resume still keys on `_cluster.txt` / `_results.json`. A failed write
+  (a full quota) is logged once per step and never fails the step: the
+  dashboard then shows that step as stalled.
+- **The step that broke a point** is read from `broken.txt` ("step <name>:
+  <message>") and shown failed with that message, whatever its last poll
+  said. An unreadable board (a `LeaderboardError`, e.g. a bad row) is that
+  campaign's `error`; its points still show (`campaign_status` now catches
+  it as `board_error` too).
 - **Stall rule:** a working step of a running point whose last poll is older
   than `max(3 * poll_s, 600 s)` turns amber. Kit-agnostic: prodtools grid
   polls up to 600 s, beamkit every 120 s, so a fixed 15 min would false-alarm.

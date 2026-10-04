@@ -206,6 +206,31 @@ class TestData(_Dash):
         self.assertEqual((p["state"], p["x"], p["steps"]),
                          ("broken", None, {}))
 
+    def test_an_unreadable_board_keeps_the_points(self):
+        self.child("ubR00_00")
+        self.row("toystudy", "ubR00_00", (1.0, 2.0),
+                 {"branin": 1.0, "currin": 3.0})
+        board = self.svc._board(self.svc._load_study("toystudy")).path
+        with open(board, "a") as fh:
+            fh.write("ubR01_00\tnot-a-number\n")
+        snap = dash.build_snapshot(self.svc, self.now, 7, 120)
+        self.assertEqual([c["prefix"] for c in snap["campaigns"]], ["ub"])
+        d = snap["campaigns"][0]
+        self.assertTrue(d["error"])
+        self.assertEqual([p["name"] for p in d["points"]], ["ubR00_00"])
+
+    def test_the_step_that_broke_a_point_is_failed(self):
+        sd = self.child("fbR00_00", "dagstudy")
+        self.step_file("fbR00_00", "a", "results.json", {})
+        self.step_file("fbR00_00", "b", "cluster.txt")
+        self.status("fbR00_00", "b")
+        (sd / "broken.txt").write_text("step b: KitError: boom\n")
+        p = self.point(self.data_of("fb"), "fbR00_00")
+        self.assertEqual(p["state"], "broken")
+        self.assertEqual({s: v["state"] for s, v in p["steps"].items()},
+                         {"a": "done", "b": "failed", "c": "waiting"})
+        self.assertIn("boom", p["steps"]["b"]["message"])
+
     def test_a_bad_status_file(self):
         self.child("bdR00_00", "dagstudy")
         self.step_file("bdR00_00", "b", "cluster.txt")

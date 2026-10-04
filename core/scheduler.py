@@ -251,16 +251,27 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
             _cancel_one(kit, step, handle, workflow, log)
     try:
         lo, hi = kit.poll_s
+        status_warned = False
         while True:
             status = kit.status(handle, workflow)
             terminal = status.state in ("completed", "failed", "cancelled")
             pause = 0.0 if terminal else min(max(status.poll_ms / 1000.0, lo),
                                              hi)
-            # For the dashboard only: resume never reads it.
-            write_atomic(state_dir / f"{step.step}_status.json", json.dumps(
-                {"state": status.state, "message": status.message,
-                 "progress": status.progress, "time": time.time(),
-                 "poll_s": pause}))
+            # For the dashboard only: resume never reads it, so a failed
+            # write (a full quota) must not fail the step. It is logged once;
+            # the dashboard then shows the step as stalled.
+            try:
+                write_atomic(state_dir / f"{step.step}_status.json",
+                             json.dumps({"state": status.state,
+                                         "message": status.message,
+                                         "progress": status.progress,
+                                         "time": time.time(),
+                                         "poll_s": pause}))
+            except OSError as exc:
+                if not status_warned:
+                    log(f"[steps] {step.step}: status file not written "
+                        f"({exc}); the dashboard will show it stalled")
+                    status_warned = True
             if status.state == "completed":
                 break
             if terminal:

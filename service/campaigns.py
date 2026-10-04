@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
 import paths  # noqa: E402
 import study as st  # noqa: E402
-from leaderboard import Leaderboard  # noqa: E402
+from leaderboard import Leaderboard, LeaderboardError  # noqa: E402
 
 from service.checks import CheckService  # noqa: E402
 from service.jobs import lock_held, spawn_detached  # noqa: E402
@@ -264,7 +264,7 @@ class CampaignService:
                 s = self._load_study(study_name)
                 mine = [p for p in self._board(s).load()
                         if is_child(prefix, p.cfg)]
-            except ValueError as exc:
+            except (ValueError, LeaderboardError) as exc:
                 board_error = str(exc)
             else:
                 scored = {p.cfg for p in mine}
