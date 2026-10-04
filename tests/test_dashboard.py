@@ -4,11 +4,15 @@ docs/superpowers/specs/2026-10-04-dashboard-design.md)."""
 import copy
 import json
 import os
+import signal
+import socket
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
 import unittest.mock
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -332,6 +336,93 @@ class TestSnapshot(_Dash):
         self.assertIn("xx", snap["errors"][0])
         self.assertIn("boom", snap["errors"][0])
         json.dumps(snap)
+
+
+class TestMain(_Dash):
+    """python -m service.dashboard, as the operator starts it."""
+
+    def cmd(self, *args):
+        return [sys.executable, "-m", "service.dashboard", "--out",
+                str(self.out), *args]
+
+    def setUp(self):
+        super().setUp()
+        self.out = self.tmp / "dash"
+        self.env = engine_env(self.data, self.tmp / "studies")
+        self.child("aaR00_00")
+
+    def run_cmd(self, *args, timeout=120):
+        return subprocess.run(self.cmd(*args), cwd=ROOT, env=self.env,
+                              capture_output=True, text=True,
+                              timeout=timeout)
+
+    def start(self, *args):
+        p = subprocess.Popen(self.cmd(*args), cwd=ROOT, env=self.env,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True)
+        self.addCleanup(self._stop, p)
+        return p
+
+    @staticmethod
+    def _stop(p):
+        if p.poll() is None:
+            p.kill()
+        p.communicate()
+
+    def wait_for(self, cond, timeout=60):
+        end = time.time() + timeout
+        while time.time() < end:
+            if cond():
+                return
+            time.sleep(0.2)
+        self.fail("timed out")
+
+    @staticmethod
+    def free_port():
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    def test_once(self):
+        r = self.run_cmd("--once")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        snap = json.loads((self.out / "snapshot.json").read_text())
+        self.assertEqual([c["prefix"] for c in snap["campaigns"]], ["aa"])
+        self.assertTrue((self.out / "index.html").is_file())
+        self.assertFalse((self.out / "snapshot.json.tmp").exists())
+
+    def test_a_second_instance_exits(self):
+        first = self.start("--no-serve", "--every", "60")
+        self.wait_for(lambda: (self.out / "snapshot.json").exists())
+        r = self.run_cmd("--once")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(str(first.pid), r.stderr)
+
+    def test_a_busy_port_exits(self):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            s.listen()
+            r = self.run_cmd("--port", str(s.getsockname()[1]), "--every",
+                             "60")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("port", r.stderr)
+
+    def test_serves_the_snapshot(self):
+        port = self.free_port()
+        p = self.start("--port", str(port), "--every", "60")
+        url = f"http://127.0.0.1:{port}/snapshot.json"
+
+        def fetched():
+            try:
+                with urllib.request.urlopen(url, timeout=5) as r:
+                    self.body = r.read()
+                    return r.status == 200
+            except OSError:
+                return False
+        self.wait_for(fetched)
+        self.assertIn("campaigns", json.loads(self.body))
+        p.send_signal(signal.SIGTERM)
+        self.assertEqual(p.wait(timeout=30), 0)
 
 
 if __name__ == "__main__":

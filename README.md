@@ -109,6 +109,22 @@ replacement per exit, refitting the GP against the leaderboard as it stands.
   never written.
 - The per-child campaign logs, `$GRAPH_DATA/closed_loop_logs/<config>.log`.
 
+## Dashboard
+
+A live flow graph of every campaign (campaign, points, steps, result),
+rebuilt from the campaign files every 2 minutes. Start it on the host the
+campaigns run on (liveness is that host's process table):
+
+```bash
+source ./activate.sh && D="${AUTORESEARCH_DATA_ROOT:-/exp/mu2e/data/users/$USER}/autoresearch_dashboard" &&
+mkdir -p "$D" && PYTHONPATH= setsid nohup "$AUTORESEARCH_PYTHON" -u -m service.dashboard \
+  >> "$D/dashboard.log" 2>&1 &
+```
+
+Then `ssh -L 8765:localhost:8765 <host>` and open `http://localhost:8765`.
+`--once` writes one snapshot and exits; `--no-serve --out DIR` only writes
+the files. Spec: `docs/superpowers/specs/2026-10-04-dashboard-design.md`.
+
 ## Tests
 
 ```bash

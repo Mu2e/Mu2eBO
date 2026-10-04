@@ -21,13 +21,24 @@ max(3 * poll_s, STALL_FLOOR_S).
 """
 from __future__ import annotations
 
+import argparse
+import fcntl
+import functools
 import json
+import os
 import re
+import shutil
+import signal
 import socket
+import sys
+import threading
+import time
+import traceback
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from service.campaigns import CampaignService, _flag, _last_line
+from service.campaigns import CampaignService, _flag
 
 STALL_FLOOR_S = 600.0
 CHILD_RE = re.compile(r"(.+)R\d+_\d+")
@@ -281,3 +292,87 @@ def build_snapshot(svc: CampaignService, now: float, days: float,
     campaigns.sort(key=lambda c: (not c["alive"], c["prefix"]))
     return {"time": now, "host": socket.gethostname(), "every_s": every_s,
             "errors": errors, "campaigns": campaigns}
+
+
+# -- the process -----------------------------------------------------------
+
+PAGE = Path(__file__).with_name("dashboard.html")
+
+
+class _Quiet(SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
+def write_snapshot(svc: CampaignService, out: Path, days: float,
+                   every_s: float) -> None:
+    snap = build_snapshot(svc, time.time(), days, every_s)
+    tmp = out / "snapshot.json.tmp"
+    tmp.write_text(json.dumps(snap))
+    os.replace(tmp, out / "snapshot.json")
+
+
+def _lock(out: Path) -> Optional[int]:
+    """Hold <out>/lock for this process's life; None if another holds it."""
+    fd = os.open(out / "lock", os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return None
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()} {socket.gethostname()}\n".encode())
+    return fd
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="python -m service.dashboard",
+        description="Rebuild the campaign dashboard's snapshot.json every "
+                    "--every seconds and serve it on 127.0.0.1.")
+    ap.add_argument("--every", type=float, default=120.0)
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--days", type=float, default=7.0)
+    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--no-serve", action="store_true")
+    ap.add_argument("--once", action="store_true")
+    args = ap.parse_args(argv)
+    svc = CampaignService()
+    out = args.out or svc.data_root / "autoresearch_dashboard"
+    out.mkdir(parents=True, exist_ok=True)
+    fd = _lock(out)
+    if fd is None:
+        owner = (out / "lock").read_text().strip() or "unknown pid"
+        print(f"[dashboard] another dashboard (pid host: {owner}) owns "
+              f"{out}", file=sys.stderr)
+        return 1
+    shutil.copyfile(PAGE, out / "index.html")
+    if not (args.once or args.no_serve):
+        handler = functools.partial(_Quiet, directory=str(out))
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+        except OSError as exc:
+            print(f"[dashboard] cannot serve on 127.0.0.1 port {args.port}: "
+                  f"{exc}", file=sys.stderr)
+            return 1
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print(f"[dashboard] serving {out} at http://127.0.0.1:{args.port}/",
+              flush=True)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        while True:
+            try:
+                write_snapshot(svc, out, args.days, args.every)
+            except Exception:       # keep the last snapshot; its age shows
+                traceback.print_exc()
+                if args.once:
+                    return 1
+            if args.once:
+                return 0
+            time.sleep(args.every)
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
