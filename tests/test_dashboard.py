@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -179,7 +180,10 @@ class TestData(_Dash):
         self.assertEqual((d["q"], d["max_evals"], d["rows"]), (3, 9, 2))
         self.assertEqual(d["best"]["config"], "mmR01_00")
         self.assertEqual(d["best_label"], "1.000000")
-        self.assertEqual(self.point(d, "mmR01_00")["state"], "scored")
+        self.assertEqual(d["direction"], "min")
+        p = self.point(d, "mmR01_00")
+        self.assertEqual((p["state"], p["value"], p["value_label"]),
+                         ("scored", 1.0, "1.000000"))
         self.child("shR00_00")
         self.procs.append((77, ["python", "-m", "graph.closed_loop",
                                 "--study", "toystudy", "--name-prefix", "sh",
@@ -211,6 +215,123 @@ class TestData(_Dash):
         self.assertEqual(self.point(d, "bdR01_00")["steps"]["a"]["state"],
                          "done")
         self.assertIsNone(d["error"])
+
+
+def step_rec(state="working", stall=False):
+    return {"state": state, "message": f"{state} msg", "progress": None,
+            "age_s": 60.0, "stall": stall, "error": None}
+
+
+def camp(steps, points, best=None, direction="min", alive=True):
+    """A campaign_data dict built by hand: steps as (name, files_from),
+    points as (name, state, value, {step: step_rec})."""
+    return {"prefix": "p", "study": "s", "alive": alive, "exit_code": None,
+            "launched_by": "shell", "host": "h", "stopping": False,
+            "q": 2, "max_evals": 4, "rows": 0,
+            "best": {"config": best} if best else None, "best_label": None,
+            "error": None, "direction": direction,
+            "steps": [{"step": s, "kit": "k", "files_from": list(f)}
+                      for s, f in steps],
+            "points": [{"name": n, "state": st, "x": {"x1": 1.0},
+                        "last_line": "[run] x", "value": v,
+                        "value_label": None if v is None else f"{v:.6f}",
+                        "steps": recs} for n, st, v, recs in points]}
+
+
+def nodes(graph):
+    return {n["id"]: n for b in graph["bands"] for n in b["nodes"]}
+
+
+class TestGraph(unittest.TestCase):
+    def test_one_step_layers(self):
+        g = dash.layout(camp([("toy", [])],
+                             [("p1", "running", None,
+                               {"toy": step_rec()})]))
+        self.assertEqual(g["columns"], 4)
+        n = nodes(g)
+        self.assertEqual((n["p1"]["layer"], n["p1/toy"]["layer"],
+                          n["p1/result"]["layer"]), (1, 2, 3))
+        self.assertEqual(sorted(map(tuple, g["edges"])),
+                         [("campaign", "p1"), ("p1", "p1/toy"),
+                          ("p1/toy", "p1/result")])
+
+    def test_dag_layers_and_subrows(self):
+        recs = {s: step_rec("waiting") for s in "abc"}
+        g = dash.layout(camp([("a", []), ("b", []), ("c", ["a", "b"])],
+                             [("p1", "running", None, recs)]))
+        n = nodes(g)
+        self.assertEqual([(n[f"p1/{s}"]["layer"], n[f"p1/{s}"]["subrow"])
+                          for s in "abc"], [(2, 0), (2, 1), (3, 0)])
+        self.assertEqual(n["p1/result"]["layer"], 4)
+        self.assertEqual(g["columns"], 5)
+        self.assertEqual(g["bands"][0]["height"], 2)
+        self.assertEqual(sorted(map(tuple, g["edges"])),
+                         [("campaign", "p1"), ("p1", "p1/a"), ("p1", "p1/b"),
+                          ("p1/a", "p1/c"), ("p1/b", "p1/c"),
+                          ("p1/c", "p1/result")])
+
+    def test_band_order_and_fold(self):
+        done = {"toy": step_rec("done")}
+        g = dash.layout(camp([("toy", [])], [
+            ("e1", "ended", None, done), ("s1", "scored", 1.0, done),
+            ("r2", "running", None, {"toy": step_rec()}),
+            ("b1", "broken", None, {"toy": step_rec("failed")}),
+            ("s2", "scored", 0.5, done),
+            ("r1", "running", None, {"toy": step_rec()})], best="s2"))
+        self.assertEqual([b["point"] for b in g["bands"]],
+                         ["r1", "r2", "s2", "s1", "b1", "e1"])
+        self.assertEqual([b["fold"] for b in g["bands"]],
+                         [None, None, "scored", "scored", None, None])
+        res = nodes(g)["s2/result"]
+        self.assertEqual((res["best"], res["label"], res["state"]),
+                         (True, "0.500000", "scored"))
+        self.assertFalse(nodes(g)["s1/result"]["best"])
+        g = dash.layout(camp([("toy", [])], [
+            ("s1", "scored", 1.0, done), ("s2", "scored", 0.5, done)],
+            direction="max"))
+        self.assertEqual([b["point"] for b in g["bands"]], ["s1", "s2"])
+
+    def test_stall_state(self):
+        g = dash.layout(camp([("toy", [])], [
+            ("p1", "running", None, {"toy": step_rec(stall=True)})]))
+        step = nodes(g)["p1/toy"]
+        self.assertEqual(step["state"], "stall")
+        self.assertIn("working msg", step["detail"])
+        self.assertEqual(step["age_s"], 60.0)
+
+    def test_no_steps_known(self):
+        g = dash.layout(camp([], [("p1", "broken", None, {})]))
+        self.assertEqual(g["columns"], 3)
+        self.assertEqual(sorted(map(tuple, g["edges"])),
+                         [("campaign", "p1"), ("p1", "p1/result")])
+
+
+class TestSnapshot(_Dash):
+    def test_build_snapshot(self):
+        self.child("enR00_00")
+        self.child("lvR00_00")
+        self.child("xxR00_00")
+        self.procs.append((5, ["python", "-m", "graph.closed_loop", "--study",
+                               "toystudy", "--name-prefix", "lv"]))
+        real = dash.campaign_data
+
+        def flaky(svc, prefix, now):
+            if prefix == "xx":
+                raise RuntimeError("boom")
+            return real(svc, prefix, now)
+        with unittest.mock.patch.object(dash, "campaign_data", flaky):
+            snap = dash.build_snapshot(self.svc, self.now, 7, 120)
+        self.assertEqual([c["prefix"] for c in snap["campaigns"]],
+                         ["lv", "en"])
+        self.assertEqual([c["collapsed"] for c in snap["campaigns"]],
+                         [False, True])
+        self.assertIn("graph", snap["campaigns"][0])
+        self.assertEqual((snap["every_s"], snap["time"]), (120, self.now))
+        self.assertTrue(snap["host"])
+        self.assertEqual(len(snap["errors"]), 1)
+        self.assertIn("xx", snap["errors"][0])
+        self.assertIn("boom", snap["errors"][0])
+        json.dumps(snap)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -130,14 +131,19 @@ def campaign_data(svc: CampaignService, prefix: str,
             study = svc._load_study(status["study"])
         except (ValueError, OSError) as exc:
             error = error or str(exc)
-    steps, best_label = [], None
+    steps, best_label, direction, values = [], None, None, {}
     if study is not None:
         steps = [{"step": s.step, "kit": s.kit,
                   "files_from": list(s.files_from)} for s in study.steps]
         obj = study.objectives[0]
+        direction = obj.direction
         best = status["best"]
         if best is not None and best["values"].get(obj.name) is not None:
             best_label = obj.fmt.format(best["values"][obj.name])
+        if status["rows"]:
+            rows = svc.leaderboard(study.name, prefix,
+                                   top=status["rows"])["rows"]
+            values = {r["config"]: r["values"].get(obj.name) for r in rows}
     points = []
     for child in status["children"]:
         name = child["name"]
@@ -150,9 +156,12 @@ def campaign_data(svc: CampaignService, prefix: str,
                 x = dict(zip(study.knob_names, point["x"]))
             except (OSError, ValueError, KeyError, TypeError):
                 x = None
+        value = values.get(name)
         points.append({
             "name": name, "state": state, "x": x,
-            "last_line": child["last_line"],
+            "last_line": child["last_line"], "value": value,
+            "value_label": (None if value is None
+                            else study.objectives[0].fmt.format(value)),
             "steps": {s["step"]: _step(sd, s["step"], state == "running",
                                        now) for s in steps}})
     return {"prefix": prefix, "study": status["study"],
@@ -162,5 +171,113 @@ def campaign_data(svc: CampaignService, prefix: str,
             "q": _int(_flag(argv, "--q")),
             "max_evals": _int(_flag(argv, "--max-evals")),
             "rows": status["rows"], "best": status["best"],
-            "best_label": best_label, "error": error, "steps": steps,
-            "points": points}
+            "best_label": best_label, "error": error, "direction": direction,
+            "steps": steps, "points": points}
+
+
+# -- the graph -------------------------------------------------------------
+
+ORDER = {"running": 0, "scored": 1, "broken": 2, "ended": 3}
+
+
+def _depths(steps: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Each step's longest path from a root step (the study loader has
+    already refused cycles)."""
+    ups = {s["step"]: s["files_from"] for s in steps}
+    depth: Dict[str, int] = {}
+
+    def of(name: str) -> int:
+        if name not in depth:
+            depth[name] = 1 + max((of(u) for u in ups[name]), default=-1)
+        return depth[name]
+    for s in steps:
+        of(s["step"])
+    return depth
+
+
+def _band_key(point: Dict[str, Any], direction: Optional[str]):
+    rank = ORDER[point["state"]]
+    if point["state"] == "scored" and point["value"] is not None:
+        v = point["value"]
+        return (rank, 0, -v if direction == "max" else v, point["name"])
+    return (rank, 1, 0.0, point["name"])
+
+
+def layout(camp: Dict[str, Any]) -> Dict[str, Any]:
+    """The campaign's flow graph, laid out: column (layer) 0 campaign, 1
+    point, 2.. steps by depth, last the result; each point a band whose
+    height is its widest layer. The page only draws it."""
+    steps = camp["steps"]
+    depth = _depths(steps)
+    width = 1 + max(depth.values(), default=-1)
+    result_layer = 2 + width
+    subrow, seen = {}, {}
+    for s in steps:
+        d = depth[s["step"]]
+        subrow[s["step"]] = seen.get(d, 0)
+        seen[d] = seen.get(d, 0) + 1
+    height = max(seen.values(), default=1)
+    consumed = {u for s in steps for u in s["files_from"]}
+    best = (camp.get("best") or {}).get("config")
+    bands, edges = [], []
+    for p in sorted(camp["points"],
+                    key=lambda p: _band_key(p, camp.get("direction"))):
+        name = p["name"]
+        x = "\n".join(f"{k}={v}" for k, v in (p["x"] or {}).items())
+        nodes = [{"id": name, "kind": "point", "layer": 1, "subrow": 0,
+                  "label": name, "state": p["state"],
+                  "detail": "\n".join(t for t in (x, p["last_line"]) if t)}]
+        edges.append(["campaign", name])
+        for s in steps:
+            rec = p["steps"].get(s["step"]) or {}
+            sid = f"{name}/{s['step']}"
+            detail = f"{s['kit']}: {rec.get('message', '')}"
+            if rec.get("error"):
+                detail += f"\n{rec['error']}"
+            nodes.append({"id": sid, "kind": "step",
+                          "layer": 2 + depth[s["step"]],
+                          "subrow": subrow[s["step"]], "label": s["step"],
+                          "state": ("stall" if rec.get("stall")
+                                    else rec.get("state", "waiting")),
+                          "detail": detail, "progress": rec.get("progress"),
+                          "age_s": rec.get("age_s")})
+            ups = s["files_from"] or [None]
+            edges.extend([f"{name}/{u}" if u else name, sid] for u in ups)
+            if s["step"] not in consumed:
+                edges.append([sid, f"{name}/result"])
+        if not steps:
+            edges.append([name, f"{name}/result"])
+        label = (p["value_label"] if p["state"] == "scored"
+                 and p["value_label"] is not None else p["state"])
+        nodes.append({"id": f"{name}/result", "kind": "result",
+                      "layer": result_layer, "subrow": 0, "label": label,
+                      "state": p["state"], "detail": label,
+                      "best": name == best})
+        bands.append({"point": name, "height": height, "nodes": nodes,
+                      "fold": "scored" if p["state"] == "scored" else None})
+    return {"columns": result_layer + 1, "bands": bands, "edges": edges}
+
+
+def build_snapshot(svc: CampaignService, now: float, days: float,
+                   every_s: float) -> Dict[str, Any]:
+    """Everything the page draws. A campaign that cannot be read becomes a
+    line in `errors`; the others are still built."""
+    errors: List[str] = []
+    campaigns = []
+    try:
+        names = prefixes(svc, now, days)
+    except OSError as exc:
+        errors.append(f"listing campaigns: {exc}")
+        names = []
+    for prefix in names:
+        try:
+            camp = campaign_data(svc, prefix, now)
+            camp["collapsed"] = not camp["alive"]
+            camp["graph"] = layout(camp)
+        except Exception as exc:    # one campaign never hides the others
+            errors.append(f"{prefix}: {type(exc).__name__}: {exc}")
+            continue
+        campaigns.append(camp)
+    campaigns.sort(key=lambda c: (not c["alive"], c["prefix"]))
+    return {"time": now, "host": socket.gethostname(), "every_s": every_s,
+            "errors": errors, "campaigns": campaigns}
