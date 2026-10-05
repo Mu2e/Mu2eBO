@@ -384,14 +384,11 @@ class TestStatusFile(_Run):
         self.assertEqual((rec["state"], rec["poll_s"]), ("failed", 0.0))
 
     def test_a_failed_status_write_does_not_fail_the_step(self):
-        real = sch.write_atomic
-
-        def flaky(path, text):
-            if path.name.endswith("_status.json"):
-                raise OSError(122, "Disk quota exceeded")
-            return real(path, text)
         lines = []
-        with unittest.mock.patch.object(sch, "write_atomic", flaky):
+        # The status write goes through the point record (core/point_dir.py).
+        with unittest.mock.patch.object(
+                sch.PointDir, "write_status",
+                side_effect=OSError(122, "Disk quota exceeded")):
             out = self.run_steps(study(step("a")), FakeKit(
                 {"a": ["working", "working", "completed"]}),
                 log=lines.append)

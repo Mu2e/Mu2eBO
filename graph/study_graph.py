@@ -22,13 +22,12 @@ from langgraph.graph import END, START, StateGraph  # noqa: E402
 from contract import ContractError  # noqa: E402
 from kits import KitError  # noqa: E402
 from leaderboard import LeaderboardError  # noqa: E402
-from scheduler import (map_params, merge_params, run_steps,  # noqa: E402
-                       write_atomic)
+from point_dir import (DERIVED, GEOM, VERDICT, PointDir,  # noqa: E402
+                       PointMismatch, write_atomic)
+from scheduler import map_params, merge_params, run_steps  # noqa: E402
 from score import ScoreError, score  # noqa: E402
 
-
-class PointMismatch(ValueError):
-    """point.json records a different point under this config name."""
+__all__ = ["PointMismatch", "build_study_graph", "check_x"]
 
 
 class PointState(TypedDict, total=False):
@@ -95,61 +94,25 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
         return f"{campaign}/{config}/{step}"
 
     shared: Dict[str, Any] = {}     # env, x, files, records: process-local
+    pd = PointDir(state_dir)
 
-    def broken(reason: str) -> dict:
-        path = state_dir / "broken.txt"
-        if not path.exists():
-            write_atomic(path, reason + "\n")
-        log(f"[run] {config}: broken: {reason}")
-        return {"broken": True, "reason": reason}
+    def broken(reason: str, step: Optional[str] = None) -> dict:
+        pd.mark_broken(reason, step=step)
+        text = f"step {step}: {reason}" if step is not None else reason
+        log(f"[run] {config}: broken: {text}")
+        return {"broken": True, "reason": text}
 
     def node_derive(state):
         x = [float(v) for v in state["x_point"]]
         check_x(study, x)
         env = (study.geom.derived_env(x) if study.geom is not None
                else dict(zip(study.knob_names, x)))
-        state_dir.mkdir(parents=True, exist_ok=True)
         point = {"study": study.name, "config": config, "campaign": campaign,
                  "x": x, "context": context,
                  "measure_basis_sha": study.measure_basis_sha,
                  "executor": executor}
-        point_path = state_dir / "point.json"
-        if point_path.exists():
-            # A resume adopts the steps already submitted: they were
-            # measured the way the study said THEN, so a changed
-            # measurement must not stamp their numbers with its measure_sha.
-            old = json.loads(point_path.read_text())
-            if "measure_basis_sha" not in old:
-                raise PointMismatch(
-                    f"{point_path} has no measure_basis_sha (written before "
-                    f"point.json recorded how its point is measured), so a "
-                    f"resume cannot tell whether the study's measurement "
-                    f"changed since this point was submitted; use a new "
-                    f"config name")
-            was, now = old["measure_basis_sha"], point["measure_basis_sha"]
-            if was != now:
-                raise PointMismatch(
-                    f"{point_path}: the study's measurement changed since "
-                    f"this point was submitted ({was[:12]} -> {now[:12]}); "
-                    f"use a new config name")
-            if "executor" not in old:
-                raise PointMismatch(
-                    f"{point_path} has no executor (written before "
-                    f"point.json recorded one), so a resume cannot tell "
-                    f"whether it would switch executors mid-point; use a "
-                    f"new config name")
-            if old["executor"] != executor:
-                raise PointMismatch(
-                    f"{point_path}: this point was started with --executor "
-                    f"{old['executor']}; rerun it with --executor "
-                    f"{old['executor']}, or use a new config name")
-            if old != point:
-                raise PointMismatch(
-                    f"{point_path} records a different point {old}; refusing "
-                    f"to mix two points under one config name")
-        else:
-            write_atomic(point_path, json.dumps(point, indent=1, sort_keys=True))
-        write_atomic(state_dir / "derived.json",
+        pd.claim(point)
+        write_atomic(pd.path(DERIVED),
                      json.dumps(env, indent=1, sort_keys=True))
         shared["env"], shared["x"] = env, x
         return {"broken": False}
@@ -157,7 +120,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
     def node_render(state):
         files = {}
         if study.geom is not None:
-            path = state_dir / "geom.txt"
+            path = pd.path(GEOM)
             write_atomic(path, study.geom.render(shared["x"]))
             files["geom"] = {"name": "geom", "uri": path.resolve().as_uri(),
                              "kind": "geom"}
@@ -168,7 +131,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
         pre = study.preflight
         if pre is None:
             return {"broken": False}
-        verdict_path = state_dir / "preflight_verdict.json"
+        verdict_path = pd.path(VERDICT)
         basis = None
 
         def finish(ok, message):
@@ -220,7 +183,7 @@ def build_study_graph(study, *, config: str, campaign: str, context: dict,
                              kits=kits, workflow=workflow, log=log)
         failed = [o for o in outcomes.values() if not o.ok]
         if failed:
-            return broken(f"step {failed[0].step}: {failed[0].message}")
+            return broken(failed[0].message, step=failed[0].step)
         shared["records"] = {s: o.record for s, o in outcomes.items()}
         return {"broken": False}
 

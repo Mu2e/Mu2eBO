@@ -43,6 +43,7 @@ from boards import board_for  # noqa: E402
 from contract import EXECUTORS, ContractError, KitSet, launch_problems  # noqa: E402
 from kits import KitError  # noqa: E402
 from leaderboard import LeaderboardError  # noqa: E402
+from point_dir import VERDICT, PointDir  # noqa: E402
 from study_graph import build_study_graph, check_x  # noqa: E402
 
 MODES_DIR = paths.REPO_ROOT / "mode_specs"
@@ -312,7 +313,8 @@ def _geometry_locked(study, kits, *, x, config, executor) -> Check:
                      detail=_trace(exc))
     if problem:
         return Check("geometry", "failed", [problem])
-    state_dir = paths.GRID_DATA_ROOT / config / "state"
+    pd = PointDir.of(paths.GRID_DATA_ROOT, config)
+    state_dir = pd.state
     graph = build_study_graph(
         study, config=config, campaign=CAMPAIGN, context={}, kits=kits,
         state_dir=state_dir, board=None, executor=executor,
@@ -331,7 +333,7 @@ def _geometry_locked(study, kits, *, x, config, executor) -> Check:
     if out.get("broken"):
         return Check("geometry", "failed", [out.get("reason", "")])
     if study.preflight is not None:
-        verdict = json.loads((state_dir / "preflight_verdict.json").read_text())
+        verdict = json.loads(pd.path(VERDICT).read_text())
         note = verdict.get("message") or "pre-check passed"
     elif study.geom is not None:
         note = "rendered, not pre-checked"

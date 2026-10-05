@@ -228,6 +228,51 @@ class TestResume(_Point):
         self.assertFalse((self.state() / "toy_results.json").exists())
 
 
+class TestRunLock(_Point):
+    """graph.run holds the point's state/run.lock while it runs (spec
+    docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
+
+    def pd(self, config="p1"):
+        from point_dir import PointDir
+        return PointDir.of(self.data / "autoresearch_grid", config)
+
+    def test_a_second_runner_on_a_running_point_is_refused(self):
+        s = self.add_study()
+        with self.pd().run_lock():
+            r = self.run_point(s)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("already running", r.stdout)
+        self.assertFalse((self.state() / "toy_cluster.txt").exists())
+        self.assertEqual(self.submits(), [])
+
+    def test_a_killed_runner_frees_its_point(self):
+        s = self.add_study(lambda d: d["evaluate"][0]["fixed"].update(
+            delay_s=30.0))
+        proc = subprocess.Popen(self.cmd(s, "p1", (1.0, 2.0)), cwd=ROOT,
+                                env=self.env, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                start_new_session=True)
+        self.addCleanup(lambda: (os.killpg(proc.pid, signal.SIGKILL)
+                                 if proc.poll() is None else None,
+                                 proc.wait()))
+        handle = self.state() / "toy_cluster.txt"
+        deadline = time.monotonic() + 60
+        while not handle.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertTrue(handle.exists(), "the child never submitted")
+        self.assertTrue(self.pd().running())
+        os.kill(proc.pid, signal.SIGKILL)     # graph.run only: its kit lives
+        proc.wait()
+        deadline = time.monotonic() + 2
+        while self.pd().running() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(self.pd().running())
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)   # the kit server, if alive
+        except ProcessLookupError:
+            pass
+
+
 class _DeadKit:
     """A kit whose server won't start: every use raises KitError."""
     accepts_lists, poll_s, version = False, (0.0, 0.0), "0"

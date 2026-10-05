@@ -53,7 +53,7 @@ class TestBusyNames(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def touch(self, name, file):
-        sd = closed_loop.state_dir(name)
+        sd = paths.GRID_DATA_ROOT / name / "state"
         sd.mkdir(parents=True, exist_ok=True)
         (sd / file).write_text("x\n")
 
@@ -76,7 +76,8 @@ class TestBusyNames(unittest.TestCase):
         self.touch("pR00_00", "toy_cluster.txt")
         reason = closed_loop.busy_reason("pR00_00", set())
         self.assertIn("another --name-prefix", reason)
-        self.assertIn("pgrep -f 'graph.run.*pR00_00'", reason)
+        self.assertIn("flock -n", reason)
+        self.assertIn("pR00_00/state/run.lock", reason)
         self.assertIn("only", reason)
         self.assertIn("*_cluster.txt", reason)
         self.assertNotIn("or use another --name-prefix", reason)
@@ -352,7 +353,7 @@ class TestRenamedHints(unittest.TestCase):
             sd.mkdir(parents=True)
             (sd / "point.json").write_text("{}")
             why = closed_loop.busy_reason("c3R00_00", set())
-        self.assertIn("pgrep -f 'graph.run.*c3R00_00'", why)
+        self.assertIn("c3R00_00/state/run.lock", why)
 
     def test_an_archived_study_is_unknown_with_a_hint(self):
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:

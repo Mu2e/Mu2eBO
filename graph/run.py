@@ -10,7 +10,7 @@ Exit 2: refused before anything ran. Anything else: a crash.
 from __future__ import annotations
 
 import argparse
-import json
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -21,13 +21,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes as _modes  # noqa: E402
 from boards import board_for  # noqa: E402
 from contract import EXECUTORS, KitSet, launch_problems  # noqa: E402
+from locks import LockBusy  # noqa: E402
 from paths import GRID_DATA_ROOT  # noqa: E402
+from point_dir import BROKEN, RUN_LOCK, PointDir  # noqa: E402
 from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
 
 
 def refuse(message: str) -> int:
     print(f"[run] REFUSED: {message}", flush=True)
     return 2
+
+
+def broken_refusal(pd) -> str:
+    path = pd.path(BROKEN)
+    return (f"{path} exists: this point already failed "
+            f"({pd.broken().text}). To retry it, delete "
+            f"{path}: the rerun adopts the steps already "
+            f"submitted, so a step the kit itself reported failed "
+            f"stays failed (its handle <config>.<step> names the "
+            f"same job). To evaluate this x again from scratch, "
+            f"use a new config name")
 
 
 def line_buffered_stdout() -> None:
@@ -112,24 +125,13 @@ def main(argv=None) -> int:
         context = parse_context(args.context, study)
     except ValueError as exc:
         return refuse(str(exc))
-    state_dir = GRID_DATA_ROOT / args.config / "state"
-    broken = state_dir / "broken.txt"
-    if broken.exists():
-        return refuse(f"{broken} exists: this point already failed "
-                      f"({broken.read_text().strip()}). To retry it, delete "
-                      f"{broken}: the rerun adopts the steps already "
-                      f"submitted, so a step the kit itself reported failed "
-                      f"stays failed (its handle <config>.<step> names the "
-                      f"same job). To evaluate this x again from scratch, "
-                      f"use a new config name")
+    pd = PointDir.of(GRID_DATA_ROOT, args.config)
+    if pd.broken() is not None:
+        return refuse(broken_refusal(pd))
 
     # A retried point adopts the steps it finished (scheduler.run_steps reads
     # the same files), so the board check must use the versions they ran under.
-    adopted = {}
-    for step in study.steps:
-        path = state_dir / f"{step.step}_results.json"
-        if path.exists():
-            adopted[step.step] = json.loads(path.read_text())
+    adopted = pd.adopted(step.step for step in study.steps)
 
     kits = KitSet(args.campaign, executor=args.executor,
                  parallel=args.parallel)
@@ -146,9 +148,22 @@ def main(argv=None) -> int:
             return refuse("; ".join(problems))
         graph = build_study_graph(
             study, config=args.config, campaign=args.campaign,
-            context=context, kits=kits, state_dir=state_dir,
+            context=context, kits=kits, state_dir=pd.state,
             board=board_for(study), executor=args.executor).compile()
-        graph.invoke({"config_name": args.config, "x_point": x})
+        # The point's run lock, held until the point is done: a reader
+        # (campaign_status, the dashboard) sees it running, and a second
+        # runner on this config is refused. Taken after the launch check,
+        # so a refused point writes no folder.
+        with contextlib.ExitStack() as stack:
+            try:
+                stack.enter_context(pd.run_lock())
+            except LockBusy:
+                return refuse(f"another graph.run holds "
+                              f"{pd.path(RUN_LOCK)}: this point is already "
+                              f"running")
+            if pd.broken() is not None:     # failed while we waited
+                return refuse(broken_refusal(pd))
+            graph.invoke({"config_name": args.config, "x_point": x})
     except PointMismatch as exc:
         return refuse(str(exc))
     finally:

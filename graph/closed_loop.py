@@ -22,13 +22,14 @@ import modes as _modes  # noqa: E402
 import paths  # noqa: E402
 from boards import board_for  # noqa: E402
 from contract import EXECUTORS, KitSet, launch_problems, launch_stagger  # noqa: E402
+from point_dir import BROKEN, PointDir  # noqa: E402
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
 from run import (line_buffered_stdout, local_env_refusal,  # noqa: E402
                  parse_context)
 
 
-def state_dir(name: str) -> Path:
-    return paths.GRID_DATA_ROOT / name / "state"
+def point_dir(name: str) -> PointDir:
+    return PointDir.of(paths.GRID_DATA_ROOT, name)
 
 
 def busy_reason(name: str, board_names: set) -> str | None:
@@ -40,18 +41,20 @@ def busy_reason(name: str, board_names: set) -> str | None:
     if name in board_names:
         return ("already has a leaderboard row from a prior run under this "
                 "--name-prefix")
-    sd = state_dir(name)
-    if (sd / "broken.txt").exists():
-        return (f"already carries {sd / 'broken.txt'} from a prior run under "
+    pd = point_dir(name)
+    sd = pd.state
+    if pd.broken() is not None:
+        return (f"already carries {pd.path(BROKEN)} from a prior run under "
                 f"this --name-prefix")
-    if (sd / "point.json").exists() or any(sd.glob("*_cluster.txt")):
+    if pd.started():
         return (f"has state in {sd}: a child under this name is in flight or "
                 f"was abandoned. Advancing to the next index. RECOVERY: "
                 f"relaunch under another --name-prefix. Removing {sd} is safe "
-                f"only once nothing runs it (pgrep -f 'graph.run.*{name}') "
-                f"AND it never held a *_cluster.txt (nothing was submitted): "
-                f"the name would be re-picked with a new x, and the kit "
-                f"refuses the same <config>.<step> handle with other params")
+                f"only once nothing runs it (`flock -n {sd}/run.lock true` "
+                f"succeeds) AND it never held a *_cluster.txt (nothing was "
+                f"submitted): the name would be re-picked with a new x, and "
+                f"the kit refuses the same <config>.<step> handle with other "
+                f"params")
     return None
 
 
@@ -204,7 +207,7 @@ def main(argv=None) -> int:
         stop_flag=stop.exists,
         row_landed=lambda name, mode: name in {p.cfg for p in
                                                board_for(study).load()},
-        broken=lambda name: (state_dir(name) / "broken.txt").exists(),
+        broken=lambda name: point_dir(name).broken() is not None,
         stagger=stagger)
     tally = Counter(oc.reason for oc in result["outcomes"])
     print(f"[closed_loop] done: launched={result['launched']} "

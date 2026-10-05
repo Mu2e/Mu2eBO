@@ -8,7 +8,6 @@ under log10 is a failed evaluation naming the metric: never a row, never a
 """
 from __future__ import annotations
 
-import json
 import math
 import time
 from pathlib import Path
@@ -16,10 +15,10 @@ from typing import Any, Dict
 
 if __package__:
     from core.leaderboard import Point
-    from core.scheduler import write_atomic
+    from core.point_dir import PointDir
 else:
     from leaderboard import Point
-    from scheduler import write_atomic
+    from point_dir import PointDir
 
 
 class ScoreError(ValueError):
@@ -83,20 +82,19 @@ def score(study, *, config: str, x, records, context, board,
     """Write summary.json, append the row, write evaluate_result.json and
     return its payload. A ScoreError writes broken.txt first; a leaderboard
     refusal propagates for the caller to record."""
+    pd = PointDir(state_dir)
     try:
         y = collect(study, records)
         meta = row_meta(study, records, now)
     except ScoreError as exc:
-        write_atomic(state_dir / "broken.txt", f"score: {exc}\n")
+        pd.mark_broken(f"score: {exc}")
         raise
-    write_atomic(state_dir / "summary.json", json.dumps(
+    pd.write_summary(
         {"config": config, "x": list(x),
-         "steps": {s: r["metrics"] for s, r in sorted(records.items())}},
-        indent=1, sort_keys=True))
+         "steps": {s: r["metrics"] for s, r in sorted(records.items())}})
     appended = board.append(Point(cfg=config, x=list(x), y=y), context, meta)
     result = {"config": config, "primary": y[study.objectives[0].name],
               "objectives": {o.name: y[o.name] for o in study.objectives},
               "row_appended": appended}
-    write_atomic(state_dir / "evaluate_result.json",
-                 json.dumps(result, indent=1))
+    pd.write_result(result)
     return result

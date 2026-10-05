@@ -23,7 +23,6 @@ error still crashes loudly instead of hanging silently.
 """
 from __future__ import annotations
 
-import json
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -35,11 +34,13 @@ if __package__:
     from core import kit_registry
     from core.contract import ContractError
     from core.kits import KitError
+    from core.point_dir import PointDir, write_atomic  # noqa: F401  (re-exported)
     from core.study import expand_artifact
 else:
     import kit_registry
     from contract import ContractError
     from kits import KitError
+    from point_dir import PointDir, write_atomic  # noqa: F401  (re-exported)
     from study import expand_artifact
 
 
@@ -49,12 +50,6 @@ class StepOutcome:
     ok: bool
     message: str
     record: Optional[Dict[str, Any]]    # the <step>_results.json content
-
-
-def write_atomic(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text)
-    tmp.replace(path)
 
 
 def map_params(mapping: Dict[str, str], env: Dict[str, Any],
@@ -112,13 +107,11 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
               workflow: Callable[[str], str], sleep=time.sleep,
               log=print) -> Dict[str, StepOutcome]:
     state_dir.mkdir(parents=True, exist_ok=True)
+    pd = PointDir(state_dir)
     outcomes: Dict[str, StepOutcome] = {}
-    for s in study.steps:
-        path = state_dir / f"{s.step}_results.json"
-        if path.exists():
-            outcomes[s.step] = StepOutcome(s.step, True, "adopted",
-                                           json.loads(path.read_text()))
-            log(f"[steps] {s.step}: adopted {path.name}")
+    for step, record in pd.adopted(s.step for s in study.steps).items():
+        outcomes[step] = StepOutcome(step, True, "adopted", record)
+        log(f"[steps] {step}: adopted {step}_results.json")
     pending = [s for s in study.steps if s.step not in outcomes]
     failed: Optional[StepOutcome] = None
     crash: Optional[Exception] = None
@@ -158,8 +151,7 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
                     f"{'completed' if out.ok else 'FAILED: ' + out.message}")
                 if not out.ok and failed is None:
                     failed = out
-                    write_atomic(state_dir / "broken.txt",
-                                 f"step {failed.step}: {failed.message}\n")
+                    pd.mark_broken(failed.message, step=failed.step)
                     stop.set()
                     _cancel_running(study, set(running.values()), state_dir,
                                     kits, workflow, log)
@@ -193,9 +185,10 @@ def _cancel_running(study, names, state_dir, kits, workflow, log) -> None:
     the same way; it does not stop the other names in `names` from being
     cancelled."""
     by_name = {s.step: s for s in study.steps}
+    pd = PointDir(state_dir)
     for name in sorted(names):
-        handle_path = state_dir / f"{name}_cluster.txt"
-        if not handle_path.exists():
+        handle = pd.handle(name)
+        if handle is None:
             continue
         s = by_name[name]
         try:
@@ -204,8 +197,7 @@ def _cancel_running(study, names, state_dir, kits, workflow, log) -> None:
             log(f"[steps] {name}: cancel failed ({exc}); it runs to "
                 f"completion")
             continue
-        _cancel_one(kit, s, handle_path.read_text().strip(),
-                    workflow(name), log)
+        _cancel_one(kit, s, handle, workflow(name), log)
 
 
 def _run_one(study, step, config, state_dir, env, files, kits, upstream,
@@ -231,9 +223,9 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
         inputs = [ref for up in step.files_from for ref in upstream[up]["files"]]
     except (KeyError, ValueError) as exc:
         return failed(exc)
-    handle_path = state_dir / f"{step.step}_cluster.txt"
-    if handle_path.exists():
-        handle = handle_path.read_text().strip()
+    pd = PointDir(state_dir)
+    handle = pd.handle(step.step)
+    if handle is not None:
         log(f"[steps] {step.step}: polling {handle} (submitted by an "
             f"earlier run)")
     else:
@@ -245,7 +237,7 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
                                 inputs, workflow)
         except (KitError, ContractError) as exc:
             return failed(exc)
-        write_atomic(handle_path, handle + "\n")
+        pd.write_handle(step.step, handle)
         log(f"[steps] {step.step}: submitted {handle}")
         if stop.is_set():   # a step failed while this one submitted
             _cancel_one(kit, step, handle, workflow, log)
@@ -261,12 +253,11 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
             # write (a full quota) must not fail the step. It is logged once;
             # the dashboard then shows the step as stalled.
             try:
-                write_atomic(state_dir / f"{step.step}_status.json",
-                             json.dumps({"state": status.state,
-                                         "message": status.message,
-                                         "progress": status.progress,
-                                         "time": time.time(),
-                                         "poll_s": pause}))
+                pd.write_status(step.step, {"state": status.state,
+                                            "message": status.message,
+                                            "progress": status.progress,
+                                            "time": time.time(),
+                                            "poll_s": pause})
             except OSError as exc:
                 if not status_warned:
                     log(f"[steps] {step.step}: status file not written "
@@ -287,6 +278,5 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
               "params": params, "inputs": inputs,
               "metrics": res.metrics, "files": list(res.files),
               "metadata": res.metadata}
-    write_atomic(state_dir / f"{step.step}_results.json",
-                 json.dumps(record, indent=1, sort_keys=True))
+    pd.write_results(step.step, record)
     return StepOutcome(step.step, True, "completed", record)
