@@ -22,6 +22,7 @@ from typing import Mapping, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
 import paths  # noqa: E402
+from locks import held as lock_held  # noqa: E402,F401  (re-exported)
 
 
 def spawn_detached(job_dir: Path, script: str, args: Sequence[str],
@@ -43,20 +44,3 @@ def spawn_detached(job_dir: Path, script: str, args: Sequence[str],
     # not this thread, says whether it is running).
     threading.Thread(target=proc.wait, daemon=True).start()
     return proc.pid
-
-
-def lock_held(path: Path) -> bool:
-    """Whether a job still holds the lock at `path` (False when there is no
-    such file). A shared probe: two probes never conflict with each other,
-    only with the job's exclusive lock."""
-    try:
-        fd = os.open(path, os.O_RDWR)
-    except FileNotFoundError:
-        return False
-    try:
-        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return True
-    finally:
-        os.close(fd)
-    return False
