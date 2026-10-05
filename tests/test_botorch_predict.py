@@ -94,11 +94,11 @@ class TestLoadHistoryTensor(unittest.TestCase):
             _, Y, _, _ = bp.load_history_tensor(STUDY, primary_only=True)
             self.assertEqual(tuple(Y.shape), (10, 1))
 
-    def test_width_guard_systemexit_on_dim_mismatch(self):
+    def test_width_guard_raises_on_dim_mismatch(self):
         wrong = [Point(cfg="w", x=[1.0, 2.0, 3.0],
                        y={"sob": 1.0, "flash_edep": 1e-7})]
         with mock.patch.object(bp, "history_points", return_value=wrong):
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(ValueError):
                 bp.load_history_tensor(STUDY)
 
     def test_cold_start_returns_empty_with_correct_width(self):
@@ -213,7 +213,7 @@ class TestRemovedEnvOverrides(unittest.TestCase):
         for var, field in _REMOVED:
             with self.subTest(var=var), \
                  mock.patch.dict(os.environ, {var: "0.5"}):
-                with self.assertRaises(SystemExit) as cm:
+                with self.assertRaises(ValueError) as cm:
                     bp.build_problem("foilspfbpz_ax")
                 msg = str(cm.exception)
                 self.assertIn(var, msg)
@@ -227,7 +227,7 @@ class TestRemovedEnvOverrides(unittest.TestCase):
                  tempfile.TemporaryDirectory() as tmp, \
                  patched_leaderboard(tmp), \
                  mock.patch.dict(os.environ, {var: "6.8e-7"}):
-                with self.assertRaises(SystemExit) as cm:
+                with self.assertRaises(ValueError) as cm:
                     bp.compute_explore_picks(STUDY, q=1,
                                              picker="budget_sob")
                 self.assertIn(var, str(cm.exception))

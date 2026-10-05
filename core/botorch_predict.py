@@ -62,7 +62,7 @@ def load_history_tensor(mode: str, primary_only: bool = False):
     maximized column per objective (primary_only: the first objective only);
     a row with any undefined axis value is left out."""
     if mode not in _modes.STUDIES:
-        raise SystemExit(f"[botorch_predict] mode={mode!r} not supported; "
+        raise ValueError(f"[botorch_predict] mode={mode!r} not supported; "
                          f"choose from {sorted(_modes.STUDIES)}.")
     study = _modes.STUDIES[mode]
     objs = _objectives(study, primary_only)
@@ -81,7 +81,7 @@ def load_history_tensor(mode: str, primary_only: bool = False):
         X = torch.tensor(X_rows, device=DEVICE)
         Y = torch.tensor(Y_rows, device=DEVICE)
         if X.shape[1] != d:
-            raise SystemExit(
+            raise ValueError(
                 f"[botorch_predict] mode={mode} dim mismatch: history has "
                 f"{X.shape[1]}D points but the study declares {d} knobs "
                 f"({study.knob_names}).")
@@ -126,7 +126,7 @@ _REMOVED_ENV = {"AUTORESEARCH_FLASH_BUDGET": "max",
 def _refuse_removed_env(study) -> None:
     for var, field in _REMOVED_ENV.items():
         if var in os.environ:
-            raise SystemExit(
+            raise ValueError(
                 f"[botorch_predict] {var}={os.environ[var]!r} is set, but "
                 f"{var} was removed in Phase A of the generic-study refactor "
                 f"(2026-09-24) and nothing reads it any more. The constraint "
@@ -166,7 +166,7 @@ def compute_explore_picks(mode: str,
     X, Y, _, _ = load_history_tensor(mode, primary_only=primary_only)
     study = _modes.STUDIES[mode]
     if picker == "budget_sob" and not study.constraints:
-        raise SystemExit(f"[botorch_predict] picker budget_sob needs a "
+        raise ValueError(f"[botorch_predict] picker budget_sob needs a "
                          f"constraint, and study {mode!r} declares none")
     sk_picker = "constrained_max" if picker == "budget_sob" else picker
     problem = build_problem(mode, primary_only=primary_only)
@@ -178,8 +178,8 @@ def compute_explore_picks(mode: str,
     except surrokit.InfeasibleError as e:
         c = study.constraints[0]
         op = "<=" if c.bound == "max" else ">="
-        raise SystemExit(
+        raise ValueError(
             f"[botorch_predict] budget_sob: GP predicts NO point in the "
             f"search box with {c.name} {op} {c.value:.3e} ({e}); refusing "
-            f"to submit blind picks.")
+            f"to submit blind picks.") from e
     return [tuple(row) for row in picks]

@@ -69,9 +69,21 @@ class TestAutoresearchAdapter(unittest.TestCase):
         for var in ("AUTORESEARCH_FLASH_BUDGET", "AUTORESEARCH_BUDGET_KSIGMA"):
             with self.subTest(var=var), \
                  mock.patch.dict(os.environ, {var: "0.5"}):
-                with self.assertRaises(SystemExit) as cm:
+                with self.assertRaises(ValueError) as cm:
                     AutoresearchAdapter().problems()
                 self.assertIn(var, str(cm.exception))
+
+    def test_a_refused_pick_is_a_tool_error_not_an_exit(self):
+        """The MCP SDK turns an Exception into a tool error, but a
+        SystemExit escapes it and takes the server down (2026-10-05:
+        suggest(ptg4bl, budget_sob) closed the connection)."""
+        from surrogate.adapter import AutoresearchAdapter
+        import botorch_predict as bp
+        with mock.patch.object(bp, "history_points", return_value=[]):
+            with self.assertRaises(ValueError) as cm:
+                AutoresearchAdapter().suggest("ptg4bl", q=1,
+                                              picker="budget_sob")
+        self.assertIn("needs a constraint", str(cm.exception))
 
     def test_suggest_is_production_pick_path(self):
         from surrogate.adapter import AutoresearchAdapter

@@ -6,7 +6,7 @@ description: 'surrogate/ — the MCP door onto surrokit (the extracted ask/tell
   mcp SDK 2.0, ships in ana 2.8.0); the importable plain-Python facade was
   deleted 2026-09-22; stats meta now built from the study (Phase A, 2026-09-24)'
 status: active
-timestamp: '2026-09-25'
+timestamp: '2026-10-05'
 updated_note: Phase A (generic-study) -- stats meta now built from the study (objectives/knobs/best/primary_range), not ModeSpec.metric_cols; best's values nested under best.values (fix wave 2026-09-24)
 ---
 
@@ -106,6 +106,7 @@ later — plugs into `MCPServer(middleware=[...])` without touching the tools).
 
 ## Key facts
 
+- **A refused pick request is a `ValueError`, never `SystemExit`** (2026-10-05). The MCP SDK turns an `Exception` raised in a tool into a tool error, but `SystemExit` is not an `Exception`: it escaped and took the whole server down (`suggest(ptg4bl, picker=budget_sob)` closed the connection). `core/botorch_predict.py` now raises `ValueError` for an unknown study, a history/knob width mismatch, a removed env override, `budget_sob` on a study with no constraint, and an infeasible budget. In `graph.closed_loop` the same error still stops the campaign, now with a traceback.
 - **Grid-validated 2026-08-29**: `foilspfSK01` (`--mode foilspf --picker budget_sob --q 3`) ran the surrokit path (`build_problem` -> `constrained_max`) through the real grid: 3/3 rows, ~4 h wall each, best `R00_00` sob 4.08 @ flash 6.00e-7 (ties the line's best-under-budget). MCP `list_problems` showed `n_rows` 90 -> 93 without a restart (row-count fit-cache key).
 - **Zero new dependencies**: the official `mcp` SDK **2.0.0 ships in ana
   2.8.0** (the default `$AUTORESEARCH_PYTHON`), including the FastMCP-style
