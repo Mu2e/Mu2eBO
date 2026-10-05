@@ -4,18 +4,20 @@ confirmed detached launch), stop it, follow it, and read a study's
 leaderboard. No MCP here; service/server.py wraps each method as a tool.
 
 A campaign is named by its --name-prefix; its children are
-<prefix>R<n>_00 (matched exactly by is_child, so `foo` never takes `foo2`).
-Status reads only what every campaign leaves behind, so it covers campaigns
-started from a shell too:
+<prefix>R<n>_00 (core/campaign_dir.py: is_child, so `foo` never takes
+`foo2`). Status reads the records every campaign leaves behind, from a
+shell or from here (spec
+docs/superpowers/specs/2026-10-05-point-campaign-records-design.md):
+  <graph data>/<prefix>/        the campaign record (core/campaign_dir.py):
+                                campaign.json, outcomes.jsonl, parent.lock,
+                                STOP; for a launch from here also
+                                launch.json, lock, parent.log and rc
   <graph data>/closed_loop_logs/<child>.log   one log per child
-  <grid data>/<child>/state/                  point.json, broken.txt, ...
-  the study's board                           the rows
-  <graph data>/<prefix>/STOP                  draining
-A campaign launched here also has <graph data>/<prefix>/campaign.json,
-parent.log, lock (held by the parent for as long as it lives; see
-service/jobs.py) and rc. A shell-launched parent is found by a scan of this
-user's processes (/proc/*/cmdline), which covers the whole host: a campaign
-of the same prefix under another data root counts as live.
+  <grid data>/<child>/state/    the point record (core/point_dir.py),
+                                run.lock held while the point runs
+  the study's board             the rows
+Liveness is the records' flocks, so a campaign on any node that shares the
+data root shows as running.
 
 Only the standard library and bare core/ modules (paths, study, leaderboard):
 never modes, so one broken study file cannot stop the server.
@@ -38,10 +40,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
 import paths  # noqa: E402
 import study as st  # noqa: E402
+from campaign_dir import CampaignDir, is_child  # noqa: E402,F401  (re-exported)
 from leaderboard import Leaderboard, LeaderboardError  # noqa: E402
+from point_dir import PointDir  # noqa: E402
 
 from service.checks import CheckService  # noqa: E402
-from service.jobs import lock_held, spawn_detached  # noqa: E402
+from service.jobs import spawn_detached  # noqa: E402
 
 PREFIX_RE = re.compile(r"[A-Za-z0-9_]+")
 LOG_TAIL = 20
@@ -52,14 +56,8 @@ LAUNCH_SCRIPT = ('source ./activate.sh >/dev/null 2>"$1/parent.log" && '
                  'PYTHONPATH= "$AUTORESEARCH_PYTHON" -u -m graph.closed_loop '
                  '"${@:2}" >>"$1/parent.log" 2>&1; '
                  'echo $? >"$1/rc.tmp" && mv "$1/rc.tmp" "$1/rc"')
-BANNER = "[closed_loop] study="
 REFUSED = "[closed_loop] REFUSED: "
 SPENT = "this prefix is spent: dry-run again and launch under a new prefix"
-
-
-def is_child(prefix: str, name: str) -> bool:
-    """`name` is a child of the campaign `prefix`: <prefix>R<n>_00."""
-    return re.fullmatch(re.escape(prefix) + r"R\d+_00", name) is not None
 
 
 def _check_prefix(prefix: str) -> None:
@@ -94,6 +92,24 @@ def _tail(path: Path, n: int) -> str:
         return ""
 
 
+def child_state(scored: bool, pd: PointDir, outcome: Optional[dict],
+                alive: bool) -> str:
+    """One child's state, the one rule: scored (its row is on the board),
+    broken (broken.txt), running (its graph.run holds run.lock), starting
+    (the campaign is alive and the child has neither an outcome nor ever
+    taken its lock: graph.run is still in its launch checks), else ended
+    without a row."""
+    if scored:
+        return "scored"
+    if pd.broken() is not None:
+        return "broken"
+    if pd.running():
+        return "running"
+    if alive and outcome is None and not pd.ever_ran():
+        return "starting"
+    return "ended without a row"
+
+
 def _refusals(text: str) -> List[str]:
     return [ln[len(REFUSED):] for ln in text.splitlines()
             if ln.startswith(REFUSED)]
@@ -114,7 +130,13 @@ class CampaignService:
     def camp_dir(self, prefix: str) -> Path:
         return self.graph_data / prefix
 
-    # -- what is running ---------------------------------------------------
+    def camp(self, prefix: str) -> CampaignDir:
+        return CampaignDir(self.graph_data, prefix)
+
+    def point(self, name: str) -> PointDir:
+        return PointDir.of(self.grid_data, name)
+
+    # -- the dashboard's, until it reads the records (Task 7) --------------
 
     @staticmethod
     def _processes() -> List[Tuple[int, List[str]]]:
@@ -135,30 +157,17 @@ class CampaignService:
                 out.append((int(entry), argv))
         return out
 
-    def _scan(self) -> Tuple[Dict[str, Tuple[int, Optional[str]]], set]:
-        """Live closed_loop parents {prefix: (pid, study)} and the configs
-        of live graph.run children."""
-        parents, children = {}, set()
-        for pid, argv in self._processes():
-            if "graph.closed_loop" in argv:
-                prefix = _flag(argv, "--name-prefix")
-                if prefix:
-                    parents.setdefault(prefix, (pid, _flag(argv, "--study")))
-            elif "graph.run" in argv:
-                config = _flag(argv, "--config")
-                if config:
-                    children.add(config)
-        return parents, children
-
     # -- the board ---------------------------------------------------------
 
-    def _load_study(self, name: str):
+    def load_study(self, name: str):
         files = self.checks.study_files()
         for path in files:
             if path.stem == name:
                 return st.load_study_file(path)
         raise ValueError(f"no study named {name!r} on the study path; "
                          f"known: {sorted(p.stem for p in files)}")
+
+    _load_study = load_study    # the dashboard's, until it moves (Task 7)
 
     def _board(self, study) -> Leaderboard:
         # Built from this service's data root, as board_for builds it from
@@ -187,7 +196,7 @@ class CampaignService:
 
     def leaderboard(self, study: str, name_prefix: Optional[str] = None,
                     top: int = 20) -> Dict[str, Any]:
-        s = self._load_study(study)
+        s = self.load_study(study)
         board = self._board(s)
         points = board.load()
         obj = s.objectives[0]
@@ -211,118 +220,124 @@ class CampaignService:
         return sorted(p.stem for p in self.logs_dir.glob("*.log")
                       if is_child(prefix, p.stem))
 
-    def _parent(self, prefix: str, parents) -> Dict[str, Any]:
-        cdir = self.camp_dir(prefix)
-        record = self._campaign_json(prefix)
-        if (cdir / "campaign.json").exists():
-            rc = cdir / "rc"
-            exit_code = None
-            if rc.exists():
-                try:
-                    exit_code = int(rc.read_text())
-                except ValueError:
-                    exit_code = None
-            return {"alive": lock_held(cdir / "lock"),
-                    "pid": (record or {}).get("pid"),
-                    "launched_by": "mcp", "exit_code": exit_code,
-                    "log_tail": _tail(cdir / "parent.log", LOG_TAIL)}
-        if prefix in parents:
-            return {"alive": True, "pid": parents[prefix][0],
-                    "launched_by": "shell", "exit_code": None,
-                    "log_tail": ""}
-        return {"alive": False, "pid": None, "launched_by": None,
-                "exit_code": None, "log_tail": ""}
+    def _parent(self, camp: CampaignDir,
+                record: Optional[dict]) -> Dict[str, Any]:
+        launch = camp.launch() or {}
+        log = camp.path / "parent.log"
+        return {"alive": camp.alive(),
+                "pid": (record or {}).get("pid") or launch.get("pid"),
+                "launched_by": camp.launched_by(),
+                "exit_code": camp.exit_code(),
+                "log_tail": _tail(log, LOG_TAIL) if log.exists() else ""}
 
-    def _study_of(self, prefix: str, parents, children) -> Optional[str]:
-        record = self._campaign_json(prefix)
+    def _study_of(self, record: Optional[dict],
+                  children: List[str]) -> Optional[str]:
+        """The record's study; for a campaign from before the records, the
+        study a child's point.json names."""
         if record and record.get("study"):
             return record["study"]
-        if prefix in parents and parents[prefix][1]:
-            return parents[prefix][1]
         for name in children:
             try:
-                point = json.loads((self.grid_data / name / "state"
-                                    / "point.json").read_text())
+                point = self.point(name).point()
             except (OSError, ValueError):
                 continue
-            if point.get("study"):
+            if point and point.get("study"):
                 return point["study"]
         return None
 
     def campaign_status(self, name_prefix: Optional[str] = None):
         if name_prefix is not None:
             _check_prefix(name_prefix)
-        parents, running = self._scan()
         if name_prefix is None:
-            return self._campaigns(parents)
+            return self._campaigns()
         prefix = name_prefix
+        camp = self.camp(prefix)
+        errors = []
+        try:
+            record = camp.record()
+        except (OSError, ValueError) as exc:
+            record = None
+            errors.append(f"{camp.path / 'campaign.json'}: {exc}")
+        try:
+            outcomes = camp.outcomes()
+        except (OSError, ValueError) as exc:
+            outcomes = {}
+            errors.append(str(exc))
         names = self._children(prefix)
-        study_name = self._study_of(prefix, parents, names)
-        scored, rows, best, board_error = set(), 0, None, None
+        study_name = self._study_of(record, names)
+        study, scored, rows, best, board_error = None, {}, 0, None, None
         if study_name is not None:
             try:
-                s = self._load_study(study_name)
-                mine = [p for p in self._board(s).load()
+                study = self.load_study(study_name)
+                mine = [p for p in self._board(study).load()
                         if is_child(prefix, p.cfg)]
             except (ValueError, LeaderboardError) as exc:
                 board_error = str(exc)
             else:
-                scored = {p.cfg for p in mine}
+                scored = {p.cfg: p for p in mine}
                 rows = len(mine)
-                ranked = self._rows(s, mine, None)
+                ranked = self._rows(study, mine, None)
                 best = ranked[0] if ranked else None
+        alive = camp.alive()
         children = []
         for name in names:
-            if name in scored:
-                state = "scored"
-            elif (self.grid_data / name / "state" / "broken.txt").exists():
-                state = "broken"
-            elif name in running:
-                state = "running"
-            else:
-                state = "ended without a row"
-            children.append({"name": name, "state": state,
-                             "last_line": _last_line(
-                                 self.logs_dir / f"{name}.log")})
-        # Liveness (a running parent or child) is what this host's process
-        # table shows; the files are shared by every node.
+            pd = self.point(name)
+            row = scored.get(name)
+            outcome = outcomes.get(name)
+            x = None
+            if study is not None:
+                try:
+                    point = pd.point()
+                except (OSError, ValueError):
+                    point = None
+                values = (point or {}).get("x") or (row.x if row else None)
+                if values is not None:
+                    x = dict(zip(study.knob_names, values))
+            children.append({
+                "name": name,
+                "state": child_state(row is not None, pd, outcome, alive),
+                "last_line": _last_line(self.logs_dir / f"{name}.log"),
+                "outcome": outcome.get("reason") if outcome else None,
+                "x": x, "values": dict(row.y) if row else None})
         return {"prefix": prefix, "study": study_name,
                 "host": socket.gethostname(),
-                "parent": self._parent(prefix, parents),
-                "stopping": (self.camp_dir(prefix) / "STOP").exists(),
+                "parent": self._parent(camp, record),
+                "stopping": camp.stopping(),
                 "children": children, "rows": rows, "best": best,
-                "board_error": board_error}
+                "board_error": board_error,
+                "error": "; ".join(errors) or None}
 
-    def _campaigns(self, parents) -> List[Dict[str, Any]]:
-        out = {}
+    def _campaigns(self) -> List[Dict[str, Any]]:
+        """Every campaign with a record."""
+        out = []
         if self.graph_data.is_dir():
-            for record_path in self.graph_data.glob("*/campaign.json"):
-                prefix = record_path.parent.name
-                record = self._campaign_json(prefix) or {}
-                out[prefix] = {"prefix": prefix, "study": record.get("study"),
-                               "alive": lock_held(record_path.parent / "lock"),
-                               "launched_by": "mcp"}
-        for prefix, (pid, study_name) in parents.items():
-            out.setdefault(prefix, {"prefix": prefix, "study": study_name,
-                                    "alive": True, "launched_by": "shell"})
-        return [out[p] for p in sorted(out)]
+            for path in sorted(self.graph_data.glob("*/campaign.json")):
+                camp = self.camp(path.parent.name)
+                try:
+                    record, error = camp.record() or {}, None
+                except (OSError, ValueError) as exc:
+                    record, error = {}, f"{path}: {exc}"
+                out.append({"prefix": camp.prefix,
+                            "study": record.get("study"),
+                            "alive": camp.alive(),
+                            "launched_by": camp.launched_by(),
+                            "error": error})
+        return out
 
     # -- stop --------------------------------------------------------------
 
     def stop_campaign(self, name_prefix: str) -> Dict[str, Any]:
         _check_prefix(name_prefix)
-        parents, running = self._scan()
+        camp = self.camp(name_prefix)
         names = self._children(name_prefix)
-        parent = self._parent(name_prefix, parents)
-        cdir = self.camp_dir(name_prefix)
         warning = None
-        if (parent["launched_by"] is None and not names):
+        if camp.launched_by() is None and not names:
             warning = f"no sign of a campaign named {name_prefix!r}"
-        cdir.mkdir(parents=True, exist_ok=True)
-        (cdir / "STOP").touch()
-        return {"stop_file": str(cdir / "STOP"),
-                "parent_alive": parent["alive"],
-                "children_running": sum(1 for n in names if n in running),
+        stop = camp.stop()
+        return {"stop_file": str(stop),
+                "parent_alive": camp.alive(),
+                "children_running": sum(1 for n in names
+                                        if self.point(n).running()),
                 "warning": warning}
 
     # -- start -------------------------------------------------------------
@@ -331,7 +346,7 @@ class CampaignService:
                executor: str) -> Optional[Dict[str, int]]:
         """Jobs a campaign would run: prodtools steps' njobs per point."""
         try:
-            s = self._load_study(study)
+            s = self.load_study(study)
         except ValueError:
             return None
         per = sum(int(step.fixed.get("njobs", 0)) for step in s.steps
@@ -399,20 +414,21 @@ class CampaignService:
     def _launch_refusals(self, prefix: str) -> List[str]:
         """Why the server would refuse to launch `prefix` (read only)."""
         out = []
-        parents, _ = self._scan()
-        if prefix in parents:
-            out.append(f"campaign {prefix!r} is already running (pid "
-                       f"{parents[prefix][0]}); stop it or use a new prefix")
-        cdir = self.camp_dir(prefix)
-        if (cdir / "STOP").exists():
-            out.append(f"{cdir / 'STOP'} exists: the campaign would drain at "
-                       f"once and launch nothing; use a new prefix")
-        if (cdir / "campaign.json").exists():
-            out.append(f"campaign {prefix!r} was already launched from MCP "
-                       f"({cdir / 'campaign.json'}); use a new prefix")
+        camp = self.camp(prefix)
+        if camp.alive():
+            out.append(f"campaign {prefix!r} is already running; stop it or "
+                       f"use a new prefix")
+        if camp.stopping():
+            out.append(f"{camp.path / 'STOP'} exists: the campaign would "
+                       f"drain at once and launch nothing; use a new prefix")
+        if camp.launched_by() is not None:
+            which = "launch.json" if camp.launch() is not None \
+                else "campaign.json"
+            out.append(f"campaign {prefix!r} was already launched "
+                       f"({camp.path / which}); use a new prefix")
         if self._children(prefix):
-            # Also a campaign on another node, which the process scan cannot
-            # see: a second parent on one prefix would double its submits.
+            # Also a campaign on another node: a second parent on one
+            # prefix would double its submits.
             out.append(f"prefix {prefix!r} already has children "
                        f"({self.logs_dir}/{prefix}R*_00.log): another "
                        f"campaign used it; use a new prefix")
@@ -423,30 +439,31 @@ class CampaignService:
         refusals = self._launch_refusals(prefix)
         if refusals:
             raise ValueError("; ".join(refusals))
-        cdir = self.camp_dir(prefix)
-        cdir.mkdir(parents=True, exist_ok=True)
-        record_path = cdir / "campaign.json"
+        camp = self.camp(prefix)
         try:
-            fd = os.open(record_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                         0o644)
+            camp.write_launch({"prefix": prefix, "study": study,
+                               "args": argv, "command": command, "pid": None,
+                               "started": time.time()})
         except FileExistsError:
-            raise ValueError(f"campaign {prefix!r} was already launched from "
-                             f"MCP ({record_path}); use a new prefix") \
-                from None
-        record = {"prefix": prefix, "study": study, "args": argv,
-                  "command": command, "pid": None, "started": time.time()}
-        with os.fdopen(fd, "w") as fh:
-            fh.write(json.dumps(record, indent=1) + "\n")
-        record["pid"] = spawn_detached(cdir, LAUNCH_SCRIPT, argv, self.env)
-        record_path.write_text(json.dumps(record, indent=1) + "\n")
-        log, rc = cdir / "parent.log", cdir / "rc"
+            raise ValueError(f"campaign {prefix!r} was already launched "
+                             f"({camp.path / 'launch.json'}); use a new "
+                             f"prefix") from None
+        pid = spawn_detached(camp.path, LAUNCH_SCRIPT, argv, self.env)
+        camp.update_launch(pid=pid)
+        log, rc = camp.path / "parent.log", camp.path / "rc"
         deadline = time.time() + self.launch_wait_s
         while True:
-            text = log.read_text(errors="replace") if log.exists() else ""
-            if BANNER in text:
-                return {"state": "launched", "prefix": prefix,
-                        "pid": record["pid"], "log": str(log)}
+            # closed_loop writes the campaign record once its launch checks
+            # pass: that is "launched".
+            try:
+                launched = camp.record() is not None
+            except (OSError, ValueError):
+                launched = True     # written, if unreadable: it started
+            if launched:
+                return {"state": "launched", "prefix": prefix, "pid": pid,
+                        "log": str(log)}
             if rc.exists():
+                text = log.read_text(errors="replace") if log.exists() else ""
                 problems = _refusals(text)
                 return {"state": "refused", "prefix": prefix,
                         "problems": problems,
@@ -458,7 +475,6 @@ class CampaignService:
                             text.splitlines()[-OUTPUT_TAIL:]),
                         "note": SPENT}
             if time.time() > deadline:
-                return {"state": "starting", "prefix": prefix,
-                        "pid": record["pid"], "log": str(log),
-                        "note": "poll campaign_status"}
+                return {"state": "starting", "prefix": prefix, "pid": pid,
+                        "log": str(log), "note": "poll campaign_status"}
             time.sleep(1)

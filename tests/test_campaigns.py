@@ -64,6 +64,13 @@ class _Camp(unittest.TestCase):
 class TestStatus(_Camp):
     def test_a_shell_campaign(self):
         p = self.shell_loop("shl", 2)
+        # Alive once closed_loop has passed its launch checks and written
+        # its record (it holds parent.lock from then on).
+        deadline = time.time() + 60
+        while not self.svc.campaign_status("shl")["parent"]["alive"]:
+            self.assertIsNone(p.poll(), p.out.read_text()[-3000:])
+            self.assertLess(time.time(), deadline, "never alive")
+            time.sleep(0.2)
         parent = self.svc.campaign_status("shl")["parent"]
         self.assertTrue(parent["alive"], parent)
         self.assertEqual(parent["launched_by"], "shell")
@@ -106,6 +113,55 @@ class TestStatus(_Camp):
         self.assertEqual(children["cstR00_00"]["last_line"], "[run] a")
         self.assertEqual(children["cstR01_00"]["state"],
                          "ended without a row")
+
+    def test_a_starting_child(self):
+        with self.svc.camp("sta").start({"study": "branin"}):
+            self.child_log("staR00_00")
+            st = self.svc.campaign_status("sta")
+            self.assertEqual(st["children"][0]["state"], "starting")
+        st = self.svc.campaign_status("sta")
+        self.assertEqual(st["children"][0]["state"], "ended without a row")
+
+    def test_a_running_child_by_its_lock(self):
+        self.child_log("rnR00_00")
+        with self.svc.point("rnR00_00").run_lock():
+            st = self.svc.campaign_status("rn")
+            self.assertEqual(st["children"][0]["state"], "running")
+            self.assertEqual(
+                self.svc.stop_campaign("rn")["children_running"], 1)
+        self.assertEqual(self.svc.campaign_status("rn")["children"][0]
+                         ["state"], "ended without a row")
+
+    def test_an_old_shell_campaign_gets_its_study_from_a_point(self):
+        self.child_log("oldsR00_00")
+        sd = self.svc.grid_data / "oldsR00_00" / "state"
+        sd.mkdir(parents=True)
+        (sd / "point.json").write_text('{"study": "branin", "x": [1.0, 2.0]}')
+        st = self.svc.campaign_status("olds")
+        self.assertEqual(st["study"], "branin")
+        self.assertEqual(st["children"][0]["x"], {"x1": 1.0, "x2": 2.0})
+        self.assertIsNone(st["parent"]["launched_by"])
+
+    def test_a_bad_record_is_reported(self):
+        self.child_log("badR00_00")
+        d = self.svc.camp("bad").path
+        d.mkdir(parents=True)
+        (d / "campaign.json").write_text("{")
+        st = self.svc.campaign_status("bad")
+        self.assertIn("campaign.json", st["error"])
+        self.assertEqual([c["name"] for c in st["children"]], ["badR00_00"])
+        listed = {c["prefix"]: c for c in self.svc.campaign_status()}
+        self.assertIn("campaign.json", listed["bad"]["error"])
+
+    def test_a_truncated_outcome_line_is_reported(self):
+        self.child_log("trR00_00")
+        with self.svc.camp("tr").start({"study": "branin"}):
+            pass
+        (self.svc.camp("tr").path / "outcomes.jsonl").write_text(
+            '{"name": "trR00_')
+        st = self.svc.campaign_status("tr")
+        self.assertIn("outcomes.jsonl", st["error"])
+        self.assertEqual([c["name"] for c in st["children"]], ["trR00_00"])
 
     def test_a_prefix_that_is_a_path_is_refused(self):
         for prefix in ("", "..", "../x", "/etc", "a-b"):
@@ -156,7 +212,7 @@ class TestStart(_Camp):
         cdir = self.svc.camp_dir(prefix)
         try:
             pid = __import__("json").loads(
-                (cdir / "campaign.json").read_text()).get("pid")
+                (cdir / "launch.json").read_text()).get("pid")
         except (OSError, ValueError):
             return
         if pid:
@@ -190,7 +246,8 @@ class TestStart(_Camp):
         self.assertIn("--name-prefix dry", out["command"])
         # The server writes nothing (closed_loop's launch check leaves its
         # kit trace in that folder, as any launch check does).
-        for name in ("campaign.json", "parent.log", "lock", "STOP"):
+        for name in ("campaign.json", "launch.json", "parent.log", "lock",
+                     "STOP"):
             self.assertFalse((self.svc.camp_dir("dry") / name).exists(), name)
 
     def test_a_refused_dry_run(self):
@@ -233,21 +290,17 @@ class TestStart(_Camp):
         self.wait_parent("dup")
         with self.assertRaises(ValueError) as cm:
             self.launch("dup", 1)
-        self.assertIn("already launched from MCP", str(cm.exception))
+        self.assertIn("already launched", str(cm.exception))
         self.svc.stop_campaign("stp")
         with self.assertRaises(ValueError) as cm:
             self.launch("stp", 1)
         self.assertIn("STOP", str(cm.exception))
-        # A stand-in parent: its argv is all the scan reads.
-        busy = subprocess.Popen(
-            [sys.executable, "-c", "import time; time.sleep(60)",
-             "graph.closed_loop", "--study", "branin",
-             "--name-prefix", "busy"])
-        self.addCleanup(lambda: (busy.kill(), busy.wait()))
-        with self.assertRaises(ValueError) as cm:
-            self.launch("busy", 1)
+        # A stand-in parent: a live one holds parent.lock.
+        with self.svc.camp("busy").start({"study": "branin"}):
+            with self.assertRaises(ValueError) as cm:
+                self.launch("busy", 1)
         self.assertIn("already running", str(cm.exception))
-        self.assertFalse((self.svc.graph_data / "busy").exists())
+        self.assertIsNone(self.svc.camp("busy").launch())
 
     def test_the_dry_run_sees_the_launch_refusals(self):
         # Whatever confirm would refuse, the dry run already says.
@@ -267,7 +320,7 @@ class TestStart(_Camp):
                          "refused")
         out = self.svc.start_campaign("branin", "spt", 1, 1, **self.KW)
         self.assertFalse(out["ok"], out)
-        self.assertTrue(any("already launched from MCP" in p
+        self.assertTrue(any("already launched" in p
                             for p in out["problems"]), out)
 
     def test_a_refused_launch_spends_the_prefix(self):
@@ -277,7 +330,7 @@ class TestStart(_Camp):
         self.assertIn("spent", out["note"])
         with self.assertRaises(ValueError) as cm:
             self.launch("ctx", 1)
-        self.assertIn("already launched from MCP", str(cm.exception))
+        self.assertIn("already launched", str(cm.exception))
 
     def test_stop_drains_a_launch(self):
         self.assertEqual(self.launch("drn", 6)["state"], "launched")

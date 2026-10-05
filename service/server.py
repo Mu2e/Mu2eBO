@@ -130,8 +130,10 @@ def stop_campaign(name_prefix: str) -> dict[str, Any]:
 @server.tool(structured_output=True)
 def campaign_status(name_prefix: str | None = None) -> dict[str, Any]:
     """One campaign: {prefix, study, parent, stopping, children, rows, best,
-    board_error}. With no prefix: {campaigns: [{prefix, study, alive,
-    launched_by}]}, including campaigns started from a shell."""
+    board_error, error}; each child {name, state, last_line, outcome, x,
+    values}, state one of scored, broken, running, starting, ended without
+    a row. With no prefix: {campaigns: [{prefix, study, alive, launched_by,
+    error}]}, every campaign with a record (from a shell or from here)."""
     out = campaigns.campaign_status(name_prefix)
     return {"campaigns": out} if name_prefix is None else out
 
