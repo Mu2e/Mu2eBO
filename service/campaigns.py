@@ -24,7 +24,6 @@ never modes, so one broken study file cannot stop the server.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import shlex
@@ -34,7 +33,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
@@ -65,16 +64,6 @@ def _check_prefix(prefix: str) -> None:
         raise ValueError(f"name_prefix must match [A-Za-z0-9_]+ (it names "
                          f"the campaign's folder and its children); got "
                          f"{prefix!r}")
-
-
-def _flag(argv: List[str], flag: str) -> Optional[str]:
-    """The value of `flag` in argv, as `flag value` or `flag=value`."""
-    for i, a in enumerate(argv):
-        if a == flag and i + 1 < len(argv):
-            return argv[i + 1]
-        if a.startswith(flag + "="):
-            return a[len(flag) + 1:]
-    return None
 
 
 def _last_line(path: Path) -> str:
@@ -136,27 +125,6 @@ class CampaignService:
     def point(self, name: str) -> PointDir:
         return PointDir.of(self.grid_data, name)
 
-    # -- the dashboard's, until it reads the records (Task 7) --------------
-
-    @staticmethod
-    def _processes() -> List[Tuple[int, List[str]]]:
-        """(pid, argv) of this user's processes."""
-        out = []
-        uid = os.getuid()
-        for entry in os.listdir("/proc"):
-            if not entry.isdigit():
-                continue
-            try:
-                if os.stat(f"/proc/{entry}").st_uid != uid:
-                    continue
-                raw = Path(f"/proc/{entry}/cmdline").read_bytes()
-            except OSError:
-                continue            # gone while we looked, or not ours
-            argv = [a.decode(errors="replace") for a in raw.split(b"\0") if a]
-            if argv:
-                out.append((int(entry), argv))
-        return out
-
     # -- the board ---------------------------------------------------------
 
     def load_study(self, name: str):
@@ -166,8 +134,6 @@ class CampaignService:
                 return st.load_study_file(path)
         raise ValueError(f"no study named {name!r} on the study path; "
                          f"known: {sorted(p.stem for p in files)}")
-
-    _load_study = load_study    # the dashboard's, until it moves (Task 7)
 
     def _board(self, study) -> Leaderboard:
         # Built from this service's data root, as board_for builds it from
@@ -206,13 +172,6 @@ class CampaignService:
                 "rows": self._rows(s, points, name_prefix)[:max(top, 0)]}
 
     # -- status ------------------------------------------------------------
-
-    def _campaign_json(self, prefix: str) -> Optional[dict]:
-        try:
-            return json.loads((self.camp_dir(prefix) / "campaign.json")
-                              .read_text())
-        except (OSError, ValueError):
-            return None
 
     def _children(self, prefix: str) -> List[str]:
         if not self.logs_dir.is_dir():

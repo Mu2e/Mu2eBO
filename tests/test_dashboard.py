@@ -1,6 +1,7 @@
 """service/dashboard.py: the live campaign dashboard -- its data from the
 campaign files, the flow graph, the snapshot loop (spec
 docs/superpowers/specs/2026-10-04-dashboard-design.md)."""
+import contextlib
 import copy
 import json
 import os
@@ -49,9 +50,18 @@ class _Dash(unittest.TestCase):
         write_study(toy_doc("toystudy"), studies)
         write_study(dag_doc(), studies)
         self.svc = CampaignService(env=engine_env(self.data, studies))
-        self.procs = []
-        self.svc._processes = lambda: list(self.procs)
+        self.stack = contextlib.ExitStack()
+        self.addCleanup(self.stack.close)
         self.now = time.time()
+
+    def live(self, prefix, **record):
+        """A live campaign: its record written and parent.lock held."""
+        self.stack.enter_context(self.svc.camp(prefix).start(
+            dict(record, prefix=prefix)))
+
+    def run_lock(self, name, stack=None):
+        """A running point: its run.lock held."""
+        (stack or self.stack).enter_context(self.svc.point(name).run_lock())
 
     def child(self, name, study="toystudy", x=(1.0, 2.0), last="[run] x"):
         self.svc.logs_dir.mkdir(parents=True, exist_ok=True)
@@ -77,7 +87,7 @@ class _Dash(unittest.TestCase):
             "progress": progress, "time": self.now - age, "poll_s": poll_s})
 
     def row(self, study, name, x, y):
-        s = self.svc._load_study(study)
+        s = self.svc.load_study(study)
         self.svc._board(s).append(Point(name, list(x), y), {}, META)
 
     def mcp(self, prefix, study, args=()):
@@ -86,10 +96,6 @@ class _Dash(unittest.TestCase):
         (d / "campaign.json").write_text(json.dumps(
             {"prefix": prefix, "study": study, "args": list(args)}))
         return d
-
-    def run_proc(self, name):
-        self.procs.append((1000 + len(self.procs),
-                           ["python", "-m", "graph.run", "--config", name]))
 
     def data_of(self, prefix):
         return dash.campaign_data(self.svc, prefix, self.now)
@@ -110,9 +116,7 @@ class TestData(_Dash):
         os.utime(stale, (self.now - 8 * 86400,) * 2)
         self.assertTrue(old.is_dir())
         self.assertEqual(dash.prefixes(self.svc, self.now, 7), ["aa", "cc"])
-        self.procs.append((99, ["python", "-m", "graph.closed_loop",
-                                "--study", "toystudy", "--name-prefix", "dd",
-                                "--q", "2", "--max-evals", "6"]))
+        self.live("dd", study="toystudy", q=2, max_evals=6)
         self.assertEqual(dash.prefixes(self.svc, self.now, 7),
                          ["aa", "cc", "dd"])
 
@@ -151,7 +155,8 @@ class TestData(_Dash):
     def test_stall(self):
         self.child("stR00_00")
         self.step_file("stR00_00", "toy", "cluster.txt")
-        self.run_proc("stR00_00")
+        held = contextlib.ExitStack()
+        self.run_lock("stR00_00", held)
         for age, poll_s, stall in ((601, 120, True), (599, 120, False),
                                    (899, 300, False), (901, 300, True)):
             with self.subTest(age=age, poll_s=poll_s):
@@ -159,7 +164,7 @@ class TestData(_Dash):
                 p = self.point(self.data_of("st"), "stR00_00")
                 self.assertEqual(p["state"], "running")
                 self.assertEqual(p["steps"]["toy"]["stall"], stall)
-        self.procs.clear()
+        held.close()
         self.status("stR00_00", "toy", age=5000)
         p = self.point(self.data_of("st"), "stR00_00")
         self.assertEqual(p["steps"]["toy"]["stall"], False)
@@ -189,9 +194,7 @@ class TestData(_Dash):
         self.assertEqual((p["state"], p["value"], p["value_label"]),
                          ("scored", 1.0, "1.000000"))
         self.child("shR00_00")
-        self.procs.append((77, ["python", "-m", "graph.closed_loop",
-                                "--study", "toystudy", "--name-prefix", "sh",
-                                "--q", "2", "--max-evals", "6"]))
+        self.live("sh", study="toystudy", q=2, max_evals=6)
         d = self.data_of("sh")
         self.assertEqual((d["q"], d["max_evals"], d["alive"]), (2, 6, True))
         self.assertIsNone(d["best_label"])
@@ -210,7 +213,7 @@ class TestData(_Dash):
         self.child("ubR00_00")
         self.row("toystudy", "ubR00_00", (1.0, 2.0),
                  {"branin": 1.0, "currin": 3.0})
-        board = self.svc._board(self.svc._load_study("toystudy")).path
+        board = self.svc._board(self.svc.load_study("toystudy")).path
         with open(board, "a") as fh:
             fh.write("ubR01_00\tnot-a-number\n")
         snap = dash.build_snapshot(self.svc, self.now, 7, 120)
@@ -230,6 +233,12 @@ class TestData(_Dash):
         self.assertEqual({s: v["state"] for s, v in p["steps"].items()},
                          {"a": "done", "b": "failed", "c": "waiting"})
         self.assertIn("boom", p["steps"]["b"]["message"])
+
+    def test_a_starting_point_is_running(self):
+        self.live("sp", study="toystudy")
+        self.child("spR00_00")
+        p = self.point(self.data_of("sp"), "spR00_00")
+        self.assertEqual(p["state"], "running")
 
     def test_a_bad_status_file(self):
         self.child("bdR00_00", "dagstudy")
@@ -340,8 +349,7 @@ class TestSnapshot(_Dash):
         self.child("enR00_00")
         self.child("lvR00_00")
         self.child("xxR00_00")
-        self.procs.append((5, ["python", "-m", "graph.closed_loop", "--study",
-                               "toystudy", "--name-prefix", "lv"]))
+        self.live("lv", study="toystudy")
         real = dash.campaign_data
 
         def flaky(svc, prefix, now):
