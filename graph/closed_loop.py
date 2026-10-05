@@ -10,8 +10,12 @@ is exit 2 as without it).
 from __future__ import annotations
 
 import argparse
+import contextlib
+import os
+import socket
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -21,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes as _modes  # noqa: E402
 import paths  # noqa: E402
 from boards import board_for  # noqa: E402
+from campaign_dir import CampaignBusy, CampaignDir  # noqa: E402
 from contract import EXECUTORS, KitSet, launch_problems, launch_stagger  # noqa: E402
 from point_dir import BROKEN, PointDir  # noqa: E402
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
@@ -112,7 +117,26 @@ def make_run_child(study, campaign, context_args, executor, parallel):
     return run_child
 
 
+def soft(log=print):
+    """Wrap a campaign-record write so a failure (a full quota) is logged
+    once, loudly, and the campaign goes on: the record decides nothing."""
+    warned = set()
+
+    def wrap(fn, what):
+        def call(*args):
+            try:
+                fn(*args)
+            except OSError as exc:
+                if what not in warned:
+                    warned.add(what)
+                    log(f"[closed_loop] WARNING: campaign record not written "
+                        f"({what}: {exc}); the campaign goes on")
+        return call
+    return wrap
+
+
 def main(argv=None) -> int:
+    argv_list = list(sys.argv[1:] if argv is None else argv)
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--study", required=True)
@@ -139,7 +163,7 @@ def main(argv=None) -> int:
     ap.add_argument("--check-only", action="store_true",
                     help="run every launch check, print OK and exit 0 "
                          "without launching anything")
-    args = ap.parse_args(argv)
+    args = ap.parse_args(argv_list)
 
     removed = local_env_refusal()
     if removed:
@@ -192,29 +216,57 @@ def main(argv=None) -> int:
               flush=True)
         return 0
     stagger = launch_stagger(study) if args.stagger is None else args.stagger
-    stop = paths.GRAPH_DATA / args.name_prefix / "STOP"
-    print(f"[closed_loop] study={study.name} q={args.q} "
-          f"max_evals={args.max_evals} picker={args.picker} "
-          f"prefix={args.name_prefix} board={board_for(study).path} "
-          f"stagger={stagger:g}s executor={args.executor}", flush=True)
-    result = run_rolling(
-        mode=study.name, picker=args.picker, q=args.q,
-        max_evals=args.max_evals, name_prefix=args.name_prefix,
-        run_child=make_run_child(study, args.name_prefix, args.context,
-                                 args.executor, args.parallel),
-        next_pick=make_pick_source(study, args.name_prefix,
-                                   surrokit_pick(study)),
-        stop_flag=stop.exists,
-        row_landed=lambda name, mode: name in {p.cfg for p in
-                                               board_for(study).load()},
-        broken=lambda name: point_dir(name).broken() is not None,
-        stagger=stagger)
-    tally = Counter(oc.reason for oc in result["outcomes"])
-    print(f"[closed_loop] done: launched={result['launched']} "
-          f"rows={result['rows']} aborted={result['aborted']} | "
-          + ", ".join(f"{k}={n}" for k, n in sorted(tally.items())),
-          flush=True)
-    return 1 if result["aborted"] else 0
+    camp = CampaignDir(paths.GRAPH_DATA, args.name_prefix)
+    record = {"prefix": args.name_prefix, "study": study.name,
+              "args": argv_list, "q": args.q, "max_evals": args.max_evals,
+              "picker": args.picker, "executor": args.executor,
+              "parallel": args.parallel, "context": list(args.context),
+              "stagger": stagger, "host": socket.gethostname(),
+              "pid": os.getpid(), "started": time.time()}
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(camp.start(record))
+        except CampaignBusy as exc:
+            print(f"[closed_loop] REFUSED: {exc}", flush=True)
+            return 2
+        except OSError as exc:
+            print(f"[closed_loop] REFUSED: cannot write the campaign record: "
+                  f"{exc}", flush=True)
+            return 2
+        recorded = soft(lambda m: print(m, flush=True))
+        rc = 1
+        try:
+            print(f"[closed_loop] study={study.name} q={args.q} "
+                  f"max_evals={args.max_evals} picker={args.picker} "
+                  f"prefix={args.name_prefix} board={board_for(study).path} "
+                  f"stagger={stagger:g}s executor={args.executor}",
+                  flush=True)
+            append = recorded(camp.append_outcome, "outcome")
+            result = run_rolling(
+                mode=study.name, picker=args.picker, q=args.q,
+                max_evals=args.max_evals, name_prefix=args.name_prefix,
+                run_child=make_run_child(study, args.name_prefix,
+                                         args.context, args.executor,
+                                         args.parallel),
+                next_pick=make_pick_source(study, args.name_prefix,
+                                           surrokit_pick(study)),
+                stop_flag=camp.stopping,
+                row_landed=lambda name, mode: name in {
+                    p.cfg for p in board_for(study).load()},
+                broken=lambda name: point_dir(name).broken() is not None,
+                stagger=stagger,
+                on_outcome=lambda oc: append(
+                    {**oc._asdict(), "x": [float(v) for v in oc.x],
+                     "time": time.time()}))
+            tally = Counter(oc.reason for oc in result["outcomes"])
+            print(f"[closed_loop] done: launched={result['launched']} "
+                  f"rows={result['rows']} aborted={result['aborted']} | "
+                  + ", ".join(f"{k}={n}" for k, n in sorted(tally.items())),
+                  flush=True)
+            rc = 1 if result["aborted"] else 0
+            return rc
+        finally:
+            recorded(camp.finish, "finish")(rc)
 
 
 if __name__ == "__main__":

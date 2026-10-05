@@ -100,6 +100,116 @@ class TestBusyNames(unittest.TestCase):
                                  (3, "budget_sob", [[1.0, 1.0]])])
 
 
+class TestCampaignRecord(unittest.TestCase):
+    """Every campaign writes <GRAPH_DATA>/<prefix>/campaign.json and one
+    outcomes.jsonl line per finished child (spec
+    docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
+
+    LOCAL = ["--executor", "local", "--parallel", "1"]
+
+    def setUp(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        self.data = Path(td.name)
+        self.env = engine_env(self.data, ENGINE_STUDIES)
+
+    def camp(self, prefix):
+        from campaign_dir import CampaignDir
+        return CampaignDir(self.data / "autoresearch_graph_data", prefix)
+
+    def loop(self, prefix, max_evals):
+        return subprocess.run(loop_cmd("branin", 1, max_evals, prefix)
+                              + self.LOCAL, cwd=ROOT, env=self.env,
+                              capture_output=True, text=True, timeout=180)
+
+    def test_record_and_outcomes(self):
+        r = self.loop("rec", 2)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        rec = self.camp("rec").record()
+        self.assertEqual((rec["study"], rec["q"], rec["max_evals"],
+                          rec["exit_code"]), ("branin", 1, 2, 0))
+        self.assertTrue(rec["host"])
+        self.assertIn("--name-prefix", rec["args"])
+        out = self.camp("rec").outcomes()
+        self.assertEqual(sorted(out), ["recR00_00", "recR01_00"])
+        self.assertEqual({o["reason"] for o in out.values()}, {"ok"})
+        self.assertFalse(self.camp("rec").alive())
+
+    def test_a_shell_relaunch_of_an_ended_prefix(self):
+        r = self.loop("rel", 1)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        first = self.camp("rel").record()["started"]
+        r = self.loop("rel", 1)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        self.assertIn("SKIP relR00_00", r.stdout)
+        self.assertEqual(sorted(self.camp("rel").outcomes()),
+                         ["relR00_00", "relR01_00"])
+        self.assertGreater(self.camp("rel").record()["started"], first)
+        lines = (self.camp("rel").path / "outcomes.jsonl").read_text()
+        self.assertEqual(len(lines.splitlines()), 2)
+
+    def main_in_process(self, prefix, **patches):
+        """closed_loop.main in this process, on the sandbox data root."""
+        out = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(
+                paths, "GRAPH_DATA", self.data / "autoresearch_graph_data"))
+            stack.enter_context(mock.patch.object(
+                paths, "GRID_DATA_ROOT", self.data / "autoresearch_grid"))
+            stack.enter_context(mock.patch.dict(
+                closed_loop._modes.STUDIES,
+                {"branin": st.load_study_file(ENGINE_STUDIES
+                                              / "branin.json")}))
+            stack.enter_context(mock.patch.object(
+                closed_loop, "launch_problems", return_value=[]))
+            stack.enter_context(mock.patch.object(
+                closed_loop, "KitSet", return_value=mock.MagicMock()))
+            for name, value in patches.items():
+                stack.enter_context(mock.patch.object(closed_loop, name,
+                                                      value))
+            stack.enter_context(contextlib.redirect_stdout(out))
+            try:
+                rc = closed_loop.main(["--study", "branin", "--q", "1",
+                                       "--max-evals", "2", "--picker",
+                                       "budget_sob", "--name-prefix", prefix,
+                                       "--stagger", "0", *self.LOCAL])
+            except RuntimeError as exc:
+                rc = exc
+        return rc, out.getvalue()
+
+    def test_a_live_prefix_is_refused(self):
+        rolling = mock.MagicMock()
+        with self.camp("liv").start({"study": "branin"}):
+            rc, out = self.main_in_process("liv", run_rolling=rolling)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("[closed_loop] REFUSED: ", out)
+        self.assertIn("already running", out)
+        rolling.assert_not_called()
+
+    def test_a_failing_outcome_write_does_not_stop_the_pool(self):
+        def rolling(**kw):
+            from pool import Outcome
+            for i in range(2):
+                kw["on_outcome"](Outcome(f"owR0{i}_00", [0.0, 0.0], 0, True,
+                                         False, "ok"))
+            return {"launched": 2, "rows": 2, "outcomes": [],
+                    "aborted": False}
+        from campaign_dir import CampaignDir
+        with mock.patch.object(CampaignDir, "append_outcome",
+                               side_effect=OSError(122, "Disk quota")):
+            rc, out = self.main_in_process("ow", run_rolling=rolling)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(out.count("campaign record not written"), 1, out)
+        self.assertIn("Disk quota", out)
+        self.assertEqual(self.camp("ow").record()["exit_code"], 0)
+
+    def test_finish_records_1_when_the_pool_raises(self):
+        rc, out = self.main_in_process(
+            "fin", run_rolling=mock.MagicMock(side_effect=RuntimeError("x")))
+        self.assertIsInstance(rc, RuntimeError, out)
+        self.assertEqual(self.camp("fin").record()["exit_code"], 1)
+
+
 class TestBraninCampaign(unittest.TestCase):
     """The Phase B acceptance: a toy study runs end to end from its JSON file
     alone (Branin, 2 objectives, 1 constraint, q = 2, 8 evaluations) in

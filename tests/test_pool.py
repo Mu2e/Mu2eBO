@@ -141,6 +141,21 @@ class TestDrain(unittest.TestCase):
         self.assertEqual(len(res["outcomes"]), 4)
 
 
+class TestOnOutcome(unittest.TestCase):
+    def test_on_outcome_sees_every_outcome(self):
+        seen = []
+        next_pick, _ = _picker()
+        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=3,
+                               name_prefix="t",
+                               run_child=lambda name, x: 0,
+                               next_pick=next_pick, stop_flag=lambda: False,
+                               row_landed=_ROW_LANDED, broken=_NOT_BROKEN,
+                               stagger=0, on_outcome=seen.append)
+        self.assertEqual(len(seen), 3)
+        self.assertEqual(seen, res["outcomes"])
+        self.assertEqual({oc.reason for oc in seen}, {"ok"})
+
+
 class TestNoRowStreak(unittest.TestCase):
     def test_streak_increments_on_rowless_and_resets_on_row(self):
         """Each child's outcome is observed as it resolves; there are no wave
@@ -321,7 +336,7 @@ class TestHeartbeat(unittest.TestCase):
         self.assertIn("busy_reason", joined)
         self.assertIn("another --name-prefix", joined)
         self.assertIn("do NOT relaunch it under the same --name-prefix", joined)
-        self.assertIn("pgrep", joined)
+        self.assertIn("run.lock", joined)
 
     def test_no_warning_below_threshold(self):
         lines = []

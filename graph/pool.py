@@ -15,10 +15,15 @@ starts).
 """
 from __future__ import annotations
 
+import sys
 import time
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
 from concurrent.futures import as_completed
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+from campaign_dir import child_name  # noqa: E402,F401  (THE child-name shape)
 
 Outcome = namedtuple("Outcome", "name x rc row_landed broken reason")
 
@@ -55,8 +60,9 @@ def _log_inflight(inflight, log, now=None, warn_after=STALL_WARN_S):
         log(f"[pool] WARNING {name} has been in flight {age / 3600:.1f}h "
             f"(> {warn_after / 3600:.0f}h). Nothing is being resolved or "
             f"abandoned on its account -- the parent waits for its "
-            f"subprocess to exit, by design. To investigate: "
-            f"`pgrep -f 'graph.run.*{name}'`, its log under "
+            f"subprocess to exit, by design. To investigate: its "
+            f"<grid>/{name}/state/run.lock (`flock -n` on it fails while "
+            f"the child runs), its log under "
             f"closed_loop_logs/{name}.log, and `jobsub_q -G mu2e "
             f"--user=$USER`. If you kill it, do NOT relaunch it under the "
             f"same --name-prefix: `state/point.json` or `*_cluster.txt` "
@@ -96,13 +102,15 @@ def _should_abort(streak: int, q: int) -> bool:
 
 def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
                 next_pick, row_landed, broken, stagger, stop_flag=None,
-                log=print, heartbeat=HEARTBEAT_S):
+                log=print, heartbeat=HEARTBEAT_S, on_outcome=None):
     """Keep q children in flight until max_evals launched and the pool drains.
 
     Returns {"launched", "rows", "outcomes", "aborted"}. `stagger` separates
     launches: concurrent mu2ejobsub within ~10s races
     (wiki/incidents/concurrent-token-contention.md measured 60-90s safe).
     `heartbeat` is REPORT-ONLY -- never resolves/abandons (_log_inflight).
+    `on_outcome(oc)`, if given, sees each Outcome once it is logged, in the
+    main loop and the drain alike (graph/closed_loop.py records it).
     """
     stop_flag = stop_flag or (lambda: False)
 
@@ -124,6 +132,8 @@ def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
             log(f"[pool] {name} raised: {exc}")
         oc = classify(name, x, rc, row_landed(name, mode), broken(name))
         log(f"[pool] {name}: {oc.reason}")
+        if on_outcome is not None:
+            on_outcome(oc)
         return oc
 
     with ThreadPoolExecutor(max_workers=q) as poolx:
@@ -166,12 +176,6 @@ def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
 
 
 # --- child names ----------------------------------------------------------
-
-def child_name(name_prefix: str, i: int) -> str:
-    """THE child-name shape `{prefix}R{i:02d}_00`; every producer (allocator,
-    skip summary, dry-run preview) goes through here so names cannot drift."""
-    return f"{name_prefix}R{i:02d}_00"
-
 
 def next_free_name(name_prefix, start, busy_reason, *, log, summary_hint):
     """(name, index) of the first name at or after index `start` that
