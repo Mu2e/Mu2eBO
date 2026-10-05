@@ -18,7 +18,7 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   (2026-10-02): G4beamline studies through beamkit, knobs as deck params,
   status from queue and quorum, the FoM counted from the ntuples
 status: active
-timestamp: '2026-10-02'
+timestamp: '2026-10-05'
 ---
 
 # Contract engine (Phase B)
@@ -1142,13 +1142,14 @@ study).
   - submits run under the prodtools adapter's host-wide lock, 90 s apart. Each `run_beamline` ends in a prodtools submissions tick, which refuses to run beside another, and which also runs prodtools' recovery pass over the whole personal ledger.
 - **status:** beamkit has no "finished" state on Fermilab.
   - **working** while the campaign's queue (prodtools `campaign_status` inside `beamline_status`) has idle or running jobs;
-  - **completed** when at least `ceil(quorum × njobs)` files exist;
+  - **completed** when the files meet the quorum, by the prodtools rule (`prodtools.meets_quorum`: at least one, and files/njobs ≥ quorum). Until 2026-10-05 it was `ceil(quorum × njobs)`, which floats make one too many in edge cases (8 for 0.07 × 100); no live study was affected;
   - **failed** otherwise, with "k of n files, m held";
   - **an unreadable queue** fails after 6 h in a row, counted from the first unreadable poll (the prodtools adapter's rule);
   - **held jobs are in flight** until they have been all that is left for 2 h (`held_since`, reset when a job runs or idles). jobsub can hold a just-submitted cluster for a moment: in campaign ptg5k01, a cluster was all held at its first poll and running a minute later. Judging held terminal failed two children whose jobs ran on (fixed in 87a19a2). A quorum of files completes the step without waiting on held stragglers;
   - the verdict and the files judged are kept in the step record, and `results` counts exactly those files;
   - read calls are retried, and polls are 2 minutes apart.
   - `make_recoveries` is never called: it acts on the whole ledger.
+- **no cancel:** beamkit has no cancel tool, so the kit does not offer `cancel` (2026-10-05). When another step fails, the scheduler logs "cannot cancel; it runs to completion". Until then it offered a `cancel` that only read the status, and the scheduler logged "cancel requested" while the jobs kept running. Remove them with `jobsub_rm` if needed.
 - **results:** uproot reads the tree at `plane`, a path in the file (`VirtualDetector/<name>` for a virtualdetector, `NTuple/<name>` for a zntuple), from the files `beamline_outputs` lists, and counts unique `(file, EventID, TrackID)` with a listed PDG id per POT (files × `events_per_job`). The version is `beamkit-adapter/1+beamkit-<server>+fom<N>`.
 - **Tests:**
   - **The fake server,** `tests/fakebeamkit.py`, driven through the real KitClient. Its `preset.json` stands for a finished run.

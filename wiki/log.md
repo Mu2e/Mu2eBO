@@ -5,6 +5,16 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-10-05
+- **updated** [surrogate](/drivers/surrogate.md): a `SystemExit` in
+  `core/botorch_predict.py` escaped the MCP SDK's tool-error handling and
+  killed the surrogate server; refused pick requests are `ValueError` now.
+- **updated** [contract-engine](/drivers/contract-engine.md): the beamkit
+  adapter no longer offers `cancel` (it had none; the scheduler logged
+  "cancel requested" while jobs ran on), and uses the prodtools quorum rule
+  (`meets_quorum`) instead of `ceil(quorum × njobs)`, which floats make one
+  too many (8 for 0.07 × 100).
+
 ## 2026-10-04
 - **updated** [service](/drivers/service.md): the live campaign dashboard
   (`python -m service.dashboard`): a flow graph per campaign from a file

@@ -17,13 +17,14 @@ deck, how many jobs, and what to count.
   (list_beamline_runs), so a rerun never submits a second run.
 - status: beamkit has no "finished" state, so the verdict comes from the
   campaign's queue (prodtools campaign_status) and the output count:
-  working while a job is idle or running, then completed when at least
-  ceil(quorum * njobs) files exist, else failed. The verdict and the files
-  it judged are kept in the record; results counts exactly those. A queue
-  unreadable for 6 h in a row (counted from the first unreadable poll)
-  fails. Read calls are retried as NativeKit's are. make_recoveries is
-  never called; note that every run_beamline's own tick still runs
-  prodtools' recovery pass over the whole personal ledger.
+  working while a job is idle or running, then completed when the files
+  meet the quorum (prodtools.meets_quorum: files/njobs >= quorum), else
+  failed. The verdict and the files it judged are kept in the record;
+  results counts exactly those. A queue unreadable for 6 h in a row
+  (counted from the first unreadable poll) fails. Read calls are retried
+  as NativeKit's are. make_recoveries is never called; note that every
+  run_beamline's own tick still runs prodtools' recovery pass over the
+  whole personal ledger.
 - results: the figure of merit, counted here from the job ntuples with
   uproot: unique (file, EventID, TrackID) in the tree at `plane` -- its
   path in the file: g4bl writes a virtualdetector under
@@ -37,7 +38,6 @@ import contextlib
 import fcntl
 import hashlib
 import json
-import math
 import re
 import threading
 import time
@@ -46,7 +46,7 @@ from typing import Callable, Optional, Sequence
 
 if __package__ == "core.adapters":
     from core import kit_config, kit_registry, paths
-    from core.adapters.prodtools import SUBMIT_LOCK
+    from core.adapters.prodtools import SUBMIT_LOCK, meets_quorum
     from core.contract import (ContractError, call_with_retries,
                                parse_results, parse_status)
     from core.kits import KitClient, KitError
@@ -55,7 +55,7 @@ else:
     import kit_config
     import kit_registry
     import paths
-    from adapters.prodtools import SUBMIT_LOCK
+    from adapters.prodtools import SUBMIT_LOCK, meets_quorum
     from contract import (ContractError, call_with_retries, parse_results,
                           parse_status)
     from kits import KitClient, KitError
@@ -189,7 +189,9 @@ class BeamkitKit:
 
     @property
     def tools(self) -> frozenset:
-        return frozenset({"submit", "status", "results", "cancel"})
+        # No cancel: beamkit has none, and a kit that offers one has the
+        # scheduler log "cancel requested" while its jobs keep running.
+        return frozenset({"submit", "status", "results"})
 
     def describe(self):
         return None
@@ -308,8 +310,8 @@ class BeamkitKit:
             return self._status("working", f"{live} job(s) queued or "
                                 f"running, {held} held, {n_files} file(s)",
                                 progress, poll_ms=POLL_MS)
-        need = math.ceil(rec["quorum"] * rec["njobs"])
-        if n_files >= need:
+        quorum = f"quorum {rec['quorum']:g}"
+        if meets_quorum(n_files, rec["njobs"], rec["quorum"]):
             return self._decide(rec, path, "completed", f"{n_files} of "
                                 f"{rec['njobs']} files", files)
         if held:
@@ -325,12 +327,12 @@ class BeamkitKit:
                 return self._decide(rec, path, "failed", f"{held} job(s) "
                                     f"held for {HELD_LIMIT_S // 3600} h, "
                                     f"{n_files} of {rec['njobs']} files "
-                                    f"(quorum {need}): {reasons}")
+                                    f"({quorum}): {reasons}")
             return self._status("working", f"{held} held, {n_files} "
                                 f"file(s): {reasons}", progress,
                                 poll_ms=POLL_MS)
         return self._decide(rec, path, "failed", f"{n_files} of "
-                            f"{rec['njobs']} files (quorum {need}), 0 held")
+                            f"{rec['njobs']} files ({quorum}), 0 held")
 
     def results(self, handle, workflow):
         rec, _ = self._record(handle, workflow)
@@ -350,10 +352,6 @@ class BeamkitKit:
             "metadata": {"run_id": rec["run_id"], "plane": rec["plane"],
                          "pdg": rec["pdg"], "adapter": self._version}},
             self.name)
-
-    def cancel(self, handle, workflow):
-        state = self.status(handle, workflow).state
-        return state  # beamkit has no cancel: remove the jobs with jobsub_rm
 
     # --- helpers -----------------------------------------------------------
     def _call(self, tool, args, workflow):

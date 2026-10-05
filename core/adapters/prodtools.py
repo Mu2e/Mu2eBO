@@ -50,6 +50,15 @@ DEFAULT_PARALLEL = 4
 UNKNOWN_LIMIT_S = 6 * 3600
 STAGEOUT_LIMIT_S = 30 * 60
 STARTING_LIMIT_S = 10 * 60
+
+
+def meets_quorum(ok: int, njobs: int, quorum: float) -> bool:
+    """The quorum rule of the grid adapters (beamkit counts files): at
+    least one good job and ok/njobs >= quorum. The ratio, not
+    ceil(quorum * njobs), which in floats is 8 for 0.07 * 100."""
+    return ok > 0 and ok / njobs >= quorum
+
+
 # Receipt states before a run is known to be running: a receipt left in
 # one of them means prodtools died mid-submit or mid-launch.
 STUCK = ("submitting", "building", "starting")
@@ -469,7 +478,7 @@ class ProdtoolsKit:
                 f"run_status truncated the output list "
                 f"({reply['outputs_truncated']} ok jobs), so not every "
                 f"output can be seen")
-        if ok == 0 or ok / njobs < rec["quorum"]:
+        if not meets_quorum(ok, njobs, rec["quorum"]):
             return self._decide(sdir, rec, "failed",
                                 f"{ok}/{njobs} jobs ok, below quorum "
                                 f"{rec['quorum']}", progress=progress)

@@ -433,6 +433,22 @@ class TestAdapter(_Tmp):
         self.assertIn("beamkit-0.5.1-fake", self.kit.version)
         self.assertIn("fom1", self.kit.version)
 
+    def test_cancel_is_not_offered(self):
+        # beamkit has no cancel tool. Offering one made the scheduler log
+        # "cancel requested" while the grid jobs kept running.
+        self.assertNotIn("cancel", self.kit.tools)
+
+    def test_quorum_is_the_prodtools_rule(self):
+        # 7 of 100 files meets a 0.07 quorum, as in prodtools; in floats
+        # ceil(0.07 * 100) is 8.
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(njobs=100, quorum=0.07), [], [],
+                        "w")
+        self.set_run(name, queue={"state": "known", "idle": 0, "running": 0,
+                                  "held": 0}, files=[f"/x/{i}.root"
+                                                     for i in range(7)])
+        self.assertEqual(self.kit.status(name, "w").state, "completed")
+
 
 KLIST = """Ticket cache: FILE:/tmp/krb5cc_fake
 Default principal: someone@FNAL.GOV
