@@ -16,7 +16,7 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   pre-check at the center point), submitting nothing; a knob-built
   profile's clip must equal its knobs' bounds (2026-10-02); beamkit adapter
   (2026-10-02): G4beamline studies through beamkit, knobs as deck params,
-  status from queue and quorum, the FoM counted from the ntuples
+  status from queue and quorum, the FoM counted from the ntuples; point and campaign records (2026-10-05): core/point_dir.py and core/campaign_dir.py own a point's state/ and a campaign's folder, graph.run holds state/run.lock, every closed_loop writes campaign.json + outcomes.jsonl and holds parent.lock
 status: active
 timestamp: '2026-10-05'
 ---
@@ -1155,6 +1155,58 @@ study).
   - **The fake server,** `tests/fakebeamkit.py`, driven through the real KitClient. Its `preset.json` stands for a finished run.
   - **End to end,** `check_study` and `graph.run` against the fake. A fake `klist` on `PATH` satisfies the Kerberos launch check without a ticket.
   - **Pinned lists:** two existing tests pinned assumptions a non-`_ax`, unconstrained study breaks (the exact list of loaded studies; "every problem has a constraint"). Both were updated.
+
+### Point and campaign records (2026-10-05)
+
+Survey candidates A and B of the 2026-10-05 architecture survey. Spec
+`docs/superpowers/specs/2026-10-05-point-campaign-records-design.md`, plan
+`docs/superpowers/plans/2026-10-05-point-campaign-records.md`.
+
+- **`core/point_dir.py` (`PointDir`) owns a point's `state/` folder.** The
+  scheduler, the per-point graph, `score`, `graph.run`, closed_loop's busy
+  check, check_study, the campaign service and the dashboard all go
+  through it; no other module builds a `state/...` path.
+  - `broken.txt` keeps its text format (`step <step>: <reason>` or
+    `<reason>`), but the first writer now wins (the scheduler and score
+    used to overwrite). Nothing relied on the overwrite: graph.run refuses
+    a point that already has broken.txt, and a retry deletes it first.
+    `PointDir.broken()` is its only parser.
+  - `step_state(step)` is the one file-to-state rule (done, failed,
+    working, waiting); the dashboard keeps only its stall rule.
+  - `scheduler.write_atomic` is now `point_dir.write_atomic`, re-exported
+    from the scheduler for the adapters; `PointMismatch` moved there too
+    (re-exported from `study_graph`).
+- **`graph.run` holds `state/run.lock` (flock) while the point runs,** taken
+  after `launch_problems` (a refused point still writes no folder). A
+  second `graph.run` on the same config is refused (exit 2, "already
+  running"); `broken.txt` is checked again once the lock is held. The
+  busy-name advice is now `flock -n <state>/run.lock true` (succeeds when
+  nothing runs it), not `pgrep`.
+- **`core/campaign_dir.py` owns `<GRAPH_DATA>/<prefix>/`:** child names
+  (`child_name`, moved from the pool; `parse_child` accepts only what
+  `child_name` produces, so not `fooR5_00` or `fooR00_01`), and
+  `CampaignDir`.
+  - Every `graph.closed_loop` (shell or MCP) writes `campaign.json` once its
+    launch checks pass (study, args, q, max_evals, picker, executor,
+    parallel, context, stagger, host, pid, started), holds `parent.lock`
+    while alive, appends one `outcomes.jsonl` line per finished child (the
+    pool's Outcome, via `run_rolling(on_outcome=)`), and adds `ended` and
+    `exit_code` at the end (1 when the pool raised).
+  - A live prefix (another parent holds `parent.lock`) is refused with
+    `[closed_loop] REFUSED:` and exit 2. A shell relaunch of an ended
+    prefix replaces the record and keeps appending outcomes.
+  - A failed outcome or finish write (a full quota) is logged once and the
+    campaign goes on: the record decides nothing.
+  - An old MCP record (`prefix, study, args, command, pid, started`) gets
+    q/max-evals/... from its own args in `record()`.
+- **`core/locks.py`:** `hold(path, wait_s=2.0)` retries for 2 s before
+  `LockBusy`, because a reader's probe (`held`, a shared lock taken and
+  dropped, ~0.3 ms on CephFS) must never refuse a run. flock(2) works
+  across processes on this CephFS kernel mount; Python fds are not
+  inherited (PEP 446) and the children use Popen's default `close_fds`, so
+  no kit server or child keeps a parent's or a point's lock.
+- **Rollout:** merge only when no campaign runs; points and parents started
+  by older code hold no lock and read as ended.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded

@@ -102,8 +102,15 @@ replacement per exit, refitting the GP against the leaderboard as it stands.
 
 ## Where things land
 
-- `<GRID_DATA_ROOT>/<config>/state/` — `point.json`, `<step>_cluster.txt`,
-  `<step>_results.json`, `broken.txt` (written at the first step failure).
+- `<GRID_DATA_ROOT>/<config>/state/` — the point record (`core/point_dir.py`):
+  `point.json`, `<step>_cluster.txt`, `<step>_status.json`,
+  `<step>_results.json`, `broken.txt` (written at the first failure), and
+  `run.lock`, held by the `graph.run` running the point
+  (`flock -n <state>/run.lock true` fails while it runs).
+- `$GRAPH_DATA/<name-prefix>/` — the campaign record (`core/campaign_dir.py`):
+  `campaign.json` (study, q, max-evals, host, pid; exit code at the end),
+  `outcomes.jsonl` (one line per finished point), `parent.lock` (held
+  while the campaign runs) and `STOP`.
 - The v2 leaderboards, under `$AUTORESEARCH_DATA_ROOT/autoresearch_leaderboards/`.
   The committed `leaderboards/` is a read-only archive, read as priors and
   never written.

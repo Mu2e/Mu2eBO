@@ -1,9 +1,9 @@
 ---
 type: driver
 title: autoresearch MCP server (study and campaign tools)
-description: service/ — the `autoresearch` MCP server (stdio, .mcp.json); start_check/check_result run `graph.check_study --json` as a detached job polled for its report, plus list_studies/show_study/study_guide; liveness is a flock the server hands to the job (pass_fds); never imports modes; accepted 2026-10-02 (ce_chain local 58 s, foilspfbpz_ax grid pre-check 314 s, broken draft 1.3 s). Campaign tools (2026-10-02): start_campaign (a dry run through `graph.closed_loop --check-only`, confirm=true launches detached; one MCP launch per prefix), stop_campaign, campaign_status (any campaign, shell-started too), leaderboard. Dashboard (2026-10-04): `python -m service.dashboard`, a live flow graph of every campaign from the files (snapshot.json every 2 min, served on 127.0.0.1)
+description: service/ — the `autoresearch` MCP server (stdio, .mcp.json); start_check/check_result run `graph.check_study --json` as a detached job polled for its report, plus list_studies/show_study/study_guide; liveness is a flock the server hands to the job (pass_fds); never imports modes; accepted 2026-10-02 (ce_chain local 58 s, foilspfbpz_ax grid pre-check 314 s, broken draft 1.3 s). Campaign tools (2026-10-02): start_campaign (a dry run through `graph.closed_loop --check-only`, confirm=true launches detached; one MCP launch per prefix), stop_campaign, campaign_status (any campaign, shell-started too), leaderboard. Dashboard (2026-10-04): `python -m service.dashboard`, a live flow graph of every campaign from the files (snapshot.json every 2 min, served on 127.0.0.1); campaign_status and the dashboard read the point and campaign records (2026-10-05), liveness by flock, no process scan
 status: active
-timestamp: '2026-10-04'
+timestamp: '2026-10-05'
 ---
 
 # autoresearch MCP server (study and campaign tools)
@@ -110,43 +110,56 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
     check (`core/contract.py:329`), so that folder exists after a dry run.
   - **`confirm=true` relaunches the same argv without the flag,** so
     closed_loop's own checks run again. It is refused at once when:
-    - a live parent has the prefix;
+    - a live parent has the prefix (its `parent.lock`, or the MCP
+      wrapper's `lock`);
     - `<prefix>/STOP` exists;
-    - `<prefix>/campaign.json` exists. It is claimed with `O_EXCL`, so of
-      two concurrent confirms only one launches;
-    - the prefix already has child logs. That covers a campaign on another
-      node, which the process scan cannot see; a second parent on one
-      prefix would double its grid submits.
+    - the prefix was ever launched: `<prefix>/launch.json` (claimed with
+      `O_EXCL`, so of two concurrent confirms only one launches) or
+      `<prefix>/campaign.json` exists;
+    - the prefix already has child logs: a second parent on one prefix
+      would double its grid submits.
   - **The dry run reports those refusals too** (final-review fix), so the
     check and the launch never disagree.
   - **One MCP launch per prefix:** a launch closed_loop refuses spends the
     prefix (`state: "refused"`, note "dry-run again and launch under a new
     prefix").
-  - **The answer:** it watches `<prefix>/parent.log` for up to 600 s for
-    `[closed_loop] study=` (`launched`) or `rc` (`refused`); otherwise it
-    returns `starting`.
+  - **The answer:** for up to 600 s it waits for `<prefix>/campaign.json`,
+    which closed_loop writes once its launch checks pass (`launched`), or
+    `rc` (`refused`, with the `REFUSED:` lines read from `parent.log`);
+    otherwise it returns `starting`. The launch record is
+    `<prefix>/launch.json` (command, the wrapper's pid) since 2026-10-05.
 - **`stop_campaign(prefix)`** touches `<prefix>/STOP`: running children
-  drain. It warns "no sign of a campaign" when there is no
-  `campaign.json`, no live parent and no child log.
-- **`campaign_status(prefix)`** reads only files every campaign leaves:
-  - **Parent:**
-    - an MCP launch's liveness is its lock, and `exit_code` comes from `rc`;
-    - a shell launch is found by a scan of `/proc/*/cmdline` for this
-      user, an argv holding `graph.closed_loop` and `--name-prefix
-      <prefix>`.
-  - **Children** are the `closed_loop_logs/<prefix>R<n>_00.log` files,
-    matched with `re.fullmatch` so `foo` never takes `foo2`. Each is
+  drain. It warns "no sign of a campaign" when there is no record
+  (`campaign.json` or `launch.json`) and no child log; `children_running`
+  counts held `run.lock`s.
+- **`campaign_status(prefix)`** reads the point and campaign records
+  (2026-10-05; see [contract-engine](/drivers/contract-engine.md), "Point
+  and campaign records"):
+  - **Parent:** alive while `parent.lock` (closed_loop) or `lock` (the MCP
+    wrapper) is held; `exit_code` from `campaign.json`, else `rc`;
+    `launched_by` mcp (`launch.json`, or an old record with `command`),
+    shell (a record only) or None.
+  - **Study:** the record's, else (a campaign from before the records) the
+    one a child's `point.json` names.
+  - **Children** are the `closed_loop_logs/<prefix>R<n>_00.log` files
+    (`campaign_dir.is_child`, so `foo` never takes `foo2`). Each is
     `scored` (row on the board), `broken` (`state/broken.txt`), `running`
-    (a live `graph.run --config <name>`) or `ended without a row`.
+    (its `state/run.lock` is held), `starting` (the campaign is alive and
+    the child has no outcome and has never taken its lock: graph.run is in
+    its launch checks) or `ended without a row`; each carries `outcome`
+    (the pool's reason from `outcomes.jsonl`), `x` and the board `values`.
   - **`rows` and `best`** come from the board by the same exact match.
-  - **A study file that no longer loads** gives `board_error`, not a
-    failure.
-  - **`host`:** liveness (a running parent or child) is what this host's
-    process table shows, while the files are shared by every node.
+  - **A study file that no longer loads** gives `board_error`; an
+    unreadable `campaign.json` or a truncated `outcomes.jsonl` line gives
+    `error`; the children are still listed.
+  - **Liveness is a flock on the shared data root,** so a campaign on
+    another node shows as running too. A campaign or point started by code
+    from before 2026-10-05 holds no lock and reads as ended.
   - **A prefix must match `[A-Za-z0-9_]+`,** so `""` or `/dir` cannot
     point the reads at another directory (final-review fix).
-  - **With no prefix,** it lists live parents plus every
-    `<prefix>/campaign.json`. In the server that list comes back as
+  - **With no prefix,** it lists every `<prefix>/campaign.json` (every
+    campaign since 2026-10-05 writes one). In the server that list comes
+    back as
     `{"campaigns": [...]}`, because a union of return types is not
     structured output.
 - **`leaderboard(study, name_prefix=None, top=20)`:** the rows, best first
@@ -155,10 +168,6 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
     (`Leaderboard.for_study`), not `board_for`, which uses the process's
     data root. In the server they agree.
 - **Known limits:**
-  - the process scan covers the whole host, so a campaign with the same
-    prefix under another data root counts as live;
-  - it sees no other node, so a parent there reads as not alive (the
-    child-log refusal keeps the launch side safe);
   - confirm is not tied to a dry run: the gate is the operator's
     permission prompt, so never allowlist `start_campaign`.
 - **The `_ax` studies need `--context alpha=…`.** Without it closed_loop
@@ -201,21 +210,21 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   resume still keys on `_cluster.txt` / `_results.json`. A failed write
   (a full quota) is logged once per step and never fails the step: the
   dashboard then shows that step as stalled.
-- **The step that broke a point** is read from `broken.txt` ("step <name>:
-  <message>") and shown failed with that message, whatever its last poll
-  said. An unreadable board (a `LeaderboardError`, e.g. a bad row) is that
+- **Step states** are `PointDir.step_state`'s (core/point_dir.py): the
+  step `broken.txt` names is failed with its message, whatever its last
+  poll said; the stall rule below is the dashboard's own. An unreadable board (a `LeaderboardError`, e.g. a bad row) is that
   campaign's `error`; its points still show (`campaign_status` now catches
   it as `board_error` too).
 - **Stall rule:** a working step of a running point whose last poll is older
   than `max(3 * poll_s, 600 s)` turns amber. Kit-agnostic: prodtools grid
   polls up to 600 s, beamkit every 120 s, so a fixed 15 min would false-alarm.
 - **Which campaigns:** live ones always, others while their child logs or
-  `campaign.json` changed within `--days` (default 7). A finished
-  shell-started campaign has no q/max_evals (its argv is gone).
-- **Host caveat:** liveness is this host's process table, as in
-  `campaign_status`; it also lists live `graph.closed_loop` processes under
-  another data root (a running test suite shows up as e.g. `mcpa · branin`
-  with a study-not-found error while it runs).
+  `campaign.json` changed within `--days` (default 7). q and max_evals come
+  from `campaign.json` (an old MCP record's own argv); a shell campaign
+  from before 2026-10-05 has none.
+- **Liveness** is the records' flocks (`parent.lock`, `run.lock`), as in
+  `campaign_status`: no process table, so another data root's campaigns
+  never show (the 2026-10-04 test-suite ghosts are gone).
 - **Cost:** about 3 s per snapshot on the live data root (3059 child logs,
   three campaigns), ~160 kB JSON; no grid, no Kerberos.
 

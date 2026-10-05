@@ -6,6 +6,14 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-05
+- **updated** [contract-engine](/drivers/contract-engine.md) and
+  [service](/drivers/service.md): point and campaign records.
+  `core/point_dir.py` owns a point's `state/` (first writer wins on
+  broken.txt; `graph.run` holds `state/run.lock`, a second runner is
+  refused); `core/campaign_dir.py` owns `<GRAPH_DATA>/<prefix>/` (every
+  closed_loop writes campaign.json, outcomes.jsonl, holds parent.lock);
+  campaign_status and the dashboard read them, the `/proc` scan is gone.
+  A flock holder waits 2 s so a reader's probe never refuses a run.
 - **updated** [surrogate](/drivers/surrogate.md): a `SystemExit` in
   `core/botorch_predict.py` escaped the MCP SDK's tool-error handling and
   killed the surrogate server; refused pick requests are `ValueError` now.
