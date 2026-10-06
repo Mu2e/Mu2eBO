@@ -20,7 +20,7 @@ New here? `QUICKSTART.md` has the whole install and a first campaign on one page
 git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
 source activate.sh                                    # every new shell
 ./setup.sh --backing /exp/mu2e/app/users/oksuzian     # personal-path-ok: borrow a built Offline
-export AUTORESEARCH_PRODTOOLS=<prodtools checkout>    # unless ../muse_050125/prodtools exists
+export AUTORESEARCH_PRODTOOLS=<prodtools checkout>    # unless ../prodtools exists
 export AUTORESEARCH_ANAKIT=<anakit fork checkout>      # unless ../analysis-mcp-server exists
 kinit
 ```
@@ -29,7 +29,7 @@ kinit
   `ana 2.8.0` on `/cvmfs`. Nothing to build. `AUTORESEARCH_VENV=/path/to/venv`
   overrides it with a writable dev stack. It also exports
   `AUTORESEARCH_ANAKIT` and `AUTORESEARCH_PRODTOOLS` from sibling checkouts
-  of this repo (`../analysis-mcp-server`, `../muse_050125/prodtools`) when
+  of this repo (`../analysis-mcp-server`, `../prodtools`) when
   they are unset and those directories exist; otherwise export them yourself.
 - **`--backing`** borrows another operator's patched Offline build and grid
   tarballs; a fresh clone has none, and every run refuses until you link one.

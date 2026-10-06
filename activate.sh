@@ -86,8 +86,8 @@ fi
 # The kit checkouts the engine starts servers from (kits.toml,
 # core/adapters/). An exported value always wins. Otherwise each defaults to
 # a sibling of this repo, the convention AUTORESEARCH_SURROKIT already uses
-# (core/paths.py): the anakit fork at ../analysis-mcp-server and the
-# prodtools checkout inside its Muse work area at ../muse_050125/prodtools.
+# (core/paths.py): the anakit fork at ../analysis-mcp-server and prodtools
+# at ../prodtools, or else inside a Muse work area at ../muse_050125/prodtools.
 # A default is taken only when that directory exists. A missing one stays
 # unset, so the runner refuses with "not set" rather than pointing a kit at
 # a path that is not there.
@@ -95,8 +95,14 @@ _parent="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -z "${AUTORESEARCH_ANAKIT:-}" && -d "$_parent/analysis-mcp-server" ]]; then
     export AUTORESEARCH_ANAKIT="$_parent/analysis-mcp-server"
 fi
-if [[ -z "${AUTORESEARCH_PRODTOOLS:-}" && -d "$_parent/muse_050125/prodtools" ]]; then
-    export AUTORESEARCH_PRODTOOLS="$_parent/muse_050125/prodtools"
+if [[ -z "${AUTORESEARCH_PRODTOOLS:-}" ]]; then
+    for _d in "$_parent/prodtools" "$_parent/muse_050125/prodtools"; do
+        if [[ -d "$_d" ]]; then
+            export AUTORESEARCH_PRODTOOLS="$_d"
+            break
+        fi
+    done
+    unset _d
 fi
 if [[ -z "${AUTORESEARCH_BEAMKIT:-}" && -d "$_parent/beamkit" ]]; then
     export AUTORESEARCH_BEAMKIT="$_parent/beamkit"

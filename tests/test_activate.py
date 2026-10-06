@@ -129,12 +129,24 @@ class TestKitCheckoutDefaults(unittest.TestCase):
 
     def test_existing_siblings_become_the_defaults(self):
         with TemporaryDirectory() as tmp:
-            root = self.layout(tmp, "analysis-mcp-server",
-                               "muse_050125/prodtools", "beamkit")
+            root = self.layout(tmp, "analysis-mcp-server", "prodtools",
+                               "beamkit")
             out = self.source(root)
             self.assertEqual(out["A"], str(root / "analysis-mcp-server"))
-            self.assertEqual(out["P"], str(root / "muse_050125" / "prodtools"))
+            self.assertEqual(out["P"], str(root / "prodtools"))
             self.assertEqual(out["B"], str(root / "beamkit"))
+
+    def test_prodtools_inside_a_muse_work_area_is_still_found(self):
+        with TemporaryDirectory() as tmp:
+            root = self.layout(tmp, "muse_050125/prodtools")
+            out = self.source(root)
+            self.assertEqual(out["P"], str(root / "muse_050125" / "prodtools"))
+
+    def test_plain_prodtools_sibling_wins_over_the_muse_one(self):
+        with TemporaryDirectory() as tmp:
+            root = self.layout(tmp, "prodtools", "muse_050125/prodtools")
+            out = self.source(root)
+            self.assertEqual(out["P"], str(root / "prodtools"))
 
     def test_missing_siblings_stay_unset(self):
         with TemporaryDirectory() as tmp:
@@ -143,8 +155,8 @@ class TestKitCheckoutDefaults(unittest.TestCase):
 
     def test_exported_values_win(self):
         with TemporaryDirectory() as tmp:
-            root = self.layout(tmp, "analysis-mcp-server",
-                               "muse_050125/prodtools", "beamkit")
+            root = self.layout(tmp, "analysis-mcp-server", "prodtools",
+                               "beamkit")
             out = self.source(root, {"AUTORESEARCH_ANAKIT": "/elsewhere/a",
                                      "AUTORESEARCH_PRODTOOLS": "/elsewhere/p",
                                      "AUTORESEARCH_BEAMKIT": "/elsewhere/b"})

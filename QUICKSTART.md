@@ -31,10 +31,9 @@ git clone -b generic-study-phase-c1 https://github.com/oksuzian/Mu2eBO.git autor
 git clone https://github.com/oksuzian/surrokit.git surrokit
 git -C surrokit checkout 26929f7      # = SURROKIT_PIN_SHA in core/paths.py
 
-# prodtools: submits the grid (or local) Geant4 jobs
-mkdir -p muse_050125
-git clone https://github.com/Mu2e/prodtools.git muse_050125/prodtools
-bash muse_050125/prodtools/mcp/scripts/install.sh       # its MCP venv
+# prodtools: builds and submits each step's Geant4 jobs (grid or local)
+git clone https://github.com/Mu2e/prodtools.git prodtools
+bash prodtools/mcp/scripts/install.sh       # its MCP venv
 
 # anakit: the analysis kit for the *_ax studies (fork, branch autoresearch)
 git clone -b autoresearch https://github.com/oksuzian/analysis-mcp-server.git analysis-mcp-server
