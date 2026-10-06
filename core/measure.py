@@ -83,11 +83,15 @@ def point_versions(study, current: Dict[str, str],
     return versions, problems
 
 
-def board_problems(study, board, versions: Dict[str, str]) -> List[str]:
+def board_problems(study, board, versions: Dict[str, str],
+                   current: Optional[Dict[str, str]] = None) -> List[str]:
     """The board must not hold rows measured differently from this launch:
     a row carrying another measure_sha is refused at `score`, after every
     step has run. One problem when it does, or when the board's header is
-    not the study's; none for an empty or missing board."""
+    not the study's; none for an empty or missing board. With `current`
+    (the kits' running versions), a point whose finished steps keep an older
+    version (point_versions) is told so: re-stamping covers a board's rows,
+    not an unfinished point."""
     try:
         found = board.measure_shas()
     except SchemaMismatch as exc:
@@ -95,6 +99,17 @@ def board_problems(study, board, versions: Dict[str, str]) -> List[str]:
     this = study.measure_sha(versions)
     if not found or found == {this}:
         return []
+    kept = {k: (v, current[k]) for k, v in sorted(versions.items())
+            if current is not None and k in current and current[k] != v}
+    if kept:
+        changes = "; ".join(f"kit {k!r} {old!r}, now {new!r}"
+                            for k, (old, new) in kept.items())
+        return [f"this point's finished steps were recorded under an older "
+                f"kit version ({changes}), so it measures as {this[:12]} "
+                f"while {board.path} holds "
+                f"{sorted(sha[:12] for sha in found)}; re-stamping covers a "
+                f"board's rows, not an unfinished point: rerun this x under "
+                f"a new config name"]
     return [f"{board.path} holds rows measured as "
             f"{sorted(sha[:12] for sha in found)}, but this launch measures "
             f"as {this[:12]} (the study's measurement or a kit's version "

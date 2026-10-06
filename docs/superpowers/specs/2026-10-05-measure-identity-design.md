@@ -183,7 +183,11 @@ The deploy itself changes the anakit and beamkit version strings:
 - closed_loop starts each `graph.run` child from the code on disk.
 
 So:
-1. stop any `_ax` or ptg4bl campaign (none runs on 2026-10-05);
+1. stop any `_ax` or ptg4bl campaign (none runs on 2026-10-05), and finish
+   or abandon any killed point first: a point whose steps all finished
+   under the old version keeps it, so after the re-stamp it is refused
+   (with a message naming the version change); re-stamping covers a
+   board's rows, not an unfinished point;
 2. merge;
 3. dry run `restamp_board`, then `--confirm` it with the operator's OK, for
    foilspfbpz_ax and ptg4bl;

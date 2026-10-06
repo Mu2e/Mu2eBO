@@ -115,6 +115,28 @@ class TestBoardProblems(_Toy):
         self.assertIn("holds rows measured as", problems[0])
 
 
+class TestAFullyAdoptedOldPoint(TestBoardProblems):
+    def test_the_refusal_names_the_version_change(self):
+        """A resumed point whose steps all finished under the old version
+        keeps that version, so after a re-stamp it no longer matches the
+        board: the refusal names the version change and a new config name,
+        not 'a new leaderboard.file' (re-stamping covers rows, not
+        unfinished points)."""
+        old, new = "anakit-adapter/1+anakit-60cb434419a2", "anakit-adapter/1"
+        adopted = {"toy": rec("toykit", old, "toy"),
+                   "toy2": rec("toykit", old, "toy2")}
+        versions, problems = measure.point_versions(
+            self.study, {"toykit": new}, adopted)
+        self.assertEqual((versions, problems), ({"toykit": old}, []))
+        board = self.board(self.study.measure_sha({"toykit": new}))
+        problems = measure.board_problems(self.study, board, versions,
+                                          current={"toykit": new})
+        self.assertEqual(len(problems), 1)
+        for needle in (old, new, "new config name"):
+            self.assertIn(needle, problems[0])
+        self.assertNotIn("leaderboard.file", problems[0])
+
+
 class TestHandVersion(unittest.TestCase):
     def test_hand_version(self):
         hv = measure.hand_version

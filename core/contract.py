@@ -625,9 +625,10 @@ def launch_problems(study, kits, *, executor: str, parallel,
         except (KitError, ContractError) as exc:
             problems.append(str(exc))
     if board is not None and not problems:
-        versions, problems = measure.point_versions(study, {
-            name: kits.get(name).version
-            for name in {s.kit for s in study.steps}}, adopted)
+        current = {name: kits.get(name).version
+                   for name in {s.kit for s in study.steps}}
+        versions, problems = measure.point_versions(study, current, adopted)
         if not problems:
-            problems = measure.board_problems(study, board, versions)
+            problems = measure.board_problems(study, board, versions,
+                                              current=current)
     return problems

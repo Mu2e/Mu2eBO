@@ -1247,9 +1247,14 @@ re-stamped once, by hand.
 - **measure_sha changes** for every study using anakit or beamkit (the seven
   `_ax`, `ce_chain` through its anakit `plot` step, `ptg4bl`); every
   `measure_basis_sha` is unchanged and now pinned (`tests/test_measure.py`).
-- **Rollout:** stop any `_ax`/ptg4bl campaign, merge, re-stamp, relaunch. A
-  point in flight across the deploy refuses its adopted steps (two
-  versions) and an anakit `results` of a pre-deploy record.
+- **Rollout:** stop any `_ax`/ptg4bl campaign and finish or abandon any
+  killed point, merge, re-stamp, relaunch. A point in flight across the
+  deploy refuses its adopted steps (two versions) and an anakit `results`
+  of a pre-deploy record; a point whose steps all finished under the old
+  version keeps it and, after the re-stamp, is refused with a message
+  naming the version change (re-stamping covers rows, not unfinished
+  points). On 2026-10-05 no such point was pending (c2bnom01, ptgnom02,
+  ptgrmid02 are scored).
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded
