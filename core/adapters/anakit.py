@@ -103,14 +103,15 @@ def _git(root, *args, call) -> str:
 
 
 def fork_commit(root) -> str:
-    """The checkout's commit, refused when it has uncommitted changes:
-    measure_sha tells builds of the analyses apart by this commit alone."""
+    """The checkout's commit, refused when it has uncommitted changes: a
+    step's recorded build tells builds of the analyses apart by this commit
+    alone."""
     dirty = _git(root, "status", "--porcelain", call="open")
     if dirty:
         raise _error("open", f"the anakit checkout {root} has uncommitted "
-                     f"changes, so measure_sha could not tell this build of "
-                     f"the analyses from the committed one; commit them "
-                     f"first:\n{dirty}")
+                     f"changes, so the step's recorded build could not tell "
+                     f"this build of the analyses from the committed one; "
+                     f"commit them first:\n{dirty}")
     return _git(root, "rev-parse", "--short=12", "HEAD", call="open")
 
 
