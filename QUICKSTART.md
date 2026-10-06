@@ -25,19 +25,19 @@ directory. `activate.sh` finds each one by its directory name.
 cd /exp/mu2e/app/users/$USER
 
 # the framework
-git clone https://github.com/oksuzian/Mu2eBO.git autoresearch
+git clone -b generic-study-phase-c1 https://github.com/oksuzian/Mu2eBO.git autoresearch
 
 # surrokit: the GP / Bayesian-optimization engine (pinned)
-git clone git@github.com:oksuzian/surrokit.git surrokit
+git clone https://github.com/oksuzian/surrokit.git surrokit
 git -C surrokit checkout 26929f7      # = SURROKIT_PIN_SHA in core/paths.py
 
 # prodtools: submits the grid (or local) Geant4 jobs
 mkdir -p muse_050125
-git clone git@github.com:oksuzian/prodtools.git muse_050125/prodtools
+git clone https://github.com/Mu2e/prodtools.git muse_050125/prodtools
 bash muse_050125/prodtools/mcp/scripts/install.sh       # its MCP venv
 
 # anakit: the analysis kit for the *_ax studies (fork, branch autoresearch)
-git clone -b autoresearch <anakit fork URL> analysis-mcp-server
+git clone -b autoresearch https://github.com/oksuzian/analysis-mcp-server.git analysis-mcp-server
 
 # beamkit: the G4beamline kit for ptg4bl
 git clone -b v1 https://github.com/oksuzian/beamkit.git beamkit
@@ -62,10 +62,18 @@ For Claude Code: `.mcp.json` registers the `autoresearch` server (study
 and campaign tools) and the `surrogate` server (GP predictions). After any
 update, run `/mcp` in the session to reload them.
 
-> **Not pushed yet (2026-10-05):** the framework branch
-> `generic-study-phase-c1` and the anakit fork's `autoresearch` branch are
-> local to `/exp/mu2e/app/users/oksuzian`. Until they are pushed, a new
-> user copies those two checkouts from there.
+> **Still shared from one person's area (2026-10-06):**
+> - **The backing.** `setup.sh --backing` points at
+>   `/exp/mu2e/app/users/oksuzian`: the built Offline, the grid code
+>   tarballs, and the anakit work area `autoresearch_muse_ax`. That work area
+>   carries a local Mu2eOptAna branch. All of it is world-readable, but it
+>   lives in a personal area until it moves to a shared Mu2e location.
+> - **The anakit fork.** Until `oksuzian/analysis-mcp-server` (branch
+>   `autoresearch`) is published, copy `/exp/mu2e/app/users/oksuzian/analysis-mcp-server`.
+>
+> Tested on 2026-10-06 against upstream `Mu2e/prodtools` `main`: a local
+> `ce_chain` point ran end to end (median |p| 104.022, the same as on the
+> development checkout).
 
 ## 2. Every new shell
 
