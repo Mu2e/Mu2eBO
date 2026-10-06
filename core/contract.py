@@ -52,13 +52,13 @@ if __package__:
     from core import kit_registry, paths
     from core.kit_config import EXECUTORS, _is_number
     from core.kits import KitClient, KitError, KitToolError
-    from core.leaderboard import SchemaMismatch
+    from core import measure
 else:
     import kit_registry
     import paths
     from kit_config import EXECUTORS, _is_number
     from kits import KitClient, KitError, KitToolError
-    from leaderboard import SchemaMismatch
+    import measure
 
 STATES = ("working", "completed", "failed", "cancelled")
 REQUIRED_TOOLS = ("submit", "status", "results")
@@ -546,66 +546,6 @@ def kit_step_problems(kit, study, name: str) -> List[str]:
     return [p for s in study.steps if s.kit == name for p in hook(study, s)]
 
 
-def board_problems(study, board, kit_versions: Dict[str, str]) -> List[str]:
-    """The board must not hold rows measured differently from this launch:
-    a row carrying another measure_sha is refused at `score`, after every
-    step has run. One problem when it does, or when the board's header is
-    not the study's; none for an empty or missing board."""
-    try:
-        found = board.measure_shas()
-    except SchemaMismatch as exc:
-        return [str(exc)]
-    this = study.measure_sha(kit_versions)
-    if not found or found == {this}:
-        return []
-    return [f"{board.path} holds rows measured as "
-            f"{sorted(sha[:12] for sha in found)}, but this launch measures "
-            f"as {this[:12]} (the study's measurement or a kit's version "
-            f"changed); set a new leaderboard.file to start a new board"]
-
-
-def board_versions(study, current: Dict[str, str],
-                   adopted: Optional[Dict[str, Dict[str, Any]]] = None
-                   ) -> Tuple[Dict[str, str], List[str]]:
-    """The kit versions `score` will use for this point, and the problems
-    that make it unable to complete as measured. `current` is each kit's
-    running version; `adopted` is {step: record} for steps already finished
-    (resume), each record carrying "kit" and "kit_version". A kit whose
-    steps were all adopted keeps the recorded version (score.kit_versions
-    decides disagreement); one adopted in part at a version other than
-    the current one would be measured on two builds, which score refuses
-    after running the rest; any other kit measures at its current version."""
-    # score imports the scheduler, which imports this module: import late.
-    if __package__:
-        from core import score
-    else:
-        import score
-    versions = dict(current)
-    mine = {s.step: adopted[s.step] for s in study.steps
-            if adopted and s.step in adopted}
-    if not mine:
-        return versions, []
-    try:
-        recorded = score.kit_versions(mine)
-    except score.ScoreError as exc:
-        return versions, [f"adopted steps of {sorted(mine)}: {exc}"]
-    problems = []
-    for kit, version in sorted(recorded.items()):
-        steps = [s.step for s in study.steps if s.kit == kit]
-        if all(step in mine for step in steps):
-            versions[kit] = version
-        elif version != current[kit]:
-            todo = [step for step in steps if step not in mine]
-            done = [step for step in steps if step in mine]
-            problems.append(
-                f"kit {kit!r}: step(s) {done} finished under version "
-                f"{version!r} but the kit is now {current[kit]!r} with "
-                f"{todo} still to run, so this point cannot complete as "
-                f"measured (score refuses a kit measured on two builds); "
-                f"use a new config name")
-    return versions, problems
-
-
 def launch_problems(study, kits, *, executor: str, parallel,
                     config_names, kerberos=None, board=None,
                     adopted=None) -> List[str]:
@@ -621,10 +561,11 @@ def launch_problems(study, kits, *, executor: str, parallel,
     needs. When a kit offers `describe`, the study's params must be ones it
     accepts and its metrics ones it returns. Returns the problems; an empty
     list means launch. With `board`, and no problem found so far, the board's
-    rows must carry the measure_sha this launch would write (board_problems),
+    rows must carry the measure_sha this launch would write
+    (measure.board_problems),
     computed from the versions `score` will use: `adopted` ({step: record},
     a resumed point's finished steps; None for a fresh one) keeps the
-    versions its steps ran under (board_versions).
+    versions its steps ran under (measure.point_versions).
     `kits` stays open: the caller closes it."""
     problems = executor_problems(study, executor, parallel)
     if problems:
@@ -684,9 +625,9 @@ def launch_problems(study, kits, *, executor: str, parallel,
         except (KitError, ContractError) as exc:
             problems.append(str(exc))
     if board is not None and not problems:
-        versions, problems = board_versions(study, {
+        versions, problems = measure.point_versions(study, {
             name: kits.get(name).version
             for name in {s.kit for s in study.steps}}, adopted)
         if not problems:
-            problems = board_problems(study, board, versions)
+            problems = measure.board_problems(study, board, versions)
     return problems

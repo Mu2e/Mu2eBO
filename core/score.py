@@ -15,9 +15,11 @@ from typing import Any, Dict
 
 if __package__:
     from core.leaderboard import Point
+    from core.measure import MixedVersions, recorded_versions
     from core.point_dir import PointDir
 else:
     from leaderboard import Point
+    from measure import MixedVersions, recorded_versions
     from point_dir import PointDir
 
 
@@ -56,24 +58,18 @@ def collect(study, records) -> Dict[str, float]:
     return y
 
 
-def kit_versions(records) -> Dict[str, str]:
-    """One version per kit. Steps of one kit that ran on different versions
-    (a step adopted from before a kit upgrade) measured different things."""
-    seen: Dict[str, set] = {}
-    for r in records.values():
-        seen.setdefault(r["kit"], set()).add(r["kit_version"])
-    mixed = {k: sorted(v) for k, v in seen.items() if len(v) > 1}
-    if mixed:
-        raise ScoreError(f"a kit changed version within this point {mixed}; "
-                         f"its steps were measured with different builds")
-    return {k: next(iter(v)) for k, v in seen.items()}
+def _versions(records) -> Dict[str, str]:
+    try:
+        return recorded_versions(records)
+    except MixedVersions as exc:
+        raise ScoreError(str(exc)) from None
 
 
 def row_meta(study, records, now=None) -> Dict[str, str]:
     return {"handles": ",".join(f"{s}={r['handle']}"
                                 for s, r in sorted(records.items())),
             "spec_sha": study.spec_sha,
-            "measure_sha": study.measure_sha(kit_versions(records)),
+            "measure_sha": study.measure_sha(_versions(records)),
             "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
 
 
