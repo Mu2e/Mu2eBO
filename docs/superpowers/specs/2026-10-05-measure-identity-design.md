@@ -156,8 +156,6 @@ untouched.
   - for anakit, `git -C $AUTORESEARCH_ANAKIT log --oneline <old>..<new> --
     tools/analyses/`, the analysis commits in between, so the operator
     sees what changed before confirming;
-  - a warning, not a refusal, when one kit's steps within a point ran on
-    different builds.
   - Exit 0 when every sha is proven, 2 otherwise. Nothing is written.
 - **`--confirm`,** after the same proof and under the board's exclusive
   lock:
@@ -230,7 +228,6 @@ So:
     - mismatched handles;
     - archive rows;
     - one bad sha among two (all or nothing);
-  - mixed builds within a point warn without refusing;
   - an already-current board is "nothing to do".
 - **anakit kit tests:**
   - the version has no commit;
