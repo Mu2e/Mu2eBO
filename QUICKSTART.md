@@ -40,7 +40,8 @@ git clone -b autoresearch https://github.com/oksuzian/analysis-mcp-server.git an
 
 # beamkit: the G4beamline kit for ptg4bl
 git clone -b v1 https://github.com/oksuzian/beamkit.git beamkit
-python3 -m venv beamkit/.venv
+# its venv needs Python >= 3.10; the system python3 is 3.9
+/cvmfs/mu2e.opensciencegrid.org/env/ana/2.8.0/bin/python -m venv beamkit/.venv
 env -u PYTHONPATH beamkit/.venv/bin/pip install -e beamkit
 
 # borrow a built Offline, the grid code tarballs and the anakit work area

@@ -80,19 +80,36 @@ class TestPathsResolution(unittest.TestCase):
 
 
 class TestArtifactLinkOrder(unittest.TestCase):
+    """Against a copy of core/paths.py in a scratch repo: the real
+    checkout's own `backing` link (a fresh install has one) would win over
+    AUTORESEARCH_BACKING."""
+
     def setUp(self):
+        import shutil
         import tempfile
         self._td = tempfile.TemporaryDirectory()
         self.tmp = Path(self._td.name)
         (self.tmp / "local").mkdir()
         (self.tmp / "backing").mkdir()
+        (self.tmp / "repo" / "core").mkdir(parents=True)
+        self.copy = self.tmp / "repo" / "core" / "paths.py"
+        shutil.copy2(ROOT / "core" / "paths.py", self.copy)
 
     def tearDown(self):
         self._td.cleanup()
-        importlib.reload(paths)
+
+    def _load(self, **env):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("paths_copy", self.copy)
+        mod = importlib.util.module_from_spec(spec)
+        base = {"USER": "testuser"}
+        base.update(env)
+        with mock.patch.dict(os.environ, base, clear=True):
+            spec.loader.exec_module(mod)
+        return mod
 
     def _paths(self):
-        return reload_with(
+        return self._load(
             AUTORESEARCH_ARTIFACT_ROOT=str(self.tmp / "local"),
             AUTORESEARCH_BACKING=str(self.tmp / "backing"))
 
@@ -114,13 +131,13 @@ class TestArtifactLinkOrder(unittest.TestCase):
         self.assertFalse(got.exists())
 
     def test_no_backing_configured_is_fine(self):
-        p = reload_with(AUTORESEARCH_ARTIFACT_ROOT=str(self.tmp / "local"))
+        p = self._load(AUTORESEARCH_ARTIFACT_ROOT=str(self.tmp / "local"))
         self.assertIsNone(p.BACKING)
         self.assertEqual(p.artifact("tool.sh"), self.tmp / "local" / "tool.sh")
 
     def test_absolute_rel_is_rejected(self):
         p = self._paths()
-        with self.assertRaises(paths.PathsError):
+        with self.assertRaises(p.PathsError):
             p.artifact("/etc/passwd")
 
 
