@@ -46,7 +46,12 @@ else:
     from scheduler import write_atomic
     from study import expand_artifact
 
-VERSION = "anakit-adapter/1"          # bump when a step would measure anew
+# The kit's version, hand-bumped (2026-10-05): bump when a step would
+# measure anew, INCLUDING a fork change that alters what an analysis
+# computes. The fork commit is not part of it: it is the step's recorded
+# build (anakit_result.json "build", the results metadata "build"), so an
+# unrelated fork commit never splits a board.
+VERSION = "anakit-adapter/1"
 SERVER = "anakit"                      # kits.toml [servers.anakit]
 FORK_ENV = "AUTORESEARCH_ANAKIT"       # the anakit checkout
 RESULT_NAME = "anakit_result.json"
@@ -183,10 +188,10 @@ class AnakitKit:
                              f"{list(executors)}, got {executor!r}")
         self.campaign = campaign
         self._fork_root = Path(fork) if fork is not None else fork_root()
-        # Read again at the start of every submit (measure_sha must label
-        # the build that actually ran; a step can run hours after open).
-        self._open_commit = fork_commit(self._fork_root)
-        self._version = f"{VERSION}+anakit-{self._open_commit}"
+        # A dirty checkout is refused at open (and again at every submit,
+        # which records the commit it ran as the step's build).
+        fork_commit(self._fork_root)
+        self._version = VERSION
         if server is None:
             servers = kit_config.load_server_configs()
             if SERVER not in servers:
@@ -210,6 +215,11 @@ class AnakitKit:
         return self._version
 
     @property
+    def build(self) -> str:
+        """The fork's commit now (a dirty checkout is refused)."""
+        return fork_commit(self._fork_root)
+
+    @property
     def tools(self) -> frozenset:
         return frozenset({"submit", "status", "results"})
 
@@ -220,18 +230,10 @@ class AnakitKit:
         pass            # each server is closed by the call that started it
 
     def submit(self, name, params, files, inputs, workflow) -> str:
-        # The fork's commit is read once at open (self._version); a step can
-        # run hours later, so re-check it here rather than trust a stale
-        # label. fork_commit itself raises when the checkout has gone dirty
-        # since open; a clean checkout on a DIFFERENT commit is caught below.
-        current = fork_commit(self._fork_root)
-        if current != self._open_commit:
-            raise _error("submit", f"the anakit checkout {self._fork_root} "
-                         f"moved from commit {self._open_commit} (read when "
-                         f"this campaign's kit opened) to {current}: "
-                         f"measure_sha must label the build that actually "
-                         f"ran, so submit refuses; restart the campaign to "
-                         f"pick up the new commit")
+        # Every submit starts its own analysis server from the checkout, so
+        # the commit read here is the build this step runs: recorded as its
+        # build. A dirty checkout raises (fork_commit).
+        build = fork_commit(self._fork_root)
         config, step = split_handle(name)
         if files:
             raise ValueError(f"anakit: takes no step files, got "
@@ -293,7 +295,8 @@ class AnakitKit:
         write_atomic(result_path, json.dumps({
             "handle": name, "analysis": analysis,
             "work_area": str(work_area), "code": code,
-            "version": self._version, "metrics": list(spec["metrics"]),
+            "version": self._version, "build": build,
+            "metrics": list(spec["metrics"]),
             "reply": reply}, indent=1, sort_keys=True))
         return name
 
@@ -318,9 +321,9 @@ class AnakitKit:
                                 f"{handle} has no successful result")
         if rec["version"] != self._version:
             raise ContractError(self.name, "results", f"{handle}'s result "
-                                f"was written by build {rec['version']!r}, "
-                                f"not this campaign's {self._version!r}: "
-                                f"rerun the step")
+                                f"was written by version "
+                                f"{rec['version']!r}, not this kit's "
+                                f"{self._version!r}: rerun the step")
         reply = rec["reply"]
         meta = dict(reply.get("metadata") or {})
         missing = [m for m in rec["metrics"] if m not in meta]
@@ -332,7 +335,8 @@ class AnakitKit:
                   "kind": Path(p).suffix.lstrip(".") or "file"}
                  for p in reply.get("files", [])]
         meta.update(message=reply.get("message"), work_area=rec["work_area"],
-                    code=rec["code"], adapter=rec["version"])
+                    code=rec["code"], adapter=rec["version"],
+                    build=rec.get("build"))
         return parse_results({"metrics": metrics, "files": files,
                               "metadata": meta}, self.name)
 

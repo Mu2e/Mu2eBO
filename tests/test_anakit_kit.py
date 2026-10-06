@@ -87,6 +87,19 @@ class FakeClient:
         self.log.append(("close",))
 
 
+def commit_in(root) -> str:
+    """One more commit in the git checkout `root`; its 12-char hash."""
+    (Path(root) / "analysis_mcp_server" / "extra.py").write_text(
+        f"{os.urandom(4).hex()}\n")
+    run = lambda *a: subprocess.run(["git", "-C", str(root), *a],
+                                    check=True, capture_output=True,
+                                    text=True)
+    run("add", ".")
+    run("-c", "user.name=t", "-c", "user.email=t@example.org", "commit",
+        "-q", "-m", "another")
+    return run("rev-parse", "--short=12", "HEAD").stdout.strip()
+
+
 class _Kit(unittest.TestCase):
     def setUp(self):
         td = tempfile.TemporaryDirectory()
@@ -122,11 +135,15 @@ class _Kit(unittest.TestCase):
 
 
 class TestOpen(_Kit):
-    def test_the_version_names_the_forks_commit(self):
+    def test_the_version_is_the_hand_constant(self):
+        """The fork commit is the step's build, never in the version: an
+        unrelated fork commit no longer splits a board (2026-10-05)."""
         head = subprocess.run(["git", "-C", str(self.fork), "rev-parse",
                                "--short=12", "HEAD"], capture_output=True,
                               text=True, check=True).stdout.strip()
-        self.assertEqual(self.kit().version, f"anakit-adapter/1+anakit-{head}")
+        kit = self.kit()
+        self.assertEqual(kit.version, "anakit-adapter/1")
+        self.assertEqual(kit.build, head)
 
     def test_a_fork_with_uncommitted_changes_is_refused(self):
         (self.fork / "analysis_mcp_server" / "__main__.py").write_text("changed\n")
@@ -343,17 +360,13 @@ class TestSubmit(_Kit):
         self.assertIn("ce_sensitivity", msg)
         self.assertIn("root_file", msg)
 
-    def test_a_fork_commit_that_moved_since_open_refuses_submit(self):
+    def test_a_newer_fork_commit_does_not_refuse_submit(self):
         kit = self.kit()
-        (self.fork / "analysis_mcp_server" / "extra.py").write_text("y\n")
-        run = lambda *a: subprocess.run(["git", "-C", str(self.fork), *a],
-                                        check=True, capture_output=True)
-        run("add", ".")
-        run("-c", "user.name=t", "-c", "user.email=t@example.org", "commit",
-            "-q", "-m", "second")
-        with self.assertRaises(KitError) as cm:
-            kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
-        self.assertIn("moved", str(cm.exception))
+        new = commit_in(self.fork)
+        kit.submit("cfg1.sob", self.params(), [], self.inputs, "w")
+        rec = json.loads((self.sdir() / ak.RESULT_NAME).read_text())
+        self.assertEqual(rec["build"], new)
+        self.assertEqual(rec["version"], "anakit-adapter/1")
 
     def test_a_fork_left_dirty_after_open_refuses_submit(self):
         kit = self.kit()
@@ -387,6 +400,14 @@ class TestStatusAndResults(_Kit):
         self.assertTrue(res.metadata["code"])
         self.assertEqual(res.metadata["adapter"], kit.version)
 
+    def test_a_newer_fork_commit_does_not_break_results(self):
+        kit = self.submitted()
+        old = json.loads((self.sdir() / ak.RESULT_NAME).read_text())["build"]
+        commit_in(self.fork)
+        res = kit.results("cfg1.sob", "w")
+        self.assertEqual(res.metadata["build"], old)
+        self.assertEqual(res.metadata["adapter"], "anakit-adapter/1")
+
     def test_an_error_reply_is_failed_with_anakits_message(self):
         kit = self.submitted({"status": "error", "files": [], "metadata": {},
                               "message": "ce_sensitivity: no signal window"})
@@ -399,7 +420,7 @@ class TestStatusAndResults(_Kit):
         self.assertEqual(st.state, "failed")
         self.assertIn(ak.RESULT_NAME, st.message)
 
-    def test_results_refuses_a_result_written_by_another_build(self):
+    def test_results_refuses_a_result_written_by_another_version(self):
         # A step directory can outlive the kit that wrote it (a resumed
         # campaign that re-opened on a newer anakit commit); adopting that
         # stale result would label a new build's row with the old one's
