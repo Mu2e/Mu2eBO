@@ -12,6 +12,8 @@ engine drives a study's steps through **kits** — MCP servers (or in-process
 adapters) that speak a common `submit`/`status`/`results` contract — so a
 study is portable across grid backends without touching the runner.
 
+New here? `QUICKSTART.md` has the whole install and a first campaign on one page.
+
 ## Setup
 
 ```bash
