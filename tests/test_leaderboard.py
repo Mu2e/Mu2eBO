@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
@@ -403,6 +404,66 @@ class TestMeasureShas(unittest.TestCase):
             lb.measure_shas()
         self.assertEqual(cm.exception.path, lb.archive_path)
         self.assertEqual(cm.exception.line_no, 2)
+
+
+class TestRestampRows(unittest.TestCase):
+    """restamp_rows: graph/restamp_board.py's locked rewrite of the
+    measure_sha column (spec
+    docs/superpowers/specs/2026-10-05-measure-identity-design.md)."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.tmp = Path(self._td.name)
+        self.study = st.load_study_file(
+            write_study(toy_doc(layout="v2"), self.tmp / "studies"))
+        self.lb = Leaderboard.for_study(self.study, path=self.tmp / "b.tsv",
+                                        archive_path=None)
+        lines = [self.lb.header()]
+        cols = self.lb.header().rstrip("\n").split("\t")
+        for i, sha in enumerate(("a" * 64, "a" * 64, "b" * 64)):
+            row = {c: f"{i}.5" for c in cols}
+            row.update(config=f"c{i}", handles=f"toy=c{i}.toy",
+                       spec_sha="s" * 64, measure_sha=sha,
+                       time="2026-09-30T00:00:00Z")
+            lines.append("\t".join(row[c] for c in cols) + "\n")
+        self.lb.path.write_text("".join(lines))
+        self.before = self.lb.path.read_bytes()
+
+    def test_restamp_rows_rewrites_only_mapped_shas(self):
+        backup = self.tmp / "b.backup.tsv"
+        n = self.lb.restamp_rows({"a" * 64: "c" * 64}, backup)
+        self.assertEqual(n, 2)
+        self.assertEqual([r["measure_sha"] for r in self.lb.live_rows()],
+                         ["c" * 64, "c" * 64, "b" * 64])
+        self.assertEqual(backup.read_bytes(), self.before)
+        after = self.lb.path.read_text().splitlines()
+        for old, new in zip(self.before.decode().splitlines(), after):
+            self.assertEqual(old.replace("a" * 64, "c" * 64), new)
+
+    def test_a_failed_replace_leaves_the_board(self):
+        backup = self.tmp / "b.backup.tsv"
+        with mock.patch.object(lbm.os, "replace",
+                               side_effect=OSError(122, "quota")):
+            with self.assertRaises(OSError):
+                self.lb.restamp_rows({"a" * 64: "c" * 64}, backup)
+        self.assertEqual(self.lb.path.read_bytes(), self.before)
+        self.assertEqual(backup.read_bytes(), self.before)
+
+    def test_a_missing_board_is_refused(self):
+        lb = Leaderboard.for_study(self.study, path=self.tmp / "none.tsv",
+                                   archive_path=None)
+        with self.assertRaises(ValueError):
+            lb.restamp_rows({"a" * 64: "c" * 64}, self.tmp / "x.tsv")
+
+    def test_live_rows_and_archive_shas(self):
+        self.assertEqual([r["config"] for r in self.lb.live_rows()],
+                         ["c0", "c1", "c2"])
+        self.assertEqual(self.lb.archive_measure_shas(), set())
+        arch = Leaderboard.for_study(self.study, path=self.tmp / "b2.tsv",
+                                     archive_path=self.lb.path)
+        self.assertEqual(arch.archive_measure_shas(), {"a" * 64, "b" * 64})
+        self.assertEqual(arch.live_rows(), [])
 
 
 if __name__ == "__main__":
