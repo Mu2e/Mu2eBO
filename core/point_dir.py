@@ -80,8 +80,12 @@ class PointDir:
     # -- point.json --------------------------------------------------------
 
     def point(self) -> Optional[Dict[str, Any]]:
-        """The point, or None; a file that is not JSON raises ValueError."""
-        return self._json(POINT)
+        """The point, or None; a file that is not a JSON object raises
+        ValueError."""
+        point = self._json(POINT)
+        if point is not None and not isinstance(point, dict):
+            raise ValueError(f"{self.path(POINT)}: not a JSON object")
+        return point
 
     def claim(self, point: Dict[str, Any]) -> None:
         """Write point.json, or check that the one there records this

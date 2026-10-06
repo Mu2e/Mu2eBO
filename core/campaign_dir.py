@@ -147,12 +147,26 @@ class CampaignDir:
     # -- outcomes ----------------------------------------------------------
 
     def append_outcome(self, outcome: Dict[str, Any]) -> None:
-        with open(self._file(OUTCOMES), "a") as fh:
-            fh.write(json.dumps(outcome) + "\n")
+        """One line, in one write. A partial last line (a parent killed
+        mid-append) is ended first, so this line never glues onto it."""
+        path = self._file(OUTCOMES)
+        line = json.dumps(outcome) + "\n"
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        try:
+            if os.fstat(fd).st_size:
+                with open(path, "rb") as fh:
+                    fh.seek(-1, os.SEEK_END)
+                    if fh.read(1) != b"\n":
+                        line = "\n" + line
+            os.write(fd, line.encode())
+        finally:
+            os.close(fd)
 
-    def outcomes(self) -> Dict[str, Dict[str, Any]]:
+    def outcomes(self, errors: Optional[List[str]] = None
+                 ) -> Dict[str, Dict[str, Any]]:
         """{name: its last outcome line}; {} when there is none. A line that
-        does not parse raises ValueError naming it."""
+        does not parse raises ValueError naming it; with `errors`, it is
+        appended there instead and the other lines are still read."""
         path = self._file(OUTCOMES)
         try:
             lines = path.read_text().splitlines()
@@ -166,8 +180,11 @@ class CampaignDir:
                 d = json.loads(line)
                 out[d["name"]] = d
             except (ValueError, KeyError, TypeError) as exc:
-                raise ValueError(f"{path}:{n}: unreadable outcome line "
-                                 f"({type(exc).__name__}: {exc})") from None
+                msg = (f"{path}:{n}: unreadable outcome line "
+                       f"({type(exc).__name__}: {exc})")
+                if errors is None:
+                    raise ValueError(msg) from None
+                errors.append(msg)
         return out
 
     # -- liveness and the end ----------------------------------------------

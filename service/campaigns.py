@@ -85,16 +85,19 @@ def child_state(scored: bool, pd: PointDir, outcome: Optional[dict],
                 alive: bool) -> str:
     """One child's state, the one rule: scored (its row is on the board),
     broken (broken.txt), running (its graph.run holds run.lock), starting
-    (the campaign is alive and the child has neither an outcome nor ever
-    taken its lock: graph.run is still in its launch checks), else ended
-    without a row."""
+    (the campaign is alive and the child has no outcome, has never taken
+    its lock and has written nothing: graph.run is still in its launch
+    checks, which come before run.lock and point.json), else ended without
+    a row. A child from before the records (point.json, no run.lock) is
+    never starting."""
     if scored:
         return "scored"
     if pd.broken() is not None:
         return "broken"
     if pd.running():
         return "running"
-    if alive and outcome is None and not pd.ever_ran():
+    if (alive and outcome is None and not pd.ever_ran()
+            and not pd.started()):
         return "starting"
     return "ended without a row"
 
@@ -189,16 +192,17 @@ class CampaignService:
                 "exit_code": camp.exit_code(),
                 "log_tail": _tail(log, LOG_TAIL) if log.exists() else ""}
 
-    def _study_of(self, record: Optional[dict],
-                  children: List[str]) -> Optional[str]:
+    def _study_of(self, record: Optional[dict], children: List[str],
+                  errors: List[str]) -> Optional[str]:
         """The record's study; for a campaign from before the records, the
-        study a child's point.json names."""
+        study a child's point.json names (an unreadable one is reported)."""
         if record and record.get("study"):
             return record["study"]
         for name in children:
             try:
                 point = self.point(name).point()
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                errors.append(f"{name}: {exc}")
                 continue
             if point and point.get("study"):
                 return point["study"]
@@ -218,12 +222,12 @@ class CampaignService:
             record = None
             errors.append(f"{camp.path / 'campaign.json'}: {exc}")
         try:
-            outcomes = camp.outcomes()
-        except (OSError, ValueError) as exc:
+            outcomes = camp.outcomes(errors)
+        except OSError as exc:
             outcomes = {}
             errors.append(str(exc))
         names = self._children(prefix)
-        study_name = self._study_of(record, names)
+        study_name = self._study_of(record, names, errors)
         study, scored, rows, best, board_error = None, {}, 0, None, None
         if study_name is not None:
             try:
@@ -247,8 +251,11 @@ class CampaignService:
             if study is not None:
                 try:
                     point = pd.point()
-                except (OSError, ValueError):
+                except (OSError, ValueError) as exc:
                     point = None
+                    message = f"{name}: {exc}"
+                    if message not in errors:
+                        errors.append(message)
                 values = (point or {}).get("x") or (row.x if row else None)
                 if values is not None:
                     x = dict(zip(study.knob_names, values))

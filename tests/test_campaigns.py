@@ -122,6 +122,31 @@ class TestStatus(_Camp):
         st = self.svc.campaign_status("sta")
         self.assertEqual(st["children"][0]["state"], "ended without a row")
 
+    def test_an_old_child_under_a_relaunch_is_not_starting(self):
+        """A child from before the records (point.json and a handle, no
+        run.lock, no outcome) under a live relaunch of its prefix is not
+        starting: a starting child has not written point.json yet."""
+        self.child_log("oldrR00_00")
+        sd = self.svc.grid_data / "oldrR00_00" / "state"
+        sd.mkdir(parents=True)
+        (sd / "point.json").write_text('{"study": "branin", "x": [1.0, 2.0]}')
+        (sd / "toy_cluster.txt").write_text("oldrR00_00.toy\n")
+        with self.svc.camp("oldr").start({"study": "branin"}):
+            st = self.svc.campaign_status("oldr")
+        self.assertEqual(st["children"][0]["state"], "ended without a row")
+
+    def test_a_bad_point_json_is_reported(self):
+        for name, text in (("bpR00_00", "{"), ("bpR01_00", "[1, 2]")):
+            self.child_log(name)
+            sd = self.svc.grid_data / name / "state"
+            sd.mkdir(parents=True)
+            (sd / "point.json").write_text(text)
+        st = self.svc.campaign_status("bp")
+        self.assertIsNone(st["study"])
+        self.assertIn("bpR00_00", st["error"])
+        self.assertIn("bpR01_00", st["error"])
+        self.assertEqual(len(st["children"]), 2)
+
     def test_a_running_child_by_its_lock(self):
         self.child_log("rnR00_00")
         with self.svc.point("rnR00_00").run_lock():
@@ -162,6 +187,12 @@ class TestStatus(_Camp):
         st = self.svc.campaign_status("tr")
         self.assertIn("outcomes.jsonl", st["error"])
         self.assertEqual([c["name"] for c in st["children"]], ["trR00_00"])
+        # The good lines stay readable around a truncated one.
+        self.svc.camp("tr").append_outcome({"name": "trR00_00",
+                                            "reason": "child rc=1"})
+        st = self.svc.campaign_status("tr")
+        self.assertEqual(st["children"][0]["outcome"], "child rc=1")
+        self.assertIn("outcomes.jsonl:1", st["error"])
 
     def test_a_prefix_that_is_a_path_is_refused(self):
         for prefix in ("", "..", "../x", "/etc", "a-b"):

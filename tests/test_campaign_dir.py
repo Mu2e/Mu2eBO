@@ -137,6 +137,24 @@ class TestOutcomes(_Camp):
         self.assertIn("outcomes.jsonl:2", str(cm.exception))
 
 
+class TestTruncatedOutcomes(_Camp):
+    def test_appends_after_a_truncated_line_stay_readable(self):
+        """A parent killed mid-append leaves a partial line; a relaunch's
+        appends must not glue onto it, and the good lines stay readable
+        with the bad one reported."""
+        self.camp.path.mkdir(parents=True)
+        (self.camp.path / cd.OUTCOMES).write_text(
+            json.dumps({"name": "cmpR00_00", "reason": "ok"}) + "\n"
+            + '{"name": "cmpR01_00", "rea')
+        self.camp.append_outcome({"name": "cmpR02_00", "reason": "ok"})
+        self.camp.append_outcome({"name": "cmpR03_00", "reason": "broken"})
+        errors = []
+        out = self.camp.outcomes(errors)
+        self.assertEqual(sorted(out), ["cmpR00_00", "cmpR02_00", "cmpR03_00"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("outcomes.jsonl:2", errors[0])
+
+
 class TestLiveness(_Camp):
     def test_alive_through_the_mcp_lock(self):
         import locks

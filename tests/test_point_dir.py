@@ -66,6 +66,10 @@ class TestPoint(_Dir):
         self.put(pdm.POINT, "{")
         with self.assertRaises(ValueError):
             self.pd.point()
+        self.put(pdm.POINT, "[1, 2]")
+        with self.assertRaises(ValueError) as cm:
+            self.pd.point()
+        self.assertIn("not a JSON object", str(cm.exception))
         self.assertIsNone(PointDir.of(self.tmp, "none").point())
 
 
