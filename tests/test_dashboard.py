@@ -235,8 +235,11 @@ class TestData(_Dash):
         self.assertIn("boom", p["steps"]["b"]["message"])
 
     def test_a_starting_point_is_running(self):
+        # A child still in graph.run's launch checks: a log, nothing in
+        # state/ yet (run.lock and point.json come after the checks).
         self.live("sp", study="toystudy")
-        self.child("spR00_00")
+        self.svc.logs_dir.mkdir(parents=True, exist_ok=True)
+        (self.svc.logs_dir / "spR00_00.log").write_text("[run] x\n")
         p = self.point(self.data_of("sp"), "spR00_00")
         self.assertEqual(p["state"], "running")
 
