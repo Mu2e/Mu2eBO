@@ -6,6 +6,14 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-05
+- **updated** [contract-engine](/drivers/contract-engine.md),
+  [anakit](/external/anakit.md): measure identity. Kit versions are
+  hand-bumped (anakit `anakit-adapter/1`, beamkit `beamkit-adapter/1+fom1`;
+  the fork commit / server version is each step's recorded build), so an
+  unrelated fork commit no longer splits a board or refuses a submit.
+  `core/measure.py` decides the board match; `graph.restamp_board`
+  re-stamps an old board once after proving only builds differ (dry runs:
+  foilspfbpz_ax 41 rows, ptg4bl 29 rows).
 - **updated** [contract-engine](/drivers/contract-engine.md) and
   [service](/drivers/service.md): point and campaign records.
   `core/point_dir.py` owns a point's `state/` (first writer wins on

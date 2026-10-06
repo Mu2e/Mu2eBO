@@ -7,10 +7,10 @@ description: 'our fork of M. MacKenzie''s analysis MCP server ($AUTORESEARCH_ANA
   analysis per server at a time; work area autoresearch_muse_ax (MDC2025ax,
   p107, full-precision EdepAna)'
 status: active
-timestamp: '2026-09-30'
-updated_note: ce-chain (2026-09-30) — nts_momentum, the EdepAna checks now
-  apply only to art_files analyses, and the fork commits that changed every
-  _ax measure_sha
+timestamp: '2026-10-05'
+updated_note: measure identity (2026-10-05) — the kit version is hand-bumped
+  (anakit-adapter/1); the fork commit is each step's recorded build, so a
+  fork commit no longer changes any measure_sha
 ---
 
 # anakit — our fork of M. MacKenzie's analysis MCP server
@@ -44,16 +44,26 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
     folded them in
   - `1f831a1` (ce-chain, 2026-09-30) — `nts_momentum`: reconstructed |p|
     at the tracker front from EventNtuple files (below)
-- **Any fork commit changes every `_ax` study's `measure_sha`:** the
-  adapter reports the fork's branch commit as the kit version, and
-  `measure_sha` hashes every step kit's version. The ce-chain commits did
-  exactly that (operator's decision, 2026-09-30): bpzax01's board
+- **The kit version is hand-bumped (since 2026-10-05):** `anakit-adapter/1`
+  (`core/adapters/anakit.py:VERSION`). **Bump it whenever a fork change
+  alters what an analysis computes** (a new cut, a changed normalization);
+  a refactor, a new analysis for another study, or a cosmetic commit needs
+  no bump. The fork commit is each step's recorded build: read at submit,
+  written into `anakit_result.json` as `build` and into the results
+  metadata. An unrelated fork commit no longer splits a board, and no longer
+  refuses a running campaign's later submits (the moved-commit refusal was
+  dropped; a dirty checkout is still refused).
+- **Until 2026-10-05 any fork commit changed every `_ax` `measure_sha`**
+  (the version was `anakit-adapter/1+anakit-<commit>`). The ce-chain
+  commits did exactly that: bpzax01's board
   (`leaderboard_bo_foilspfbpz_ax.tsv`, 41 rows: bpzax01's 40 plus the C2b
-  acceptance row `c2bR11ax01`) holds `measure_sha`
-  `1a91751589c1…` and now refuses new rows; a launch today measures as
-  `28a09663f81f…` and is refused at launch
-  ([contract-engine](/drivers/contract-engine.md), the board check). The
-  next `_ax` campaign names a new `leaderboard.file`; the old rows stay.
+  acceptance row `c2bR11ax01`) holds `1a91751589c1…`, measured at fork
+  `60cb434419a2`. The fork moved to `1f831a1` in three commits: two
+  refactors (`e232d43` ce_sensitivity, `fb17702` flash_edep_per_pot, no
+  number changed) and `nts_momentum`. `python -m graph.restamp_board
+  --study foilspfbpz_ax` proves the 41 rows and re-stamps them to the new
+  `4283c48d96ee…` with the operator's `--confirm`
+  ([contract-engine](/drivers/contract-engine.md), "Measure identity").
 - Suite: `cd $AUTORESEARCH_ANAKIT && TMPDIR=/exp/mu2e/data/users/oksuzian/claude-scratch/tmp
   PYTHONPATH= /cvmfs/mu2e.opensciencegrid.org/env/ana/2.7.0/bin/python
   tests/test_tools.py` (global-constraints.md).

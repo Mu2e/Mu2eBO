@@ -16,7 +16,7 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   pre-check at the center point), submitting nothing; a knob-built
   profile's clip must equal its knobs' bounds (2026-10-02); beamkit adapter
   (2026-10-02): G4beamline studies through beamkit, knobs as deck params,
-  status from queue and quorum, the FoM counted from the ntuples; point and campaign records (2026-10-05): core/point_dir.py and core/campaign_dir.py own a point's state/ and a campaign's folder, graph.run holds state/run.lock, every closed_loop writes campaign.json + outcomes.jsonl and holds parent.lock
+  status from queue and quorum, the FoM counted from the ntuples; point and campaign records (2026-10-05): core/point_dir.py and core/campaign_dir.py own a point's state/ and a campaign's folder, graph.run holds state/run.lock, every closed_loop writes campaign.json + outcomes.jsonl and holds parent.lock; measure identity (2026-10-05): kit versions hand-bumped (anakit/beamkit builds recorded per step), core/measure.py decides the board match, graph.restamp_board re-stamps an old board once after a proof
 status: active
 timestamp: '2026-10-05'
 ---
@@ -1207,6 +1207,49 @@ Survey candidates A and B of the 2026-10-05 architecture survey. Spec
   no kit server or child keeps a parent's or a point's lock.
 - **Rollout:** merge only when no campaign runs; points and parents started
   by older code hold no lock and read as ended.
+
+### Measure identity (2026-10-05)
+
+Survey candidate C. Spec
+`docs/superpowers/specs/2026-10-05-measure-identity-design.md`, plan
+`docs/superpowers/plans/2026-10-05-measure-identity.md`. The operator chose:
+a board splits only when someone bumps a kit version by hand (accepting
+that a forgotten bump would mix measurements), and old boards are
+re-stamped once, by hand.
+
+- **Versions:** anakit `anakit-adapter/1`, beamkit `beamkit-adapter/1+fom1`,
+  prodtools `prodtools-adapter/1` (unchanged). The anakit fork commit and
+  the beamkit server version are each step's recorded build (results
+  metadata `build` / `server`, recorded at submit), never in the version.
+  Bump an adapter's `VERSION` when a step would measure anew; for anakit,
+  whenever a fork change alters what an analysis computes.
+- **`core/measure.py`** decides: `recorded_versions` (score's row
+  `measure_sha`; `MixedVersions` is score's `ScoreError`), `point_versions`
+  and `board_problems` (the launch check), `hand_version` (re-stamping).
+  `contract.board_versions`, `contract.board_problems` and
+  `score.kit_versions` are gone, with contract's leftover late import.
+- **`python -m graph.restamp_board --study <name> --why "..." [--confirm]`**
+  re-stamps a board whose rows differ only by an old-scheme build. Proof
+  per old sha, every row: its point's step records exist, their handles
+  are the row's, their versions reproduce the row's `measure_sha` under
+  today's study file, and each kit's hand version equals its current
+  version. Archive rows are never rewritten; all or nothing. The dry run
+  prints each kit's old/new version and build and, for anakit, the
+  fork's `tools/analyses/` commits in between. `--confirm` copies the board
+  to `<board>.pre-restamp-<UTC>.tsv`, rewrites the `measure_sha` column
+  under the board's exclusive lock (`Leaderboard.restamp_rows`, atomic
+  replace) and appends one line per old sha to `<board>.restamp.jsonl`.
+- **Live dry runs (2026-10-05):** `foilspfbpz_ax` 41 rows,
+  `1a91751589c1 -> 4283c48d96ee`, fork `60cb434419a2 -> 1f831a112469`
+  (commits e232d43, fb17702, 1f831a1); `ptg4bl` (`_5k` board) 29 rows,
+  `8dfb8e3a7fae -> 0456443cc311`, server 0.5.1 both sides. Nothing written;
+  `--confirm` is the operator's call after the merge.
+- **measure_sha changes** for every study using anakit or beamkit (the seven
+  `_ax`, `ce_chain` through its anakit `plot` step, `ptg4bl`); every
+  `measure_basis_sha` is unchanged and now pinned (`tests/test_measure.py`).
+- **Rollout:** stop any `_ax`/ptg4bl campaign, merge, re-stamp, relaunch. A
+  point in flight across the deploy refuses its adopted steps (two
+  versions) and an anakit `results` of a pre-deploy record.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded

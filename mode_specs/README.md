@@ -112,8 +112,13 @@ knobs (so `graph.run` only; spec
 
 Since 2026-09-30 the launch itself is refused when the study's board holds
 rows of another `measure_sha` (or a header that does not match the study's
-columns): set a new `"leaderboard.file"` to start a new board. Any commit on
-the anakit fork changes every `_ax` study's `measure_sha` this way.
+columns): set a new `"leaderboard.file"` to start a new board. A kit's
+version (part of `measure_sha`) changes only when its author bumps it by
+hand (since 2026-10-05): bump an adapter's `VERSION` when a step would
+measure anew, including an anakit fork change that alters an analysis. A
+board whose rows differ only by an old-scheme build (before 2026-10-05) is
+re-stamped once with `python -m graph.restamp_board --study <name> --why
+"..." [--confirm]`.
 
 The rules, as the code enforces them:
 
