@@ -61,8 +61,13 @@ else:
     from kits import KitClient, KitError
     from scheduler import write_atomic
 
+# The kit's version is f"{VERSION}+fom{FOM_VERSION}", hand-bumped
+# (2026-10-05): bump VERSION when a step would measure anew, FOM_VERSION when
+# the count would change. The beamkit server's version is not part of it:
+# it is the step's recorded build (the step record's "server", the results
+# metadata "server"), so a beamkit release never splits a board.
 VERSION = "beamkit-adapter/1"
-FOM_VERSION = 1                 # bump when the count would change
+FOM_VERSION = 1
 SERVER = "beamkit"              # kits.toml [servers.beamkit]
 UNKNOWN_LIMIT_S = 6 * 3600      # an unreadable queue, as the prodtools adapter
 HELD_LIMIT_S = 2 * 3600         # only held jobs left: in flight this long
@@ -167,6 +172,7 @@ class BeamkitKit:
         self._pause = pause
         self._client = None
         self._version = None
+        self._server_version = None
         self._lock = threading.Lock()
 
     # --- the Kit interface -------------------------------------------------
@@ -180,12 +186,17 @@ class BeamkitKit:
         if not server_version:
             raise _error("get_server_info", f"reply has no version: "
                          f"{str(info)[:200]}")
-        self._version = (f"{VERSION}+beamkit-{server_version}"
-                         f"+fom{FOM_VERSION}")
+        self._server_version = str(server_version)
+        self._version = f"{VERSION}+fom{FOM_VERSION}"
 
     @property
     def version(self) -> Optional[str]:
         return self._version
+
+    @property
+    def build(self) -> Optional[str]:
+        """The beamkit server's version (None before start)."""
+        return self._server_version
 
     @property
     def tools(self) -> frozenset:
@@ -226,7 +237,7 @@ class BeamkitKit:
                   "quorum": float(own["quorum"]), "plane": own["plane"],
                   "pdg": list(own["pdg"]), "submitted": self._clock(),
                   "unknown_since": None, "held_since": None,
-                  "verdict": None}
+                  "verdict": None, "server": self._server_version}
         path.parent.mkdir(parents=True, exist_ok=True)
         run_id = self._find_run(tag, workflow)    # a run whose record was lost
         if run_id is None:
@@ -350,7 +361,8 @@ class BeamkitKit:
             "files": [{"name": Path(p).name, "uri": "file://" + p,
                        "kind": "nts"} for p in files],
             "metadata": {"run_id": rec["run_id"], "plane": rec["plane"],
-                         "pdg": rec["pdg"], "adapter": self._version}},
+                         "pdg": rec["pdg"], "adapter": self._version,
+                         "server": rec.get("server")}},
             self.name)
 
     # --- helpers -----------------------------------------------------------

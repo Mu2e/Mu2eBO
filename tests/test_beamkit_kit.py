@@ -429,9 +429,21 @@ class TestAdapter(_Tmp):
             self.kit.results(name, "w")
         self.assertIn("not completed", str(cm.exception))
 
-    def test_version_names_beamkit_and_fom(self):
-        self.assertIn("beamkit-0.5.1-fake", self.kit.version)
-        self.assertIn("fom1", self.kit.version)
+    def test_version_is_the_hand_constant(self):
+        """The server version is the step's recorded build, never in the
+        version: a beamkit release no longer splits a board (2026-10-05)."""
+        self.kit.start()
+        self.assertEqual(self.kit.version, "beamkit-adapter/1+fom1")
+        self.assertIn("0.5.1-fake", self.kit.build)
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(njobs=1, quorum=1.0), [], [], "w")
+        self.set_run(name, queue={"state": "known", "idle": 0, "running": 0,
+                                  "held": 0},
+                     files=[nts(self.tmp / "a.root", ROWS_A)])
+        self.assertEqual(self.kit.status(name, "w").state, "completed")
+        res = self.kit.results(name, "w")
+        self.assertIn("0.5.1-fake", res.metadata["server"])
+        self.assertEqual(res.metadata["adapter"], "beamkit-adapter/1+fom1")
 
     def test_cancel_is_not_offered(self):
         # beamkit has no cancel tool. Offering one made the scheduler log
