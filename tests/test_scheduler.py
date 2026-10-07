@@ -36,10 +36,11 @@ class FakeKit:
     status call; an exception in the script is raised instead."""
 
     def __init__(self, scripts=None, poll_s=(0.0, 0.0), poll_ms=0,
-                cancellable=False):
+                cancellable=False, metrics=None):
         self.name, self.version, self.accepts_lists = "fake", "f1", False
         self.poll_s, self.poll_ms = poll_s, poll_ms
         self.scripts = scripts or {}
+        self.metrics = metrics or {}     # {step: {name: value}}; else {"v": 1.0}
         self.tools = frozenset({"submit", "status", "results"}
                                | ({"cancel"} if cancellable else set()))
         self.events, self.submits = [], []
@@ -70,7 +71,7 @@ class FakeKit:
         s = handle.split(".", 1)[1]
         with self._lock:
             self.events.append(("done", s))
-        return Results({"v": 1.0},
+        return Results(dict(self.metrics.get(s, {"v": 1.0})),
                        ({"name": s, "uri": f"file:///tmp/{s}", "kind": "text"},),
                        {})
 
@@ -409,25 +410,126 @@ class TestStatusFile(_Run):
         self.assertEqual(kit.submits, [])
 
 
+class TestParamsFrom(_Run):
+    def adopt(self, name, metrics):
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / f"{name}_results.json").write_text(json.dumps(
+            {"step": name, "kit": "fake", "kit_version": "f1",
+             "handle": f"c.{name}", "params": {}, "inputs": [],
+             "metrics": metrics, "files": [], "metadata": {}}))
+
+    def submitted(self, kit, name):
+        return [s for s in kit.submits if s[0] == f"c.{name}"]
+
+    def test_a_params_from_value_reaches_the_consumer(self):
+        kit = FakeKit(metrics={"a": {"rate": 0.25}})
+        out = self.run_steps(study(step("a"),
+                                   step("b", params_from={"r": "a.rate"})), kit)
+        self.assertTrue(out["b"].ok, out["b"].message)
+        self.assertEqual(self.submitted(kit, "b")[0][1]["r"], 0.25)
+        rec = json.loads((self.state / "b_results.json").read_text())
+        self.assertEqual(rec["params"]["r"], 0.25)
+
+    def test_the_consumer_waits_for_the_producer(self):
+        kit = FakeKit({"a": ["working"] * 3 + ["completed"]})
+        self.run_steps(study(step("a"), step("b", params_from={"r": "a.v"})),
+                       kit)
+        self.assertGreater(kit.events.index(("submit", "b")),
+                           kit.events.index(("done", "a")))
+
+    def test_a_missing_metric_fails_the_step(self):
+        kit = FakeKit()
+        out = self.run_steps(study(step("a"),
+                                   step("b", params_from={"r": "a.rate"})), kit)
+        self.assertFalse(out["b"].ok)
+        self.assertIn("params_from r='a.rate': step 'a' returned no metric "
+                      "'rate' (it returned ['v'])", out["b"].message)
+        self.assertIn("step b", (self.state / "broken.txt").read_text())
+        self.assertEqual(self.submitted(kit, "b"), [])
+
+    def test_a_non_finite_metric_fails_the_step(self):
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(bad=bad):
+                state = self.state.parent / f"s{bad}"
+                kit = FakeKit(metrics={"a": {"rate": bad}})
+                out = self.run_steps(
+                    study(step("a"), step("b", params_from={"r": "a.rate"})),
+                    kit, state=state)
+                self.assertFalse(out["b"].ok)
+                self.assertIn("not a finite number", out["b"].message)
+                self.assertEqual(self.submitted(kit, "b"), [])
+
+    def test_a_non_number_metric_fails_the_step(self):
+        for bad in ("0.5", True, None):
+            with self.subTest(bad=bad):
+                self.state = self.state.parent / f"s{bad!r}"
+                self.adopt("a", {"rate": bad})
+                kit = FakeKit()
+                out = self.run_steps(
+                    study(step("a"), step("b", params_from={"r": "a.rate"})),
+                    kit)
+                self.assertFalse(out["b"].ok)
+                self.assertIn(f"returned {bad!r}, not a finite number",
+                              out["b"].message)
+
+    def test_an_adopted_producer_passes_its_recorded_value(self):
+        self.adopt("a", {"rate": 0.125})
+        kit = FakeKit()
+        out = self.run_steps(study(step("a"),
+                                   step("b", params_from={"r": "a.rate"})), kit)
+        self.assertTrue(out["b"].ok, out["b"].message)
+        self.assertEqual([s[0] for s in kit.submits], ["c.b"])
+        self.assertEqual(kit.submits[0][1]["r"], 0.125)
+
+    def test_a_failed_producer_never_submits_the_consumer(self):
+        kit = FakeKit({"a": ["failed"]})
+        out = self.run_steps(study(step("a"),
+                                   step("b", params_from={"r": "a.v"})), kit)
+        self.assertFalse(out["a"].ok)
+        self.assertNotIn("b", out)
+        self.assertEqual(self.submitted(kit, "b"), [])
+        self.assertIn("step a", (self.state / "broken.txt").read_text())
+
+    def test_one_step_in_files_from_and_params_from(self):
+        kit = FakeKit()
+        out = self.run_steps(study(step("a"), step("b", ["a"],
+                                                   params_from={"r": "a.v"})),
+                             kit)
+        self.assertTrue(out["b"].ok, out["b"].message)
+        b = self.submitted(kit, "b")
+        self.assertEqual(len(b), 1)
+        self.assertEqual(b[0][3], [{"name": "a", "uri": "file:///tmp/a",
+                                    "kind": "text"}])
+        self.assertEqual(b[0][1]["r"], 1.0)
+
+
 class TestParams(unittest.TestCase):
+    def test_a_params_from_value_joins_the_mapped_params(self):
+        st_ = study(step("b", params={"p": "x"},
+                         params_from={"r": "a.rate"}))
+        self.assertEqual(
+            sch.step_params(st_, st_.steps[0], {"x": 1.5}, False,
+                            {"a": {"metrics": {"rate": 2.0}}}),
+            {"p": 1.5, "r": 2.0})
+
     def test_mapped_then_settings_then_fixed(self):
         st_ = study(step("a", params={"p": "x"}, fixed={"n": 3, "mode": "fast"}),
                     kits={"fake": {"mode": "slow", "tag": "t"}})
-        self.assertEqual(sch.step_params(st_, st_.steps[0], {"x": 1.5}, False),
+        self.assertEqual(sch.step_params(st_, st_.steps[0], {"x": 1.5}, False, {}),
                          {"p": 1.5, "mode": "fast", "tag": "t", "n": 3})
 
     def test_a_profile_is_flattened_for_a_kit_without_lists(self):
         st_ = study(step("a", params={"r": "prof"}))
         env = {"prof": [1.0, 2.0]}
-        self.assertEqual(sch.step_params(st_, st_.steps[0], env, False),
+        self.assertEqual(sch.step_params(st_, st_.steps[0], env, False, {}),
                          {"r_0": 1.0, "r_1": 2.0})
-        self.assertEqual(sch.step_params(st_, st_.steps[0], env, True),
+        self.assertEqual(sch.step_params(st_, st_.steps[0], env, True, {}),
                          {"r": [1.0, 2.0]})
 
     def test_a_mapped_param_may_not_clash_with_a_setting(self):
         st_ = study(step("a", params={"n": "x"}, fixed={"n": 3}))
         with self.assertRaises(ValueError) as cm:
-            sch.step_params(st_, st_.steps[0], {"x": 1.0}, False)
+            sch.step_params(st_, st_.steps[0], {"x": 1.0}, False, {})
         self.assertIn("['n']", str(cm.exception))
 
     def test_the_preflight_shares_the_clash_rule(self):
@@ -522,7 +624,7 @@ class TestEntryParam(unittest.TestCase):
     def test_an_entry_kit_gets_the_resolved_template(self):
         s = st_mod.load_study_file(DEMO)
         mubeam = next(x for x in s.steps if x.step == "mubeam")
-        params = sch.step_params(s, mubeam, {}, False)
+        params = sch.step_params(s, mubeam, {}, False, {})
         self.assertEqual(params["entry"], s.entry_template("mubeam"))
         self.assertEqual(params["quorum"], 0.8)
 
@@ -531,7 +633,7 @@ class TestEntryParam(unittest.TestCase):
         mubeam = next(x for x in s.steps if x.step == "mubeam")
         clash = dataclasses.replace(mubeam, fixed=dict(mubeam.fixed, entry=1))
         with self.assertRaises(ValueError) as cm:
-            sch.step_params(s, clash, {}, False)
+            sch.step_params(s, clash, {}, False, {})
         self.assertIn("entry", str(cm.exception))
 
 

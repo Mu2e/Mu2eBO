@@ -227,7 +227,7 @@ class TestFixedPaths(_Tmp):
         with mock.patch.multiple(paths, ARTIFACT_ROOT=self.dir / "art",
                                  BACKING=self.dir / "no_backing"):
             params = scheduler.step_params(s, s.steps[0],
-                                           {"x1": 1.0, "x2": 2.0}, False)
+                                           {"x1": 1.0, "x2": 2.0}, False, {})
         self.assertEqual(params["fail"],
                          str(self.dir / "art" / "c2b" / "table.tbl"))
 
