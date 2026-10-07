@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "foilspfbpx_ax",
- "note": "Engine twin of mode_specs/foilspfbpx.json (Phase C2b, docs/superpowers/specs/2026-09-27-c2b-anakit-analyses-design.md): the same knobs, geometry, objectives and columns, run by the contract engine on SimJob MDC2025ax (Code_mdc2025ax.tar.bz2), with sob and flash computed by anakit (kit anakit) instead of the pipeline's harvest. Its own v2 board starts empty: rows measured on another release cannot be mixed in. The original's note explains the geometry.",
+ "note": "Engine twin of mode_specs/foilspfbpx.json (Phase C2b, docs/superpowers/specs/2026-09-27-c2b-anakit-analyses-design.md): the same knobs, geometry, objectives and columns, run by the contract engine on SimJob MDC2025ax (Code_mdc2025ax.tar.bz2), with sob and flash computed by anakit (kit anakit) instead of the pipeline's harvest. Its own v2 board starts empty: rows measured on another release cannot be mixed in. The original's note explains the geometry. Since 2026-10-07 (docs/superpowers/specs/2026-10-07-upstream-analyses-design.md) its analyses are M. MacKenzie's (anakit main, on SimJob MDC2025ay): stops -> ce_edep -> sob, and flash. flash_edep is MeV per generated beam electron, so the budget is the per-POT one times 11.536718606512062. A new board: the old one is history.",
  "knobs": [
   {"name": "rOut_0", "type": "real", "min": 30.0, "max": 150.0, "unit": "", "fmt": "{:.4f}"},
   {"name": "rOut_1", "type": "real", "min": 30.0, "max": 150.0, "unit": "", "fmt": "{:.4f}"},
@@ -70,20 +70,22 @@
   {"step": "mubeam", "kit": "prodtools", "entry": "mubeam", "files": ["geom"], "files_from": [], "params": {}, "params_from": {}, "fixed": {"njobs": 15, "events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}},
   {"step": "mustops_ce", "kit": "prodtools", "entry": "mustops_ce", "files": ["geom"], "files_from": ["mubeam"], "params": {}, "params_from": {}, "fixed": {"njobs": 15, "events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
   {"step": "elebeam_flash", "kit": "prodtools", "entry": "elebeam_flash", "files": ["geom"], "files_from": [], "params": {}, "params_from": {}, "fixed": {"njobs": 100, "events_per_job": 110000, "memory_mb": 2000, "quorum": 0.8}},
-  {"step": "sob", "kit": "anakit", "entry": null, "files": [], "files_from": ["mubeam", "mustops_ce"], "params": {}, "params_from": {}, "fixed": {"analysis": "ce_sensitivity", "input_correction": 0.01278168, "cosmic_rate_per_s_per_mev": 0.0018181818181818182, "dio_fraction": 0.39, "dio_table": "${ARTIFACT}/autoresearch_muse_ax/data/heeck_finer_binning_2016_szafron.tbl"}},
-  {"step": "flash", "kit": "anakit", "entry": null, "files": [], "files_from": ["elebeam_flash"], "params": {}, "params_from": {}, "fixed": {"analysis": "flash_edep_per_pot", "pot_per_electron": 11.536718606512062}}
+  {"step": "stops", "kit": "anakit", "entry": null, "files": [], "files_from": ["mubeam"], "params": {}, "params_from": {}, "fixed": {"analysis": "muon_stop_rate", "upstream_eff": 0.01278168}},
+  {"step": "ce_edep", "kit": "anakit", "entry": null, "files": [], "files_from": ["mustops_ce"], "params": {}, "params_from": {}, "fixed": {"analysis": "edep"}},
+  {"step": "sob", "kit": "anakit", "entry": null, "files": [], "files_from": ["ce_edep"], "params": {}, "params_from": {"stops_per_pot": "stops.stops_per_pot"}, "fixed": {"analysis": "approx_ce_sensitivity", "cosmic_rate_per_s_per_mev": 0.0018181818181818182}},
+  {"step": "flash", "kit": "anakit", "entry": null, "files": [], "files_from": ["elebeam_flash"], "params": {}, "params_from": {}, "fixed": {"analysis": "edep"}}
  ],
  "objectives": [
-  {"name": "sob", "metric": "sob.s_over_sqrt_b", "direction": "max", "transform": "none", "noise": 0.006, "fmt": "{:.5f}"},
-  {"name": "flash_edep", "metric": "flash.flash_edep_per_pot", "direction": "min", "transform": "log10", "noise": 0.01, "fmt": "{:.5e}"}
+  {"name": "sob", "metric": "sob.sensitivity", "direction": "max", "transform": "none", "noise": 0.0021, "fmt": "{:.5f}"},
+  {"name": "flash_edep", "metric": "flash.avg_trk_edep_per_gen_event_mev", "direction": "min", "transform": "log10", "noise": 0.01, "fmt": "{:.5e}"}
  ],
  "constraints": [
-  {"name": "flash_edep", "max": 6.50684e-07, "k_sigma": 1.0}
+  {"name": "flash_edep", "max": 7.506758e-06, "k_sigma": 1.0}
  ],
  "extra_metrics": [],
  "extra_columns": [
   {"name": "alpha", "expr": "alpha", "fmt": "{:.3f}"},
   {"name": "obj", "expr": "sob - alpha * flash_edep", "fmt": "{:.5f}"}
  ],
- "leaderboard": {"file": "leaderboards/leaderboard_bo_foilspfbpx_ax.tsv", "layout": "v2", "context": ["alpha"]}
+ "leaderboard": {"file": "leaderboards/leaderboard_bo_foilspfbpx_ax_upstream.tsv", "layout": "v2", "context": ["alpha"]}
 }

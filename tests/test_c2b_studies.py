@@ -20,17 +20,28 @@ MODES = ROOT / "mode_specs"
 TWINS = ("foilsflash_ax", "foilspf_ax", "foilspf2k_ax", "foilspfbp_ax",
          "foilspfbpx_ax", "foilspfbpz_ax", "foilspfbw_ax")
 TARBALL = "${ARTIFACT}/autoresearch_muse/Code_mdc2025ax.tar.bz2"
-WORK_AREA = "${ARTIFACT}/autoresearch_muse_ax"
-SOB = {"step": "sob", "kit": "anakit", "entry": None, "files": [],
-       "files_from": ["mubeam", "mustops_ce"], "params": {}, "params_from": {},
-       "fixed": {"analysis": "ce_sensitivity", "input_correction": 0.01278168,
-                 "cosmic_rate_per_s_per_mev": 0.0018181818181818182,
-                 "dio_fraction": 0.39,
-                 "dio_table": WORK_AREA + "/data/heeck_finer_binning_2016_szafron.tbl"}}
-FLASH = {"step": "flash", "kit": "anakit", "entry": None, "files": [],
-         "files_from": ["elebeam_flash"], "params": {}, "params_from": {},
-         "fixed": {"analysis": "flash_edep_per_pot",
-                   "pot_per_electron": 11.536718606512062}}
+# M. MacKenzie's four analyses (docs/superpowers/specs/
+# 2026-10-07-upstream-analyses-design.md, section 3).
+STEPS = ["mubeam", "mustops_ce", "elebeam_flash", "stops", "ce_edep", "sob",
+         "flash"]
+
+
+def _anakit(step, files_from, fixed, params_from=None):
+    return {"step": step, "kit": "anakit", "entry": None, "files": [],
+            "files_from": files_from, "params": {},
+            "params_from": params_from or {}, "fixed": fixed}
+
+
+ANAKIT_STEPS = {
+    "stops": _anakit("stops", ["mubeam"], {"analysis": "muon_stop_rate",
+                                           "upstream_eff": 0.01278168}),
+    "ce_edep": _anakit("ce_edep", ["mustops_ce"], {"analysis": "edep"}),
+    "sob": _anakit("sob", ["ce_edep"],
+                   {"analysis": "approx_ce_sensitivity",
+                    "cosmic_rate_per_s_per_mev": 0.0018181818181818182},
+                   {"stops_per_pot": "stops.stops_per_pot"}),
+    "flash": _anakit("flash", ["elebeam_flash"], {"analysis": "edep"}),
+}
 
 
 def doc(path):
@@ -56,17 +67,41 @@ class TestTwinFacts(unittest.TestCase):
                 self.assertEqual(kits["offline_preflight"]["code_tarball"],
                                  TARBALL)
                 self.assertEqual(kits["anakit"], {"musing": "SimJob MDC2025ay"})
+                self.assertEqual([s["step"] for s in twin["evaluate"]], STEPS)
                 steps = {s["step"]: s for s in twin["evaluate"]}
-                self.assertEqual(steps["sob"], SOB)
-                self.assertEqual(steps["flash"], FLASH)
+                for name_, want in ANAKIT_STEPS.items():
+                    self.assertEqual(steps[name_], want, name_)
 
     def test_each_twin_writes_its_own_v2_board(self):
         for name in TWINS:
             with self.subTest(study=name):
                 board = doc(MODES / f"{name}.json")["leaderboard"]
                 self.assertEqual(board["file"],
-                                 f"leaderboards/leaderboard_bo_{name}.tsv")
+                                 f"leaderboards/leaderboard_bo_{name}_upstream.tsv")
                 self.assertEqual(board["layout"], "v2")
+
+    def test_the_objectives_read_michaels_metrics(self):
+        for name in TWINS:
+            with self.subTest(study=name):
+                objs = modes.STUDIES[name].objectives
+                self.assertEqual(tuple(o.metric for o in objs),
+                                 ("sob.sensitivity",
+                                  "flash.avg_trk_edep_per_gen_event_mev"))
+                # log10 on flash: a zero flash is a failed evaluation in
+                # core/score.py, never a row (the fork's analysis refused it
+                # itself; his edep returns it).
+                self.assertEqual(tuple(o.transform for o in objs),
+                                 ("none", "log10"))
+
+    def test_the_flash_budget_is_per_generated_electron(self):
+        # The per-POT budget 6.50684e-07 times POT per resampled electron.
+        self.assertLess(abs(7.506758e-06 - 6.50684e-07 * 11.536718606512062),
+                        1e-12)
+        for name in TWINS:
+            with self.subTest(study=name):
+                self.assertEqual(doc(MODES / f"{name}.json")["constraints"],
+                                 [{"name": "flash_edep", "max": 7.506758e-06,
+                                   "k_sigma": 1.0}])
 
 
 class TestSpotFacts(unittest.TestCase):
@@ -77,11 +112,13 @@ class TestSpotFacts(unittest.TestCase):
     def test_obs_noise_is_the_replicate_measured_sigma(self):
         # Free MLL noise ranked the best-ever eval 16th of 324
         # (wiki/incidents/gp-free-noise-erases-champion.md).
-        for name in ("foilsflash_ax", "foilspf_ax"):
+        # sob: provisional (0.006 scaled by about 0.35, the new/old
+        # sensitivity); set from the measured ratio at acceptance.
+        for name in TWINS:
             with self.subTest(study=name):
                 self.assertEqual(
                     tuple(o.noise for o in modes.STUDIES[name].objectives),
-                    (0.006, 0.010))
+                    (0.0021, 0.010))
 
     def test_foilsflash_thickness_floor(self):
         s = modes.STUDIES["foilsflash_ax"]
@@ -389,6 +426,10 @@ class TestFixtures(unittest.TestCase):
         self.assertEqual(nominal["kits"], twin["kits"])
         self.assertEqual(local["kits"], twin["kits"])
         self.assertEqual(local["knobs"], twin["knobs"])
+        for fixture in (nominal, local):
+            self.assertEqual([o["metric"] for o in fixture["objectives"]],
+                             [o["metric"] for o in twin["objectives"]])
+            self.assertEqual(fixture["constraints"], twin["constraints"])
         for mine, theirs in zip(local["evaluate"], twin["evaluate"]):
             self.assertEqual({k: v for k, v in mine.items() if k != "fixed"},
                              {k: v for k, v in theirs.items() if k != "fixed"})

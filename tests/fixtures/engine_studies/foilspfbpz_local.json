@@ -398,22 +398,49 @@
    }
   },
   {
-   "step": "sob",
+   "step": "stops",
    "kit": "anakit",
    "entry": null,
    "files": [],
    "files_from": [
-    "mubeam",
+    "mubeam"
+   ],
+   "params": {},
+   "params_from": {},
+   "fixed": {
+    "analysis": "muon_stop_rate",
+    "upstream_eff": 0.01278168
+   }
+  },
+  {
+   "step": "ce_edep",
+   "kit": "anakit",
+   "entry": null,
+   "files": [],
+   "files_from": [
     "mustops_ce"
    ],
    "params": {},
    "params_from": {},
    "fixed": {
-    "analysis": "ce_sensitivity",
-    "input_correction": 0.01278168,
-    "cosmic_rate_per_s_per_mev": 0.0018181818181818182,
-    "dio_fraction": 0.39,
-    "dio_table": "${ARTIFACT}/autoresearch_muse_ax/data/heeck_finer_binning_2016_szafron.tbl"
+    "analysis": "edep"
+   }
+  },
+  {
+   "step": "sob",
+   "kit": "anakit",
+   "entry": null,
+   "files": [],
+   "files_from": [
+    "ce_edep"
+   ],
+   "params": {},
+   "params_from": {
+    "stops_per_pot": "stops.stops_per_pot"
+   },
+   "fixed": {
+    "analysis": "approx_ce_sensitivity",
+    "cosmic_rate_per_s_per_mev": 0.0018181818181818182
    }
   },
   {
@@ -427,23 +454,22 @@
    "params": {},
    "params_from": {},
    "fixed": {
-    "analysis": "flash_edep_per_pot",
-    "pot_per_electron": 11.536718606512062
+    "analysis": "edep"
    }
   }
  ],
  "objectives": [
   {
    "name": "sob",
-   "metric": "sob.s_over_sqrt_b",
+   "metric": "sob.sensitivity",
    "direction": "max",
    "transform": "none",
-   "noise": 0.006,
+   "noise": 0.0021,
    "fmt": "{:.5f}"
   },
   {
    "name": "flash_edep",
-   "metric": "flash.flash_edep_per_pot",
+   "metric": "flash.avg_trk_edep_per_gen_event_mev",
    "direction": "min",
    "transform": "log10",
    "noise": 0.01,
@@ -453,7 +479,7 @@
  "constraints": [
   {
    "name": "flash_edep",
-   "max": 6.85443e-07,
+   "max": 7.506758e-06,
    "k_sigma": 1.0
   }
  ],

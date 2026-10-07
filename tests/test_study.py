@@ -805,13 +805,13 @@ class TestReservedEntry(_Tmp):
 # empty params_from must leave each one, and so each board, as it was.
 PINNED = {
     "ce_chain": "efe68799bd0a2d599f5b72226cddb39b9bdbe4c6dbb1428084c83eade898888e",
-    "foilsflash_ax": "7168e11c18753dea7069d4e308b982efad2d982cf1f7f56135cfb59dd8c934ca",
-    "foilspf2k_ax": "b745335f1012bf9484a1976ec3967e0ae5936ce7369359f89dbeec70a5c7b728",
-    "foilspf_ax": "dd60ce52710bf13b5d14cfd9a58aeb9d93db9da8dcd94d5a91ab919e2473f0d3",
-    "foilspfbp_ax": "82f0becd62921f7ccad8d6f88a1d663902346939d019162573373b8411d38082",
-    "foilspfbpx_ax": "3ba745fb27e62447252b92769e228d22573269a07357be374f9560acd0145c40",
-    "foilspfbpz_ax": "5bf6b433413bd5325691907824f69e08c989b64166e7ca0c723ca658299437f2",
-    "foilspfbw_ax": "a42758de4d23132ef929db5c95a46780096d957f76003f407612e86d5cb01bc6",
+    "foilsflash_ax": "b96e6c99648c677b5046f7f223df5477eba156dc27ecb15aaed57d31e6b904bd",
+    "foilspf2k_ax": "3f38430b59ddbda1a3701f66da441d4133d45163c82e364c9aa9e4b08b4441cf",
+    "foilspf_ax": "8132f2e3a703b56891df2f3ea82d1002b6016297a5266b4288e09d965c4c1ad0",
+    "foilspfbp_ax": "e08e960e3c1f71eb714ce9c8a9b67c805f12245f510adee10bd620a1617e26d7",
+    "foilspfbpx_ax": "875ccd772454aee7d438f7b7b02ebecc1ee789ae1744ef2155a6f998eee69ed4",
+    "foilspfbpz_ax": "fa84cd6e195e4ef865d62c42f8085deb24a81213197a814e23aab49f8856c570",
+    "foilspfbw_ax": "93dbb4e28fb221f1c0b56a68624279250116964c33fc2bd9853c078a5f4ae7c8",
     "ptg4bl": "b52fce7c37525597cae53862efe0f272af28f766c6deaefa22b71f08a6861689",
 }
 
@@ -851,6 +851,17 @@ class TestParamsFrom(_Tmp):
         doc = _doc()
         _step(doc, "sob")["params_from"] = {"x": "sob.v"}
         self.assertRejects(doc, "params_from.x", "its own result")
+
+    def test_the_retired_anakit_settings_are_refused(self):
+        # The fork's analyses took these; M. MacKenzie's do not
+        # (docs/superpowers/specs/2026-10-07-upstream-analyses-design.md).
+        for key in ("input_correction", "dio_fraction", "dio_table",
+                    "pot_per_electron"):
+            with self.subTest(key=key):
+                doc = _doc()
+                _step(doc, "sob")["fixed"][key] = (
+                    "/t.tbl" if key == "dio_table" else 0.5)
+                self.assertRejects(doc, key)
 
     def test_a_clash_with_params_fixed_or_settings(self):
         cases = (("params_from vs fixed", {"analysis": "flash.v"}, {}, "analysis"),
