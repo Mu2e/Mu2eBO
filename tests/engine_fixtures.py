@@ -26,7 +26,7 @@ def toy_doc(name="toystudy", layout="v2"):
         "evaluate": [
             {"step": "toy", "kit": "toykit", "entry": None, "files": [],
              "files_from": [], "params": {"x1": "x1", "x2": "x2"},
-             "fixed": {"delay_s": 0.0}},
+             "params_from": {}, "fixed": {"delay_s": 0.0}},
         ],
         "objectives": [
             {"name": "branin", "metric": "toy.branin", "direction": "min",

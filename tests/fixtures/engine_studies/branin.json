@@ -11,7 +11,7 @@
  "kits": {"toykit": {"function": "branin_currin"}},
  "preflight": null,
  "evaluate": [
-  {"step": "toy", "kit": "toykit", "entry": null, "files": [], "files_from": [], "params": {"x1": "x1", "x2": "x2"}, "fixed": {"delay_s": 0.2}}
+  {"step": "toy", "kit": "toykit", "entry": null, "files": [], "files_from": [], "params": {"x1": "x1", "x2": "x2"}, "params_from": {}, "fixed": {"delay_s": 0.2}}
  ],
  "objectives": [
   {"name": "branin", "metric": "toy.branin", "direction": "min", "transform": "none", "noise": 0.01, "fmt": "{:.6f}"},

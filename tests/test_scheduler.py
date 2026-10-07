@@ -21,9 +21,10 @@ from study import Step  # noqa: E402
 DEMO = ROOT / "tests" / "fixtures" / "studies" / "demo.json"
 
 
-def step(name, files_from=(), params=None, fixed=None, kit="fake"):
+def step(name, files_from=(), params=None, fixed=None, kit="fake",
+         params_from=None):
     return Step(name, kit, None, (), tuple(files_from), dict(params or {}),
-                dict(fixed or {}))
+                dict(params_from or {}), dict(fixed or {}))
 
 
 def study(*steps, kits=None):

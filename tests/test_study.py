@@ -800,5 +800,130 @@ class TestReservedEntry(_Tmp):
                 self.assertRejects(doc, field, "reserved")
 
 
+
+# measure_basis_sha of every study at 8cea00a, before params_from existed: an
+# empty params_from must leave each one, and so each board, as it was.
+PINNED = {
+    "ce_chain": "79b9b3e212d94d04f3aece224d3968cb33eae4e6f52c6e23c937281cd058e771",
+    "foilsflash_ax": "405cc0e850b9dc4ed28ee96bea8187c94185bce654230acc5016de73a1763d6f",
+    "foilspf2k_ax": "2060c97e7de0a4a18f6364e0a721e6abe45e4bc98a089b4ffedcea75385e12a4",
+    "foilspf_ax": "e96f0491abe95519352962dc51616fca0598eabf5b5cfba122734179da3b250e",
+    "foilspfbp_ax": "54467d3e05b4742da1fbd3a7809cf50f770fdc18219c40773ada487355cb0547",
+    "foilspfbpx_ax": "d6ee2d286f6e8e26a6417dfb9530789beefd8f385179036f60c4385d1e6d8a4d",
+    "foilspfbpz_ax": "c4aafee1c30ba5121ab727bcab4513786b6d076c10f976d1b786daf95e218a80",
+    "foilspfbw_ax": "01bcbd62be9a8f4d8b825e85267a3e7b45a0746b2784f1c48c32aeacba962191",
+    "ptg4bl": "b52fce7c37525597cae53862efe0f272af28f766c6deaefa22b71f08a6861689",
+}
+
+
+class TestParamsFrom(_Tmp):
+    def test_existing_studies_keep_their_measure_basis_sha(self):
+        got = {}
+        for path in sorted((ROOT / "mode_specs").glob("*.json")):
+            s = st.load_study_file(path)
+            got[s.name] = s.measure_basis_sha
+        self.assertEqual(got, PINNED)
+
+    def test_params_from_is_required(self):
+        doc = _doc()
+        for s in doc["evaluate"]:
+            del s["params_from"]
+        self.assertRejects(doc, "missing required field(s) ['params_from']")
+
+    def test_params_from_must_be_an_object(self):
+        doc = _doc()
+        _step(doc, "sob")["params_from"] = ["flash.v"]
+        self.assertRejects(doc, "params_from", "must be an object")
+
+    def test_a_bad_source_form(self):
+        for bad in ("flash", "flash.a.b", 3):
+            with self.subTest(bad=bad):
+                doc = _doc()
+                _step(doc, "sob")["params_from"] = {"x": bad}
+                self.assertRejects(doc, "params_from.x", "must be 'step.key'")
+
+    def test_an_unknown_source_step(self):
+        doc = _doc()
+        _step(doc, "sob")["params_from"] = {"x": "nope.v"}
+        self.assertRejects(doc, "params_from.x", "'nope'")
+
+    def test_a_self_reference(self):
+        doc = _doc()
+        _step(doc, "sob")["params_from"] = {"x": "sob.v"}
+        self.assertRejects(doc, "params_from.x", "its own result")
+
+    def test_a_clash_with_params_fixed_or_settings(self):
+        cases = (("params_from vs fixed", {"analysis": "flash.v"}, {}, "analysis"),
+                 ("params_from vs setting", {"work_area": "flash.v"}, {},
+                  "work_area"),
+                 ("params_from vs params", {"k": "flash.v"}, {"k": "a"}, "k"),
+                 ("params vs fixed", {}, {"analysis": "a"}, "analysis"))
+        for label, params_from, params, name in cases:
+            with self.subTest(label):
+                doc = _doc()
+                s = _step(doc, "sob")
+                s["params_from"], s["params"] = params_from, params
+                self.assertRejects(doc, "evaluate.sob", f"['{name}']",
+                                   "more than once")
+
+    def test_a_cycle_through_params_from(self):
+        doc = _doc()
+        _step(doc, "mubeam")["params_from"] = {"x": "mustops_ce.v"}
+        self.assertRejects(doc, "cycle")
+
+    def test_a_step_read_only_by_params_from_is_used(self):
+        doc = _doc()
+        doc["evaluate"].append({
+            "step": "stops", "kit": "anakit", "entry": None, "files": [],
+            "files_from": ["mubeam"], "params": {}, "params_from": {},
+            "fixed": {"analysis": "ce_sensitivity"}})
+        _step(doc, "sob")["params_from"] = {"x": "stops.v"}
+        self.assertEqual(self.load(doc).steps[-1].step, "stops")
+
+    def test_reserved_names_are_refused_in_params_from(self):
+        doc = _doc()
+        _step(doc, "mubeam")["params_from"] = {"entry": "elebeam_flash.v"}
+        self.assertRejects(doc, "params_from.entry", "'entry' is reserved")
+        g4bl = json.loads((ROOT / "mode_specs" / "ptg4bl.json").read_text())
+        cases = (("Num_Events", "a beamkit setting"),
+                 ("epsMax", "deck_params"),
+                 ("bad-name", "deck parameter names"))
+        for name, needle in cases:
+            with self.subTest(name=name):
+                doc = json.loads(json.dumps(g4bl))
+                # a second beamkit step to take the param from
+                doc["evaluate"].insert(0, dict(doc["evaluate"][0], step="pre"))
+                doc["evaluate"][1]["params_from"] = {name: "pre.v"}
+                self.assertRejects(doc, name, needle)
+
+    def test_upstream_and_sent_params(self):
+        s = st.Step("c", "toykit", None, (), ("a",), {"p": "x"},
+                    {"z": "b.m", "y": "d.n", "w": "a.k"}, {"f": 1})
+        self.assertEqual(s.upstream, ("a", "d", "b"))
+        self.assertEqual(s.sent_params, frozenset({"p", "z", "y", "w", "f"}))
+
+    def test_metrics_read(self):
+        doc = _doc()
+        _step(doc, "flash")["params_from"] = {"x": "sob.ce_abs_eff"}
+        study = self.load(doc)
+        self.assertEqual(st.metrics_read(study, "sob"),
+                         frozenset({"s_over_sqrt_b", "ce_abs_eff"}))
+        self.assertEqual(st.metrics_read(study, "flash"),
+                         frozenset({"flash_edep_per_pot"}))
+        self.assertEqual(st.metrics_read(study, "mubeam"), frozenset())
+
+    def test_params_from_changes_measure_sha(self):
+        base = self.load(_doc())
+        self.assertTrue(all("params_from" not in s
+                            for s in base.measure_basis["steps"]))
+        doc = _doc()
+        _step(doc, "flash")["params_from"] = {"x": "sob.ce_abs_eff"}
+        wired = self.load(doc)
+        self.assertNotEqual(base.measure_basis_sha, wired.measure_basis_sha)
+        flash = next(s for s in wired.measure_basis["steps"]
+                     if s["step"] == "flash")
+        self.assertEqual(flash["params_from"], {"x": "sob.ce_abs_eff"})
+
+
 if __name__ == "__main__":
     unittest.main()

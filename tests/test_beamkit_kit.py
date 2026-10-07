@@ -47,7 +47,7 @@ def ptg_doc(name="ptg4bltest", deck_ref="a" * 40):
         "evaluate": [{
             "step": "g4bl", "kit": "beamkit", "entry": None, "files": [],
             "files_from": [], "params": {k: k for k in KNOBS},
-            "fixed": {"njobs": 20, "events_per_job": 1000, "quorum": 0.9,
+            "params_from": {}, "fixed": {"njobs": 20, "events_per_job": 1000, "quorum": 0.9,
                       "plane": PLANE, "pdg": [13, -211]}}],
         "objectives": [{"name": "mu_pi_per_pot",
                         "metric": "g4bl.yield_per_pot", "direction": "max",

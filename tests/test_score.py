@@ -111,7 +111,7 @@ class TestFailedEvaluations(_Score):
                                   "entry": None, "files": [],
                                   "files_from": [],
                                   "params": {"x1": "x1", "x2": "x2"},
-                                  "fixed": {}})
+                                  "params_from": {}, "fixed": {}})
             d["extra_metrics"].append({"name": "b2", "metric": "toy2.branin",
                                        "fmt": "{:.3f}"})
         self.assertFails({"toy": rec(GOOD),

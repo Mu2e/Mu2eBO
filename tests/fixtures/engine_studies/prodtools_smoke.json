@@ -279,6 +279,7 @@
    ],
    "files_from": [],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 1,
     "events_per_job": 200,
@@ -297,6 +298,7 @@
     "mubeam"
    ],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 1,
     "events_per_job": 200,

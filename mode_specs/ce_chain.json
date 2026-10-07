@@ -34,6 +34,7 @@
    ],
    "files_from": [],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 1,
     "events_per_job": 100,
@@ -52,6 +53,7 @@
     "ce"
    ],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 1,
     "memory_mb": 3000,
@@ -69,6 +71,7 @@
     "dig"
    ],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 1,
     "memory_mb": 4000,
@@ -86,6 +89,7 @@
     "mcs"
    ],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 1,
     "memory_mb": 3000,
@@ -101,6 +105,7 @@
     "nts"
    ],
    "params": {},
+   "params_from": {},
    "fixed": {
     "analysis": "nts_momentum"
    }
