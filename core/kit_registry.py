@@ -215,7 +215,7 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             factory="adapters.offline_preflight:OfflinePreflightKit",
             reserved_params=frozenset()),
     KitDecl("anakit",
-            study_keys={"work_area": _path},
+            study_keys={"musing": _string},
             fixed_keys={"analysis": _string, "input_correction": _number,
                         "cosmic_rate_per_s_per_mev": _number,
                         "dio_fraction": _number, "dio_table": _path,

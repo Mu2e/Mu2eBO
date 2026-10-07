@@ -804,14 +804,14 @@ class TestReservedEntry(_Tmp):
 # measure_basis_sha of every study at 8cea00a, before params_from existed: an
 # empty params_from must leave each one, and so each board, as it was.
 PINNED = {
-    "ce_chain": "79b9b3e212d94d04f3aece224d3968cb33eae4e6f52c6e23c937281cd058e771",
-    "foilsflash_ax": "405cc0e850b9dc4ed28ee96bea8187c94185bce654230acc5016de73a1763d6f",
-    "foilspf2k_ax": "2060c97e7de0a4a18f6364e0a721e6abe45e4bc98a089b4ffedcea75385e12a4",
-    "foilspf_ax": "e96f0491abe95519352962dc51616fca0598eabf5b5cfba122734179da3b250e",
-    "foilspfbp_ax": "54467d3e05b4742da1fbd3a7809cf50f770fdc18219c40773ada487355cb0547",
-    "foilspfbpx_ax": "d6ee2d286f6e8e26a6417dfb9530789beefd8f385179036f60c4385d1e6d8a4d",
-    "foilspfbpz_ax": "c4aafee1c30ba5121ab727bcab4513786b6d076c10f976d1b786daf95e218a80",
-    "foilspfbw_ax": "01bcbd62be9a8f4d8b825e85267a3e7b45a0746b2784f1c48c32aeacba962191",
+    "ce_chain": "efe68799bd0a2d599f5b72226cddb39b9bdbe4c6dbb1428084c83eade898888e",
+    "foilsflash_ax": "7168e11c18753dea7069d4e308b982efad2d982cf1f7f56135cfb59dd8c934ca",
+    "foilspf2k_ax": "b745335f1012bf9484a1976ec3967e0ae5936ce7369359f89dbeec70a5c7b728",
+    "foilspf_ax": "dd60ce52710bf13b5d14cfd9a58aeb9d93db9da8dcd94d5a91ab919e2473f0d3",
+    "foilspfbp_ax": "82f0becd62921f7ccad8d6f88a1d663902346939d019162573373b8411d38082",
+    "foilspfbpx_ax": "3ba745fb27e62447252b92769e228d22573269a07357be374f9560acd0145c40",
+    "foilspfbpz_ax": "5bf6b433413bd5325691907824f69e08c989b64166e7ca0c723ca658299437f2",
+    "foilspfbw_ax": "a42758de4d23132ef929db5c95a46780096d957f76003f407612e86d5cb01bc6",
     "ptg4bl": "b52fce7c37525597cae53862efe0f272af28f766c6deaefa22b71f08a6861689",
 }
 
@@ -854,8 +854,8 @@ class TestParamsFrom(_Tmp):
 
     def test_a_clash_with_params_fixed_or_settings(self):
         cases = (("params_from vs fixed", {"analysis": "flash.v"}, {}, "analysis"),
-                 ("params_from vs setting", {"work_area": "flash.v"}, {},
-                  "work_area"),
+                 ("params_from vs setting", {"musing": "flash.v"}, {},
+                  "musing"),
                  ("params_from vs params", {"k": "flash.v"}, {"k": "a"}, "k"),
                  ("params vs fixed", {}, {"analysis": "a"}, "analysis"))
         for label, params_from, params, name in cases:

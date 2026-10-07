@@ -49,18 +49,18 @@ set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
 timeouts = { start = 120, run_status = 120 }
 
 # The anakit adapter (core/adapters/anakit.py) starts one of these per step,
-# from the anakit checkout $AUTORESEARCH_ANAKIT (our fork of M. MacKenzie's
-# analysis MCP server), under ana 2.7.0: anakit's server imports
-# mcp.server.fastmcp, which mcp 2 (ana 2.8.0) no longer has. -P keeps the
-# working directory off sys.path, so this repo's tools/ cannot shadow
-# anakit's `tools` package. The adapter appends --work-area <the study's
-# kits.anakit.work_area>, so anakit's own fallback (its author's work area)
-# is never used. anakit runs an analysis synchronously and one at a time per
-# server; the adapter stops a run at 3000 s, so run_analysis must allow more.
+# from the anakit checkout $AUTORESEARCH_ANAKIT (M. MacKenzie's analysis MCP
+# server, his main), under ana 2.7.0: his pyproject.toml pins mcp<2. -P
+# keeps the working directory off sys.path, so this repo's tools/ cannot
+# shadow anakit's `tools` package. The adapter appends --musing <the study's
+# kits.anakit.musing>, so anakit's own fallback (its author's work area) is
+# never used. One thread per job (OPENBLAS/OMP), as his AGENTS.md asks.
+# anakit runs an analysis synchronously and one at a time per server; the
+# adapter stops a run at 3000 s, so run_analysis must allow more.
 [servers.anakit]
 command = ["/cvmfs/mu2e.opensciencegrid.org/env/ana/2.7.0/bin/python", "-P", "-m", "analysis_mcp_server", "--transport", "stdio"]
 env_passthrough = []
-set = { PYTHONPATH = "${AUTORESEARCH_ANAKIT}", SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
+set = { PYTHONPATH = "${AUTORESEARCH_ANAKIT}", SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}", OPENBLAS_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 timeouts = { start = 120, list_analyses = 120, run_analysis = 3600 }
 
 # G4beamline through beamkit (core/adapters/beamkit.py drives it; spec

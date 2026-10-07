@@ -1,17 +1,20 @@
 """anakit as a contract kit: the adapter the engine drives for every
 `kit: "anakit"` step (Phase C2b spec,
 docs/superpowers/specs/2026-09-27-c2b-anakit-analyses-design.md, "3. The
-anakit adapter").
+anakit adapter"; on a Musing since
+docs/superpowers/specs/2026-10-07-upstream-analyses-design.md).
 
-anakit is M. MacKenzie's analysis MCP server; we run our fork, the checkout
-$AUTORESEARCH_ANAKIT names. A step names the analysis in its fixed
-`analysis`; every other param except the study's `work_area` setting is
+anakit is M. MacKenzie's analysis MCP server, run from the checkout of his
+main that $AUTORESEARCH_ANAKIT names. Its mu2e jobs set up the published
+Musing the study's `musing` setting names (e.g. "SimJob MDC2025ay"), which
+the server is started on with --musing. A step names the analysis in its
+fixed `analysis`; every other param except the study's `musing` setting is
 passed to that analysis as a parameter. The physics lives in anakit; this
 module holds none.
 
 anakit runs an analysis synchronously, and one server runs one at a time
 (FastMCP calls a sync tool on its event loop). So submit starts a server of
-its own on the study's work area, runs the analysis to the end, writes the
+its own on the study's Musing, runs the analysis to the end, writes the
 reply to <GRID_DATA_ROOT>/<config>/anakit/<step>/anakit_result.json and
 closes the server. The engine runs every step in its own thread, so the
 wait holds up nothing else. status and results only read that file. A point
@@ -25,7 +28,6 @@ import json
 import os
 import shutil
 import subprocess
-import tarfile
 import threading
 from pathlib import Path
 
@@ -47,11 +49,12 @@ else:
     from study import expand_artifact, metrics_read
 
 # The kit's version, hand-bumped (2026-10-05): bump when a step would
-# measure anew, INCLUDING a fork change that alters what an analysis
-# computes. The fork commit is not part of it: it is the step's recorded
+# measure anew, INCLUDING a checkout change that alters what an analysis
+# computes. The checkout commit is not part of it: it is the step's recorded
 # build (anakit_result.json "build", the results metadata "build"), so an
-# unrelated fork commit never splits a board.
-VERSION = "anakit-adapter/1"
+# unrelated commit never splits a board. 2: the server runs on a Musing
+# (--musing), not on our work area (2026-10-07).
+VERSION = "anakit-adapter/2"
 SERVER = "anakit"                      # kits.toml [servers.anakit]
 FORK_ENV = "AUTORESEARCH_ANAKIT"       # the anakit checkout
 RESULT_NAME = "anakit_result.json"
@@ -60,10 +63,14 @@ RESULT_NAME = "anakit_result.json"
 # anakit reports its own timeout instead of the call being cut off.
 RUN_TIMEOUT_S = 3000
 CALL_MARGIN_S = 300
-# The input_kind values list_analyses may report; "art_files" is the EdepAna
-# art job (backing and Mu2eOptAna checks), "root_file" a Python analysis.
+# The input_kind values list_analyses may report; "art_files" is a mu2e
+# job over art files, "root_file" a Python analysis.
 INPUT_KINDS = ("art_files", "root_file")
-OWN_PARAMS = ("work_area", "analysis")  # read here, never sent to anakit
+OWN_PARAMS = ("musing", "analysis")  # read here, never sent to anakit
+# Where published Musings live: <root>/<Musing>/<version> (anakit's own
+# tools/mu2e_env.py MUSINGS_ROOT). Read to refuse an unpublished Musing at
+# launch; never searched.
+MUSINGS_ROOT = Path("/cvmfs/mu2e.opensciencegrid.org/Musings")
 
 
 def _error(call, message) -> KitError:
@@ -115,40 +122,11 @@ def fork_commit(root) -> str:
     return _git(root, "rev-parse", "--short=12", "HEAD", call="open")
 
 
-def code_commit(work_area) -> str:
-    """Which Mu2eOptAna the work area's EdepAna was built from, for the
-    record. Not part of measure_sha: a rebuilt EdepAna gets a new work-area
-    directory, and the work area's path is a study setting."""
-    return _git(Path(work_area) / "Mu2eOptAna", "describe", "--always",
-                "--dirty", call="submit")
-
-
-def backing_problem(work_area, code_tarball):
-    """Why the work area's EdepAna is not built on the release the study's
-    jobs run, or None: its `backing` link against the code tarball's
-    `Code/backing` link, read from the archive without unpacking it."""
-    link = Path(work_area) / "backing"
-    if not link.is_symlink():
-        return f"work area {work_area} has no backing link"
-    try:
-        mine = os.path.normpath(os.readlink(link))
-    except OSError as exc:
-        return f"cannot read backing link {link}: {exc}"
-    try:
-        with tarfile.open(code_tarball) as tf:
-            member = tf.getmember("Code/backing")
-    except KeyError:
-        return f"code tarball {code_tarball} has no Code/backing"
-    except (OSError, tarfile.TarError) as exc:
-        return f"cannot read code tarball {code_tarball}: {exc}"
-    if not member.issym():
-        return f"Code/backing in {code_tarball} is not a link"
-    theirs = os.path.normpath(member.linkname)
-    if mine != theirs:
-        return (f"work area {work_area} is backed by {mine}, but the code "
-                f"tarball {code_tarball} by {theirs}: EdepAna must be built "
-                f"on the release the jobs run")
-    return None
+def musing_parts(musing: str):
+    """(Musing, version) from "SimJob MDC2025ay" or "SimJob/MDC2025ay", as
+    anakit's Mu2eEnv.for_musing splits it; None unless exactly two."""
+    parts = str(musing).replace("/", " ").split()
+    return tuple(parts) if len(parts) == 2 else None
 
 
 def split_handle(name: str):
@@ -243,7 +221,7 @@ class AnakitKit:
         for key in OWN_PARAMS:
             if not params.get(key):
                 raise ValueError(f"anakit: param {key!r} is missing")
-        work_area, analysis = params.pop("work_area"), params.pop("analysis")
+        musing, analysis = params.pop("musing"), params.pop("analysis")
         if not inputs:
             raise ValueError(f"anakit: {name} has no input files (its "
                              f"files_from steps gave none)")
@@ -254,12 +232,12 @@ class AnakitKit:
         if sdir.exists():
             shutil.rmtree(sdir)  # this step's own directory, from a rerun
         sdir.mkdir(parents=True)
-        client = self._client(work_area)
+        client = self._client(musing)
         try:
             spec = self._analyses(client, workflow).get(analysis)
             if spec is None:
-                raise ValueError(f"anakit: no analysis {analysis!r} in "
-                                 f"{work_area}")
+                raise ValueError(f"anakit: no analysis {analysis!r} on "
+                                 f"Musing {musing}")
             # No silent fallback: a catalogue entry missing either field is
             # anakit's list_analyses reply breaking the contract, not a
             # reasonable default to assume.
@@ -277,9 +255,6 @@ class AnakitKit:
                              f"{analysis!r} has input_kind "
                              f"{spec['input_kind']!r}; known kinds "
                              f"{list(INPUT_KINDS)}")
-            # Only an EdepAna art job has a Mu2eOptAna build to record.
-            code = (code_commit(work_area)
-                    if spec["input_kind"] == "art_files" else None)
             args = {"analysis": analysis, "output_dir": str(sdir),
                     "parameters": params, "timeout_s": RUN_TIMEOUT_S}
             if spec["takes_data_files"]:
@@ -294,8 +269,7 @@ class AnakitKit:
             client.close()
         result_path = sdir / RESULT_NAME
         write_atomic(result_path, json.dumps({
-            "handle": name, "analysis": analysis,
-            "work_area": str(work_area), "code": code,
+            "handle": name, "analysis": analysis, "musing": musing,
             "version": self._version, "build": build,
             "metrics": list(spec["metrics"]),
             "reply": reply}, indent=1, sort_keys=True))
@@ -335,20 +309,25 @@ class AnakitKit:
         files = [{"name": Path(p).name, "uri": Path(p).resolve().as_uri(),
                   "kind": Path(p).suffix.lstrip(".") or "file"}
                  for p in reply.get("files", [])]
-        meta.update(message=reply.get("message"), work_area=rec["work_area"],
-                    code=rec["code"], adapter=rec["version"],
-                    build=rec.get("build"))
+        meta.update(message=reply.get("message"), musing=rec["musing"],
+                    adapter=rec["version"], build=rec.get("build"))
         return parse_results({"metrics": metrics, "files": files,
                               "metadata": meta}, self.name)
 
     # --- the launch check (contract.kit_step_problems) ---------------------
     def step_problems(self, study, step) -> list:
         where = f"step {step.step!r} (kit anakit)"
-        work_area = study.kits.get(self.name, {}).get("work_area")
-        if not work_area:
-            return [f"{where}: kits.anakit.work_area is not set"]
-        if not Path(work_area).is_dir():
-            return [f"{where}: work area {work_area} is not a directory"]
+        musing = study.kits.get(self.name, {}).get("musing")
+        if not musing:
+            return [f"{where}: kits.anakit.musing is not set"]
+        parts = musing_parts(musing)
+        if parts is None:
+            return [f"{where}: kits.anakit.musing {musing!r}: expected a "
+                    f"Musing and a version, e.g. 'SimJob MDC2025ay'"]
+        published = MUSINGS_ROOT.joinpath(*parts)
+        if not published.is_dir():
+            return [f"{where}: Musing {musing!r} is not published (no "
+                    f"{published})"]
         problems = []
         if not step.files_from:
             # submit refuses a step with no input files; say so before any
@@ -356,7 +335,7 @@ class AnakitKit:
             problems.append(f"{where}: anakit runs an analysis on input "
                             f"files, and this step has no files_from (a "
                             f"params_from value is not an input file)")
-        analyses = self._catalogue(work_area,
+        analyses = self._catalogue(musing,
                                    f"{self.campaign}/launch/{self.name}")
         analysis = step.fixed.get("analysis")
         spec = analyses.get(analysis)
@@ -372,13 +351,6 @@ class AnakitKit:
             return [f"{where}: anakit's list_analyses reply for analysis "
                     f"{analysis!r} has input_kind {spec['input_kind']!r}; "
                     f"known kinds {list(INPUT_KINDS)}"]
-        tarball = study.kits.get("prodtools", {}).get("code_tarball")
-        # Only an EdepAna art job is built on the jobs' release; a root_file
-        # analysis is Python and runs from its own work area.
-        if tarball is not None and spec["input_kind"] == "art_files":
-            why = backing_problem(work_area, tarball)
-            if why:
-                problems.append(f"{where}: {why}")
         declared = spec.get("parameters", {})
         sent = set(step.sent_params) - set(OWN_PARAMS)
         unknown = sorted(sent - set(declared))
@@ -427,11 +399,10 @@ class AnakitKit:
         return problems
 
     # --- plumbing ----------------------------------------------------------
-    def _client(self, work_area):
+    def _client(self, musing):
         cfg = dataclasses.replace(
             self._server,
-            command=tuple(self._server.command) + ("--work-area",
-                                                   str(work_area)))
+            command=tuple(self._server.command) + ("--musing", str(musing)))
         return self._factory(cfg)
 
     def _call(self, client, tool, args, workflow):
@@ -447,16 +418,16 @@ class AnakitKit:
                            f"metadata.analyses: {str(reply)[:200]}")
         return analyses
 
-    def _catalogue(self, work_area, workflow) -> dict:
+    def _catalogue(self, musing, workflow) -> dict:
         with self._lock:
-            if work_area not in self._catalogues:
-                client = self._client(work_area)
+            if musing not in self._catalogues:
+                client = self._client(musing)
                 try:
-                    self._catalogues[work_area] = self._analyses(client,
-                                                                 workflow)
+                    self._catalogues[musing] = self._analyses(client,
+                                                              workflow)
                 finally:
                     client.close()
-            return self._catalogues[work_area]
+            return self._catalogues[musing]
 
     def _step_dir(self, config, step) -> Path:
         return self._grid_root / config / "anakit" / step

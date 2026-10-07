@@ -333,7 +333,7 @@
    "require_zero_overlaps": true
   },
   "anakit": {
-   "work_area": "${ARTIFACT}/autoresearch_muse_ax"
+   "musing": "SimJob MDC2025ay"
   }
  },
  "preflight": {

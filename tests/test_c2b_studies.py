@@ -55,7 +55,7 @@ class TestTwinFacts(unittest.TestCase):
                                  "MDC2025ax_{cfg}")
                 self.assertEqual(kits["offline_preflight"]["code_tarball"],
                                  TARBALL)
-                self.assertEqual(kits["anakit"], {"work_area": WORK_AREA})
+                self.assertEqual(kits["anakit"], {"musing": "SimJob MDC2025ay"})
                 steps = {s["step"]: s for s in twin["evaluate"]}
                 self.assertEqual(steps["sob"], SOB)
                 self.assertEqual(steps["flash"], FLASH)

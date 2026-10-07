@@ -24,7 +24,7 @@
  "kits": {
   "prodtools": {"code_tarball": "${ARTIFACT}/demo/Code_demo.tar.bz2", "dsconf": "Run1Bak_{cfg}", "fatal_log_codes": ["GeomSolids1001"]},
   "offline_preflight": {"code_tarball": "${ARTIFACT}/demo/Code_demo.tar.bz2", "dumps_gdml": true, "verifies_foil_gdml": true, "checks_managed_overlap": true, "require_zero_overlaps": true},
-  "anakit": {"work_area": "${ARTIFACT}/demo/anakit_work"}
+  "anakit": {"musing": "SimJob MDC2025ay"}
  },
  "preflight": {"kit": "offline_preflight", "params": {}, "files": ["geom"]},
  "evaluate": [
