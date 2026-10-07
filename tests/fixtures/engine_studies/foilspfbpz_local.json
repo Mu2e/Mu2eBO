@@ -353,6 +353,7 @@
    ],
    "files_from": [],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 2,
     "events_per_job": 10000,
@@ -371,6 +372,7 @@
     "mubeam"
    ],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 2,
     "events_per_job": 2000,
@@ -387,6 +389,7 @@
    ],
    "files_from": [],
    "params": {},
+   "params_from": {},
    "fixed": {
     "njobs": 4,
     "events_per_job": 10000,
@@ -404,6 +407,7 @@
     "mustops_ce"
    ],
    "params": {},
+   "params_from": {},
    "fixed": {
     "analysis": "ce_sensitivity",
     "input_correction": 0.01278168,
@@ -421,6 +425,7 @@
     "elebeam_flash"
    ],
    "params": {},
+   "params_from": {},
    "fixed": {
     "analysis": "flash_edep_per_pot",
     "pot_per_electron": 11.536718606512062

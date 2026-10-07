@@ -28,11 +28,11 @@
  },
  "preflight": {"kit": "offline_preflight", "params": {}, "files": ["geom"]},
  "evaluate": [
-  {"step": "mubeam", "kit": "prodtools", "entry": "mubeam", "files": ["geom"], "files_from": [], "params": {}, "fixed": {"njobs": 15, "events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}},
-  {"step": "mustops_ce", "kit": "prodtools", "entry": "mustops_ce", "files": ["geom"], "files_from": ["mubeam"], "params": {}, "fixed": {"njobs": 15, "events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
-  {"step": "elebeam_flash", "kit": "prodtools", "entry": "elebeam_flash", "files": ["geom"], "files_from": [], "params": {}, "fixed": {"njobs": 100, "events_per_job": 110000, "memory_mb": 2000, "quorum": 0.8}},
-  {"step": "sob", "kit": "anakit", "entry": null, "files": [], "files_from": ["mubeam", "mustops_ce"], "params": {}, "fixed": {"analysis": "ce_sensitivity"}},
-  {"step": "flash", "kit": "anakit", "entry": null, "files": [], "files_from": ["elebeam_flash"], "params": {}, "fixed": {"analysis": "flash_edep_per_pot"}}
+  {"step": "mubeam", "kit": "prodtools", "entry": "mubeam", "files": ["geom"], "files_from": [], "params": {}, "params_from": {}, "fixed": {"njobs": 15, "events_per_job": 200000, "memory_mb": 2000, "quorum": 0.8}},
+  {"step": "mustops_ce", "kit": "prodtools", "entry": "mustops_ce", "files": ["geom"], "files_from": ["mubeam"], "params": {}, "params_from": {}, "fixed": {"njobs": 15, "events_per_job": 75000, "memory_mb": 2000, "quorum": 0.8}},
+  {"step": "elebeam_flash", "kit": "prodtools", "entry": "elebeam_flash", "files": ["geom"], "files_from": [], "params": {}, "params_from": {}, "fixed": {"njobs": 100, "events_per_job": 110000, "memory_mb": 2000, "quorum": 0.8}},
+  {"step": "sob", "kit": "anakit", "entry": null, "files": [], "files_from": ["mubeam", "mustops_ce"], "params": {}, "params_from": {}, "fixed": {"analysis": "ce_sensitivity"}},
+  {"step": "flash", "kit": "anakit", "entry": null, "files": [], "files_from": ["elebeam_flash"], "params": {}, "params_from": {}, "fixed": {"analysis": "flash_edep_per_pot"}}
  ],
  "objectives": [
   {"name": "sob", "metric": "sob.s_over_sqrt_b", "direction": "max", "transform": "none", "noise": 0.006, "fmt": "{:.5f}"},

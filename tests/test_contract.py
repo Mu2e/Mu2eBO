@@ -537,6 +537,30 @@ class TestLaunchProblems(_Toy):
         study = self.study(lambda d: d["objectives"][0].update(metric="toy.nope"))
         self.assertTrue(any("nope" in p for p in self.check(study)))
 
+    def chained(self, params_from):
+        """toy -> toy2: toy2 takes x1 from the point and params_from from
+        toy; the objectives read toy2."""
+        def mutate(doc):
+            doc["evaluate"].append(dict(doc["evaluate"][0], step="toy2",
+                                        params={"x1": "x1"},
+                                        params_from=params_from))
+            for o in doc["objectives"]:
+                o["metric"] = "toy2." + o["metric"].split(".", 1)[1]
+        return self.study(mutate)
+
+    def test_a_params_from_study_passes(self):
+        self.assertEqual(self.check(self.chained({"x2": "toy.branin"})), [])
+
+    def test_a_params_from_metric_the_producer_does_not_return(self):
+        problems = self.check(self.chained({"x2": "toy.nope"}))
+        self.assertTrue(any("does not return metric(s) ['nope']" in p
+                            for p in problems), problems)
+
+    def test_a_params_from_param_the_consumer_does_not_take(self):
+        problems = self.check(self.chained({"zz": "toy.branin"}))
+        self.assertTrue(any("does not accept param(s)" in p and "zz" in p
+                            for p in problems), problems)
+
     def board(self, study, *shas, header=None):
         lb = Leaderboard.for_study(study, path=self.tmp / "b.tsv",
                                    archive_path=None)

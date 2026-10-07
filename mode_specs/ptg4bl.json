@@ -67,6 +67,7 @@
     "R_mid": "R_mid",
     "R_dn": "R_dn"
    },
+   "params_from": {},
    "fixed": {
     "njobs": 20,
     "events_per_job": 5000,

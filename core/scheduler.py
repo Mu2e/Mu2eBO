@@ -1,7 +1,8 @@
 """run_steps: the one per-point node that runs a study's steps
 (generic-study design, "One point, end to end", step 4).
 
-A step starts as soon as every step in its files_from has completed, and
+A step starts as soon as every step in its files_from and params_from has
+completed (Step.upstream), and
 ready steps run concurrently in threads, so a slow independent step never
 holds back a dependent chain. One LangGraph node per step would: LangGraph
 finishes a whole superstep before starting the next, which is the wait
@@ -23,6 +24,7 @@ error still crashes loudly instead of hanging silently.
 """
 from __future__ import annotations
 
+import math
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -67,6 +69,28 @@ def map_params(mapping: Dict[str, str], env: Dict[str, Any],
     return out
 
 
+def params_from_values(step, upstream: Dict[str, Dict[str, Any]]
+                       ) -> Dict[str, float]:
+    """Kit param -> the metric of an earlier step that its params_from names,
+    read from that step's record as it is. A missing metric, or one that is
+    not a finite number, is a ValueError: there is no default."""
+    out: Dict[str, float] = {}
+    for param, source in sorted(step.params_from.items()):
+        up, key = source.split(".", 1)
+        metrics = upstream[up]["metrics"]
+        if key not in metrics:
+            raise ValueError(f"params_from {param}={source!r}: step {up!r} "
+                             f"returned no metric {key!r} (it returned "
+                             f"{sorted(metrics)})")
+        value = metrics[key]
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value)):
+            raise ValueError(f"params_from {param}={source!r}: step {up!r} "
+                             f"returned {value!r}, not a finite number")
+        out[param] = value
+    return out
+
+
 def merge_params(owner: str, mapped: Dict[str, Any],
                  constant: Dict[str, Any]) -> Dict[str, Any]:
     """The mapped params plus the constant ones (kit settings, a step's
@@ -82,16 +106,24 @@ def merge_params(owner: str, mapped: Dict[str, Any],
     return {**mapped, **constant}
 
 
-def step_params(study, step, env, accepts_lists) -> Dict[str, Any]:
-    """The mapped params, then the study's settings for the step's kit, then
+def step_params(study, step, env, accepts_lists, upstream) -> Dict[str, Any]:
+    """The mapped params (the point's, then the params_from values read from
+    `upstream`, {step: its record}), then the study's settings for the step's
+    kit, then
     the step's fixed values, which win over the settings. A mapped param may
     not share a name with a setting or a fixed value. A kit that takes stage
     templates also gets the step's resolved template as `entry`. A fixed
     '${ARTIFACT}/' value is expanded here (the study keeps it raw)."""
     fixed = {k: expand_artifact(v, f"step {step.step!r} fixed[{k}]")
              for k, v in step.fixed.items()}
-    params = merge_params(f"step {step.step!r}",
-                          map_params(step.params, env, accepts_lists),
+    mapped = map_params(step.params, env, accepts_lists)
+    taken = params_from_values(step, upstream)
+    clash = sorted(set(mapped) & set(taken))
+    if clash:
+        # e.g. a profile flattened to r_0.. and a params_from r_1
+        raise ValueError(f"step {step.step!r}: param(s) {clash} come from "
+                         f"both the point (params) and params_from")
+    params = merge_params(f"step {step.step!r}", {**mapped, **taken},
                           {**study.kits.get(step.kit, {}), **fixed})
     decl = kit_registry.KITS.get(step.kit)
     if decl is not None and decl.uses_entries:
@@ -122,9 +154,9 @@ def run_steps(study, *, config: str, state_dir: Path, env, files, kits,
             if failed is None:
                 for s in list(pending):
                     if all(d in outcomes and outcomes[d].ok
-                           for d in s.files_from):
+                           for d in s.upstream):
                         pending.remove(s)
-                        upstream = {d: outcomes[d].record for d in s.files_from}
+                        upstream = {d: outcomes[d].record for d in s.upstream}
                         fut = pool.submit(_run_one, study, s, config,
                                           state_dir, env, files, kits,
                                           upstream, workflow(s.step), sleep,
@@ -218,7 +250,7 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
     except (KitError, ContractError) as exc:
         return failed(exc)
     try:
-        params = step_params(study, step, env, accepts_lists)
+        params = step_params(study, step, env, accepts_lists, upstream)
         step_files = [files[f] for f in step.files]
         inputs = [ref for up in step.files_from for ref in upstream[up]["files"]]
     except (KeyError, ValueError) as exc:

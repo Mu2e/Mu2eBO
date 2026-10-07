@@ -16,9 +16,9 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   pre-check at the center point), submitting nothing; a knob-built
   profile's clip must equal its knobs' bounds (2026-10-02); beamkit adapter
   (2026-10-02): G4beamline studies through beamkit, knobs as deck params,
-  status from queue and quorum, the FoM counted from the ntuples; point and campaign records (2026-10-05): core/point_dir.py and core/campaign_dir.py own a point's state/ and a campaign's folder, graph.run holds state/run.lock, every closed_loop writes campaign.json + outcomes.jsonl and holds parent.lock; measure identity (2026-10-05): kit versions hand-bumped (anakit/beamkit builds recorded per step), core/measure.py decides the board match, graph.restamp_board re-stamps an old board once after a proof
+  status from queue and quorum, the FoM counted from the ntuples; point and campaign records (2026-10-05): core/point_dir.py and core/campaign_dir.py own a point's state/ and a campaign's folder, graph.run holds state/run.lock, every closed_loop writes campaign.json + outcomes.jsonl and holds parent.lock; measure identity (2026-10-05): kit versions hand-bumped (anakit/beamkit builds recorded per step), core/measure.py decides the board match, graph.restamp_board re-stamps an old board once after a proof; params_from (2026-10-07): a step param from an earlier step's metric, copied as it is
 status: active
-timestamp: '2026-10-05'
+timestamp: '2026-10-07'
 ---
 
 # Contract engine (Phase B)
@@ -1255,6 +1255,36 @@ re-stamped once, by hand.
   naming the version change (re-stamping covers rows, not unfinished
   points). On 2026-10-05 no such point was pending (c2bnom01, ptgnom02,
   ptgrmid02 are scored).
+
+**A step param from an earlier step's metric (`params_from`, 2026-10-07)**
+- Spec `docs/superpowers/specs/2026-10-07-params-from-design.md`. Why: M.
+  MacKenzie's analysis tools feed each other numbers (`muon_stop_rate`'s
+  `stops_per_pot` into `approx_ce_sensitivity`, his PR #3), and the engine
+  could pass only files between steps. The engine copies the metric as it
+  is and computes nothing, so analysis physics stays in the kit.
+- Every step has the required key `params_from` (`{}` when unused): kit
+  param -> `"<step>.<metric>"`. `Step.upstream` (files_from, then the
+  params_from sources) is what a step waits for — the scheduler's
+  readiness, the cycle check, the used-step check and the dashboard's
+  edges (its payload key is `upstream`, no longer `files_from`) all read
+  it. Inputs still come from `files_from` only.
+- One answer to "what does a step send / what is read from it":
+  `Step.sent_params` and `core/study.py:metrics_read(study, step)` (a
+  function, so namespace fakes work). `contract._needs` and
+  `anakit.step_problems` use both; before, each computed its own and would
+  have missed `params_from`.
+- Load-time clash rule: a mapped param (`params` or `params_from`) may not
+  share a name with another param of the step (the other mapping, `fixed`,
+  the kit's settings). `fixed` may still override a kit setting.
+  `merge_params` keeps the same rule at run time.
+- `measure_basis` carries `params_from` only when non-empty: every
+  `mode_specs` study's `measure_basis_sha` is pinned unchanged in
+  `tests/test_study.py:PINNED`. Adding the key did change every study's
+  `spec_sha`; nothing checks `spec_sha` (rows record it only).
+- Run time (`scheduler.params_from_values`): a missing metric, or a bool,
+  text, NaN or ±inf, fails the step with `params_from <param>='<step>.<key>':
+  step '<step>' returned ...`; an adopted (resumed) producer passes its
+  recorded value.
 
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded

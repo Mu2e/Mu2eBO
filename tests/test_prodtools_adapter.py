@@ -714,10 +714,10 @@ class TestWithRunSteps(_Kit):
         fixed = {"njobs": 2, "events_per_job": 200, "memory_mb": 2000,
                  "quorum": 1.0}
         study = types.SimpleNamespace(
-            steps=(Step("mubeam", "prodtools", "mubeam", ("geom",), (), {},
+            steps=(Step("mubeam", "prodtools", "mubeam", ("geom",), (), {}, {},
                         dict(fixed)),
                    Step("mustops_ce", "prodtools", "mustops_ce", ("geom",),
-                        ("mubeam",), {}, dict(fixed))),
+                        ("mubeam",), {}, {}, dict(fixed))),
             kits={"prodtools": settings},
             entry_template=lambda step: copy.deepcopy(entries[step]))
 

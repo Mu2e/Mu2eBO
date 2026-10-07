@@ -22,13 +22,13 @@ TWINS = ("foilsflash_ax", "foilspf_ax", "foilspf2k_ax", "foilspfbp_ax",
 TARBALL = "${ARTIFACT}/autoresearch_muse/Code_mdc2025ax.tar.bz2"
 WORK_AREA = "${ARTIFACT}/autoresearch_muse_ax"
 SOB = {"step": "sob", "kit": "anakit", "entry": None, "files": [],
-       "files_from": ["mubeam", "mustops_ce"], "params": {},
+       "files_from": ["mubeam", "mustops_ce"], "params": {}, "params_from": {},
        "fixed": {"analysis": "ce_sensitivity", "input_correction": 0.01278168,
                  "cosmic_rate_per_s_per_mev": 0.0018181818181818182,
                  "dio_fraction": 0.39,
                  "dio_table": WORK_AREA + "/data/heeck_finer_binning_2016_szafron.tbl"}}
 FLASH = {"step": "flash", "kit": "anakit", "entry": None, "files": [],
-         "files_from": ["elebeam_flash"], "params": {},
+         "files_from": ["elebeam_flash"], "params": {}, "params_from": {},
          "fixed": {"analysis": "flash_edep_per_pot",
                    "pot_per_electron": 11.536718606512062}}
 

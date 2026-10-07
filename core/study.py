@@ -38,7 +38,8 @@ _DERIVE = ("consts", "exprs", "profiles")
 _PROFILE = ("kind", "count", "control", "clip")
 _GEOM = ("writer", "base", "lines")
 _PREFLIGHT = ("kit", "params", "files")
-_STEP = ("step", "kit", "entry", "files", "files_from", "params", "fixed")
+_STEP = ("step", "kit", "entry", "files", "files_from", "params",
+         "params_from", "fixed")
 _OBJECTIVE = ("name", "metric", "direction", "transform", "noise", "fmt")
 _EXTRA_METRIC = ("name", "metric", "fmt")
 _EXTRA_COLUMN = ("name", "expr", "fmt")
@@ -68,7 +69,23 @@ class Step:
     files: Tuple[str, ...]
     files_from: Tuple[str, ...]
     params: Dict[str, str]
+    params_from: Dict[str, str]     # kit param -> "<step>.<metric>"
     fixed: Dict[str, Any]
+
+    @property
+    def upstream(self) -> Tuple[str, ...]:
+        """The steps this one waits for: files_from in order, then each
+        params_from source, in param-name order; none twice."""
+        sources = [self.params_from[k].split(".", 1)[0]
+                   for k in sorted(self.params_from)]
+        return tuple(dict.fromkeys(list(self.files_from) + sources))
+
+    @property
+    def sent_params(self) -> frozenset:
+        """The param names this step sends its kit, besides the kit's own
+        settings: the mapped ones (params, params_from) and the fixed ones."""
+        return frozenset(self.params) | frozenset(self.params_from) | frozenset(
+            self.fixed)
 
 
 @dataclass(frozen=True)
@@ -381,7 +398,7 @@ def _steps(raw, has_geom, names, where):
         kit = _kit(s["kit"], "step_kit", f"{sw}[kit]")
         decl = kit_registry.KITS[kit]
         if decl.uses_entries:
-            for part in ("params", "fixed"):
+            for part in ("params", "fixed", "params_from"):
                 if isinstance(s[part], dict) and "entry" in s[part]:
                     raise ValueError(
                         f"{sw}[{part}.entry]: 'entry' is reserved for kit "
@@ -394,10 +411,13 @@ def _steps(raw, has_geom, names, where):
                              f"name or an inline template object")
         if not decl.uses_entries and entry is not None:
             raise ValueError(f"{sw}[entry]: kit {kit!r} takes no entry; use null")
-        if isinstance(s["params"], dict):
-            for name in sorted(set(s["params"]) & decl.reserved_params):
-                raise ValueError(f"{sw}[params.{name}]: a {kit} setting, not "
-                                 f"a deck param; kit {kit!r} reads it itself")
+        params_from = _dict(s["params_from"], f"{sw}[params_from]")
+        for part in ("params", "params_from"):
+            if isinstance(s[part], dict):
+                for name in sorted(set(s[part]) & decl.reserved_params):
+                    raise ValueError(f"{sw}[{part}.{name}]: a {kit} setting, "
+                                     f"not a deck param; kit {kit!r} reads it "
+                                     f"itself")
         fixed = kit_registry.validate(kit, s["fixed"], decl.fixed_keys,
                                       f"{sw}[fixed]", required=False)
         # A fixed path follows the kit-settings rule ('${ARTIFACT}/' only,
@@ -412,7 +432,8 @@ def _steps(raw, has_geom, names, where):
                              f"every step's fixed")
         out.append(Step(step, kit, entry, _files(s["files"], has_geom, sw),
                         tuple(_list(s["files_from"], f"{sw}[files_from]")),
-                        _params(s["params"], names, sw), fixed))
+                        _params(s["params"], names, sw), dict(params_from),
+                        fixed))
     step_names = [s.step for s in out]
     if len(set(step_names)) != len(step_names):
         raise ValueError(f"{where}[evaluate]: duplicate step names {step_names}")
@@ -421,19 +442,26 @@ def _steps(raw, has_geom, names, where):
             if up not in step_names:
                 raise ValueError(f"{where}[evaluate.{s.step}.files_from]: "
                                  f"unknown step {up!r}")
+        for name, source in sorted(s.params_from.items()):
+            pw = f"{where}[evaluate.{s.step}.params_from.{name}]"
+            _metric(source, step_names, pw)
+            if source.split(".", 1)[0] == s.step:
+                raise ValueError(f"{pw}: a step cannot take a param from its "
+                                 f"own result")
     _check_acyclic(out, where)
     return tuple(out)
 
 
 def _check_acyclic(steps, where):
-    deps = {s.step: set(s.files_from) for s in steps}
+    deps = {s.step: set(s.upstream) for s in steps}
     state = {}
 
     def visit(n, trail):
         if state.get(n) == "done":
             return
         if state.get(n) == "open":
-            raise ValueError(f"{where}[evaluate]: files_from forms a cycle "
+            raise ValueError(f"{where}[evaluate]: files_from/params_from "
+                             f"form a cycle "
                              f"{' -> '.join(trail + [n])}")
         state[n] = "open"
         for d in sorted(deps[n]):
@@ -614,7 +642,7 @@ def _check_steps_used(steps, objectives, metrics, where):
     """Every step feeds another step's files_from or an objective / extra
     metric. A step nothing reads spends grid time for nothing; a study that
     wants a step's side outputs names an extra metric from it."""
-    used = ({up for s in steps for up in s.files_from}
+    used = ({up for s in steps for up in s.upstream}
             | {x.metric.split(".", 1)[0] for x in objectives + metrics})
     unused = [s.step for s in steps if s.step not in used]
     if unused:
@@ -622,6 +650,34 @@ def _check_steps_used(steps, objectives, metrics, where):
                          f"nothing uses this step's output (no files_from, "
                          f"objective or extra metric names it); drop the step "
                          f"or add an extra metric from it")
+
+
+def _check_mapped_params(steps, kits, where):
+    """A mapped param (params or params_from) is set in one place only: not
+    in the other mapping, the step's fixed values or its kit's settings. A
+    fixed value may still override a kit setting. scheduler.merge_params
+    applies the same rule at run time; this refuses the study up front."""
+    for s in steps:
+        params, params_from = set(s.params), set(s.params_from)
+        constant = set(s.fixed) | set(kits.get(s.kit) or {})
+        clash = sorted((params & params_from)
+                       | ((params | params_from) & constant))
+        if clash:
+            raise ValueError(f"{where}[evaluate.{s.step}]: param(s) {clash} "
+                             f"are set more than once (params, params_from, "
+                             f"fixed, kits.{s.kit}); a mapped param may not "
+                             f"share a name with another param of the step")
+
+
+def metrics_read(study, step_name: str) -> frozenset:
+    """The metric keys read from step `step_name`: by an objective, an extra
+    metric or another step's params_from. Reads only study.objectives,
+    study.extra_metrics and study.steps."""
+    refs = [m.metric for m in tuple(study.objectives)
+            + tuple(study.extra_metrics)]
+    refs += [v for s in study.steps for v in s.params_from.values()]
+    return frozenset(r.split(".", 1)[1] for r in refs
+                     if r.split(".", 1)[0] == step_name)
 
 
 def _stage_template(name: str, where: str) -> Dict[str, Any]:
@@ -681,9 +737,13 @@ def _measure_basis(doc, steps, where) -> Dict[str, Any]:
         return s.entry
     return {
         "derive": doc["derive"], "geom": doc["geom"], "kits": doc["kits"],
+        # params_from only where it is set, so a study without it keeps the
+        # measure_sha (and the board) it had before the key existed.
         "steps": [{"step": s.step, "kit": s.kit, "entry": entry(s),
                    "files": list(s.files), "files_from": list(s.files_from),
-                   "params": s.params, "fixed": s.fixed} for s in steps],
+                   "params": s.params, "fixed": s.fixed,
+                   **({"params_from": s.params_from} if s.params_from else {})}
+                  for s in steps],
         "objectives": [{"metric": o["metric"], "transform": o["transform"]}
                        for o in doc["objectives"]],
         "extra_metrics": [{"metric": m["metric"]}
@@ -734,6 +794,7 @@ def load_study_file(path: Path) -> Study:
                                context, where)
     _check_columns(knobs, objectives, metrics, columns, context, where)
     _check_steps_used(steps, objectives, metrics, where)
+    _check_mapped_params(steps, kits, where)
     sha = hashlib.sha256(json.dumps(doc, sort_keys=True,
                                     separators=(",", ":")).encode()).hexdigest()
     return Study(path=path, name=_name(doc["name"], f"{where}[name]"),

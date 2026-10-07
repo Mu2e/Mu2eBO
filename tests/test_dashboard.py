@@ -120,6 +120,27 @@ class TestData(_Dash):
         self.assertEqual(dash.prefixes(self.svc, self.now, 7),
                          ["aa", "cc", "dd"])
 
+    def test_a_params_from_source_is_consumed(self):
+        """b takes x2 from a's branin (params_from) and no file from it: a
+        still feeds b, and is not a dead end into the result."""
+        doc = toy_doc("pfstudy")
+        a = dict(doc["evaluate"][0], step="a")
+        b = dict(a, step="b", files_from=[], params={"x1": "x1"},
+                 params_from={"x2": "a.branin"})
+        doc["evaluate"] = [a, b]
+        for o in doc["objectives"]:
+            o["metric"] = "b." + o["metric"].split(".", 1)[1]
+        write_study(doc, self.tmp / "studies")
+        self.child("pfR00_00", "pfstudy")
+        d = self.data_of("pf")
+        self.assertEqual(d["steps"], [
+            {"step": "a", "kit": "toykit", "upstream": []},
+            {"step": "b", "kit": "toykit", "upstream": ["a"]}])
+        edges = [tuple(e) for e in dash.layout(d)["edges"]]
+        self.assertIn(("pfR00_00/a", "pfR00_00/b"), edges)
+        self.assertNotIn(("pfR00_00/a", "pfR00_00/result"), edges)
+        self.assertIn(("pfR00_00/b", "pfR00_00/result"), edges)
+
     def test_point_and_step_states(self):
         self.child("dgR00_00", "dagstudy")
         self.step_file("dgR00_00", "a", "cluster.txt")
@@ -135,9 +156,9 @@ class TestData(_Dash):
         d = self.data_of("dg")
         self.assertEqual(d["study"], "dagstudy")
         self.assertEqual(d["steps"], [
-            {"step": "a", "kit": "toykit", "files_from": []},
-            {"step": "b", "kit": "toykit", "files_from": []},
-            {"step": "c", "kit": "toykit", "files_from": ["a", "b"]}])
+            {"step": "a", "kit": "toykit", "upstream": []},
+            {"step": "b", "kit": "toykit", "upstream": []},
+            {"step": "c", "kit": "toykit", "upstream": ["a", "b"]}])
         p0 = self.point(d, "dgR00_00")
         self.assertEqual(p0["x"], {"x1": 1.0, "x2": 2.0})
         self.assertEqual({s: v["state"] for s, v in p0["steps"].items()},
@@ -264,14 +285,14 @@ def step_rec(state="working", stall=False):
 
 
 def camp(steps, points, best=None, direction="min", alive=True):
-    """A campaign_data dict built by hand: steps as (name, files_from),
+    """A campaign_data dict built by hand: steps as (name, upstream),
     points as (name, state, value, {step: step_rec})."""
     return {"prefix": "p", "study": "s", "alive": alive, "exit_code": None,
             "launched_by": "shell", "host": "h", "stopping": False,
             "q": 2, "max_evals": 4, "rows": 0,
             "best": {"config": best} if best else None, "best_label": None,
             "error": None, "direction": direction,
-            "steps": [{"step": s, "kit": "k", "files_from": list(f)}
+            "steps": [{"step": s, "kit": "k", "upstream": list(f)}
                       for s, f in steps],
             "points": [{"name": n, "state": st, "x": {"x1": 1.0},
                         "last_line": "[run] x", "value": v,

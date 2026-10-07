@@ -289,17 +289,21 @@ def check_deck_params_shadowing(kits: dict, steps, where: str) -> None:
     for step in steps:
         if step.kit != "beamkit":
             continue
-        clash = sorted(set(step.params) & set(fixed))
-        if clash:
-            raise ValueError(
-                f"{where}[evaluate.{step.step}.params]: {clash} also set in "
-                f"kits.beamkit.deck_params; a deck param is either a knob or "
-                f"fixed, not both")
-        bad = sorted(n for n in step.params if not _DECK_PARAM.fullmatch(n))
-        if bad:
-            raise ValueError(
-                f"{where}[evaluate.{step.step}.params]: {bad} cannot be g4bl "
-                f"deck parameter names (letters, digits and _)")
+        # A params_from deck param is mapped too (from an earlier step's
+        # metric), so the same two rules hold for it.
+        for part in ("params", "params_from"):
+            names = getattr(step, part)
+            clash = sorted(set(names) & set(fixed))
+            if clash:
+                raise ValueError(
+                    f"{where}[evaluate.{step.step}.{part}]: {clash} also set "
+                    f"in kits.beamkit.deck_params; a deck param is either "
+                    f"mapped or fixed, not both")
+            bad = sorted(n for n in names if not _DECK_PARAM.fullmatch(n))
+            if bad:
+                raise ValueError(
+                    f"{where}[evaluate.{step.step}.{part}]: {bad} cannot be "
+                    f"g4bl deck parameter names (letters, digits and _)")
 
 
 def check_offline_preflight_overlap_policy(kits: dict, where: str) -> None:
