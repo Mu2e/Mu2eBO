@@ -1,5 +1,6 @@
 """The ce_chain study (docs/superpowers/specs/2026-09-30-ce-chain-design.md):
 the CeEndpoint dts -> dig -> mcs -> nts -> plot chain, zero knobs."""
+import json
 import re
 import sys
 import unittest
@@ -50,13 +51,26 @@ class TestCeChain(unittest.TestCase):
         self.assertEqual(rest, [])
         self.assertIsNone(re.search(r"^\s*\S+\s*:", text, re.M))
 
-    def test_the_plot_step_runs_nts_momentum(self):
+    def test_the_plot_step_runs_trigger_efficiency_ntuple(self):
+        """M. MacKenzie's analysis (docs/superpowers/specs/
+        2026-10-07-upstream-analyses-design.md, section 4)."""
         s = load()
         plot = s.steps[-1]
-        self.assertEqual(plot.fixed["analysis"], "nts_momentum")
+        self.assertEqual(plot.fixed, {
+            "analysis": "trigger_efficiency_ntuple",
+            "trigger_paths": "apr_TrkDe_80m70p, cpr_TrkDe_80m70p"})
         self.assertEqual(plot.files_from, ("nts",))
         self.assertIsNone(plot.entry)
-        self.assertEqual(s.objectives[0].metric, "plot.n_fits")
+        self.assertEqual([(o.name, o.metric, o.direction)
+                          for o in s.objectives],
+                         [("n_selected", "plot.n_selected", "max")])
+        self.assertEqual([(m.name, m.metric) for m in s.extra_metrics],
+                         [("efficiency", "plot.efficiency"),
+                          ("n_triggered", "plot.n_triggered"),
+                          ("n_events", "plot.n_events")])
+        doc = json.loads((ROOT / "mode_specs" / "ce_chain.json").read_text())
+        self.assertEqual(doc["leaderboard"]["file"],
+                         "leaderboards/leaderboard_ce_chain_upstream.tsv")
 
     def test_the_surrogate_does_not_list_it(self):
         from surrogate import adapter

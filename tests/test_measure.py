@@ -15,7 +15,7 @@ from leaderboard import Leaderboard  # noqa: E402
 from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
 
 BASIS = {
-    "ce_chain": "efe68799bd0a2d599f5b72226cddb39b9bdbe4c6dbb1428084c83eade898888e",
+    "ce_chain": "3a300aecbea8dba8d289c4f78c4a941b01ec18c2293a14a793b86f7263e59189",
     "foilsflash_ax": "b96e6c99648c677b5046f7f223df5477eba156dc27ecb15aaed57d31e6b904bd",
     "foilspf2k_ax": "3f38430b59ddbda1a3701f66da441d4133d45163c82e364c9aa9e4b08b4441cf",
     "foilspf_ax": "8132f2e3a703b56891df2f3ea82d1002b6016297a5266b4288e09d965c4c1ad0",
