@@ -53,9 +53,11 @@ The objective then reads `"sob.sensitivity"`.
 2. **The source must be a real, earlier step.** Each value is
    `"<step>.<metric>"`. The step must exist, and it may not be the step
    itself.
-3. **A param name is set in one place only.** It may appear in only one
-   of `params`, `params_from`, `fixed` and the kit's settings. This is
-   the existing clash rule in `merge_params`, now also checked at load
+3. **A mapped param is set in one place only.** A name in `params` or
+   `params_from` may not appear anywhere else in the step: not in the
+   other of the two, in `fixed`, or in the kit's settings. A `fixed`
+   value may still override a kit setting, as it does today. This is the
+   existing clash rule in `merge_params`, now also checked at load
    instead of only at the first run.
 4. **Kit name rules cover the new key.** Kit rules that check `params`
    names also check `params_from` names: the beamkit deck-param name
