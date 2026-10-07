@@ -5,6 +5,12 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-10-07
+- **updated** [contract-engine](/drivers/contract-engine.md): `params_from`,
+  a step param from an earlier step's metric (load rules, `Step.upstream`,
+  `metrics_read`, run-time refusal of a missing or non-finite metric,
+  measure_basis unchanged for studies without it, dashboard `upstream`).
+
 ## 2026-10-05
 - **updated** [contract-engine](/drivers/contract-engine.md),
   [anakit](/external/anakit.md): measure identity. Kit versions are

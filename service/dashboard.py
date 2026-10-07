@@ -99,8 +99,10 @@ def campaign_data(svc: CampaignService, prefix: str,
                 errors.append(str(exc))
     steps, best_label, direction, obj = [], None, None, None
     if study is not None:
+        # upstream: the steps each one waits for, by files_from or
+        # params_from, so a number-only feed is drawn as an edge too.
         steps = [{"step": s.step, "kit": s.kit,
-                  "files_from": list(s.files_from)} for s in study.steps]
+                  "upstream": list(s.upstream)} for s in study.steps]
         obj = study.objectives[0]
         direction = obj.direction
         best = status["best"]
@@ -139,7 +141,7 @@ ORDER = {"running": 0, "scored": 1, "broken": 2, "ended": 3}
 def _depths(steps: List[Dict[str, Any]]) -> Dict[str, int]:
     """Each step's longest path from a root step (the study loader has
     already refused cycles)."""
-    ups = {s["step"]: s["files_from"] for s in steps}
+    ups = {s["step"]: s["upstream"] for s in steps}
     depth: Dict[str, int] = {}
 
     def of(name: str) -> int:
@@ -173,7 +175,7 @@ def layout(camp: Dict[str, Any]) -> Dict[str, Any]:
         subrow[s["step"]] = seen.get(d, 0)
         seen[d] = seen.get(d, 0) + 1
     height = max(seen.values(), default=1)
-    consumed = {u for s in steps for u in s["files_from"]}
+    consumed = {u for s in steps for u in s["upstream"]}
     best = (camp.get("best") or {}).get("config")
     bands, edges = [], []
     for p in sorted(camp["points"],
@@ -197,7 +199,7 @@ def layout(camp: Dict[str, Any]) -> Dict[str, Any]:
                                     else rec.get("state", "waiting")),
                           "detail": detail, "progress": rec.get("progress"),
                           "age_s": rec.get("age_s")})
-            ups = s["files_from"] or [None]
+            ups = s["upstream"] or [None]
             edges.extend([f"{name}/{u}" if u else name, sid] for u in ups)
             if s["step"] not in consumed:
                 edges.append([sid, f"{name}/result"])

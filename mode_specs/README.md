@@ -87,6 +87,35 @@ echoes every command with its values, which shows what reached the deck.
 A `beamkit` study runs on the grid only, and campaigns use
 `--picker qlnei` when it has one objective.
 
+**A number from an earlier step (`params_from`).** A step's `params` come
+from the point (a knob, const, expr or profile) and its `fixed` values are
+constants; `params_from` takes a kit param from an earlier step's metric,
+as `"<step>.<metric>"` (the form an objective's `metric` uses). Every step
+has the key; it is `{}` when unused. Example: the sensitivity takes the
+stopping rate a `muon_stop_rate` step measured, and its files from an
+`edep` step:
+
+    {"step": "sob", "kit": "anakit", "entry": null, "files": [],
+     "files_from": ["ce_edep"], "params": {},
+     "params_from": {"stops_per_pot": "stops.stops_per_pot"},
+     "fixed": {"analysis": "approx_ce_sensitivity"}}
+
+- The source must be another step of the study, never the step itself.
+- A mapped param (`params` or `params_from`) is set in one place only: not
+  also in the other mapping, `fixed` or the kit's settings.
+- The step waits for its sources as for `files_from`, and a cycle through
+  either is refused. A step read only through `params_from` counts as used.
+- The launch check refuses a source step whose kit does not return the
+  metric, and a param the step's kit does not take.
+- At run time a missing metric, or one that is not a finite number, fails
+  the step (`broken.txt` names it); there is no default. The value is kept
+  in the step's `<step>_results.json` `params`.
+- The engine passes the metric as it is: a formula belongs in the kit (an
+  analysis parameter), not in the study.
+
+A step's `measure_basis` carries `params_from` only when it is set, so a
+study without one keeps its `measure_sha` and its board.
+
 Keep the shipped files' layout: one knob, profile, geom line, kit, step,
 objective or column per line. Only the parsed JSON matters (`spec_sha`
 hashes it), so the layout is for readable diffs.
