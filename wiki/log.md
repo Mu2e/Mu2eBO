@@ -109,6 +109,10 @@ superseded, linted.
   first full engine campaign, finished 40/40 rows with zero failures; one
   straggler `mustops_ce` job held the last point ~14 h; best-in-budget R36
   sob 3.843.
+- **created** [claude-code-sandbox-grid-tools](/concepts/claude-code-sandbox-grid-tools.md):
+  Claude Code's Bash sandbox on mu2esrv01 breaks `kinit -R` and `jobsub_q`
+  (no DNS in the sandbox netns, HTTP-only proxy); allowlisting `*.fnal.gov`
+  does not help.
 
 ## 2026-09-29
 - **updated** [contract-engine](/drivers/contract-engine.md): the kit seam
