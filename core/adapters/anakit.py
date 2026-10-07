@@ -35,7 +35,7 @@ if __package__ == "core.adapters":
     from core.contract import ContractError, parse_results, parse_status
     from core.kits import KitClient, KitError
     from core.scheduler import write_atomic
-    from core.study import expand_artifact
+    from core.study import expand_artifact, metrics_read
 else:
     import kit_config
     import kit_registry
@@ -44,7 +44,7 @@ else:
     from contract import ContractError, parse_results, parse_status
     from kits import KitClient, KitError
     from scheduler import write_atomic
-    from study import expand_artifact
+    from study import expand_artifact, metrics_read
 
 # The kit's version, hand-bumped (2026-10-05): bump when a step would
 # measure anew, INCLUDING a fork change that alters what an analysis
@@ -374,7 +374,7 @@ class AnakitKit:
             if why:
                 problems.append(f"{where}: {why}")
         declared = spec.get("parameters", {})
-        sent = (set(step.fixed) | set(step.params)) - set(OWN_PARAMS)
+        sent = set(step.sent_params) - set(OWN_PARAMS)
         unknown = sorted(sent - set(declared))
         if unknown:
             problems.append(f"{where}: {analysis} does not take {unknown} "
@@ -414,10 +414,7 @@ class AnakitKit:
             problems.append(f"{where}: anakit's list_analyses reply for "
                             f"analysis {analysis!r} has no 'metrics'")
             return problems
-        wanted = sorted({m.metric.split(".", 1)[1]
-                         for m in tuple(study.objectives)
-                         + tuple(study.extra_metrics)
-                         if m.metric.split(".", 1)[0] == step.step})
+        wanted = sorted(metrics_read(study, step.step))
         absent = [m for m in wanted if m not in spec["metrics"]]
         if absent:
             problems.append(f"{where}: {analysis} does not return {absent}")

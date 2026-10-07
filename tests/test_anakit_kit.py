@@ -25,6 +25,7 @@ from adapters import anakit as ak  # noqa: E402
 from contract import ContractError  # noqa: E402
 from kit_config import ServerConfig  # noqa: E402
 from kits import KitError  # noqa: E402
+from study import Step  # noqa: E402
 
 MDC = "/cvmfs/mu2e.opensciencegrid.org/Musings/SimJob/MDC2025ax"
 CATALOGUE = {
@@ -462,14 +463,15 @@ class TestStepProblems(_Kit):
             tf.addfile(link)
         return path
 
-    def study(self, fixed, tarball=None, metric="sob.s_over_sqrt_b"):
+    def study(self, fixed, tarball=None, metric="sob.s_over_sqrt_b",
+              params_from=None, others=()):
         kits = {"anakit": {"work_area": str(self.wa)}}
         if tarball is not None:
             kits["prodtools"] = {"code_tarball": str(tarball)}
-        step = types.SimpleNamespace(step="sob", kit="anakit", params={},
-                                     fixed=fixed)
+        step = Step("sob", "anakit", None, (), (), {}, dict(params_from or {}),
+                    fixed)
         study = types.SimpleNamespace(
-            kits=kits, steps=(step,),
+            kits=kits, steps=(step,) + tuple(others),
             objectives=(types.SimpleNamespace(metric=metric),),
             extra_metrics=())
         return study, step
@@ -499,6 +501,29 @@ class TestStepProblems(_Kit):
             with self.subTest(needle=needle):
                 problems = self.kit().step_problems(study, step)
                 self.assertTrue(any(needle in p for p in problems), problems)
+
+    def test_a_params_from_param_satisfies_a_required_parameter(self):
+        study, step = self.study({"analysis": "approx_ce_sensitivity"},
+                                 metric="sob.sensitivity",
+                                 params_from={"sig_eff": "stops.rate"})
+        problems = self.kit().step_problems(study, step)
+        self.assertFalse(any("needs" in p for p in problems), problems)
+        self.assertEqual(problems, [])
+
+    def test_a_params_from_param_the_analysis_does_not_take(self):
+        study, step = self.study(self.GOOD,
+                                 params_from={"bogus": "stops.rate"})
+        problems = self.kit().step_problems(study, step)
+        self.assertTrue(any("does not take ['bogus']" in p for p in problems),
+                        problems)
+
+    def test_a_metric_another_step_reads_must_be_returned(self):
+        reader = Step("c", "anakit", None, (), (), {}, {"x": "sob.nope"},
+                      {"analysis": "approx_ce_sensitivity"})
+        study, step = self.study(self.GOOD, others=(reader,))
+        problems = self.kit().step_problems(study, step)
+        self.assertTrue(any("does not return ['nope']" in p for p in problems),
+                        problems)
 
     def test_a_root_file_analysis_ignores_the_backing(self):
         fixed = {"analysis": "approx_ce_sensitivity", "sig_eff": 1e-4}

@@ -53,12 +53,14 @@ if __package__:
     from core.kit_config import EXECUTORS, _is_number
     from core.kits import KitClient, KitError, KitToolError
     from core import measure
+    from core.study import metrics_read
 else:
     import kit_registry
     import paths
     from kit_config import EXECUTORS, _is_number
     from kits import KitClient, KitError, KitToolError
     import measure
+    from study import metrics_read
 
 STATES = ("working", "completed", "failed", "cancelled")
 REQUIRED_TOOLS = ("submit", "status", "results")
@@ -520,18 +522,15 @@ def _needs(study, kit_name):
     mappings = [s.params for s in steps]
     params = set(settings)
     for s in steps:
-        params |= set(s.params) | set(s.fixed)
+        params |= s.sent_params
     pre = study.preflight
     if pre is not None and pre["kit"] == kit_name:
         params |= set(pre["params"])
         mappings.append(pre["params"])
     profile_params = {k for m in mappings for k, v in m.items() if v in profiles}
-    step_names = {s.step for s in steps}
     metrics = set()
-    for m in tuple(study.objectives) + tuple(study.extra_metrics):
-        step, key = m.metric.split(".", 1)
-        if step in step_names:
-            metrics.add(key)
+    for s in steps:
+        metrics |= metrics_read(study, s.step)
     return params, metrics, profile_params
 
 
