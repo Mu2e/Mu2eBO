@@ -116,9 +116,14 @@ def step_params(study, step, env, accepts_lists, upstream) -> Dict[str, Any]:
     '${ARTIFACT}/' value is expanded here (the study keeps it raw)."""
     fixed = {k: expand_artifact(v, f"step {step.step!r} fixed[{k}]")
              for k, v in step.fixed.items()}
-    params = merge_params(f"step {step.step!r}",
-                          {**map_params(step.params, env, accepts_lists),
-                           **params_from_values(step, upstream)},
+    mapped = map_params(step.params, env, accepts_lists)
+    taken = params_from_values(step, upstream)
+    clash = sorted(set(mapped) & set(taken))
+    if clash:
+        # e.g. a profile flattened to r_0.. and a params_from r_1
+        raise ValueError(f"step {step.step!r}: param(s) {clash} come from "
+                         f"both the point (params) and params_from")
+    params = merge_params(f"step {step.step!r}", {**mapped, **taken},
                           {**study.kits.get(step.kit, {}), **fixed})
     decl = kit_registry.KITS.get(step.kit)
     if decl is not None and decl.uses_entries:

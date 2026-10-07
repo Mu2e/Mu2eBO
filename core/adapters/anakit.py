@@ -350,6 +350,12 @@ class AnakitKit:
         if not Path(work_area).is_dir():
             return [f"{where}: work area {work_area} is not a directory"]
         problems = []
+        if not step.files_from:
+            # submit refuses a step with no input files; say so before any
+            # upstream step runs
+            problems.append(f"{where}: anakit runs an analysis on input "
+                            f"files, and this step has no files_from (a "
+                            f"params_from value is not an input file)")
         analyses = self._catalogue(work_area,
                                    f"{self.campaign}/launch/{self.name}")
         analysis = step.fixed.get("analysis")

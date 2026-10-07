@@ -464,12 +464,12 @@ class TestStepProblems(_Kit):
         return path
 
     def study(self, fixed, tarball=None, metric="sob.s_over_sqrt_b",
-              params_from=None, others=()):
+              params_from=None, others=(), files_from=("mubeam",)):
         kits = {"anakit": {"work_area": str(self.wa)}}
         if tarball is not None:
             kits["prodtools"] = {"code_tarball": str(tarball)}
-        step = Step("sob", "anakit", None, (), (), {}, dict(params_from or {}),
-                    fixed)
+        step = Step("sob", "anakit", None, (), tuple(files_from), {},
+                    dict(params_from or {}), fixed)
         study = types.SimpleNamespace(
             kits=kits, steps=(step,) + tuple(others),
             objectives=(types.SimpleNamespace(metric=metric),),
@@ -509,6 +509,16 @@ class TestStepProblems(_Kit):
         problems = self.kit().step_problems(study, step)
         self.assertFalse(any("needs" in p for p in problems), problems)
         self.assertEqual(problems, [])
+
+    def test_a_step_with_no_input_files_is_refused_at_launch(self):
+        """anakit runs on input files; a step fed only numbers would pass
+        launch and fail at submit, after its upstream steps had run."""
+        study, step = self.study({"analysis": "approx_ce_sensitivity"},
+                                 metric="sob.sensitivity",
+                                 params_from={"sig_eff": "stops.rate"},
+                                 files_from=())
+        problems = self.kit().step_problems(study, step)
+        self.assertTrue(any("no files_from" in p for p in problems), problems)
 
     def test_a_params_from_param_the_analysis_does_not_take(self):
         study, step = self.study(self.GOOD,

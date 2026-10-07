@@ -504,6 +504,15 @@ class TestParamsFrom(_Run):
 
 
 class TestParams(unittest.TestCase):
+    def test_a_params_from_value_may_not_replace_a_flattened_profile_element(self):
+        st_ = study(step("b", params={"r": "prof"},
+                         params_from={"r_1": "a.v"}))
+        with self.assertRaises(ValueError) as cm:
+            sch.step_params(st_, st_.steps[0], {"prof": [1.0, 2.0, 3.0]},
+                            False, {"a": {"metrics": {"v": 99.0}}})
+        self.assertIn("['r_1']", str(cm.exception))
+        self.assertIn("params_from", str(cm.exception))
+
     def test_a_params_from_value_joins_the_mapped_params(self):
         st_ = study(step("b", params={"p": "x"},
                          params_from={"r": "a.rate"}))
