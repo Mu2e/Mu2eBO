@@ -172,24 +172,3 @@ points from the board as it stands.
 A board holds one measurement. A launch is refused when the study's
 measurement or a kit's version changed. Kit versions are bumped by hand
 (see `mode_specs/README.md`).
-
-## 8. Once, after updating to 2026-10-05 or later
-
-Boards measured before that date carry the old kit version strings.
-Only `ptg4bl`'s board still needs this: the `_ax` studies and `ce_chain`
-moved to new `_upstream` boards on 2026-10-07. First prove its rows
-changed only by build, with a dry run:
-
-```bash
-PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.restamp_board --study ptg4bl \
-    --why "kit versions are hand-bumped since 2026-10-05; no number changed"
-```
-
-Then rewrite the board, which keeps a backup and a log line next to it:
-
-```bash
-PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.restamp_board --study ptg4bl \
-    --why "kit versions are hand-bumped since 2026-10-05; no number changed" --confirm
-```
-
-Run it with no campaign running.

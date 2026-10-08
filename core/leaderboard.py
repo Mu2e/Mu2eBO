@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import csv
 import fcntl
-import os
-import shutil
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -262,51 +260,6 @@ class Leaderboard:
             with _flock_sh(self.path):
                 shas |= self._shas_of(self.path)
         return shas
-
-    def live_rows(self) -> list[dict]:
-        """The live board's rows as {column: text}, read under the shared
-        lock; [] when the file does not exist."""
-        if not self.path.exists():
-            return []
-        with _flock_sh(self.path):
-            return self._raw_rows(self.path)
-
-    def archive_measure_shas(self) -> set[str]:
-        """The measure_sha of every row of the committed archive board."""
-        return self._shas_of(self.archive_path)
-
-    def restamp_rows(self, mapping: dict, backup: Path) -> int:
-        """Rewrite the measure_sha cell of every live row whose sha is a key
-        of `mapping` to its value: graph/restamp_board.py's one-time
-        re-stamp, after its proof. Under the exclusive lock: copy the board
-        to `backup`, write the new board to a temp file, replace the board
-        with it (a crash leaves the old board or the new one). Every other
-        cell is kept byte for byte. Returns the number of rows changed;
-        ValueError when the board does not exist."""
-        if not self.path.exists():
-            raise ValueError(f"{self.path}: no such board to re-stamp")
-        with _flock_ex(self.path):
-            shutil.copy2(self.path, backup)
-            lines = self.path.read_text().splitlines(keepends=True)
-            self._check_header(self.path, lines[0])
-            col = self.header().rstrip("\n").split("\t").index("measure_sha")
-            changed = 0
-            out = [lines[0]]
-            for line in lines[1:]:
-                end = "\n" if line.endswith("\n") else ""
-                cells = line[:len(line) - len(end)].split("\t")
-                if len(cells) > col and cells[col] in mapping:
-                    cells[col] = mapping[cells[col]]
-                    changed += 1
-                out.append("\t".join(cells) + end)
-            tmp = self.path.with_name(self.path.name + ".restamp.tmp")
-            tmp.write_text("".join(out))
-            try:
-                os.replace(tmp, self.path)
-            except OSError:
-                tmp.unlink(missing_ok=True)
-                raise
-        return changed
 
     def _is_new_row(self, rows: list[dict], line: str) -> bool:
         """False when this exact row (apart from `time`) is already on the

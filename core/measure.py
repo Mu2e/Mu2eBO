@@ -13,18 +13,12 @@ Stdlib only, plus core/leaderboard.py: never modes.
 """
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 if __package__:
     from core.leaderboard import SchemaMismatch
 else:
     from leaderboard import SchemaMismatch
-
-# Kits whose version carried a build segment before 2026-10-05
-# ("anakit-adapter/1+anakit-<commit>", "beamkit-adapter/1+beamkit-<server>
-# +fom1"); hand_version strips it, for re-stamping only.
-BUILD_SEGMENT_KITS = ("anakit", "beamkit")
 
 
 class MixedVersions(ValueError):
@@ -90,8 +84,7 @@ def board_problems(study, board, versions: Dict[str, str],
     step has run. One problem when it does, or when the board's header is
     not the study's; none for an empty or missing board. With `current`
     (the kits' running versions), a point whose finished steps keep an older
-    version (point_versions) is told so: re-stamping covers a board's rows,
-    not an unfinished point."""
+    version (point_versions) is told so."""
     try:
         found = board.measure_shas()
     except SchemaMismatch as exc:
@@ -107,28 +100,9 @@ def board_problems(study, board, versions: Dict[str, str],
         return [f"this point's finished steps were recorded under an older "
                 f"kit version ({changes}), so it measures as {this[:12]} "
                 f"while {board.path} holds "
-                f"{sorted(sha[:12] for sha in found)}; re-stamping covers a "
-                f"board's rows, not an unfinished point: rerun this x under "
+                f"{sorted(sha[:12] for sha in found)}: rerun this x under "
                 f"a new config name"]
     return [f"{board.path} holds rows measured as "
             f"{sorted(sha[:12] for sha in found)}, but this launch measures "
             f"as {this[:12]} (the study's measurement or a kit's version "
-            f"changed); set a new leaderboard.file to start a new board, or "
-            f"re-stamp it (python -m graph.restamp_board) if only a kit's "
-            f"build changed"]
-
-
-def hand_version(kit: str, version: str) -> str:
-    """The hand-bumped part of a version: for anakit and beamkit, the
-    version with its old-scheme build segment (`+<kit>-<build>`) removed;
-    any other kit's version unchanged. Re-stamping compares it with the
-    current version. ValueError on an empty build."""
-    if kit not in BUILD_SEGMENT_KITS:
-        return version
-    m = re.search(rf"\+{re.escape(kit)}-([^+]*)", version)
-    if m is None:
-        return version
-    if not m.group(1):
-        raise ValueError(f"kit {kit!r}: version {version!r} has an empty "
-                         f"build segment")
-    return version[:m.start()] + version[m.end():]
+            f"changed); set a new leaderboard.file to start a new board"]

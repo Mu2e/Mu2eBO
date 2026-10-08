@@ -114,10 +114,10 @@ class TestBoardProblems(_Toy):
 class TestAFullyAdoptedOldPoint(TestBoardProblems):
     def test_the_refusal_names_the_version_change(self):
         """A resumed point whose steps all finished under the old version
-        keeps that version, so after a re-stamp it no longer matches the
-        board: the refusal names the version change and a new config name,
-        not 'a new leaderboard.file' (re-stamping covers rows, not
-        unfinished points)."""
+        keeps that version, so it no longer matches a board measured at the
+        current one: the refusal names the version change and a new config
+        name, not 'a new leaderboard.file' (the point, not the board, is
+        out of date)."""
         old, new = "anakit-adapter/1+anakit-60cb434419a2", "anakit-adapter/1"
         adopted = {"toy": rec("toykit", old, "toy"),
                    "toy2": rec("toykit", old, "toy2")}
@@ -131,20 +131,6 @@ class TestAFullyAdoptedOldPoint(TestBoardProblems):
         for needle in (old, new, "new config name"):
             self.assertIn(needle, problems[0])
         self.assertNotIn("leaderboard.file", problems[0])
-
-
-class TestHandVersion(unittest.TestCase):
-    def test_hand_version(self):
-        hv = measure.hand_version
-        self.assertEqual(hv("anakit", "anakit-adapter/1+anakit-60cb434419a2"),
-                         "anakit-adapter/1")
-        self.assertEqual(hv("beamkit", "beamkit-adapter/1+beamkit-0.5.1+fom1"),
-                         "beamkit-adapter/1+fom1")
-        self.assertEqual(hv("anakit", "anakit-adapter/1"), "anakit-adapter/1")
-        self.assertEqual(hv("prodtools", "prodtools-adapter/1+x"),
-                         "prodtools-adapter/1+x")
-        with self.assertRaises(ValueError):
-            hv("anakit", "anakit-adapter/1+anakit-")
 
 
 class TestFingerprints(unittest.TestCase):

@@ -164,10 +164,7 @@ columns): set a new `"leaderboard.file"` to start a new board. A kit's
 version (part of `measure_sha`) changes only when its author bumps it by
 hand (since 2026-10-05): bump an adapter's `VERSION` when a step would
 measure anew, including an anakit checkout change that alters an analysis
-(pull his `main` only on purpose, and read the diff first). A
-board whose rows differ only by an old-scheme build (before 2026-10-05) is
-re-stamped once with `python -m graph.restamp_board --study <name> --why
-"..." [--confirm]`.
+(pull his `main` only on purpose, and read the diff first).
 
 The rules, as the code enforces them:
 
