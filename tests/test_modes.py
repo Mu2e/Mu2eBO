@@ -95,7 +95,7 @@ class TestStudyDirectoryWiring(unittest.TestCase):
     def test_the_primary_directory_is_the_repo_mode_specs(self):
         """Run from core/ with PYTHONPATH popped, so core/ is the only
         project directory on sys.path: a bare `import modes` must work
-        there, not only the package-qualified `core.modes`."""
+        there, as every runner imports it."""
         self.assertEqual(modes.MODES_DIR, ROOT / "mode_specs")
         script = (
             "import json\n"

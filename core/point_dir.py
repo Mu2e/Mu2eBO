@@ -26,10 +26,7 @@ from pathlib import Path
 from typing import (Any, ContextManager, Dict, Iterable, NamedTuple,
                     Optional, Tuple)
 
-if __package__:
-    from core import locks
-else:
-    import locks
+import locks
 
 POINT = "point.json"
 BROKEN = "broken.txt"

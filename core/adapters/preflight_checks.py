@@ -18,10 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
 
-if __package__ == "core.adapters":
-    from core.adapters import prodtools_entry as pe
-else:
-    from adapters import prodtools_entry as pe
+from adapters import prodtools_entry as pe
 
 SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 # Wall-clock cap on one `mu2e -n 1` check (G4 init + surface check).

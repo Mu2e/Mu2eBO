@@ -15,10 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-if __package__:
-    from core.leaderboard import SchemaMismatch
-else:
-    from leaderboard import SchemaMismatch
+from leaderboard import SchemaMismatch
 
 
 class MixedVersions(ValueError):

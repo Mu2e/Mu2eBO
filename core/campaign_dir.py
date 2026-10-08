@@ -26,12 +26,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-if __package__:
-    from core import locks
-    from core.point_dir import write_atomic
-else:
-    import locks
-    from point_dir import write_atomic
+import locks
+from point_dir import write_atomic
 
 RECORD = "campaign.json"
 OUTCOMES = "outcomes.jsonl"

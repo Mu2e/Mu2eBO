@@ -17,17 +17,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-if __package__:
-    from core import kit_registry, paths
-    from core.leaderboard import V2_META
-    from core.geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
-                                    _validate_fmt, compile_expr, eval_expr)
-else:
-    import kit_registry
-    import paths
-    from leaderboard import V2_META
-    from geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
-                               _validate_fmt, compile_expr, eval_expr)
+import kit_registry
+import paths
+from leaderboard import V2_META
+from geom_template import (GeomTemplate, _RESERVED_ELEMENTWISE_NAMES,
+                           _validate_fmt, compile_expr, eval_expr)
 
 SCHEMA = 2
 _TOP = ("schema", "name", "note", "knobs", "derive", "geom", "kits",

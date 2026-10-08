@@ -12,10 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Dict, FrozenSet, Optional, Tuple
 
-if __package__:
-    from core.kit_config import load_kit_configs
-else:
-    from kit_config import load_kit_configs
+from kit_config import load_kit_configs
 
 
 def _positive_int(v, where):

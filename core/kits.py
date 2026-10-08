@@ -26,10 +26,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-if __package__:
-    from core.kit_config import KitConfig, KitConfigError
-else:
-    from kit_config import KitConfig, KitConfigError
+from kit_config import KitConfig, KitConfigError
 
 WORKFLOW_META_KEY = "gov.fnal.mu2e/workflow"
 STDERR_TAIL = 20

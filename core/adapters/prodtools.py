@@ -25,22 +25,14 @@ import time
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
-if __package__ == "core.adapters":
-    from core import kit_config, kit_registry, paths
-    from core.adapters import prodtools_entry as pe
-    from core.contract import (Describe, call_with_retries, parse_cancel,
-                               parse_results, parse_status)
-    from core.kits import KitClient, KitError, KitToolError
-    from core.scheduler import write_atomic
-else:
-    import kit_config
-    import kit_registry
-    import paths
-    from adapters import prodtools_entry as pe
-    from contract import (Describe, call_with_retries, parse_cancel,
-                          parse_results, parse_status)
-    from kits import KitClient, KitError, KitToolError
-    from scheduler import write_atomic
+import kit_config
+import kit_registry
+import paths
+from adapters import prodtools_entry as pe
+from contract import (Describe, call_with_retries, parse_cancel,
+                      parse_results, parse_status)
+from kits import KitClient, KitError, KitToolError
+from scheduler import write_atomic
 
 VERSION = "prodtools-adapter/1"      # bump when a step would measure anew
 PARAMS = ("entry", "code_tarball", "dsconf", "fatal_log_codes", "njobs",

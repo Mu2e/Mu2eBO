@@ -8,16 +8,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# THE IMPORT MIRRORS OUR OWN PACKAGE-QUALIFICATION (__package__): this
-# module loads as `core.modes` from the repo root AND as bare `modes` from
-# code that puts core/ on sys.path. A hardcoded qualified import fails
-# outright on the bare path; a hardcoded bare import would, on the
-# qualified path, load study.py a SECOND time under a different
-# sys.modules key.
-if __package__:
-    from core.study import load_study_dirs  # noqa: E402
-else:
-    from study import load_study_dirs  # noqa: E402
+from study import load_study_dirs
 
 MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 STUDIES = load_study_dirs(MODES_DIR, os.environ.get("AUTORESEARCH_STUDY_PATH"))

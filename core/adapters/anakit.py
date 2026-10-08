@@ -31,22 +31,14 @@ import subprocess
 import threading
 from pathlib import Path
 
-if __package__ == "core.adapters":
-    from core import kit_config, kit_registry, paths
-    from core.adapters import prodtools_entry as pe
-    from core.contract import ContractError, parse_results, parse_status
-    from core.kits import KitClient, KitError
-    from core.scheduler import write_atomic
-    from core.study import expand_artifact, metrics_read
-else:
-    import kit_config
-    import kit_registry
-    import paths
-    from adapters import prodtools_entry as pe
-    from contract import ContractError, parse_results, parse_status
-    from kits import KitClient, KitError
-    from scheduler import write_atomic
-    from study import expand_artifact, metrics_read
+import kit_config
+import kit_registry
+import paths
+from adapters import prodtools_entry as pe
+from contract import ContractError, parse_results, parse_status
+from kits import KitClient, KitError
+from scheduler import write_atomic
+from study import expand_artifact, metrics_read
 
 # The kit's version, hand-bumped (2026-10-05): bump when a step would
 # measure anew, INCLUDING a checkout change that alters what an analysis

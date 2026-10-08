@@ -17,17 +17,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-if __package__ == "core.adapters":
-    from core import kit_registry, paths
-    from core.adapters import preflight_checks as pc
-    from core.adapters import prodtools_entry as pe
-    from core.contract import Describe
-else:
-    import kit_registry
-    import paths
-    from adapters import preflight_checks as pc
-    from adapters import prodtools_entry as pe
-    from contract import Describe
+import kit_registry
+import paths
+from adapters import preflight_checks as pc
+from adapters import prodtools_entry as pe
+from contract import Describe
 
 VERSION = "offline-preflight-adapter/1"   # bump when a verdict would change
 # The kit's study settings, which node_preflight sends as its params: the

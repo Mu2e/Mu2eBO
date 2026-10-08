@@ -44,22 +44,14 @@ import time
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-if __package__ == "core.adapters":
-    from core import kit_config, kit_registry, paths
-    from core.adapters.prodtools import SUBMIT_LOCK, meets_quorum
-    from core.contract import (ContractError, call_with_retries,
-                               parse_results, parse_status)
-    from core.kits import KitClient, KitError
-    from core.scheduler import write_atomic
-else:
-    import kit_config
-    import kit_registry
-    import paths
-    from adapters.prodtools import SUBMIT_LOCK, meets_quorum
-    from contract import (ContractError, call_with_retries, parse_results,
-                          parse_status)
-    from kits import KitClient, KitError
-    from scheduler import write_atomic
+import kit_config
+import kit_registry
+import paths
+from adapters.prodtools import SUBMIT_LOCK, meets_quorum
+from contract import (ContractError, call_with_retries, parse_results,
+                      parse_status)
+from kits import KitClient, KitError
+from scheduler import write_atomic
 
 # The kit's version is f"{VERSION}+fom{FOM_VERSION}", hand-bumped
 # (2026-10-05): bump VERSION when a step would measure anew, FOM_VERSION when

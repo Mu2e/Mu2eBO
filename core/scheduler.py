@@ -32,18 +32,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-if __package__:
-    from core import kit_registry
-    from core.contract import ContractError
-    from core.kits import KitError
-    from core.point_dir import PointDir, write_atomic  # noqa: F401  (re-exported)
-    from core.study import expand_artifact
-else:
-    import kit_registry
-    from contract import ContractError
-    from kits import KitError
-    from point_dir import PointDir, write_atomic  # noqa: F401  (re-exported)
-    from study import expand_artifact
+import kit_registry
+from contract import ContractError
+from kits import KitError
+from point_dir import PointDir, write_atomic  # noqa: F401  (re-exported)
+from study import expand_artifact
 
 
 @dataclass(frozen=True)

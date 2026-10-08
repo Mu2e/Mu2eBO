@@ -48,19 +48,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-if __package__:
-    from core import kit_registry, paths
-    from core.kit_config import EXECUTORS, _is_number
-    from core.kits import KitClient, KitError, KitToolError
-    from core import measure
-    from core.study import metrics_read
-else:
-    import kit_registry
-    import paths
-    from kit_config import EXECUTORS, _is_number
-    from kits import KitClient, KitError, KitToolError
-    import measure
-    from study import metrics_read
+import kit_registry
+import paths
+from kit_config import EXECUTORS, _is_number
+from kits import KitClient, KitError, KitToolError
+import measure
+from study import metrics_read
 
 STATES = ("working", "completed", "failed", "cancelled")
 REQUIRED_TOOLS = ("submit", "status", "results")
@@ -306,13 +299,9 @@ class NativeKit:
 
 def load_factory(decl):
     """The adapter class `decl.factory` names ("module.path:Name", relative
-    to core/). Imported here, not at module top: an adapter module imports
-    this one. The module gets a `core.` prefix only when this module was
-    itself imported as core.contract, so a flat import (graph/run.py)
-    never loads a second copy of contract."""
+    to core/, which is on sys.path). Imported here, not at module top: an
+    adapter module imports this one."""
     module, _, attr = decl.factory.partition(":")
-    if __package__:
-        module = f"core.{module}"
     return getattr(importlib.import_module(module), attr)
 
 

@@ -20,10 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
 
-if __package__:
-    from core import paths
-else:
-    import paths
+import paths
 
 KITS_TOML = paths.REPO_ROOT / "kits.toml"
 KEYS = ("command", "env_passthrough", "set", "study_keys", "fixed_keys",

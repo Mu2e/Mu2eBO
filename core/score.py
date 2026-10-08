@@ -13,14 +13,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
-if __package__:
-    from core.leaderboard import Point
-    from core.measure import MixedVersions, recorded_versions
-    from core.point_dir import PointDir
-else:
-    from leaderboard import Point
-    from measure import MixedVersions, recorded_versions
-    from point_dir import PointDir
+from leaderboard import Point
+from measure import MixedVersions, recorded_versions
+from point_dir import PointDir
 
 
 class ScoreError(ValueError):

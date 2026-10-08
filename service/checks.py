@@ -13,8 +13,8 @@ liveness never depends on it.
 
 Only the standard library and core/paths.py, core/study.py, imported bare
 with core/ on sys.path like every engine module (a qualified core.study
-would load a second copy of core/geom_template.py beside the bare one; see
-tests/test_modes.py TestSingleModuleCopy). Never modes (nor graph.run, which
+would be a second copy of the module; see tests/test_modes.py
+TestSingleModuleCopy). Never modes (nor graph.run, which
 imports it), so one broken study file on the study path cannot stop the
 server that reports it.
 """

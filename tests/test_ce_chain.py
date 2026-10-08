@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "graph"))
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import study as st  # noqa: E402
-from core.adapters import prodtools_entry  # noqa: E402
+from adapters import prodtools_entry  # noqa: E402
 
 PRODTOOLS_STEPS = ["ce", "dig", "mcs", "nts"]
 
