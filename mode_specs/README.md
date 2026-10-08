@@ -4,23 +4,42 @@ One file per study: `mode_specs/<name>.json`, where `<name>` equals the
 `"name"` field. Every file here, plus every `*.json` in the directories on
 `$AUTORESEARCH_STUDY_PATH` (colon-separated, each entry an ABSOLUTE path;
 a relative entry is a load error), is loaded at import by
-`core/study.py`. `archive/` holds retired studies and is not loaded — see
-below.
+`core/study.py`. `archive/` is not loaded. Use `$AUTORESEARCH_STUDY_PATH`
+for a study that is not a production line yet (a toy, a one-off).
 
-The format, field rules and examples are in
-`docs/superpowers/specs/2026-09-23-generic-study-design.md`
-("The study file (schema 2)").
+The format is defined by the loader, `core/study.py`: `load_study_file`
+reads one file and calls the field checks (`_knobs`, `_derive_and_geom`,
+`_steps`, `_kits_and_preflight`, `_objectives`, `_leaderboard`, ...), and
+`load_study_list` refuses two studies with one name or one board.
+`mode_specs/foilspfbpz_ax.json` is a full example.
+
+## The studies
+
+- `foilspfbpz_ax`, `foilsflash_ax` — the stopping-target production lines
+  (SimJob MDC2025ax jobs, M. MacKenzie's analyses on the `anakit` kit).
+  Four anakit steps: `stops` (`muon_stop_rate`), `ce_edep` (`edep`), `sob`
+  (`approx_ce_sensitivity`, its `stops_per_pot` through `params_from`) and
+  `flash` (`edep` on `elebeam_flash`). `flash_edep` is MeV per generated
+  beam electron; the factor to the per-POT budget is in
+  `wiki/external/anakit.md`.
+- `foilspf_nominal` — the deployed target (37 foils, no knobs) in
+  `foilspfbpz_ax`'s geometry and environment. Its board holds the baseline
+  sob and the flash damage budget.
+- `ce_chain` — the CeEndpoint chain dts -> dig -> mcs -> nts, then
+  M. MacKenzie's `trigger_efficiency_ntuple` (objective `n_selected`), no
+  knobs. The ntuple is the triggered stream, so it checks the chain, not
+  the trigger.
+- `ptg4bl` — the production target on G4beamline (kit `beamkit`).
 
 ## Starting a new study
 
-There is no template file — copy an existing `_ax` study (e.g.
+There is no template file — copy an existing study (e.g.
 `mode_specs/foilspfbpz_ax.json`). Then change:
 
 1. `"name"`: must equal the file stem.
 2. `"leaderboard": {"file": ...}`: a basename no other *loaded* study
-   uses. The loader compares leaderboard basenames across every loaded
-   study and refuses a collision (`core/study.py:730-735`), since two
-   studies sharing one board would contaminate each other's GP history.
+   uses. `load_study_list` refuses a collision, since two studies sharing
+   one board would contaminate each other's GP history.
 3. the knobs, `derive`, `geom`, `kits` and `evaluate` steps.
 
 Every key is required and unknown keys are rejected, so a typo fails at
@@ -121,103 +140,44 @@ Keep the shipped files' layout: one knob, profile, geom line, kit, step,
 objective or column per line. Only the parsed JSON matters (`spec_sha`
 hashes it), so the layout is for readable diffs.
 
-## Studies run on the engine
+## Rules the loader and the launch check enforce
 
-Every loaded study runs on the contract engine — `graph.run` per point,
-`graph.closed_loop` for a campaign. There is no other runner: the pipeline
-and its `--mode` dispatch were deleted in Phase C3 (2026-09-28). A study's
-`"leaderboard.layout"` must be `"v2"`, so its board carries `measure_sha`
-and refuses an append measured a different way; `"v1"` is refused at load
-since 2026-09-29.
-
-Two foilspf lines have an engine twin, `<name>_ax.json` (Phase C2b):
-`foilsflash_ax` and `foilspfbpz_ax`, each with its original's knobs and
-geometry on SimJob MDC2025ax, sob and flash from the `anakit` kit and its own
-v2 board. They are the production lines. `foilspf_nominal.json` renders the
-deployed target (37 foils, no knobs) in `foilspfbpz_ax`'s geometry template
-and environment: its board holds the baseline sob and the flash damage
-budget. The originals, and the other twins (which never ran), are in git
-history (see `archive/` below).
-
-Since 2026-10-07 their analyses are M. MacKenzie's (the anakit checkout is
-his `main`, and `kits.anakit.musing` = `"SimJob MDC2025ay"`: the server runs
-its mu2e jobs on that published Musing; the grid jobs stay on MDC2025ax).
-Four anakit steps: `stops` (`muon_stop_rate` on `mubeam`), `ce_edep`
-(`edep` on `mustops_ce`), `sob` (`approx_ce_sensitivity` on `ce_edep`, its
-`stops_per_pot` through `params_from`) and `flash` (`edep` on
-`elebeam_flash`). `flash_edep` is MeV per generated beam electron, so the
-budget is the per-POT one times 11.536718606512062 (7.506758e-06). Each
-writes a new `_upstream` board (spec
-`docs/superpowers/specs/2026-10-07-upstream-analyses-design.md`).
-
-`ce_chain.json` is the one other shipped study: the CeEndpoint production
-chain dts -> dig -> mcs -> nts, then M. MacKenzie's
-`trigger_efficiency_ntuple` on the ntuple (objective `n_selected`), with no
-knobs (so `graph.run` only; spec
-`docs/superpowers/specs/2026-09-30-ce-chain-design.md`). The ntuple is the
-triggered stream, so its efficiency is conditional: it checks the chain,
-not the trigger.
-
-Since 2026-09-30 the launch itself is refused when the study's board holds
-rows of another `measure_sha` (or a header that does not match the study's
-columns): set a new `"leaderboard.file"` to start a new board. A kit's
-version (part of `measure_sha`) changes only when its author bumps it by
-hand (since 2026-10-05): bump an adapter's `VERSION` when a step would
-measure anew, including an anakit checkout change that alters an analysis
-(pull his `main` only on purpose, and read the diff first).
-
-The rules, as the code enforces them:
-
+- `"leaderboard.layout"` must be `"v2"`: each row carries `measure_sha`,
+  and an append measured another way is refused.
+- The launch is refused when the board holds rows of another `measure_sha`
+  (or a header that does not match the study's columns): set a new
+  `"leaderboard.file"` to start a new board.
+- A kit's version (part of `measure_sha`) changes only when its author
+  bumps it by hand: bump an adapter's `VERSION` when a step would measure
+  anew, including an anakit checkout change that alters an analysis (pull
+  his `main` only on purpose, and read the diff first).
 - A prodtools step must set `quorum` in `fixed` (below it the step
-  fails), at most 200 `njobs`, and `kits.prodtools.fatal_log_codes` lists
+  fails) and at most 200 `njobs`; `kits.prodtools.fatal_log_codes` lists
   the log codes that fail a step (foilspf: `GeomSolids1001`).
-- A stage template names its prodtools `desc_fmt` (`{cfg}` and `{geom}`
-  are substituted). The key keeps this name — a rename to `desc` was
-  considered and dropped, since it would change every `_ax` study's
-  `measure_sha`. The run label is the study setting
+- A stage template (`stage_entries/<entry>.json`) names its prodtools
+  `desc_fmt` (`{cfg}` and `{geom}` are substituted). The run label is
   `kits.prodtools.dsconf`: it must contain `{cfg}` and, filled in, hold
-  only letters, digits and `_`. The `_ax` studies say `MDC2025ax_{cfg}`.
-  A template still carrying `dsconf_fmt` is refused.
+  only letters, digits and `_` (the `_ax` studies say `MDC2025ax_{cfg}`).
 - `"preflight": {"kit": "offline_preflight", ...}` gates each point on
   `mu2e -n 1` with G4's surface check, run on this node from
   `kits.offline_preflight.code_tarball`, which must equal
-  `kits.prodtools.code_tarball` when a study has both. A failure (or an
-  `ambiguous` run) marks the point broken before anything is submitted;
-  the log is `<GRID_DATA_ROOT>/<config>/preflight/preflight.log`.
+  `kits.prodtools.code_tarball`. A failure (or an `ambiguous` run) marks
+  the point broken before anything is submitted; the log is
+  `<GRID_DATA_ROOT>/<config>/preflight/preflight.log`.
 - `knobs: []` is a one-shot study: `graph.run` without `--x`;
   `graph.closed_loop` refuses it.
-- `--executor grid|local` and `--parallel N` choose where the jobs run;
-  `tests/fixtures/engine_studies/prodtools_smoke.json` is the worked
-  example.
-- A study naming an unknown kit, or breaking any rule above, is refused
-  when `core.modes` is imported, so ONE broken study file — here or
-  anywhere on `$AUTORESEARCH_STUDY_PATH` — stops every command for every
-  study: `graph.run`, `graph.closed_loop`, and the surrogate MCP server.
+- One broken study file — here or on `$AUTORESEARCH_STUDY_PATH` — stops
+  every command for every study (`graph.run`, `graph.closed_loop`, the
+  MCP servers), since studies load when `core.modes` is imported.
 
-`tests/fixtures/engine_studies/branin.json` is the worked example: two
-knobs, two objectives (Branin minimized, Currin minimized + log10) with
-Currin constrained, one `toykit` step, `"layout": "v2"`. It's what
-`tests/test_closed_loop.py`'s acceptance test (`TestBraninCampaign`) runs
-end to end.
+Worked examples in `tests/fixtures/engine_studies/`: `branin.json` (two
+knobs, two objectives, a constraint, one `toykit` step; run end to end by
+`tests/test_closed_loop.py`'s `TestBraninCampaign`) and
+`prodtools_smoke.json` (`--executor grid|local`, `--parallel N`).
 
-A study need not live in this directory: any `*.json` under a directory
-named on `$AUTORESEARCH_STUDY_PATH` (colon-separated, each entry an
-absolute path) is loaded the same way. That's where a study that isn't a
-production line yet — a toy, a one-off experiment — belongs instead of
-`mode_specs/`.
-
-## `archive/`
-
-Not loaded — `core/study.py` leaves this directory out of the load glob, so
-nothing here is ever selectable with `--study`, and it stops none of the
-routing rules above. It holds the four **schema-1** fixed A/B reference
-files, in the pre-generic-study format: `ipa625.json`, `ipafix.json`,
-`ipaovr.json`, `nominal.json`, from the retired IPA/mmackenz lines.
-
-Older study versions live in git history: the seven original foilspf studies
-(archived here in Phase C3, deleted 2026-10-08) and the twins of them that
-never ran. The originals' leaderboards, `leaderboards/leaderboard_bo_<name>.tsv`,
-stay as plain files.
+`archive/` holds four retired schema-1 files (`ipa625`, `ipafix`,
+`ipaovr`, `nominal`). Older studies are in git history; their v1 boards
+stay in `leaderboards/` as plain files.
 
 ## Gotchas
 

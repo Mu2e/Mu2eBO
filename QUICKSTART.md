@@ -1,8 +1,8 @@
 # Quick start
 
 How to install and run the autoresearch framework (closed-loop Bayesian
-optimization of Mu2e geometry). The details are in `README.md`,
-`mode_specs/README.md` and `wiki/`.
+optimization of Mu2e geometry). This is the one how-to; `README.md` is the
+overview, `mode_specs/README.md` the study format, `wiki/` the background.
 
 ## 0. What you need
 
@@ -10,22 +10,23 @@ optimization of Mu2e geometry). The details are in `README.md`,
   mounted.
 - **A Kerberos ticket** (`kinit`), and a grid account in the mu2e group for
   grid runs.
-- **Space under `/exp/mu2e/data/users/$USER`.** All runtime data goes there:
-  boards, point state and logs. Set `AUTORESEARCH_DATA_ROOT` to use
-  another place.
+- **Space for runtime data** (boards, point state, logs). It goes under
+  `$AUTORESEARCH_DATA_ROOT`, by default `/exp/mu2e/data/users/$USER`.
 - **No Python install.** `activate.sh` uses the published `/cvmfs` env
-  `ana 2.8.0`.
+  `ana 2.8.0` (`AUTORESEARCH_VENV=/path/to/venv` swaps in a dev venv).
 
 ## 1. Install (once)
 
 The framework is the main repo plus four sibling checkouts in one
-directory. `activate.sh` finds each one by its directory name.
+directory. `activate.sh` finds each one by its directory name; export
+`AUTORESEARCH_SURROKIT`, `AUTORESEARCH_PRODTOOLS`, `AUTORESEARCH_ANAKIT` or
+`AUTORESEARCH_BEAMKIT` to use a checkout somewhere else.
 
 ```bash
 cd /exp/mu2e/app/users/$USER
 
 # the framework
-git clone -b generic-study-phase-c1 https://github.com/oksuzian/Mu2eBO.git autoresearch
+git clone https://github.com/Mu2e/Mu2eBO.git autoresearch
 
 # surrokit: the GP / Bayesian-optimization engine (pinned)
 git clone https://github.com/oksuzian/surrokit.git surrokit
@@ -52,6 +53,9 @@ source ./activate.sh
 ./setup.sh --status                   # shows every root and whose build
 ```
 
+A fresh clone has no build; every run refuses until `--backing` links one.
+The backing's files are world-readable, so you build nothing.
+
 Check the install. This runs the test suite: about 10 minutes, with no
 grid jobs.
 
@@ -63,28 +67,21 @@ For Claude Code: `.mcp.json` registers the `autoresearch` server (study
 and campaign tools) and the `surrogate` server (GP predictions). After any
 update, run `/mcp` in the session to reload them.
 
-> **Still shared from one person's area (2026-10-06):**
-> - **The backing.** `setup.sh --backing` points at
->   `/exp/mu2e/app/users/oksuzian`: the built Offline and the grid code
->   tarballs. All of it is world-readable, but it lives in a personal area
->   until it moves to a shared Mu2e location.
-> - **anakit needs no work area** (since 2026-10-07): it runs M.
->   MacKenzie's analyses on the published `SimJob MDC2025ay` Musing.
->   `approx_ce_sensitivity` reads its DIO table from his area
->   (`/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/data/`).
->
-> Tested on 2026-10-06 against upstream `Mu2e/prodtools` `main`: a local
-> `ce_chain` point ran end to end. On M. MacKenzie's analyses (2026-10-07)
-> a local `ce_chain` point gives n_selected 40, n_triggered 39, efficiency
-> 0.975.
+> **Still in one person's area:** the backing (`/exp/mu2e/app/users/oksuzian`)
+> and the DIO table `approx_ce_sensitivity` reads (M. MacKenzie's `Run1BAna/data/`).
+> Last tested 2026-10-07: a local `ce_chain` point gives n_selected 40, efficiency 0.975.
 
 ## 2. Every new shell
 
 ```bash
 cd /exp/mu2e/app/users/$USER/autoresearch
 source ./activate.sh
+export AUTORESEARCH_DATA_ROOT=${AUTORESEARCH_DATA_ROOT:-/exp/mu2e/data/users/$USER}
 kinit                                 # a grid launch needs >= 4 h left
 ```
+
+Local runs need the ticket too: their jobs read inputs from `/pnfs` over
+xrootd.
 
 ## 3. Check a study before running it
 
@@ -112,7 +109,9 @@ PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.run --study foilspfbpz_ax \
     --context alpha=100000 --executor grid      # or: --executor local --parallel 4
 ```
 
-`--x` gives the knob values in the study's order. Exit codes:
+`--x` gives the knob values in the study's order; a study with no knobs
+omits it. `--parallel` (1..16) works only with `--executor local`. Exit
+codes:
 - 0 means a leaderboard row landed, or `state/broken.txt` says why not;
 - 2 means it was refused before anything ran.
 
@@ -129,15 +128,17 @@ PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.closed_loop --study foilspfbpz_ax \
 Then launch it detached:
 
 ```bash
-GD=/exp/mu2e/data/users/$USER/autoresearch_graph_data
+GD=$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data
 PYTHONPATH= setsid nohup "$AUTORESEARCH_PYTHON" -u -m graph.closed_loop \
     --study foilspfbpz_ax --q 20 --max-evals 40 --picker budget_sob \
     --name-prefix bpz09 --context alpha=100000 --executor grid \
     > $GD/bpz09_parent.log 2>&1 &
 ```
 
-The pickers are `qnehvi`, `qlnei` (one objective), `budget_sob` and
-`hybrid`. Use a new `--name-prefix` for each campaign.
+The campaign keeps `--q` points in flight and launches one replacement
+each time one ends; the GP refits against the board before each pick. The
+pickers are `qnehvi`, `qlnei` (one objective), `budget_sob` and `hybrid`.
+Use a new `--name-prefix` for each campaign.
 
 To stop launching (the running points finish):
 
@@ -153,21 +154,35 @@ From Claude Code you can do the same with the `autoresearch` tools:
 
 - **Campaign record:** `$GD/<prefix>/campaign.json` has the settings, host
   and exit code. `$GD/<prefix>/outcomes.jsonl` has one line per finished
-  point.
+  point. `parent.lock` is held while the campaign runs.
 - **Point logs:** `$GD/closed_loop_logs/<point>.log`.
-- **Point state:**
-  `/exp/mu2e/data/users/$USER/autoresearch_grid/<point>/state/`.
-  `broken.txt` says why a point failed. `run.lock` is held while the point
-  runs: `flock -n .../state/run.lock true` fails during that time.
+- **Point state:** `$AUTORESEARCH_DATA_ROOT/autoresearch_grid/<point>/state/`:
+  `point.json`, each step's `<step>_cluster.txt`, `_status.json` and
+  `_results.json`, and `broken.txt`, which says why a point failed.
+  `run.lock` is held while the point runs: `flock -n .../state/run.lock true`
+  fails during that time. The geometry pre-check log is
+  `.../<point>/preflight/preflight.log`.
 - **Grid queue:** `jobsub_q -G mu2e --user=$USER`.
-- **Dashboard:** see README, "Dashboard".
+- **Dashboard:** a live flow graph of every campaign (points, steps,
+  results), rebuilt from the records every 2 minutes. Start it on the node
+  the campaigns run on:
+
+  ```bash
+  D=$AUTORESEARCH_DATA_ROOT/autoresearch_dashboard; mkdir -p "$D"
+  PYTHONPATH= setsid nohup "$AUTORESEARCH_PYTHON" -u -m service.dashboard \
+      >> "$D/dashboard.log" 2>&1 &
+  ```
+
+  Then `ssh -L 8765:localhost:8765 <node>` and open `http://localhost:8765`.
+  `--once` writes one snapshot and exits.
 
 ## 7. Results
 
 The leaderboards are
-`/exp/mu2e/data/users/$USER/autoresearch_leaderboards/<file>.tsv`, one row
+`$AUTORESEARCH_DATA_ROOT/autoresearch_leaderboards/<file>.tsv`, one row
 per point, best first through the `leaderboard` tool. The GP picks its next
-points from the board as it stands.
+points from the board as it stands. The committed `leaderboards/` is a
+read-only archive of old boards.
 
 A board holds one measurement. A launch is refused when the study's
 measurement or a kit's version changed. Kit versions are bumped by hand
