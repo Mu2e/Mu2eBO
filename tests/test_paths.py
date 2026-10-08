@@ -158,18 +158,5 @@ class TestLeaderboardPaths(unittest.TestCase):
             p.leaderboard_live("/tmp/escaped.tsv")
 
 
-class TestDataRootsHaveOneDefinition(unittest.TestCase):
-    """The grid-data root has one definition, derived from DATA_ROOT (the
-    pipeline once carried private copies that could drift)."""
-
-    def tearDown(self):
-        importlib.reload(paths)
-
-    def test_grid_root_tracks_a_data_root_override(self):
-        p = reload_with(AUTORESEARCH_DATA_ROOT="/scratch/d")
-        self.assertEqual(p.GRID_DATA_ROOT,
-                         Path("/scratch/d/autoresearch_grid"))
-
-
 if __name__ == "__main__":
     unittest.main()

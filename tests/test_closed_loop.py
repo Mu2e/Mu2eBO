@@ -86,7 +86,8 @@ class TestBusyNames(TmpCase):
 class TestCampaignRecord(TmpCase):
     """Every campaign writes <GRAPH_DATA>/<prefix>/campaign.json and one
     outcomes.jsonl line per finished child (spec
-    docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
+    docs/superpowers/specs/2026-10-05-point-campaign-records-design.md).
+    TestBraninCampaign checks the record and outcomes of a whole run."""
 
     LOCAL = ["--executor", "local", "--parallel", "1"]
 
@@ -103,19 +104,6 @@ class TestCampaignRecord(TmpCase):
         return subprocess.run(loop_cmd("branin", 1, max_evals, prefix)
                               + self.LOCAL, cwd=ROOT, env=self.env,
                               capture_output=True, text=True, timeout=180)
-
-    def test_record_and_outcomes(self):
-        r = self.loop("rec", 2)
-        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
-        rec = self.camp("rec").record()
-        self.assertEqual((rec["study"], rec["q"], rec["max_evals"],
-                          rec["exit_code"]), ("branin", 1, 2, 0))
-        self.assertTrue(rec["host"])
-        self.assertIn("--name-prefix", rec["args"])
-        out = self.camp("rec").outcomes()
-        self.assertEqual(sorted(out), ["recR00_00", "recR01_00"])
-        self.assertEqual({o["reason"] for o in out.values()}, {"ok"})
-        self.assertFalse(self.camp("rec").alive())
 
     def test_a_shell_relaunch_of_an_ended_prefix(self):
         r = self.loop("rel", 1)
@@ -195,7 +183,8 @@ class TestCampaignRecord(TmpCase):
 class TestBraninCampaign(TmpCase):
     """The Phase B acceptance: a toy study runs end to end from its JSON file
     alone (Branin, 2 objectives, 1 constraint, q = 2, 8 evaluations) in
-    under a minute."""
+    under a minute, and leaves its campaign record and one outcome per
+    child."""
 
     def test_eight_points_in_under_a_minute(self):
         data = self.tmp
@@ -219,6 +208,17 @@ class TestBraninCampaign(TmpCase):
         self.assertEqual(sorted(submits(data)),
                          [f"{n}.toy" for n in names])
         self.assertLess(elapsed, 60, f"the campaign took {elapsed:.1f} s")
+        from campaign_dir import CampaignDir
+        camp = CampaignDir(data / "autoresearch_graph_data", "brn")
+        rec = camp.record()
+        self.assertEqual((rec["study"], rec["q"], rec["max_evals"],
+                          rec["exit_code"]), ("branin", 2, 8, 0))
+        self.assertTrue(rec["host"])
+        self.assertIn("--name-prefix", rec["args"])
+        out = camp.outcomes()
+        self.assertEqual(sorted(out), names)
+        self.assertEqual({o["reason"] for o in out.values()}, {"ok"})
+        self.assertFalse(camp.alive())
 
 
 class TestRunnerRestart(EngineCase):

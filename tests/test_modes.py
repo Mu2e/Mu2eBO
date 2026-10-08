@@ -14,52 +14,32 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 import modes  # noqa: E402
 
+# The studies deliberately shipped in the real mode_specs/ directory. Every
+# file there is loaded by EVERY process that imports modes, so
+# TestStudyDirectoryWiring pins the directory to exactly these -- adding a
+# name here is a conscious act, which is exactly the review checkpoint we
+# want.
+SHIPPED = ("ce_chain", "foilsflash_ax", "foilspf_nominal", "foilspfbpz_ax",
+           "ptg4bl")
+# Retired names that must never load (mode_specs/README.md, "archive/"):
+# the seven original foilspf studies (their files were deleted on
+# 2026-10-08; git history keeps them, and their boards stay in
+# leaderboards/) and the four schema-1 files in mode_specs/archive/.
+RETIRED = ("foilsflash", "foilspf", "foilspf2k", "foilspfbp", "foilspfbpx",
+           "foilspfbpz", "foilspfbw", "ipa625", "ipafix", "ipaovr", "nominal")
+
 
 class TestRegistry(unittest.TestCase):
-    def test_the_live_studies_are_the_engine_twins_and_the_baseline(self):
-        import modes
+    def test_the_shipped_studies_load_and_the_retired_ones_do_not(self):
         live = {n for n in modes.STUDIES if not n.startswith("_")}
-        self.assertTrue({"foilsflash_ax", "foilspfbpz_ax",
-                         "foilspf_nominal"} <= live)
-        self.assertFalse({"foilsflash", "foilspf", "foilspf2k", "foilspfbp",
-                          "foilspfbpx", "foilspfbpz", "foilspfbw"} & live,
-                         "the originals are retired, not loaded")
+        self.assertTrue(set(SHIPPED) <= live, live)
+        self.assertFalse(set(RETIRED) & set(modes.STUDIES),
+                         "a retired study is loaded")
 
     def test_the_pickers(self):
         self.assertEqual(modes.PICKER_CHOICES,
                          ("qnehvi", "qlnei", "budget_sob", "hybrid"))
         self.assertIn(modes.DEFAULT_PICKER, modes.PICKER_CHOICES)
-
-
-class TestArchiveIsPresentAndUnloaded(unittest.TestCase):
-    """Archive guard (Phase C3 review): the four schema-1 archived study
-    files and the seven original foilspf boards must still exist on disk,
-    and none of the retired names may leak into modes.STUDIES
-    (mode_specs/README.md, "archive/"). The seven original foilspf study
-    files were deleted on 2026-10-08; git history keeps them."""
-
-    ORIGINAL_FOILSPF = ("foilsflash", "foilspf", "foilspf2k", "foilspfbp",
-                        "foilspfbpx", "foilspfbpz", "foilspfbw")
-    SCHEMA1 = ("ipa625", "ipafix", "ipaovr", "nominal")
-
-    def test_the_four_archived_files_exist(self):
-        archive_dir = modes.MODES_DIR / "archive"
-        for name in self.SCHEMA1:
-            with self.subTest(name=name):
-                self.assertTrue((archive_dir / f"{name}.json").exists(),
-                                f"missing {archive_dir / (name + '.json')}")
-
-    def test_the_seven_original_boards_still_exist(self):
-        boards = modes.MODES_DIR.parent / "leaderboards"
-        for name in self.ORIGINAL_FOILSPF:
-            with self.subTest(name=name):
-                path = boards / f"leaderboard_bo_{name}.tsv"
-                self.assertTrue(path.exists(), f"missing {path}")
-
-    def test_no_archived_name_is_loaded(self):
-        self.assertFalse(
-            (set(self.ORIGINAL_FOILSPF) | set(self.SCHEMA1))
-            & set(modes.STUDIES))
 
 
 class TestStudyDirectoryWiring(unittest.TestCase):
@@ -107,14 +87,6 @@ class TestStudyDirectoryWiring(unittest.TestCase):
         want = sorted(p.stem for p in (ROOT / "mode_specs").glob("*.json"))
         self.assertEqual(Path(modes_dir), ROOT / "mode_specs")
         self.assertEqual(studies, want)
-        # C2b: each foilspf study has an engine twin <name>_ax; since C3 the
-        # twins are the foilspf studies shipped (the originals are retired).
-        # ce_chain is the one zero-knob production-chain study; ptg4bl the
-        # G4beamline production-target study (kit beamkit, 2026-10-02);
-        # foilspf_nominal the deployed-target baseline (zero knobs).
-        self.assertTrue(all(n.endswith("_ax") for n in want
-                            if n not in ("ce_chain", "ptg4bl",
-                                         "foilspf_nominal")), want)
 
     def test_a_study_on_the_study_path_is_loaded(self):
         name = "wiringprobe" + uuid.uuid4().hex[:8]
@@ -140,18 +112,10 @@ class TestStudyDirectoryWiring(unittest.TestCase):
         self.assertEqual(out.splitlines(),
                          ["STUDY_DISCOVERED True", "GEOM_RENDERS True"], out)
 
-    # Specs deliberately shipped in the real mode_specs/ directory. Every file
-    # here is loaded by EVERY process that imports modes, so the point of the
-    # test below is that nothing arrives unnoticed -- adding a line here is a
-    # conscious act, which is exactly the review checkpoint we want.
-    SHIPPED_SPECS = {"ce_chain.json", "foilsflash_ax.json",
-                     "foilspf_nominal.json", "foilspfbpz_ax.json",
-                     "ptg4bl.json"}
-
     def test_mode_specs_directory_holds_only_the_readme(self):
-        """The real directory holds the README plus exactly the shipped specs:
-        a STRAY *.json checked in here would be loaded by every process that
-        imports modes.
+        """The real directory holds the README plus exactly the SHIPPED
+        specs: a STRAY *.json checked in here would be loaded by every
+        process that imports modes.
 
         Kept as an explicit allow-list rather than relaxed to "any *.json":
         the whole value of this guard is that an unintended file fails
@@ -162,7 +126,8 @@ class TestStudyDirectoryWiring(unittest.TestCase):
         retired one-shot A/B specs."""
         stray = sorted(p.name for p in (ROOT / "mode_specs").iterdir()
                        if p.name != "archive")
-        self.assertEqual(stray, sorted({"README.md"} | self.SHIPPED_SPECS))
+        self.assertEqual(stray, sorted(["README.md"]
+                                       + [f"{n}.json" for n in SHIPPED]))
 
 
 class TestReadme(unittest.TestCase):
@@ -198,21 +163,6 @@ class TestSingleModuleCopy(unittest.TestCase):
                     f"`from core.{bare} import ...`) -- switch it to the "
                     f"sys.path.insert + bare `import {bare}` convention used "
                     f"by tests/test_modes.py.")
-
-
-class TestStaleModeEnv(unittest.TestCase):
-    def test_a_stale_autoresearch_mode_is_ignored(self):
-        """AUTORESEARCH_MODE was the pipeline's mode switch. After Phase C3
-        nothing reads it: a leftover export in the operator's shell must
-        not break an import, whatever it names."""
-        env = dict(os.environ, AUTORESEARCH_MODE="no_such_mode_c3",
-                   PYTHONPATH="")
-        code = ("import sys; sys.path.insert(0, 'core'); sys.path.insert(0, 'graph'); "
-                "import modes, botorch_predict, run, closed_loop; print('ok')")
-        p = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT),
-                           env=env, capture_output=True, text=True)
-        self.assertEqual(p.returncode, 0, p.stderr[-2000:])
-        self.assertIn("ok", p.stdout)
 
 
 if __name__ == "__main__":

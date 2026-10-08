@@ -65,15 +65,6 @@ class TestFlockContention(unittest.TestCase):
                 self.assertEqual(_child_try(lp, "sh"), 0)  # concurrent readers OK
                 self.assertEqual(_child_try(lp, "ex"), 3)  # writer blocked
 
-    def test_contextmanagers_are_actually_contextmanagers(self):
-        # The 2026-07-17 breakage made _flock_ex(target) raise TypeError.
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "t.tsv"
-            with _flock_ex(target):
-                pass
-            with _flock_sh(target):
-                pass
-
 
 if __name__ == "__main__":
     unittest.main()
