@@ -1,10 +1,10 @@
 ---
 type: incident
 title: G4Cache Cache001 fatal at exit in Mu2eG4MT jobs
-description: MT jobs abort 1-of-2 at __run_exit_handlers — exit-time static destruction of per-thread G4HadronicInteractionRegistry runs ParticleHP G4Cache dtors on the main art thread, whose thread-local cache container is too short; fixed by a Cache001-suppressing G4VExceptionHandler installed at endJob
+description: 'MT jobs abort AFTER output closes: exit-time G4Cache teardown on the main thread hits Cache001; fixed by a Cache001-suppressing exception handler at Mu2eG4MT endJob'
 status: resolved
 status_note: handler fix implemented 2026-08-26, validated same day (10/10 MT runs clean)
-timestamp: '2026-08-26'
+timestamp: '2026-10-08'
 ---
 
 # G4Cache Cache001 fatal at exit in Mu2eG4MT jobs

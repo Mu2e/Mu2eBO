@@ -6,135 +6,91 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-08
-- **updated** [bo-foilspf](/projects/bo-foilspf.md): first grid row on
-  the `_upstream` board — `bpzup01` (foilspfbpz_ax at bpzax01R12_00's x,
-  M. MacKenzie's analyses) landed 2026-10-08 01:48 CDT, all 7 steps ok
-  (mubeam 15/15, elebeam_flash 100/100, mustops_ce 15/15): stops_per_pot
-  1.26038e-3, sob 1.32290 (local re-analysis of the old point 1.32707),
-  flash 7.281e-06 per generated electron (old point 6.584e-06: +10.6%, a
-  third case of the flash replicate wobble). The upstream-minors branch was
-  merged (02dd94b, suite 1024 OK) and generic-study-phase-c1 pushed to
-  github.com/oksuzian/Mu2eBO.
+- **updated** [bo-foilspf](/projects/bo-foilspf.md), [anakit](/external/anakit.md):
+  the `_upstream` refill ran (bpzup02-21 + `nomup01`); `nomup01` sob 1.14014, flash
+  7.50675e-06 = the damage budget to 6 digits (no-knob study, same seeds).
+- **updated** [contract-engine](/drivers/contract-engine.md), [tests](/drivers/tests.md):
+  PR #36 cleanup — five unused `_ax` studies, archived copies, restamp tool and dead
+  compat removed; `foilspf_nominal` moved to `mode_specs/`; suite 882 OK (skipped=4).
+- **updated** wiki condensed to current facts: contract-engine (1475 -> 544 lines),
+  log bullets cut to 3 lines, tests, anakit, surrogate, service, two concept pages;
+  [pipeline](/drivers/pipeline.md) and three sibling pages back to main's text + banner.
+- **updated** [bo-foilspf](/projects/bo-foilspf.md): first `_upstream`
+  grid row `bpzup01` — sob 1.32290, flash 7.281e-06 (+10.6% on the old
+  point, the flash wobble); upstream-minors merged (02dd94b, suite 1024 OK).
 
 ## 2026-10-07
-- **updated** [anakit](/external/anakit.md): review leftovers of the
-  upstream-analyses merge — `ANAKIT_PIN_SHA` (3ba8d23bbf47) asserted by
-  the suite like `SURROKIT_PIN_SHA`; `kits.anakit.musing` takes one
-  spelling (`<Musing> <version>`, one space) so a second spelling cannot
-  give a second `measure_sha`; the old-version refusal gives the rerun
-  recipe; "fork" names in the adapter are "checkout"; an engine test runs
-  each `_ax` study's seven steps; `ce_edep` runtime recorded (933 s of
-  3000 s).
-- **updated** [anakit](/external/anakit.md),
-  [contract-engine](/drivers/contract-engine.md): the `_ax` studies and
-  `ce_chain` run on M. MacKenzie's analyses — the checkout is his `main`
-  (`3ba8d23`), the server runs on the `SimJob MDC2025ay` Musing
-  (`anakit-adapter/2`), four steps stops -> ce_edep -> sob plus flash
-  (flash per generated electron, budget 7.506758e-06), `ce_chain` reads
-  `trigger_efficiency_ntuple`, new `_upstream` boards; the fork's three
-  analyses and the work area `autoresearch_muse_ax` are retired.
-  Acceptance without the grid: bpzax01R12_00 re-analysed (stops exact,
-  flash 1e-7, sensitivity 1.32707 = his tool by hand, new/old 0.3474),
-  all eight launch checks pass (`foilspf2k_ax`'s geometry pre-check
-  still fails at its knob-box centre, as before), `ce_chain` lands a row
-  locally.
+- **updated** [anakit](/external/anakit.md): upstream-analyses review
+  leftovers — `ANAKIT_PIN_SHA` asserted by the suite, one `musing`
+  spelling, "fork" renamed "checkout", `ce_edep` runtime 933 s of 3000 s.
+- **updated** [anakit](/external/anakit.md), [contract-engine](/drivers/contract-engine.md):
+  the `_ax` studies and `ce_chain` run on M. MacKenzie's analyses (his `main`
+  3ba8d23, SimJob MDC2025ay, flash budget 7.506758e-06); new `_upstream` boards.
 - **updated** [contract-engine](/drivers/contract-engine.md): `params_from`,
-  a step param from an earlier step's metric (load rules, `Step.upstream`,
-  `metrics_read`, run-time refusal of a missing or non-finite metric,
-  measure_basis unchanged for studies without it, dashboard `upstream`).
+  a step param from an earlier step's metric (`Step.upstream`,
+  `metrics_read`; refused at run time when missing or non-finite).
 
 ## 2026-10-05
 - **updated** [contract-engine](/drivers/contract-engine.md),
-  [anakit](/external/anakit.md): measure identity. Kit versions are
-  hand-bumped (anakit `anakit-adapter/1`, beamkit `beamkit-adapter/1+fom1`;
-  the fork commit / server version is each step's recorded build), so an
-  unrelated fork commit no longer splits a board or refuses a submit.
-  `core/measure.py` decides the board match; `graph.restamp_board`
-  re-stamps an old board once after proving only builds differ (dry runs:
-  foilspfbpz_ax 41 rows, ptg4bl 29 rows).
-- **updated** [contract-engine](/drivers/contract-engine.md) and
-  [service](/drivers/service.md): point and campaign records.
-  `core/point_dir.py` owns a point's `state/` (first writer wins on
-  broken.txt; `graph.run` holds `state/run.lock`, a second runner is
-  refused); `core/campaign_dir.py` owns `<GRAPH_DATA>/<prefix>/` (every
-  closed_loop writes campaign.json, outcomes.jsonl, holds parent.lock);
-  campaign_status and the dashboard read them, the `/proc` scan is gone.
-  A flock holder waits 2 s so a reader's probe never refuses a run.
+  [anakit](/external/anakit.md): measure identity — kit versions hand-bumped,
+  `core/measure.py` decides the board match; `graph.restamp_board` added.
+- **updated** [contract-engine](/drivers/contract-engine.md), [service](/drivers/service.md):
+  point and campaign records — `core/point_dir.py` (state/, run.lock) and
+  `core/campaign_dir.py` (campaign.json, outcomes.jsonl, parent.lock).
 - **updated** [surrogate](/drivers/surrogate.md): a `SystemExit` in
   `core/botorch_predict.py` escaped the MCP SDK's tool-error handling and
   killed the surrogate server; refused pick requests are `ValueError` now.
 - **updated** [contract-engine](/drivers/contract-engine.md): the beamkit
-  adapter no longer offers `cancel` (it had none; the scheduler logged
-  "cancel requested" while jobs ran on), and uses the prodtools quorum rule
-  (`meets_quorum`) instead of `ceil(quorum × njobs)`, which floats make one
-  too many (8 for 0.07 × 100).
+  adapter offers no `cancel` and uses the prodtools quorum rule
+  (`meets_quorum`; `ceil(0.07 × 100)` gave 8).
 
 ## 2026-10-04
-- **updated** [service](/drivers/service.md): the live campaign dashboard
-  (`python -m service.dashboard`): a flow graph per campaign from a file
-  snapshot; the scheduler now writes `<step>_status.json` per poll; stall =
-  last poll older than max(3·poll_s, 600 s).
+- **updated** [service](/drivers/service.md): live campaign dashboard
+  (`python -m service.dashboard`); the scheduler writes `<step>_status.json`
+  per poll; stall = last poll older than max(3·poll_s, 600 s).
 
 ## 2026-10-03
 - **updated** [bo-ptg4bl](/projects/bo-ptg4bl.md): campaign ptg5k01, 9 rows,
-  best 0.0471 μ⁻+π⁻/POT (+17% over nominal) at the Tlength-max, R_up-min,
-  R_mid-max corner; the box widened. [contract-engine](/drivers/contract-engine.md):
-  held jobs are in flight (a transient hold at submit failed two children).
+  best 0.0471 μ⁻+π⁻/POT (+17%), box widened; [contract-engine](/drivers/contract-engine.md):
+  held jobs count as in flight.
 
 ## 2026-10-02
+- **accepted** [service](/drivers/service.md) (moved from the page): check jobs —
+  ce_chain local 58.5 s, foilspfbpz_ax grid pre-check 313.8 s, a broken draft 1.3 s;
+  campaign dry run 130 jobs/point; branin local campaign 4 rows; rechecked live.
 - **updated** [bo-ptg4bl](/projects/bo-ptg4bl.md): grid acceptance passed
-  (rows ptgnom02/ptgrmid02); three grid-only findings fixed — jobsub's
-  OTEL_* env for the beamkit server, a needs_attention reply refused, the
-  plane is a tree path (VirtualDetector/<name>); 100k POT per point on a
-  fresh board.
+  (ptgnom02/ptgrmid02); three grid-only fixes (OTEL_* env, needs_attention
+  refused, plane is a tree path); 100k POT per point, fresh board.
 - **created** [bo-ptg4bl](/projects/bo-ptg4bl.md): the first G4beamline
   study (production-target rod, length + 3-point polycone radius, μ⁻+π⁻
   per POT at Coll_01_Det); deck override checked locally with g4bl 3.08b.
 - **updated** [contract-engine](/drivers/contract-engine.md): the beamkit
   adapter (deck params, queue-and-quorum status, FoM from the ntuples).
 - **updated** [service](/drivers/service.md): campaign tools —
-  `start_campaign` (a dry run through the new `graph.closed_loop
-  --check-only`; confirm=true launches detached; one MCP launch per
-  prefix), `stop_campaign`, `campaign_status` (reads the files any
-  campaign leaves, a /proc scan for shell-started parents), `leaderboard`.
-- **created** [service](/drivers/service.md): the `autoresearch` MCP
-  server's study tools — start_check/check_result over a detached
-  `graph.check_study --json` job (liveness by a flock the server hands to
-  the job), list_studies/show_study/study_guide; mcp 2.0 SDK traps; a
-  qualified `core.study` import breaks the single-module-copy test.
-- **updated** [contract-engine](/drivers/contract-engine.md): the
-  study-writing skill was not built — four no-skill baselines already wrote
-  correct studies; instead `mode_specs/README.md` gained "From draft to
-  launch", and the loader refuses a knob-built profile whose `clip` is not
-  its knobs' bounds.
+  `start_campaign` (dry run via `graph.closed_loop --check-only`, one MCP
+  launch per prefix), `stop_campaign`, `campaign_status`, `leaderboard`.
+- **created** [service](/drivers/service.md): the `autoresearch` MCP study
+  tools — start_check/check_result over a detached `graph.check_study
+  --json` job, list_studies/show_study/study_guide.
+- **updated** [contract-engine](/drivers/contract-engine.md): no
+  study-writing skill (no-skill baselines pass); `mode_specs/README.md` got
+  "From draft to launch"; a profile's `clip` must equal its knobs' bounds.
 
 ## 2026-10-01
 - **updated** [contract-engine](/drivers/contract-engine.md): check_study
-  hardening — exit 3 when check_study itself breaks, with the whole error
-  (`crashed`, `error.traceback`) in the JSON; a `detail` traceback on any
-  check that caught an exception; `--x` checked right after load; a draft
-  outside the study path checked as if installed in its namesake's place.
+  hardening — exit 3 when it breaks (traceback in the JSON), `detail` on a
+  failed check, `--x` checked at load, drafts checked in place.
 - **updated** [contract-engine](/drivers/contract-engine.md): check_study —
-  `python -m graph.check_study <name-or-path>` checks a study file before
-  launch (load, `${ARTIFACT}` paths, the launch check, the geometry
-  pre-check at the center point through `build_study_graph(...,
-  through="preflight")`), submitting nothing; a marker-guarded scratch dir
-  so no verdict is reused. Acceptance: suite 811 OK, basis shas unchanged,
-  foilspfbpz_ax refused on the live board and passing its pre-check in a
-  sandbox, ce_chain "rendered, not pre-checked", a missing tarball named.
+  `python -m graph.check_study <name-or-path>` checks a study before launch
+  (load, `${ARTIFACT}`, launch check, geometry pre-check); suite 811 OK.
 
 ## 2026-09-30
-- **updated** [contract-engine](/drivers/contract-engine.md): ce-chain — the
-  launch refuses a board holding rows of another `measure_sha` (archive or
-  live) or a mismatched header, naming both shas; the loader refuses two
-  steps sharing a `desc_fmt`; new study `ce_chain` (CeEndpoint
-  dts -> dig -> mcs -> nts -> anakit plot, zero knobs, one `{geom}` for every
-  step). Acceptance: suite 764 OK, `_ax` basis shas unchanged, cechainL01
-  median |p| 104.022, foilspfbpz_ax refused at launch.
+- **updated** [contract-engine](/drivers/contract-engine.md): ce-chain —
+  the launch refuses a board of another `measure_sha`; one `desc_fmt` per
+  step; new zero-knob study `ce_chain` (median |p| 104.022); suite 764 OK.
 - **updated** [anakit](/external/anakit.md): `nts_momentum` (fork `1f831a1`);
-  the adapter's EdepAna checks apply only to `art_files` analyses; the
-  ce-chain fork commits changed every `_ax` `measure_sha`, so the next `_ax`
-  campaign needs a new `leaderboard.file`.
+  EdepAna checks only for `art_files` analyses; the fork commits changed
+  every `_ax` `measure_sha` (next campaign needs a new board).
 - **updated** [production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md):
   resolved — made permanent as `ce_chain`; spike scratch removed.
 - **created** [production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md):
@@ -144,287 +100,123 @@ superseded, linted.
   to 5e5a28d) after bpzax01 finished — [contract-engine](/drivers/contract-engine.md).
 - **updated** [contract-engine](/drivers/contract-engine.md): bpzax01 measured the straggler cost — the prodtools kit applies `quorum` only after every job ends, so five single jobs of ~5,200 (6–14 h against a ~1.5 h step) held their points and pool slots into the afternoon of day 2; a tail cutoff is the open design item.
 - **updated** [contract-engine](/drivers/contract-engine.md): bpzax01, the
-  first full engine campaign, finished 40/40 rows with zero failures; one
-  straggler `mustops_ce` job held the last point ~14 h; best-in-budget R36
-  sob 3.843.
+  first full engine campaign, 40/40 rows, zero failures; one straggler job
+  held the last point ~14 h; best-in-budget R36 sob 3.843.
 - **created** [claude-code-sandbox-grid-tools](/concepts/claude-code-sandbox-grid-tools.md):
-  Claude Code's Bash sandbox on mu2esrv01 breaks `kinit -R` and `jobsub_q`
-  (no DNS in the sandbox netns, HTTP-only proxy); allowlisting `*.fnal.gov`
-  does not help.
+  the Bash sandbox on mu2esrv01 breaks `kinit -R` and `jobsub_q` (no DNS,
+  HTTP-only proxy); allowlisting `*.fnal.gov` does not help.
 
 ## 2026-09-29
-- **updated** [contract-engine](/drivers/contract-engine.md): the kit seam
-  (branch `kit-seam`, local, unmerged; acceptance passed: 737 tests OK, the
-  seven `_ax` `measure_basis_sha` unchanged from 2a390e2, local point
-  `kslocal01` bit-identical to c3local01-05 with `measure_sha` unchanged,
-  `graph.run --config bad.name` refused with exit 2 and nothing written,
-  Branin loop `ksbrn01` launched=6 rows=6). One `KitDecl` per kit (executors,
-  stagger, Kerberos, config-name rule, `factory` string;
-  `ADAPTERS`/`register_adapter`/`register_all` and the adapter class
-  attributes deleted), one error rule (`GuardedKit` wraps every kit from
-  `KitSet.get`: `OSError`/`ValueError`/`KeyError`/`SubprocessError` become
-  `KitError`), one launch check (`contract.launch_problems` for both runners;
-  `check_kits`, `launch_refusals`, `config_name_problems` deleted). Four bugs
-  fixed: a prodtools config missing a timeout now refuses with exit 2 instead
-  of tracing back; an adapter `OSError` mid-step breaks the point instead of a
-  traceback; `graph.run --config bad.name` refuses and writes nothing; a knob,
-  objective or metric named after a board column (`handles`, `spec_sha`,
-  `measure_sha`, `time`) is refused at study load (58f5240). `CONTEXT.md`
-  Adapter entries updated. [tests](/drivers/tests.md) 718 -> 739 (3 skipped,
-  35 files).
+- **updated** [contract-engine](/drivers/contract-engine.md): kit seam —
+  one `KitDecl` per kit, `GuardedKit` maps kit errors to `KitError`, one
+  launch check (`launch_problems`); four bugs fixed; [tests](/drivers/tests.md) 718 -> 739.
 - **updated** [contract-engine](/drivers/contract-engine.md): launched
-  `bpzax01` (first MDC2025ax campaign: foilspfbpz_ax, budget_sob, q=20,
-  40 evals, grid, 20:38 CDT); the host submit lock serializes
-  `submit_once` at ~119 s each, so a q=20 ramp takes ~80 min of submits.
-- **updated** [contract-engine](/drivers/contract-engine.md): first
-  real-problem closed loop from the CLI (`c3loop01`, foilspfbpz_local,
-  budget_sob, q=2, 4 evals, local): 4/4 ok, 4 rows, 26.7 min. It exposed
-  that a parent launched with stdout to a file logged no `[pool]` line
-  until exit (block buffering); both entry points now line-buffer stdout.
-  [tests](/drivers/tests.md) 716 -> 718.
-- **updated** [tests](/drivers/tests.md): `activate.sh` now exports
-  `AUTORESEARCH_ANAKIT` / `AUTORESEARCH_PRODTOOLS` from sibling checkouts
-  (`../analysis-mcp-server`, `../muse_050125/prodtools`) when unset and the
-  directory exists; a missing one stays unset so the runner still refuses
-  loudly. Found by a post-cleanup local run from a fresh shell, which refused
-  twice (anakit, then prodtools not set). The cvmfs prodtools releases ship
-  no `mcp/src`, so the engine needs the local checkout. 713 -> 716 tests.
-- **updated** [surrogate](/drivers/surrogate.md): surrokit pin bumped
-  `4884aa66` → `26929f7c22bcd9c4bef0c09d453309ae35300fbe` (three cleanup
-  commits, incl. "pickers: one home for the min_spacing / hv_frac / pool
-  defaults"; picks verified identical across 10 picker/seed cases,
-  surrokit suite 52 OK). `core/paths.py:50 SURROKIT_PIN_SHA` updated;
-  `tests.test_botorch_predict` (incl. `TestSurrokitPin`) and
-  `tests.test_surrogate` green against the new checkout.
+  `bpzax01` (foilspfbpz_ax, budget_sob, q=20, 40 evals, grid); the host
+  submit lock serializes `submit_once` at ~119 s each (~80 min ramp).
+- **updated** [contract-engine](/drivers/contract-engine.md): first CLI
+  closed loop `c3loop01` (local, 4/4 rows, 26.7 min); both entry points now
+  line-buffer stdout. [tests](/drivers/tests.md) 716 -> 718.
+- **updated** [tests](/drivers/tests.md): `activate.sh` exports
+  `AUTORESEARCH_ANAKIT`/`AUTORESEARCH_PRODTOOLS` from sibling checkouts
+  when unset (cvmfs prodtools ships no `mcp/src`); 713 -> 716 tests.
+- **updated** [surrogate](/drivers/surrogate.md): surrokit pin `4884aa66` →
+  `26929f7c` (three cleanup commits; picks identical across 10 cases);
+  `SURROKIT_PIN_SHA` updated, tests green.
 - **corrected** [contract-engine](/drivers/contract-engine.md) and
-  `mode_specs/README.md`: the "running an archived foilspf study again
-  needs its layout set to `v2` and a new board" wording was incomplete —
-  each archived study also names the `ce_sensitivity`/`flash_edep_per_pot`
-  kits, which C3 deleted from `kits.toml` (those analyses now live only as
-  `analysis` params under the `anakit` kit), so a layout flip alone still
-  fails at load/eval. Re-running one for real means using its `_ax` twin,
-  or porting its kits to anakit as well as switching the layout.
+  `mode_specs/README.md`: an archived foilspf study also names kits C3
+  deleted, so a v2 layout alone does not rerun it — use its `_ax` twin.
 - **updated** [tests](/drivers/tests.md) (post-C3 cleanup, second batch):
-  suite now 35 files, 713 tests OK (skipped=3), 386 s — was 718: −2 v1
-  tests, −4 pool renew tests, +1 retry-budget pin. The seven `_ax`
-  studies' `measure_basis_sha` values are unchanged after all seven
-  commits. Index line updated.
+  35 files, 713 tests OK (skipped=3), 386 s; `_ax` `measure_basis_sha`
+  unchanged.
 - **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
-  cleanup): deleted `graph/pool.py:run_rolling`'s `renew` hook (parameter,
-  default, the pre-launch and at-resolution calls) and its 4 tests
-  (`TestRenewHook`, `TestRenewDuringDrain`): `graph/closed_loop.py` never
-  passed it. Campaigns rely on the 4 h Kerberos launch check.
+  cleanup): deleted the unused `renew` hook of `graph/pool.py:run_rolling`
+  and its 4 tests; campaigns rely on the 4 h Kerberos launch check.
 - **updated** [tests](/drivers/tests.md) (post-C3 cleanup):
-  `tests/test_no_hardcoded_paths.py` now also scans `surrogate/` and
-  `activate.sh` (tracked, previously outside `SCANNED`); neither had a
-  personal path, so nothing needed fixing.
+  `tests/test_no_hardcoded_paths.py` also scans `surrogate/` and
+  `activate.sh`; nothing needed fixing.
 - **updated** (post-C3 cleanup) new test
-  `tests/test_contract.py:TestRetryPolicy.
-  test_every_timed_call_but_start_has_a_retry_budget` pins
-  `set(contract.RETRY_PAUSES_S) == set(kit_config.TIMEOUT_KEYS) - {"start"}`.
+  `TestRetryPolicy.test_every_timed_call_but_start_has_a_retry_budget`
+  pins `RETRY_PAUSES_S` keys == `TIMEOUT_KEYS` minus `start`.
 - **updated** (post-C3 cleanup) the prodtools and anakit adapters write
-  `record.json` / `anakit_result.json` through `core/scheduler.py:
-  write_atomic` instead of private `_write_json` copies (same `.tmp` +
-  rename, same `json.dumps(indent=1, sort_keys=True)`, no trailing
-  newline: on-disk bytes unchanged, checked; prodtools still creates the
-  step dir first).
+  `record.json`/`anakit_result.json` through `core/scheduler.py:write_atomic`
+  (on-disk bytes unchanged).
 - **updated** (post-C3 cleanup) `core/contract.py` imports `_is_number`
   from `core/kit_config.py` instead of carrying an identical copy.
-- **updated** (post-C3 cleanup) deleted the unused `Objective.step`,
-  `Objective.key` and `ExtraMetric.key` properties from `core/study.py`:
-  no reader outside one test assertion (now on `.metric`); `core/score.py`
-  splits `metric` itself. No wiki page named them.
+- **updated** (post-C3 cleanup) deleted unused `Objective.step`,
+  `Objective.key`, `ExtraMetric.key` from `core/study.py`; `core/score.py`
+  splits `metric` itself.
 - **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
-  cleanup, operator-approved): C3 ruling 3 REVERSED — `"v2"` is the only
-  leaderboard layout. `core/study.py` refuses `"v1"` at load (key still
-  required), `core/leaderboard.py` lost its v1 branches and the
-  `Leaderboard.layout` field (`_check_v2` → `_is_new_row`), `core/score.py`
-  always builds the row meta. Archived studies untouched (still say
-  `"v1"`, so re-running one needs a v2 layout and a new board).
-  `TestByteIdenticalOnARealBoard` rewritten as `TestFormatsMatchARealBoard`
-  (`format_line` on the real foilspfbpz last row = that row + the
-  `V2_META` tail). Also `mode_specs/README.md`, `README.md`, `CONTEXT.md`.
-- **updated** [tests](/drivers/tests.md) (post-C3 cleanup): suite now 35
-  files, 718 tests OK (skipped=3), ~250 s — was 729 (skipped=4); the
-  seven `_ax` studies' `measure_basis_sha` values are unchanged. Also:
-  `Leaderboard._check_header` is the one home of the header check, and
-  `core/kit_config.py` shares `resolve_command`/`resolve_env` (`_Launch`
-  base) and the table checks (`_table`, `_positive_timeouts`) between kits
-  and servers — no behaviour change.
+  cleanup): C3 ruling 3 reversed — `"v2"` is the only leaderboard layout,
+  `"v1"` refused at load; `TestFormatsMatchARealBoard` replaces the old test.
+- **updated** [tests](/drivers/tests.md) (post-C3 cleanup): 35 files, 718
+  tests OK (skipped=3); one header check (`Leaderboard._check_header`);
+  kits and servers share table checks in `core/kit_config.py`.
 - **updated** [contract-engine](/drivers/contract-engine.md) (post-C3
-  cleanup): the `.env` bullet now records that the unused `python-dotenv`
-  pin was dropped from `requirements.txt`. Same commit: the unreachable
-  `2: "fail_init"` preflight verdict left `PREFLIGHT_VERDICTS` (and
-  `CONTEXT.md`'s verdict list); `Verdict.gdml_verified` is KEPT — seven
-  test assertions use it as the guard that the as-built GDML comparison
-  ran.
+  cleanup): dropped the unused `python-dotenv` pin and the unreachable
+  `2: "fail_init"` verdict; `Verdict.gdml_verified` kept (tests use it).
 - **updated** (post-C3 cleanup, branch `cleanup-c3`) removed the
-  pending-TSV API from `core/leaderboard.py` (`Leaderboard.pending_*`,
-  `PENDING_HEADER`, `STALE_PENDING_S`, `to_py_scalars`) and its 10 tests:
-  no caller since the pipeline deletion (`315563a`); in-flight points
-  reach the picker only as the in-memory `x_pending` list. Pages that
-  mention the pending TSV ([bo-driver](/drivers/bo-driver.md),
-  [graph-runner](/drivers/graph-runner.md),
-  [batch-bo](/concepts/batch-bo.md)) describe retired history — no edit.
+  pending-TSV API from `core/leaderboard.py` and its 10 tests; in-flight
+  points reach the picker only as `x_pending` — [bo-driver](/drivers/bo-driver.md).
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C3
-  acceptance PASSED:
-  - suite 729 OK (skipped=4) at the branch tip;
-  - `measure_basis_sha` unchanged for the seven `_ax` studies;
-  - local `graph.run` runs `c3local01`/`c3local02` landed rows whose
-    sob/flash are bit-identical to pre-C3 `c2blocal01`;
-  - a fresh surrogate MCP lists only the seven `_ax` studies.
+  acceptance passed — suite 729 OK (skipped=4), `_ax` basis shas unchanged,
+  local rows bit-identical to pre-C3, surrogate MCP lists the seven `_ax`.
 
 ## 2026-09-28
 - **updated** [contract-engine](/drivers/contract-engine.md) (final fix
-  wave, review of the Phase C3 docs pass): fixed "unknown or non-engine
-  study" — non-engine studies no longer exist since C3, just "unknown
-  study". Added to "Pipeline deleted (Phase C3)": `stage_entries/*.json`
-  `_comment` fields still cite the deleted `core/pipeline.py` (frozen —
-  the templates are hashed into `measure_basis` — so the rationale is
-  only recoverable via `git show 3d48db1:core/pipeline.py`); five env
-  vars confirmed inert by grep (`AUTORESEARCH_MODE`,
-  `AUTORESEARCH_ELEBEAM_NJOBS`, `AUTORESEARCH_LOCAL*`,
-  `AUTORESEARCH_NO_RUN1B`, `AUTORESEARCH_BOTORCH_VENV`); `.env`/LangSmith
-  tracing is no longer loaded (`requirements.txt`'s `load_dotenv()`
-  comment was stale — fixed there too). Added two follow-ups: a local run
-  no longer checks for a live Kerberos ticket before starting
-  (`requires_kerberos` is grid-only; a ticketless local run now fails
-  later, inside a step's xrootd read, instead of being refused at
-  launch); `measure_basis` hashes a stage template's FCL `#include` list
-  as filenames only, never the referenced `core/pipeline_templates/*.fcl`
-  bytes, so editing an include's content changes every future job with no
-  `measure_sha` change.
-- **updated** [local-executor](/drivers/local-executor.md) and this
-  index's one-liner for it (final fix wave): both still claimed
-  `AUTORESEARCH_LOCAL=1`/`--local` activate a grid-free run. Corrected:
-  nothing in the engine reads them; grid-free is `--executor local
-  [--parallel N]` (default `--executor grid`), and — new as of this fix —
-  `graph.run`/`graph.closed_loop` REFUSE (exit 2, naming `--executor
-  local`) if `AUTORESEARCH_LOCAL` is set at all (`graph/run.py:
-  local_env_refusal`; `tests/test_run.py`/`tests/test_closed_loop.py`
-  pin it, `graph/pool.py`'s stall-warning recovery text and
-  `tests/test_pool.py` updated to match `busy_reason`'s own advice —
-  relaunch under ANOTHER `--name-prefix`, never the same one).
-- **updated** [tests](/drivers/tests.md) (final fix wave): the Phase C3
-  deleted-files list omitted `test_recursion_limit.py` (nothing calls
-  `.stream()` any more — the engine `.invoke()`s a five-node linear graph
-  — so there is no recursion limit left to pin) and `test_study_compat.py`
-  (its `core/study_compat.py` target was deleted with the rest of the
-  pipeline); both added. Test count bumped 721 → 729 (8 new tests in
-  existing files: `tests/test_run.py`, `tests/test_closed_loop.py` — the
-  `AUTORESEARCH_LOCAL` refusal; `tests/test_contract.py` — loaded-means-
-  runnable; `tests/test_modes.py` — the archive-exists guard); no new
-  file, so the file count stays 35.
+  wave, C3 docs review): "unknown study" wording; frozen `stage_entries`
+  `_comment`s; five inert env vars; two follow-ups (local Kerberos, FCL includes).
+- **updated** [local-executor](/drivers/local-executor.md) and its index
+  line: grid-free is `--executor local [--parallel N]`; `graph.run`/
+  `graph.closed_loop` refuse if `AUTORESEARCH_LOCAL` is set at all.
+- **updated** [tests](/drivers/tests.md) (final fix wave): the C3
+  deleted-files list gained `test_recursion_limit.py` and
+  `test_study_compat.py`; 721 → 729 tests, still 35 files.
 - **updated** `README.md`, `CONTEXT.md`, `mode_specs/README.md`,
-  `requirements.txt` (final fix wave, not wiki pages — repo root):
-  README's "Run one point"/"Run a campaign" commands used bare `python`
-  (dies with `ModuleNotFoundError: tomllib` on this node's system Python
-  3.9) — now `PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.run`/
-  `graph.closed_loop`; its `AUTORESEARCH_PRODTOOLS` bullet described the
-  deleted pipeline's `bin/json2jobdef` check, now describes the two
-  `kits.toml` prodtools MCP servers (`submit_once`/`run_local`/
-  `run_status`). `mode_specs/README.md`'s "Starting a new study" recipe
-  copied the deleted `tests/fixtures/modes/template.json` — now says copy
-  an existing `_ax` study, and cites the real `leaderboard.file`-collision
-  check (`core/study.py:730-735`). `CONTEXT.md`'s "Picker", "Busy name",
-  "Stage" and "Leaderboard" glossary entries described deleted pipeline
-  mechanics (a picker subprocess, `graph/pool.py::_name_busy_reason`, a
-  pending-TSV busy signal, submit/poll/list-outputs stage verbs, "no other
-  resume state") — rewritten to the engine's actual
-  `graph/closed_loop.py::busy_reason`/`core/scheduler.py:run_steps`/point-
-  file resume mechanics; its "Relationships" line's "harvest appends one
-  Leaderboard row" now credits `core/score.py:score`.
-  `requirements.txt`'s `python-dotenv` comment claimed
-  `graph/run.py`/`graph/closed_loop.py` call `load_dotenv()` for LangSmith
-  tracing — grep confirms no importer anywhere in `core/`, `graph/`,
-  `surrogate/` or `tests/`; comment corrected, the pin left unchanged.
+  `requirements.txt` (final fix wave): run commands use `$AUTORESEARCH_PYTHON`;
+  stale pipeline wording replaced by the engine's actual mechanics.
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C2b
-  acceptance PASSED. Parity: Level 1 495/495; Level 2 7/7 on three points;
-  Level 3 exit 0. Local `c2blocal01` landed a row. Grid on MDC2025ax:
-  `c2bnom01` sob 3.25997 / flash 6.50684e-07 (Run1Bap 3.26 / 6.854e-07),
-  `c2bR11ax01` sob 4.14258 / flash 7.25485e-07 (Run1Bap 4.15 / 6.695e-07).
-  New `_ax` damage budget 6.50684e-07 (`0326130`); R11_00 is 11.5% over it
-  on MDC2025ax, though it was 2.3% under on Run1Bap.
-- **updated** [anakit](/external/anakit.md): C2b final-fix wave (F6) —
-  corrected the 9b197e2 rationale (fixes EdepAna's own 6-sig-fig summary
-  print, not the macro's `%.3g`), corrected the `edep.fcl` v40 naming
-  (already upstream, not our change), and added the fact that
-  `EdepAna::GetDIOSpectrum()` hardcodes M. MacKenzie's personal-area path
-  to the DIO table in every job (weight applies only to `mu2eFlateMinus`
-  events, so `ce_sensitivity`/`flash_edep_per_pot` numbers don't depend on
-  it, but the file must exist on disk regardless).
+  acceptance passed — parity levels 1-3 OK; grid `c2bnom01` sob 3.25997,
+  flash 6.50684e-07 = the new `_ax` damage budget (`0326130`).
+- **updated** [anakit](/external/anakit.md): C2b final-fix wave — 9b197e2
+  rationale and `edep.fcl` naming corrected; `EdepAna::GetDIOSpectrum()`
+  hardcodes M. MacKenzie's DIO table path (it must exist on disk).
 - **created** [anakit](/external/anakit.md): our fork of M. MacKenzie's
-  analysis MCP server (`$AUTORESEARCH_ANAKIT`, branch `autoresearch` on
-  `039e969`) — the work area, the Task 1 GenEventCount gate, and the
-  approx_ce_sensitivity spot check against the macro's printed sob.
+  analysis MCP server (branch `autoresearch` on `039e969`) — work area,
+  GenEventCount gate, sob spot check against the macro.
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C2b —
-  the `anakit` adapter (one server per step, version = adapter + fork
-  commit, dirty/moved fork refused at submit, OSError/git wrapped), the
-  `step_problems` launch hook, the seven `<name>_ax` engine twins and why
-  they're twins (`DEFAULT_MODE` must stay a pipeline `SPECS` entry), the
-  preflight-reuse fix (closes the "resumed child re-runs preflight"
-  follow-up), and `tools/c2b_parity.py`; acceptance marked pending.
+  the `anakit` adapter (one server per step), the `step_problems` launch
+  hook, the seven `<name>_ax` twins, the preflight-reuse fix.
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C3 —
-  the pipeline is deleted, so the engine is the only runner; renamed
-  `graph.study_run`/`graph.study_loop` to `graph.run`/`graph.closed_loop`
-  in the current-state text (dated bullets that predate the rename keep
-  the old names); new "Pipeline deleted (Phase C3)" section: the spec
-  path, what was deleted, the archive decision for the seven original
-  foilspf studies, the three out-of-scope rulings (`desc_fmt`,
-  `core/pipeline_templates/` and v1 leaderboard-layout code all keep their
-  current form), the seven `_ax` studies' unchanged `measure_basis_sha`,
-  and "Acceptance: pending"; added the ported-launch-checks follow-up
-  (data-quota, config-name-free, stale-cluster) to the follow-ups list.
+  pipeline deleted, engine is the only runner; `graph.study_run`/`study_loop`
+  renamed `graph.run`/`graph.closed_loop`; seven foilspf studies archived.
 - **updated** [pipeline](/drivers/pipeline.md), [graph-runner](/drivers/graph-runner.md),
-  [closed-loop-runner](/drivers/closed-loop-runner.md),
-  [bo-driver](/drivers/bo-driver.md), [preflight](/drivers/preflight.md),
-  [local-executor](/drivers/local-executor.md): `status: superseded`,
-  `status_note` set to record the Phase C3 deletion (2026-09-28); one line
-  added at the top of each Summary pointing to
-  [contract-engine](/drivers/contract-engine.md); bodies left unchanged as
-  the historical record.
-- **updated** [tests](/drivers/tests.md): new counts verified by a full run
-  at commit `dc8a176` — 35 `test_*.py` files, 721 tests, 4 skipped, 248.8 s
-  under `ana 2.8.0` (was 43 files / 856 tests / 1 skipped at the Phase B
-  measurement); the manual golden parity harness (`tests/golden_parity.py`)
-  is marked deleted in Phase C3 everywhere it was described as current;
-  `graph.study_run`/`graph.study_loop` renamed to `graph.run`/`graph.closed_loop`
-  in current-state text.
+  [closed-loop-runner](/drivers/closed-loop-runner.md), [bo-driver](/drivers/bo-driver.md),
+  [preflight](/drivers/preflight.md), [local-executor](/drivers/local-executor.md): marked superseded (C3).
+- **updated** [tests](/drivers/tests.md): 35 files, 721 tests, 4 skipped,
+  248.8 s at `dc8a176` (was 43 files / 856 tests); golden parity harness
+  marked deleted in C3.
 - **updated** [index](/index.md): the six superseded driver pages marked
   "(**deleted 2026-09-28**, Phase C3)" in their one-liners; the
   contract-engine and tests one-liners updated for Phase C3.
 - **updated** [contract-engine](/drivers/contract-engine.md) (fix round 1,
-  review of the Phase C3 docs pass): the "Registry" section no longer
-  presents the deleted `ce_sensitivity`/`flash_edep_per_pot` KitDecls or
-  `engine=`/`pipeline=` flags as current, and its routing bullet no longer
-  cites mode_specs/README.md's old "Engine studies" heading (renamed to
-  "Studies run on the engine"); the "reference-only from 2026-09-26" block
-  now says the planned `desc_fmt` rename was resolved by NOT doing it (see
-  ruling 1 in "Pipeline deleted (Phase C3)"), not left pending.
-- **updated** `CONTEXT.md` (fix round 1, not a wiki page — repo root): the "Eval summary" entry
-  no longer presents `harvest.EvalSummary`/`harvest/summary.json` as the
-  live mechanism — retired, with the engine's actual row-scoring path
-  (`state/<step>_results.json` → `core/score.py:score` →
-  `state/summary.json` + `state/evaluate_result.json` + the leaderboard
-  row) in its place.
-- **updated** [tests](/drivers/tests.md) (fix round 1): the
-  `graph/pipeline_io.propose_one` coverage-gap TODO is marked moot (the
-  module is deleted); the `tests/test_closed_loop.py` file-snapshot bullet
-  now flags that the filename holds the engine loop's tests since Phase
-  C3, not the pipeline content the 2026-07-20 snapshot describes.
+  C3 docs review): "Registry" no longer shows deleted KitDecls as current;
+  the `desc_fmt` rename was resolved by not doing it.
+- **updated** `CONTEXT.md` (fix round 1): "Eval summary" now describes the
+  engine's scoring path (`core/score.py:score` → `state/summary.json` →
+  board row), not the retired `harvest.EvalSummary`.
+- **updated** [tests](/drivers/tests.md) (fix round 1): the `propose_one`
+  coverage TODO is moot (module deleted); `test_closed_loop.py` now holds
+  the engine loop's tests.
 
 ## 2026-09-27
 - **updated** [contract-engine](/drivers/contract-engine.md): C2a acceptance
-  passed — the pre-check kit passes the smoke study on MDC2025ax and fails a
-  broken geometry, with the same verdicts as the old pre-check at the C1 tip;
-  this branch's pipeline pre-check still passes on Run1Bap.
+  passed — the pre-check kit passes the smoke study on MDC2025ax and fails
+  a broken geometry, same verdicts as the old pre-check.
 
 ## 2026-09-26
-- **updated** [contract-engine](/drivers/contract-engine.md): Phase C2a
-  implemented on branch `generic-study-phase-c2a` — the `offline_preflight`
-  adapter (the pre-check from the code tarball, `musing` gone), the run
-  label as `kits.prodtools.dsconf`, retry budgets per call, and C1's other
-  small fixes.
+- **updated** [contract-engine](/drivers/contract-engine.md): Phase C2a on
+  `generic-study-phase-c2a` — the `offline_preflight` adapter, the run label
+  as `kits.prodtools.dsconf`, per-call retry budgets.
 - **updated** [preflight](/drivers/preflight.md): the rules moved to
   `core/adapters/preflight_checks.py`; the holeRadii canary is dropped.
 - **created** [prodtools-tape-check-musing-python-mismatch](/incidents/prodtools-tape-check-musing-python-mismatch.md):
@@ -432,25 +224,15 @@ superseded, linted.
 - **updated** [contract-engine](/drivers/contract-engine.md): C1 grid acceptance
   passed (`c1grid03`, 14 min 36 s, on SimJob MDC2025ax); the write server
   passes the `JOBSUB_*` site settings.
-- **updated** [contract-engine](/drivers/contract-engine.md): the old pipeline is
-  reference-only (no foilspf campaign planned before C2); kept runnable
-  for C2's parity check; the `desc_fmt`/`dsconf_fmt` -> `desc`/`dsconf`
-  template rename waits for C3.
-- **updated** [contract-engine](/drivers/contract-engine.md): Phase C1 local
-  acceptance passed — `prodtools_smoke --executor local` (config
-  `c1local01`) in 3 min 48 s wall, one v2 row with `ce_jobs_ok=1`; two
-  ~15 MB code tarballs per config (per-step `#include`s); a prodtools
-  worktree needs its own `mcp/.venv` (the shared venv's editable `.pth`
-  pins main's code).
-- **updated** [contract-engine](/drivers/contract-engine.md): Phase C1
-  final-review fixes — KitClient reads prodtools' text-only replies as
-  JSON objects; the adapter adopts only a run created at or after the
-  record's `submitting_utc`; both servers get `XDG_RUNTIME_DIR` (bearer
-  token at `$XDG_RUNTIME_DIR/bt_u<uid>`; the write server refreshes the
-  token, not the ticket); an opt-in real-server contract check (needs
-  `AUTORESEARCH_PRODTOOLS` and `AUTORESEARCH_REAL_KIT_TESTS=1`); a missing
-  `.log` waits out the stage-out window; untimed tools are refused;
-  `register_all` runs lazily, not at import.
+- **updated** [contract-engine](/drivers/contract-engine.md): the old pipeline
+  is reference-only, kept runnable for C2's parity check; the `desc_fmt`
+  rename deferred to C3.
+- **updated** [contract-engine](/drivers/contract-engine.md): C1 local
+  acceptance passed (`c1local01`, 3 min 48 s, one v2 row); a prodtools
+  worktree needs its own `mcp/.venv`.
+- **updated** [contract-engine](/drivers/contract-engine.md): C1 final-review
+  fixes — text-only replies read as JSON, `XDG_RUNTIME_DIR` for both
+  servers, opt-in real-server check, untimed tools refused.
 
 ## 2026-09-25
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C1
@@ -459,220 +241,67 @@ superseded, linted.
 - **updated** [contract-engine](/drivers/contract-engine.md): Phase C split
   into C1/C2/C3; C1 spec written; sob and flash go to anakit.
 - **created** [poms-chained-workflows](/external/poms-chained-workflows.md):
-  POMS stage chaining reviewed against the study JSON while scoping Phase C.
-  Edges pass data through SAM lineage, so POMS is not a fit for studies; three
+  POMS passes data through SAM lineage, so it does not fit studies; three
   ideas are worth borrowing.
 - **updated** [contract-engine](/drivers/contract-engine.md) and
-  [local-executor](/drivers/local-executor.md): prodtools P1 and P2 are
-  merged into the local `main` of `muse_050125/prodtools` (6640e6e), not
-  pushed to Mu2e. The live check on mu2esrv01 passed, and killing runlocal
-  now stops its mu2e jobs.
+  [local-executor](/drivers/local-executor.md): prodtools P1/P2 merged into
+  local `main` (6640e6e); killing runlocal now stops its mu2e jobs.
 - **updated** [local-executor](/drivers/local-executor.md): killing a
   runlocal driver leaves its mu2e jobs running, because each job has its
   own session. The fix is planned on prodtools branch `run-local`.
 - **updated** [contract-engine](/drivers/contract-engine.md): the P1
-  code-entry path needs no runner change and no FHiCL hook, because a
-  Musing `setup.sh` and a `muse tarball` `Code/setup.sh` are the same
-  script. The P1 and P2 design is on prodtools branch
-  `code-entries-run-local`.
-- **updated** [pipeline](/drivers/pipeline.md): mustops_ce now sets
-  `"sequential_aux": true`, so job i reads staged mubeam file i
-  (rolling over when njobs > files). A bare JSON key would have been
-  dropped by `render_entry`, so the key is also passed by name. A rebuild
-  of gridphaseA01's cnf with v3.2.0 gave 15/15 distinct files, against 10
-  before. The worker runs the pinned prodtools' own bundle, not cvmfs
-  `current`.
-- **updated** [pipeline](/drivers/pipeline.md) and
-  [contract-engine](/drivers/contract-engine.md) with the prodtools P1
-  spike: a `dir:` entry works through `submit_once` unchanged; staged
-  inputs are drawn at random per job (gridphaseA01 mustops_ce read 10 of
-  15 files) unless `"sequential_aux": true`; a prodtools pin carrying
-  623dca6 breaks the pipeline's ledger+outstage submit.
-- **updated** [contract-engine](/drivers/contract-engine.md) after the
-  final Phase B review's fix wave: `point.json` now records
-  `measure_basis_sha`, and a resume after the study's measurement changed
-  (or of a `point.json` without the field) is refused (exit 2) instead of
-  landing old-measurement numbers under the new `measure_sha`;
-  `graph.study_run` gained a kit start check (a kit that won't start is a
-  refusal, not a terminal `broken.txt`) and the page no longer claims it
-  runs `check_kits`; preflight params share the step clash rule
-  (`core/scheduler.py:merge_params`); `graph.study_loop` validates
-  `--context` at launch; `busy_reason` recovery text and the "to retry a
-  point" advice corrected (a kit-`failed` step stays failed on retry —
-  needs a new config name); a missing `env_passthrough` variable is a
-  start-time error, not a load error; `kits.toml` is parsed at
-  `core.kit_registry` import, so its errors break the pipeline's imports
-  too; routing rules stated as enforced (all-engine or all-pipeline kits,
-  pipeline = layout v1, a violation stops every command at `core.modes`
-  import) — same routing fix in `mode_specs/README.md` and `CONTEXT.md`.
+  code-entry path needs no runner change — a Musing `setup.sh` and a `muse
+  tarball` `Code/setup.sh` are the same script.
+- **updated** [pipeline](/drivers/pipeline.md): mustops_ce sets
+  `"sequential_aux": true` (job i reads mubeam file i; 15/15 distinct vs
+  10); the worker runs the pinned prodtools' own bundle.
+- **updated** [pipeline](/drivers/pipeline.md), [contract-engine](/drivers/contract-engine.md):
+  prodtools P1 spike — a `dir:` entry works via `submit_once`; staged inputs
+  are random per job unless `sequential_aux`.
+- **updated** [contract-engine](/drivers/contract-engine.md) (Phase B
+  final-review fixes): `point.json` records `measure_basis_sha`, a resume
+  after a measurement change is refused; kit start check; routing rules.
 - **updated** [contract-engine](/drivers/contract-engine.md) after review:
-  fixed a wrong state-dir path (`GRID_DATA_ROOT/<config>/state/`, not
-  `state/<config>/state/`), narrowed the `measure_sha` claim (extra
-  metrics contribute only `metric`, not `transform` — `ExtraMetric` has no
-  `transform` field), corrected "logged to stderr" to the injected `log`
-  callable (default `print`/stdout — no `sys.stderr` write in
-  `core/scheduler.py`), and made the lost-server rule precise (an
-  `MCPError` with code `CONNECTION_CLOSED` OR any non-`MCPError`
-  exception loses the server; any other `MCPError` code keeps the session
-  as a plain `KitError`; `REQUEST_TIMEOUT` keeps the session as
-  `KitTimeout`). Same `measure_sha` fix applied to
-  `docs/superpowers/specs/2026-09-23-generic-study-design.md`, whose
-  "Failures and recovery" row was also split into the two distinct
-  recovery paths (a `graph.study_run` rerun adopts `<step>_cluster.txt`
-  handles; a relaunched `graph.study_loop` skips claimed names instead of
-  adopting). Added backlinks to `contract-engine` from
-  [closed-loop-runner](/drivers/closed-loop-runner.md),
-  [surrogate](/drivers/surrogate.md) and
-  [closed-loop-bo-design](/concepts/closed-loop-bo-design.md).
+  state-dir path, `measure_sha` scope and lost-server rule corrected (same
+  fix in the design spec, not kept in the repo); backlinks added.
 - **created** [contract-engine](/drivers/contract-engine.md): the Phase B
-  contract engine — `kits.toml` native kits over stdio MCP (`core/kits.py`'s
-  `KitClient`, lock covers only start+scheduling, a generation counter
-  stops a stale failure from closing a respawned server, a closed
-  connection or any non-MCPError transport failure counts as lost, a
-  timeout keeps the session); the evaluator
-  contract (`core/contract.py`'s `NativeKit` — `status`/`results`/`check`/
-  `describe` retry 3x with in-attempt respawn, `submit`/`cancel` don't
-  retry tool errors — and `check_kits`, the launch gate); `run_steps`
-  (`core/scheduler.py`: one scheduler node, not one per step, because
-  LangGraph's superstep barrier would stall a parallel chain; state-file
-  resume; `broken.txt` written at the first failure, siblings finish,
-  `cancel` unused); v2 rows with `measure_sha` (hashes each STEP kit's
-  version, not the preflight kit's); `graph.study_run` (exit 0/2) /
-  `graph.study_loop` (busy names by row/`broken.txt`/`point.json`/
-  `*_cluster.txt`, unbuffered children, `STOP` flag, rows counted by name
-  on the board not `row_appended`); `tests/toykit.py` reference kit;
-  Branin acceptance campaign (q=2, 8 evals) in 28.7 s. Suite now 43
-  `test_*.py`, 856 tests (1 skipped) — [tests](/drivers/tests.md). Amended
-  the design spec with these Phase-B-decided facts and the pre-flight
-  rulings (retries, v2 layout, `measure_sha` versions, results record) —
-  `docs/superpowers/specs/2026-09-23-generic-study-design.md`. Also
-  updated `CONTEXT.md` (Kit, Native kit, Adapter's second sense, Engine
-  study vs. Pipeline study, `measure_sha`) and `mode_specs/README.md`
-  (Engine studies section).
+  engine — `kits.toml` kits over stdio MCP, the evaluator contract,
+  `run_steps`, v2 rows with `measure_sha`; Branin in 28.7 s; [tests](/drivers/tests.md) 856.
 
 ## 2026-09-24
 - **updated** golden (c) re-captured for the `evaluate_result.json` key change; `check c` showed only `obj` -> `primary` and the payload shape moved — [tests](/drivers/tests.md)
-- **updated** `core/study.py` now refuses a step whose output nothing uses
-  (no `files_from`, objective or extra metric names it; the `sophie` digi/reco
-  case), and the generic-study design took three more points from
-  M. MacKenzie's workflow plan: a `run_steps` scheduler node (LangGraph's
-  superstep barrier would make `mustops_ce` wait for `elebeam_flash`), a v2
-  `measure_sha` that stops a board mixing measurements, and Phase C preflight
-  from the grid's code tarball; suite 704 —
-  [tests](/drivers/tests.md)
-- **updated** why the pre-submit input probe (`_probe_input_urls`) could be
-  retired in the prodtools switch (b1e3531): prodtools resolves every input
-  through SAM on the worker and treats `inloc` as a preference, so a
-  tape migration is followed automatically; only a file SAM cannot locate
-  is still uncaught before submit —
-  [elebeamcat-tape-migration-elebeam-wipeout](/incidents/elebeamcat-tape-migration-elebeam-wipeout.md)
-- **updated** PR #34 (`generic-study-phase-a`) **simplification pass**,
-  three stages, no behavior change intended. Stage 1, runtime (−143/+49):
-  `graph/pipeline_io.py` drops its dead side-effect `import pipeline`
-  (an unknown mode already dies in `resolve_env_mode` /
-  `assert_mode_stamped`); `propose_one` returns x only; `closed_loop`
-  reads `PICKER_CHOICES`/`DEFAULT_PICKER` from `modes` instead of
-  re-exported aliases; `botorch_predict` drops the x_pending width check
-  and cold-start print that surrokit.ask repeats; `cmd_evaluate`'s
-  proposal-geom guard and unsourced-context pre-check are gone, folded
-  into the row pre-validation (format before clearing pending);
-  docstring history cut. Stage 2, study loader: `mode_specs/*.json`
-  compacted to one entry per line (2973 -> 609 lines, parsed documents
-  identical, so `spec_sha` unchanged); `core/study.py` shares its
-  membership/object/kit/params checks, and preflight params are now
-  name-checked like step params; `Study.geom_writer`,
-  `Study.value_names` and the unreachable `ModeSpec.__post_init__` are
-  removed. Stage 3, tests: golden d stored one line per field (767 -> 163
-  lines, same data, not re-captured) and `golden_parity.py` runs every
-  section from one table with a per-field mismatch report;
-  `tests/fixtures/modes/foilsflash.json` and `foils.json` deleted (tests
-  read `mode_specs/foilsflash.json`); `test_json_mode_parity.py` renamed
-  `test_geom_golden_parity.py`; `test_evaluate_generic.py` folded into
-  `test_json_mode.py`; duplicate tests merged into tables; dated removal
-  notes deleted. Suite 735 -> 726 (stages 1-2) -> **702 OK, 1 skipped**
-  across 33 files; goldens `a b d e` OK — [tests](/drivers/tests.md)
+- **updated** `core/study.py` refuses a step whose output nothing uses;
+  the design took `run_steps`, v2 `measure_sha` and tarball preflight from
+  M. MacKenzie's plan; suite 704 — [tests](/drivers/tests.md)
+- **updated** why the pre-submit input probe was retired (b1e3531):
+  prodtools resolves inputs through SAM on the worker, so tape migrations
+  are followed — [elebeamcat-tape-migration-elebeam-wipeout](/incidents/elebeamcat-tape-migration-elebeam-wipeout.md)
+- **updated** PR #34 (`generic-study-phase-a`) simplification pass, three
+  stages (runtime, study loader, tests), no behavior change; `mode_specs`
+  compacted 2973 -> 609 lines; suite 702 OK — [tests](/drivers/tests.md)
 - **updated** `test_no_hardcoded_paths` scans only files git tracks, so
   stage before running the suite — [tests](/drivers/tests.md)
-- **updated** Phase A **final-review fix wave** (branch
-  `generic-study-phase-a`; suite 712 -> **735** OK, goldens `a b d e` OK,
-  none recaptured). (1) The removed `AUTORESEARCH_FLASH_BUDGET` /
-  `AUTORESEARCH_BUDGET_KSIGMA` env vars are now FATAL when set
-  (`SystemExit` from `core/botorch_predict.py:build_problem`, which both
-  `compute_explore_picks` and the MCP adapter take), not silently ignored;
-  every live study keeps `k_sigma: 1.0` (main's no-env behavior; whether
-  foilspfbpz should run at the foilspfbpz07 value 0.5 is an open operator
-  decision). The corner-round recipe is now an in-place, committed,
-  reverted edit of the study's `constraints[0]`; the old "copy to a new
-  name + board" advice was wrong (empty board = Sobol cold start, and
-  sharing the parent's board is refused by the basename guard). (2)
-  `cmd_evaluate` builds its context from `study.context` and formats the
-  row BEFORE clearing the pending row, so a failing extra-column
-  expression can no longer lose a finished eval's x. (3) Loader: `params`
-  values must be strings, NaN/Infinity are refused for every number, and
-  `AUTORESEARCH_STUDY_PATH` entries must be absolute. (4) Restored tests
-  for per-level unknown/missing keys, `${ARTIFACT}` == `paths.artifact()`,
-  and STUDY_PATH wiring (the wiring test no longer writes into the real
-  `mode_specs/`). (5) MCP `stats` nests the champion's values under
-  `best.values`. (6) The gate also catches quoted reads like `y["sob"]`.
-  (7) Spec's `${ARTIFACT}` rule scoped to `kits.*` settings (`geom.base` is
-  not expanded) — [budget-sob-picker](/concepts/budget-sob-picker.md),
-  [pareto-sob-picker](/concepts/pareto-sob-picker.md),
-  [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md),
-  [bo-driver](/drivers/bo-driver.md), [surrogate](/drivers/surrogate.md),
-  [tests](/drivers/tests.md)
-- **Phase A of the generic-study refactor (all 9 tasks) COMPLETE.** Schema-2
-  study files under `mode_specs/` are now the ONLY spec format (the old
-  `core/mode_json.py` JSON loader is deleted); `modes.STUDIES` (built by
-  `core/study.py`) is the single source, with `modes.SPECS` kept only as a
-  `core/study_compat.py`-derived view for pipeline/runtime/preflight until
-  Phase C. The leaderboard (`core/leaderboard.py`), the surrogate glue
-  (`core/botorch_predict.py`), `cmd_evaluate` (`core/bo_driver.py`) and the
-  MCP adapter's `stats` meta (`surrogate/adapter.py`) all now read
-  objectives/knobs/constraints BY NAME from the study, generically — no
-  code path hardcodes `sob`/`calo`/`flash` any more outside the
-  Mu2e-specific usage sites (`core/botorch_predict.py`, `core/bo_driver.py`,
-  `surrogate/adapter.py`, `graph/pipeline_io.py`, `core/kit_registry.py`),
-  which read the physics only through the study's objective NAMES, not
-  literal strings. `AUTORESEARCH_FLASH_BUDGET`/`AUTORESEARCH_BUDGET_KSIGMA`
-  env overrides are gone (budget + k are `study.constraints[0].value`/
-  `.k_sigma` now); the old flash-metric fallback in `extract_metrics` is
-  gone (a missing key is a loud refuse, never a silent substitution). New
-  gate `tests/test_generic_core.py` gets this INTO the suite permanently:
-  it fails if `core/study.py`/`core/leaderboard.py` name `sob`/`calo`/
-  `flash` at all, or if a line in the 5 usage-site files matches a regex
-  for an attribute read (`.sob`/`.calo`) or a retired ModeSpec/env symbol
-  (`metric_cols`, `flash_budget`, `calo_or_flash`, ...). (As first landed
-  it did NOT catch a quoted read such as `y["sob"]`; the fix wave below
-  added that. It is a line regex, not a semantic check.) Golden parity (`a b d e`) and the full suite
-  (712 tests, up from 710 -- 2 new tests in `tests/test_generic_core.py`)
-  are unchanged/green —
-  [surrogate](/drivers/surrogate.md), [bo-driver](/drivers/bo-driver.md),
-  [budget-sob-picker](/concepts/budget-sob-picker.md)
+- **updated** Phase A final-review fix wave (suite 712 -> 735): the removed
+  budget env vars are fatal when set; a row is formatted before its pending
+  entry is cleared — [budget-sob-picker](/concepts/budget-sob-picker.md), [tests](/drivers/tests.md)
+- **Phase A of the generic-study refactor COMPLETE.** Schema-2 study files
+  are the only spec format; objectives and knobs are read by name; new gate
+  `tests/test_generic_core.py`; suite 712 — [surrogate](/drivers/surrogate.md), [budget-sob-picker](/concepts/budget-sob-picker.md)
 - **updated** [tests](/drivers/tests.md), [pipeline](/drivers/pipeline.md),
   [simplification-audit-2026-07](/concepts/simplification-audit-2026-07.md)
-  — repointed stale `core/mode_json.py` mentions (that file was deleted as
-  part of Phase A, Task 5) to `core/study.py`/`core/study_compat.py`,
-  annotated `(deleted 2026-09-24; replaced by core/study.py)` where the
-  record is purely historical
-- **updated** [budget-sob-picker](/concepts/budget-sob-picker.md) — the
-  budget line and `k` moved from env vars (`AUTORESEARCH_FLASH_BUDGET`,
-  `AUTORESEARCH_BUDGET_KSIGMA`, both now unread anywhere) to study data
-  (`constraints[0].value`/`.k_sigma`); every live foilspf-family study
-  carries `k_sigma: 1.0` (the old code default) and the same deployed-target
-  `max: 6.85443e-07` line. foilspfbpz07 (2026-08-10) ran at `k=0.5` via the
-  now-removed env override; reproducing that today means a study copy on
-  `$AUTORESEARCH_STUDY_PATH` with `k_sigma: 0.5` (RETRACTED by the fix
-  wave above: a copy gets an empty board, i.e. a Sobol round; edit the
-  study's `k_sigma` in place for the round instead)
+  — repointed stale `core/mode_json.py` mentions to `core/study.py`.
+- **updated** [budget-sob-picker](/concepts/budget-sob-picker.md) — budget
+  and `k` moved from env vars to study data (`constraints[0].value`,
+  `.k_sigma`, 1.0 everywhere); edit `k_sigma` in place for a k=0.5 round.
 
 ## 2026-09-23
-- created **generic study design** (`docs/superpowers/specs/2026-09-23-generic-study-design.md`, commit `4d8d1b3`): a new study = one schema-2 JSON (knobs, `derive` with lagrange profiles lifted out of `geom`, steps with `files_from` edges, N objectives, ≤1 constraint); kits reached through a `submit`/`status`/`results` evaluator contract (one adapter per kit family; native kits need zero code); NO legacy engine — foilspf moves onto it (prodtools adapter MCP-only after prodtools P1 code-tarball entries + P2 `run_local`), NO grid-job recoveries (quorum on ok jobs; beamkit adapter never calls `make_recoveries`). Found while designing: a stage is hard-coded across ~190 lines today (retiring `mustops_pileup` in `b369eda`), and `mustops_ce`'s `MaxEventsToSkip=8000` lives only in `core/pipeline.py:228` (its JSON template says 100720)
-- created **MCP framework plan review** (7 read-only reviewers) at `docs/superpowers/specs/2026-09-23-mcp-framework-plan-review.md`. Non-obvious facts found: (1) `prodtools-mcp` (mcp/pyproject.toml, console scripts `prodtools-mcp`/`prodtools-mcp-write`) runs only as an editable install inside a prodtools checkout: the write server finds `bin/json2jobdef` via `REPO_ROOT` four levels above `runner.py` (:47), and `install.sh` picks the htcondor series from the node's condor_version. The cvmfs release has no MCP venv and should not get one (MCP stays off cvmfs), but beamkit defaults `BEAMKIT_PRODTOOLS_ROOT` to cvmfs `current` (bridge.py:14). P1/P2 unchanged at upstream `2422c2b`; (2) the MCP SDK's stdio child env is only HOME/LOGNAME/PATH/SHELL/TERM/USER, so KRB5CCNAME, BEARER_TOKEN_FILE and AUTORESEARCH_* vanish silently in any kit we or HEP-KE's client spawn; (3) kits need different mcp majors: beamkit `mcp>=2.2`, anakit `mcp<2` (FastMCP), ana 2.8.0 ships 2.0 — stdio interoperates (tested mcp-1.x client vs our 2.x servers); (4) Mu2e already hosts MCP on mu2eaigpvm01 (registry :8000, dqm :8001, metacat :8002, memory :8007, kb :8008; uv-from-tag + systemd + key auth) plus group stdio deploys under `mu2epro/mcp/deploy/<name>/current`; (5) the graph couples to more than the 4 pipeline verbs (preflight, scan_logs, geom staging, `*_cluster.txt`) and the leaderboard is hard-wired to sob + one positive second metric; (6) live personal defaults at `tools/run_local.sh:23`, `tools/run_grid.sh:31`, `setup.sh:47`, all pragma-exempt; (7) MCP spec 2026-07-28 is stateless, Tasks is an extension the Python SDK 2.2.0 does not implement, custom `_meta` keys want a reverse-DNS prefix; `langchain-mcp-adapters` is being archived for `langchain.mcp` (LangChain ≥1.4); (8) CLARIPHY = Community Laboratory for AI-native Research In Physics (clariphy.org), no hosting/compute, curated list `clariphy/awesome-hep-agentic-analysis` — [loop-framework-spike-2026-09](/concepts/loop-framework-spike-2026-09.md), [surrogate](/drivers/surrogate.md)
-- created **consolidated MCP framework plan** at `docs/superpowers/specs/2026-09-23-mcp-framework-plan.md`, replacing spec 1's four-spec split with one phased plan: MCP for every kit, added in order of readiness (beamkit, surrokit, prodtools after upstream P1/P2, anakit); mode spec JSON stays the study format, with new `engine` and `geom.writer` fields; `GeomTemplate` splits into a shared `evaluate(x)` plus per-engine writers (Offline `geom.txt`, G4beamline `.in` include); keep our loop, and make surrokit a gest-api generator; kits that write (prodtools, beamkit) run locally as the user, and kits that only read or compute can be hosted later. Borrows the HEP-KE tutorial result conventions (`status`/`files`/`message`/`metadata`, `in_training_box`, recipes as MCP prompts). Awaiting operator sign-off — [loop-framework-spike-2026-09](/concepts/loop-framework-spike-2026-09.md)
+- created **generic study design** (spec not kept in the repo; commit `4d8d1b3`): a new study = one schema-2 JSON (knobs, `derive` with lagrange profiles lifted out of `geom`, steps with `files_from` edges, N objectives, ≤1 constraint); kits reached through a `submit`/`status`/`results` evaluator contract (one adapter per kit family; native kits need zero code); NO legacy engine — foilspf moves onto it (prodtools adapter MCP-only after prodtools P1 code-tarball entries + P2 `run_local`), NO grid-job recoveries (quorum on ok jobs; beamkit adapter never calls `make_recoveries`). Found while designing: a stage is hard-coded across ~190 lines today (retiring `mustops_pileup` in `b369eda`), and `mustops_ce`'s `MaxEventsToSkip=8000` lives only in `core/pipeline.py:228` (its JSON template says 100720)
+- created **MCP framework plan review** (7 read-only reviewers; not kept in the repo). Non-obvious facts found: (1) `prodtools-mcp` (mcp/pyproject.toml, console scripts `prodtools-mcp`/`prodtools-mcp-write`) runs only as an editable install inside a prodtools checkout: the write server finds `bin/json2jobdef` via `REPO_ROOT` four levels above `runner.py` (:47), and `install.sh` picks the htcondor series from the node's condor_version. The cvmfs release has no MCP venv and should not get one (MCP stays off cvmfs), but beamkit defaults `BEAMKIT_PRODTOOLS_ROOT` to cvmfs `current` (bridge.py:14). P1/P2 unchanged at upstream `2422c2b`; (2) the MCP SDK's stdio child env is only HOME/LOGNAME/PATH/SHELL/TERM/USER, so KRB5CCNAME, BEARER_TOKEN_FILE and AUTORESEARCH_* vanish silently in any kit we or HEP-KE's client spawn; (3) kits need different mcp majors: beamkit `mcp>=2.2`, anakit `mcp<2` (FastMCP), ana 2.8.0 ships 2.0 — stdio interoperates (tested mcp-1.x client vs our 2.x servers); (4) Mu2e already hosts MCP on mu2eaigpvm01 (registry :8000, dqm :8001, metacat :8002, memory :8007, kb :8008; uv-from-tag + systemd + key auth) plus group stdio deploys under `mu2epro/mcp/deploy/<name>/current`; (5) the graph couples to more than the 4 pipeline verbs (preflight, scan_logs, geom staging, `*_cluster.txt`) and the leaderboard is hard-wired to sob + one positive second metric; (6) live personal defaults at `tools/run_local.sh:23`, `tools/run_grid.sh:31`, `setup.sh:47`, all pragma-exempt; (7) MCP spec 2026-07-28 is stateless, Tasks is an extension the Python SDK 2.2.0 does not implement, custom `_meta` keys want a reverse-DNS prefix; `langchain-mcp-adapters` is being archived for `langchain.mcp` (LangChain ≥1.4); (8) CLARIPHY = Community Laboratory for AI-native Research In Physics (clariphy.org), no hosting/compute, curated list `clariphy/awesome-hep-agentic-analysis` — [loop-framework-spike-2026-09](/concepts/loop-framework-spike-2026-09.md), [surrogate](/drivers/surrogate.md)
+- created **consolidated MCP framework plan** (not kept in the repo), replacing spec 1's four-spec split with one phased plan: MCP for every kit, added in order of readiness (beamkit, surrokit, prodtools after upstream P1/P2, anakit); mode spec JSON stays the study format, with new `engine` and `geom.writer` fields; `GeomTemplate` splits into a shared `evaluate(x)` plus per-engine writers (Offline `geom.txt`, G4beamline `.in` include); keep our loop, and make surrokit a gest-api generator; kits that write (prodtools, beamkit) run locally as the user, and kits that only read or compute can be hosted later. Borrows the HEP-KE tutorial result conventions (`status`/`files`/`message`/`metadata`, `in_training_box`, recipes as MCP prompts). Awaiting operator sign-off — [loop-framework-spike-2026-09](/concepts/loop-framework-spike-2026-09.md)
 - created **loop framework spike** — [loop-framework-spike-2026-09](/concepts/loop-framework-spike-2026-09.md): libEnsemble and Xopt each ran surrokit as a gest-api generator with a fake stdio MCP grid kit as evaluator (q=4, target 16, kill -9 mid-run, resume). Both async with pending points; both orphan in-flight evals on resume until the resumed run re-queues them and the evaluator adopts jobs by deterministic name (then 0 orphans, 0 duplicate submits). libEnsemble stops exactly at target and refuses an H0 with unreturned points; Xopt deep-copies the generator, never dumps data in async mode, calls generate(0), and overshoots the target by up to q-1. Code throwaway at `/exp/mu2e/data/users/oksuzian/spike_loopfw/`
 
 ## 2026-09-22
-- decided **MCP modularization split into 4 specs**; spec 1 (kit seam: `core/kits.py` + `kits.toml`, surrokit and prodtools over stdio MCP, trace log + workflow identity) written at `docs/superpowers/specs/2026-09-22-kit-seam-design.md`. Verified against prodtools `1dc0499`: read `run_status` returns per-proc outputs of ok procs (cap 200) and never counts `unknown` as ok; write `submit_once` = `json2jobdef --once` (no SAM, no ledger, `RunExists` refuses a reused name). **Blocker:** the write tools refuse every autoresearch entry, because they are code-mode (`code`, no `simjob_setup`) and `_select_push_params` requires `simjob_setup` for non-g4bl entries; no local-run tool exists either. Both need upstream prodtools PRs — [pipeline](/drivers/pipeline.md), [surrogate](/drivers/surrogate.md)
+- decided **MCP modularization split into 4 specs**; spec 1 (kit seam: `core/kits.py` + `kits.toml`, surrokit and prodtools over stdio MCP, trace log + workflow identity) written (not kept in the repo). Verified against prodtools `1dc0499`: read `run_status` returns per-proc outputs of ok procs (cap 200) and never counts `unknown` as ok; write `submit_once` = `json2jobdef --once` (no SAM, no ledger, `RunExists` refuses a reused name). **Blocker:** the write tools refuse every autoresearch entry, because they are code-mode (`code`, no `simjob_setup`) and `_select_push_params` requires `simjob_setup` for non-g4bl entries; no local-run tool exists either. Both need upstream prodtools PRs — [pipeline](/drivers/pipeline.md), [surrogate](/drivers/surrogate.md)
 
 - **updated** **`surrogate/__init__.py` facade DELETED at zero callers** (operator: "delete it"). The 2026-08-28 agreement with Simon Corrodi published `fit`/`predict`/`suggest`/`board_stats`/`modes_info` as a plain-Python seam; four weeks on it had acquired no client. Swept 15 locations for `import surrogate` / `from surrogate` / `surrogate.fit` / `board_stats` / `modes_info` across `.py`/`.ipynb`/`.sh`/`.md`/`.json` — mmackenz_table_plots, autoresearch_{tools,benchmarks,local,grid}, autoresearch2, mcp/, aitools, prodtools, mu2e-review, both `.claude` trees, cron, bin, EAF, the surrokit checkout, crontab — **all zero**; the only importer was its own test file. 4 of its 5 functions twinned what `surrokit.mcp_scaffold.make_server` generates (incl. a byte-identical row-count fit cache) and its names were the pre-surrokit ones (`board_stats`/`modes_info`) the MCP door had already renamed to `stats`/`list_problems`. PORTED, not lost: `board_stats`'s champion + sob-range body is now `adapter._board_summary`, riding `adapter.history()` meta, which is exactly what the scaffold's `stats` tool returns (`{problem, n_rows} + meta`) — verified on the live board, `foilspfbpz` champion `foilspfbpz05R01_00` sob 4.41, sob_range [0.341, 4.41]. DROPPED deliberately: `predict`'s inverse-log10 reporting (scaffold's generic `predict` returns raw per-axis mean/sigma; clients invert with `10**(-mean)` and read axis names from `stats`). `__init__.py` is now a package marker carrying the deletion record. Tests: 9 facade tests removed, 1 added (`test_meta_carries_board_summary`, same assertions as the deleted `TestBoardStats`); suite **676 green, 1 skipped** under ana 2.8.0 — [surrogate](/drivers/surrogate.md), [engine-seam-friction-survey-2026-08](/concepts/engine-seam-friction-survey-2026-08.md)
 - **updated** surrogate page's **pinned-SHA fact was stale through three bumps** — it named `0a094421` ("MCP server scaffold + README + CI") while `core/paths.py:51 SURROKIT_PIN_SHA` and the checkout are both at `4884aa66`. Corrected, with a pointer to read paths.py rather than the wiki line, since the suite asserts against paths.py — [surrogate](/drivers/surrogate.md)
@@ -694,7 +323,7 @@ superseded, linted.
 
 - **Task 10 (surrokit extraction): deleted the picker bodies from `core/botorch_predict.py`** now that Tasks 8-9 rewired every consumer onto `surrokit.ask` (glue = `compute_explore_picks`). Removed `_sampler`, `ACQ_NUM_RESTARTS`/`ACQ_RAW_SAMPLES`/`ACQ_OPTIONS`, `SOB_CORNER_MIN_SPACING`, `_optimize`, `_sobol_cold_start`, `_fit_gp`, `_qnehvi_picks`, `_qlnei_picks`, `_qnparego_picks`, `_hybrid_picks`, `_emit_picks`, `_budget_sob_picks` (301 lines); kept `_load_history_tensor`, `_seed`, `DEP_FLASH_PER_POT`, `BUDGET_SOB_K_SIGMA`, the surrokit import block, `compute_explore_picks`, `main`. Dropped the 6 `tests/test_botorch_predict.py` tests that called those internals directly (their surrokit-side ports exist since Tasks 2-5); suite green, golden harness PASS. Pinned surrokit engine SHA `0a094421e2c444fb1951cabedd8ff400ccf34da4` — see [surrogate](/drivers/surrogate.md) for the full extraction record (pin, parity-gate result, MCP tool renames). Operator hand-offs still open: push the surrokit repo to `github.com/oksuzian/surrokit` from an interactive shell, review + commit this wiki edit, and `readme-slim`'s own push
 - updated [hybrid-picker-scipy-abnormal-retry-nondeterminism](/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md) — surrokit Task 5 (pickers.py port) first widened scope to n=10/qlnei (fires 8/8, seed-swept 0-5, all diverge), then a controller probe (ana 2.8.0) ROOT-CAUSED it as ambient torch global-RNG state, not scipy-internal: pinning `torch.manual_seed` before each call makes qlnei/qnehvi bit-identical at n=10. Fixed by pinning `torch.manual_seed(seed)` at `ask()`'s entry (commit df81955) — `ask()` is now repeat-deterministic per (X,Y,seed) for every picker, full suite 35/35. Legacy `botorch_predict.py` call path has no equivalent entry seed and remains non-repeatable; whether this explains the original n≈300 production finding stays OPEN
-- updated spec via /grill-with-docs: engine renamed asktell -> surrokit; 8 decisions locked (stateless ask, hv_frac kwarg, Y-width validation, MCP suggest mirrors ask, InfeasibleError CLI seam, local-scaffold bootstrap, behavior-only CI, open questions closed); CONTEXT.md gains Engine/Problem/Adapter terms — spec `docs/superpowers/specs/2026-08-28-surrokit-engine-design.md`, commit 13dd813
+- updated spec via /grill-with-docs: engine renamed asktell -> surrokit; 8 decisions locked (stateless ask, hv_frac kwarg, Y-width validation, MCP suggest mirrors ask, InfeasibleError CLI seam, local-scaffold bootstrap, behavior-only CI, open questions closed); CONTEXT.md gains Engine/Problem/Adapter terms — spec commit 13dd813 (spec not kept in the repo)
 - NEW [surrogate](/drivers/surrogate.md): `surrogate/` package seam over the GP (fit/predict/suggest/board_stats, all delegating to core/botorch_predict.py) + `surrogate/mcp_server.py` MCP stdio adapter, per the Simon Corrodi agreement (package + thin wrapper; Ray auth/logging middleware later). Zero new deps — official `mcp` 2.0 SDK ships in ana 2.8.0 (`mcp.server.mcpserver.MCPServer`, FastMCP-style). Gotchas pinned: `structured_output=True` needs typed return annotations (bare `dict` = InvalidSignature); mcp 2.0 stdio server diverts fd 1 so botorch prints can't corrupt JSON-RPC; `CallToolResult.structured_content` snake_case, list results wrapped under "result". Validated: 10 new tests, 685-test suite green, live round-trip foilspf champion 4.75 vs GP 4.750±0.006.
 
 ## 2026-08-27
@@ -712,12 +341,9 @@ superseded, linted.
 - updated [g4-speed-knobs](/concepts/g4-speed-knobs.md) — Production PR#449 investigation: our chain's G4 stages are single-threaded (MT.fcl include removed from POT.fcl + all pileup resamplers, merged 2025-08-28, predates Run1Bak); motivation is issue Production#222 (MT fake win when a serialized legacy module dominates); MT.fcl survives for STM/wideband/validation only
 ## 2026-08-22
 - created **gridcheck08221321 lost a 15/15-successful mubeam cluster to the v3.1.0 prodtools pin** — [prodtools-v310-pin-predates-jobwait-fix](/incidents/prodtools-v310-pin-predates-jobwait-fix.md): first grid run on the slimmed tree died at `poll mubeam` with `0/15 ok, unknown: [0..14]` although every proc staged all 6 outputs with art status 0. Not the slim-down: `AUTORESEARCH_PRODTOOLS` named cvmfs `v3.1.0`, whose `jobwait` still shells the jobsub_lite 1.13 `jobsub_history` wrapper that drops `-name <schedd>` (every query hits default jobsub01; cluster was on jobsub03). gridsmoke05 (2026-08-20, 130/130 + row) had run on the checkout with the `condor_history -name` fix (`13d561d`) in its working tree. Reproduced live: `jobsub_history -J 71682796@jobsub03` rc=124 at 50 s vs `condor_history -name jobsub03.fnal.gov 71682796` 15 rows ExitCode 0 in 3.9 s; v3.2.0's `collect_exit_codes` reads the cluster 15/15. **v3.2.0 is byte-identical (utils/ + bin/) to the checkout at `359c2b5`, the gridsmoke05-validated state, and is cvmfs `current`**; v3.1.0 also lacks the `check_inputs` `dir:` arm, so `mustops_ce` would have died next. The wiki's "v3.1.0 is a drop-in pin" claim (true of jobdesc.py + submit.py only) corrected in [pipeline](/drivers/pipeline.md) and [prodtools-submit-entry-tarball-schema-drift](/incidents/prodtools-submit-entry-tarball-schema-drift.md). Also on record: `cutsmoke01`/`cvmfssmoke01` were LOCAL runs, not grid evidence — [pipeline](/drivers/pipeline.md)
-- **slim-down audit executed** (operator: "find areas to optimize our codebase... find dead code", then "execute whatever you think is right"). 15 agents fanned out over 7 dimensions, each finding adversarially verified; 52 of 81 survived, 29 refuted. Landed in four commits, suite green after each (681 → 674 tests, all three golden-parity sections OK, `budget_sob` picks bit-identical vs the pre-audit tree — the other three pickers differ run-to-run on the SAME tree, which is [hybrid-picker-scipy-abnormal-retry-nondeterminism](/incidents/hybrid-picker-scipy-abnormal-retry-nondeterminism.md), not a regression). **The value is the five corrections, not the ~700 lines:**
-  1. `README.md:97` gave the campaign recipe as bare `nohup python -m graph.closed_loop`. `graph/pool.py:200` launches children as `sys.executable` and `core/runtime.py:34` defaults the picker to the same, so system python 3.9 (no botorch) would propagate into every child and the GP fit — the campaign starts and dies at the first pick. Every other run line in the README already used `$AUTORESEARCH_PYTHON`.
-  2. **`cmd_submit`'s GRID branch had no empty-guard on `<prev>_outputs.txt`** while the `--local` branch did: it handed `[]` to the hard-link farm and submitted a cluster with no input files, reported as a successful submit. This is the [stage-out-lag](/incidents/stage-out-lag.md) face. Both branches now go through one `_prev_stage_sources()`; two regression tests added. The drift existed only because the two staging branches were written twice — the de-duplication is what exposed it.
-  3. `core/pipeline.py:1039` `_extract_trk_edep_per_pot`'s empty-input arm returned a **4-tuple** where both real returns and its sole consumer (`core/harvest.py:184`) use 5. Unreachable only because harvest short-circuits first — and harvest's `except Exception` would have turned the `TypeError` into a silent degraded row rather than a loud failure.
-  4. `core/launch_checks.py:102` re-spelled `"autoresearch_leaderboards"`, which `core/paths.py:60 LEADERBOARD_LIVE` owns: renaming the live board directory would have silently turned the config-name collision gate into a no-op (glob finds no boards → name reported free).
-  5. `PICKER_CHOICES` was declared independently in `graph/closed_loop.py` and `core/botorch_predict.py` across a process boundary with nothing pinning them equal — a `--picker` the parent accepted would have died in every child. One home in `core/modes.py` now.
+- **slim-down audit executed**: 52 of 81 findings survived; suite 681 → 674;
+  five real fixes, incl. a grid submit with an empty `<prev>_outputs.txt`
+  ([stage-out-lag](/incidents/stage-out-lag.md)) and one `PICKER_CHOICES` home.
 - **updated** [tests](/drivers/tests.md) — **`tools/capture_golden_geom.py` DELETED: it reported success while verifying nothing.** Its whole job was deciding when regenerating a golden is safe, gated on `has_python_renderer()`, which returns True only for a mode whose `ModeSpec.geom is None`. No such mode exists and none can: `core/mode_json.py` builds `geom` unconditionally from a REQUIRED JSON key. Verified both ways before deleting — `--check` printed `0 drifted, 0 cosmetic, 1 mode(s) skipped` rc=0, a bare run wrote zero goldens. The 2026-08-02 entry below fixed this tool's guard; the fix was correct and the tool still became inert two weeks later when the last Python renderer went. **`tests/fixtures/golden_geom/` is now permanent** and must never be regenerated. Page headline also re-measured: 30 files / 674 tests (was 18 / 432), and the `.venv/bin/python` invocations updated to `$AUTORESEARCH_PYTHON`
 - **retirement residue swept.** `ModeSpec` lost `Optional` on seven fields (`bounds_lo/hi`, `int_dims`, `obs_noise`, `geom`, `metrics`, `leaderboard_rel`) — every one was Optional only because a Python-mode adapter once passed None, and `core/mode_json.py` is now the sole construction site. That let `core/botorch_predict.py`'s `MODE_SPECS` mirror dict go entirely (a second copy of four registry fields that could drift). Also deleted: `JsonMode.load_priors` (returned `[]` unconditionally) and its caller's un-falsifiable `hasattr` guard; `load_mode_dir`'s `existing` parameter (its error text still spoke of "Python modes", and the in-scan-duplicate arm was unreachable — name-must-equal-stem fires first and a flat glob yields unique stems); `_stage_dsconf` (`dsconf_musing` is not in `mode_json`'s closed `_STAGE_TUNING_KEYS`, so it was pinned to None at load); `stage_cfg`'s sentinel default; `write_code_tarball`'s `cfg["code_tarball"]` override (the key cannot exist); `_input_stage_for` (stopped reading its argument when the concat family died); `run()`'s `env`/`check`/`capture` params and str/shell fork; `core/runtime.py`'s `BOTORCH_PREDICT`; `x_for_evaluate`'s unused `geom_text` param
 - **`StageStatus` reduced to its one read field.** `cluster_id`/`n_done`/`n_failed`/`last_poll_ts` (and `BOIterationState.geom_path`) were carried for a checkpointer deleted 2026-08-19 — nothing reads them and `core/pipeline.py` already prints all four to the child log. Only `status` (read by `route_after_stage`) survives, which also removed `graph/pipeline_io.py`'s only `stage_cfg` call. In exchange `graph/run.py` now PRINTS the accumulated `errors` tails at exit instead of discarding them at process teardown — they are exactly what a zero-row post-mortem wants
@@ -856,10 +482,8 @@ superseded, linted.
 - **★ updated** [bo-foilspf](/projects/bo-foilspf.md) — **EXTENT SCAN COMPLETE, 10/10 rows 0 failures, and the EXTENT QUESTION IS CLOSED.** Shape A (champion) sob 4.02→4.16→4.26→4.36→4.40 over 800→2000: steps decelerate +0.14/+0.10/+0.10/**+0.04 (1.1σ_pair)**, and the last 300 mm costs **+8.0% flash for +0.9% sob** — a bad trade; shape B (flash-matched) is **flat from 1400** (4.03→4.06→4.08, ≤0.9σ steps). ⇒ **No upstream-shift corridor work toward 2400, no further extent campaigns**; 1.4–1.7 m captures 97–99% of the length gain. **Deployable headline: `foilspfSCANB0800` 3.87/6.09e-7 STRICTLY DOMINATES the deployed target in its own 800 mm footprint** (+19% sob at −11% flash vs `nominalAB01`). **GP pre-registration graded: 8/8 extrapolation points within 0.43σ; both 2000 replicates within 0.3% sob** — the surrogate knew the curve (the 10-eval scan measured what ~194 BO evals could not, and validated the GP for future designed use). Two systematics recorded: all 8 pulls negative (~1–2% GP optimism off-data, sign-test p≈0.008), and one hot flash replicate (B2000 −8.9% vs source, ~2.7σ) suggesting σ(flash)=0.01(log10) may be 1.5–2× light. Figure: scratchpad `extent_scan_result.png` — [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md), [bo-noise-budget](/concepts/bo-noise-budget.md)
 - **★ updated** [bo-foilspf](/projects/bo-foilspf.md) — **foilspf2k01 VERDICT: shape at fixed length is EXHAUSTED.** The 9D shape-only satellite (extent pinned 2000, own leaderboard, seeded with 15 transplanted foilspf rows) drained clean — 20/20 rows, 0 failures, `rolling_done` — and **0 of 20 new evals beat the best seed (4.75)**; best new row `foilspf2k01R05_00` only 4.09/7.95e-7, below even the transplanted 4.41 champion. Same signature as foilspf02 at the 1100 wall (+0.00 sob in 20 evals): a fixed box saturates this problem in ~20 evals, and the remaining lever is length itself. Also recorded **foilspf04 COMPLETE** (20/20, 0 failures): sob record `foilspf04R01_00` **4.75**/1.458e-6, flash-matched front point `foilspf04R03_00` **4.07/6.77e-7** (champion sob at the deployed target's own flash, +25% vs `nominalAB01`); 15/80 rows now pinned at exactly extent=2000 — [closed-loop-runner](/drivers/closed-loop-runner.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
 - **updated** launched the **designed extent scan** (operator: "Do [the two-shape scan]") — 10 `graph.run --x-point` evals `foilspfSCAN{A,B}{0800,1100,1400,1700,2000}`: shape A = `foilspf03R02_00` (champion), shape B = `foilspf04R03_00` (flash-matched), shape byte-fixed, only extent varies; rows land name-tagged in the foilspf leaderboard (deliberately NOT a clone mode — a new `mode_specs/` file goes live in every registry-importing process, incl. in-flight children). Staggered 90 s, per-chain checkpoint DBs under `/tmp/oksuzian/<name>/` (foilsf08R00 multi-writer lesson). **10/10 preflight PASS at zero overlaps** — compressing a 2000-optimized shape to 800 was the feared failure and it didn't happen. **Pre-registered GP prediction locked BEFORE any row lands** (scratchpad `extent_prediction_prereg.json`, fit on the 80 pre-scan rows): shape A decelerating-monotone to the wall (4.075@800 → 4.412@2000), shape B turnover ~1750, flash +10% per 1200 mm; GP σ 0.21 at 800 vs 0.008 at 2000, so the short end is a genuine extrapolation. Headline hypothesis: A@800 predicted 4.08/8.3e-7 ≈ 6D-champion sob at ~20% lower flash in the deployed footprint — [bo-foilspf](/projects/bo-foilspf.md)
-- updated per-eval grid cost measured from job-log TimeReports: ~150–155
-  CPU-h/point, elebeam_flash 75%; wall ~3.4 h = serial mubeam+mustops_ce
-  (60–90-min payloads, 2.4–2.6× the foilsflash-based sizing) —
-  [bo-foilspf](/projects/bo-foilspf.md)
+- updated per-eval grid cost: ~150–155 CPU-h/point (elebeam_flash 75%),
+  wall ~3.4 h — [bo-foilspf](/projects/bo-foilspf.md)
 - **★ updated** [bo-foilspf](/projects/bo-foilspf.md) — **foilspf03 COMPLETE 20/20, 0 failures, and the extent extension PAID OFF ON THE FIRST CAMPAIGN**: new champion **`foilspf03R02_00` sob 4.41 / flash 9.15e-7 at extent 1975**, which **STRICTLY DOMINATES** the old `foilspf01R03_00` (4.09 / 9.68e-7) — **+7.8% sob AND −5.5% flash at the same time**, ~20σ on σ_sob=0.4%. The previous champion has dropped off the Pareto front entirely. 20/20 preflight PASS at zero overlaps including four children at the brand-new 2000 ceiling (the worst-corner probes generalised to real picks). The campaign swept the whole new range (extent ∈ [400, 2000], **13/20 rows above the old 1100 bound**) and now holds **14 of the 18** global front points over 60 rows. **Key caveat for future sessions — extent is PERMISSIVE, NOT SUFFICIENT**: `corr(extent,sob)=+0.48`, and the four round-0 points at extent 2000 came out 4.35 / 3.85 / 2.01 / 0.97, the campaign's full range. Length only *allows* a better optimum; the nine profile knobs decide whether you get one — the old 1100 bound was clipping a corner that happens to contain a better optimum, not a monotone gradient. Note also `03R08_01` sob 3.89 at extent **857**, a strong SHORT-stack front point, so the top of the front is not "longer is better" either — [closed-loop-runner](/drivers/closed-loop-runner.md), [leaderboards](/datasets/leaderboards.md)
 - **updated** launched **foilspf04** (operator: "Submit more jobs after this round") — fourth campaign of the line, PID 359887, `--picker hybrid --q 10 --rolling --max-evals 20`, checkpoint `/tmp/oksuzian/foilspf04`, elebeam default 100 — settings IDENTICAL to foilspf01/02/03 so all four stay directly comparable. Seeds on all **60** rows, so unlike foilspf03 it starts with real data in the 1100–2000 band instead of extrapolating into it. Kerberos renewed 01:43, valid to 08/04 03:43. Launch gated on a waiter that required parent-exit AND zero child processes — **note the waiter bug fixed here**: the previous one self-matched because its own `echo` text contained the literal process-name string it was grepping for, so its condition could never go false (the [status](/drivers/closed-loop-runner.md) skill's pgrep-self-match trap, in a new disguise) — [bo-foilspf](/projects/bo-foilspf.md)
 
@@ -911,38 +535,18 @@ superseded, linted.
 - **★★ RESOLVED — BOTH MODES NOW PREFLIGHT AT ZERO OVERLAPS.** Implemented (10D preserved, no new knob): `foilspf` gets `z0` as a **derived** value `min(z0_nominal, z_end_max - extent/2)` with `z0_nominal=5871`, `z_end_max=6271` — it returns 5871 unchanged for extent ≤ 800 (so every prior evaluation and the deployed-equivalent point render **bit-identically**) and slides upstream only past that, pinning the downstream end at the absorber wall. `foilsflash`'s envelope is FIXED (49 foils × inherited `deltaZ=22.222222` = 1066.67 mm, not a knob), so it instead gets an explicit `z0=5737.666672` putting its downstream end on the same wall — **foil spacing and the pinned-base composition are preserved; only position moves**, far less invasive than the compressed-`deltaZ` alternative. Both add `zEMCSourceInMu2e = 5000`. `foilspf` extent restored **400–1100** (full design range). Verified through the real `bo_driver preflight` under `require_zero_overlaps`: `foilspfV1100`, `foilspfV894` (the recovered `SMOKER00_00` shape), `foilsflashV01` (champion) — all `rc=0 pass, total_hits=0 baseline=0 managed=0`, plus 800/894/950 earlier. **`foilsflash` goes from 1 overlap on every one of 461 historical evals to 0.** Suite 407→**420**. COST: `foilsflash`'s 133 mm upstream slide is a real physics change → its 414 rows are no longer comparable, fresh leaderboard required. `foilspf` is unchanged below extent 800, so its single row survives — [bo-foilsflash](/projects/bo-foilsflash.md)
 - **`hasVirtualDetector=false` is NOT an option — the VD system is structurally load-bearing for this pipeline.** Our own `epilog_1b.fcl` sets `enableSD: [..., "virtualdetector", ...]`, and BOTH resamplers wire through it: `MuBeamResampler.fcl:109` / `EleBeamResampler.fcl:78` set `g4run.SDConfig.preSimulatedHits: ["beamResampler:virtualdetector"]` — beam resampling works by replaying particles recorded at VD planes. Disabling VDs would strip the volumes that SD attaches to while `enableSD` still names it. **Moving one VD is safe (SD, collection and wiring all untouched); disabling the system is not.** `ST_In`/`ST_Out` are unread by us and unreferenced in Production FCLs, but harmless — they are placed at `targetOffset ± (vdHL + cylinderLength/2)`, i.e. they TRACK the target and can never become a fixed wall the way `EMC_Source` did. (The `ST_Outer`/`ST_Front`/`ST_Back` entries in reco prologs are KinKal sampling surfaces, a different mechanism — do not confuse them.)
 - noted **the 1100 ceiling was never a physics number** — the design spec set it from the `EMC_Source` wall ("the upstream edge reaches that detector at extent ≈ 1142"), the exact wall since moved. Corridor now allows **1271** (6271−5000). KEPT at 1100 deliberately: it brackets `foilsflash`'s fixed 1066.67 mm envelope (preserving cross-line comparability), the only interesting result so far sits at 894, and widening a 10D box with ~20 evals/campaign thins coverage everywhere. **Trigger to revisit: a campaign pinning `extent` against 1100.** Also worth weighing before restarting `foilsflash`: `foilspf` now covers 400–1100 freely, so it **subsumes `foilsflash` geometrically** — the remaining distinction is parameterisation (37 pinned + 12 free, 6D vs 49 foils via 3 profiles, 10D), not reachable geometry.
-- **★ GOING BEYOND 800 mm WITH ZERO OVERLAPS IS SOLVED — the 800 cap was an artifact of WHERE we centre the stack, not a real limit.** The squeeze is purely **downstream** (the proton absorber is sized into `vac_zLocDs23Split() - targetEnd`), but `foilspf` pinned the stack CENTRE at `z0=5871`, so every extra mm pushed the downstream end into the absorber while ~150 mm of upstream room sat unused. Two independent walls, measured:
-  | wall | z | what it is | avoidable? |
-  |---|---|---|---|
-  | downstream | ≈6271 | proton absorber + its support wires — **real material** | yes: grow upstream, don't move `targetEnd` |
-  | upstream | 5300 | `VirtualDetector_EMC_Source` — **20 µm of DS vacuum, zero mass** | yes: `zEMCSourceInMu2e` is a plain config knob |
-  Measurements (all Run1Bap, both legacy overrides dropped, rOut=120 corner):
-  | z0 | extent | `zEMCSourceInMu2e` | overlaps |
-  |---|---|---|---|
-  | 5871 (centre-pinned) | 800 | 5300 | 0 |
-  | 5871 | 900 / 1000 / 1100 | 5300 | 3 (`IPAsupport_set2_wire*`) |
-  | **5785.5 (corridor-centred)** | **900 and 950** | 5300 | **0** |
-  | 5721 (downstream-anchored) | 1100 | 5300 | 1 (`EMC_Source` only — IPA problem GONE) |
-  | **5721 / 5771** | **1100 / 1000** | **5000** | **0** |
-  **Tier 1 (no detector change at all): re-centre `z0` 5871 → ~5785.5 and extent reaches ~950** — +19% over the cap, and it recovers `foilspfSMOKER00_00` (extent 894.2, flash 4.809e-07), the best result the line has produced. **Tier 2 (move a VD we never read): extent reaches 1100.** `zEMCSourceInMu2e` / `zEMCSource2InMu2e` / `zEMC0Front` are all `c.getDouble(..., default)` at `VirtualDetectorMaker.cc:189-203` — one geom line, no source patch. Safe because VDs are built from `ds->vacuumMaterial()` at `vd.halfLength=0.01` (identical material to their surroundings → zero physics effect) AND **none of our four stages read virtual detectors** — only `pot_only` (prodtarget family) instantiates `ReadVirtualDetector`; foils-family metrics come from tracker `StrawGasStep` edep + EdepAna. Caveat: `z0` is a genuine physics parameter (moving the target upstream shifts the stopping distribution vs the tracker), so re-centring is a design change, not free — and it arguably deserves to be an 11th KNOB so the optimizer can trade position against length inside the corridor.
-- **HOW TO FIX THE IPA OVERLAP — superseded by the entry above for the >800 case; still the correct account for a CENTRE-PINNED stack.** Exact mechanism: `ds2.halfLength` defaults to **2080** (`Mu2eG4/geom/DetectorSolenoid_v04.txt:284`, reached via `_v05`), so `DS2Vacuum` ends at local z=2080; the IPA support wire reaches local z=**2190.63**, overshooting by **110.63 mm** — precisely the "by 11.063 cm" G4 reports. It is **axial** (wire out the downstream END of its mother), not radial. Every alternative to shortening the target was tested and rejected:
-  | approach | result |
-  |---|---|
-  | `ds2.halfLength=3825` (the retired override) | 1 overlap — trades IPA wires for `EMC_0_Front` |
-  | `ds2.halfLength=2250` | **rc=134 fatal**, `TrackerMother` + 3 `VirtualDetector_TT_*` — DS2 swallows the tracker (BOTH modes) |
-  | `ds2.halfLength=2200` | **rc=134 fatal, both modes** — same `TrackerMother` + TT signature. The wire needs ≥2190.63 and 2200 already hits the tracker, so the viable window is `[2190.63, 2200)`: **under 10 mm wide, and the one value tested inside it is fatal. The DS2 route is CLOSED, not merely fragile.** |
-  | `protonabsorber.distFromTargetEnd` (=625) | would buy room but reshapes real in-beam material to silence a geometry warning; needs Mu2e-side input, not a config guess |
-  | **target ≤ 800 mm** | **0 overlaps, verified at 3 `foilspf` corners** |
-  The load-bearing surprise: **the tracker sits within 170 mm of DS2's default downstream end**, so there is almost no room to extend DS2 at all. The old `3825` override worked only because it ALSO moved the tracker into DS2 (`inDS2Vacuum=true`) — which is why the pair is inseparable, and why a "right-sized" 120 mm extension is not available.
+- **★ GOING BEYOND 800 mm WITH ZERO OVERLAPS IS SOLVED** — the cap came
+  from centring the stack at `z0=5871`; re-centring to ~5785.5 reaches ~950,
+  moving `zEMCSourceInMu2e` to 5000 reaches 1100 — [bo-foilspf](/projects/bo-foilspf.md)
+- **HOW TO FIX THE IPA OVERLAP** (centre-pinned stack): the IPA wire
+  overshoots `DS2Vacuum` by 110.63 mm axially; the DS2 route is closed
+  (2200 already hits the tracker); target ≤ 800 mm gives 0 overlaps.
 - **`foilspf` extent capped 1100 → 800** (`mode_specs/foilspf.json`, rationale in the mode `note`). Verified through the real `bo_driver preflight` under the new strict gate at three corners — `Z800hi` (extent 800, rOut 120), `Z400lo` (extent 400, rOut 50, f 0.95), `Z800mix` (SMOKE shape at the cap) — all `rc=0 pass, total_hits=0`. Cost recorded in the spec: this **excludes `foilspfSMOKER00_00`** (extent 894.2, flash 4.809e-07), the best result the line has produced.
 - measured **`foilsflash` CAN reach zero overlaps only by compressing its 49 foils into the 800 mm envelope** (`stoppingTarget.deltaZ = 16.666667` vs the inherited 22.222222): measured **0 overlaps** at the `BASIN01_00` champion. NOT applied — it moves the 37 "pinned deployed base" foils off deployed spacing, so the base is no longer the deployed target, the line stops being what it is, and the 414 rows stop being comparable. Operator decision pending; until then the strict gate blocks the line (every point fails preflight), which is the safe state.
 - measured **the zero-overlap boundary is a target length of ~800 mm — exactly the deployed stack** (`foilspf`, Run1Bap, both overrides dropped, rOut=120 corner): extent 800 (z_end 6271) → **0**; 850 (6296) → **1** (`IPAsupport_set2_wire3`); 900 (6321) → **3**; 1000/1100 → 3. `foilsflash`'s 49 foils at the inherited `deltaZ=22.222222` span 1066.7 mm, past the wall at every point. Root cause is a design coincidence worth knowing: `protonabsorber.distFromTargetEnd = 625` places the absorber at its documented `z = 6901-7901` **precisely when the target ends at z≈6276**, i.e. the deployed 800 mm stack — the surrounding detector is built around that length, and our lines have been running past it since inception. **Consequences of enforcing zero: (a) `foilspf`'s best result to date, `foilspfSMOKER00_00` (extent 894.2, flash 4.809e-07, 19.8% below the 414-eval floor) falls inside the forbidden region; (b) `foilsflash` cannot pass preflight at ANY point without compressed foil spacing + a fresh leaderboard.** Escape routes: `ds2.halfLength` is ruled out (matched pair with `inDS2Vacuum`, drags the tracker into DS2 → rc=134); `protonabsorber.distFromTargetEnd` could buy room but reshapes real in-beam material and needs Mu2e-side input, not a config guess — [bo-foilsflash](/projects/bo-foilsflash.md), [bo-foilspf](/projects/bo-foilspf.md)
-- **CORRECTION to the adoption entry below (measured 2026-07-28, same day): dropping the override is NOT clean across the search space, and the two settings are NOT separable.** Two claims made earlier today are refuted by measurement:
-  1. *"first foils-family config to surface-check clean"* — true only at the ONE point tested (`foilspf` extent=800, z_end 6271). At the extent **ceiling** 1100 (z_end 6421) the same config reports **3** overlaps (`IPAsupport_set2_wire1/2/3`). `foilsflash`'s 49 foils at the base `deltaZ=22.222222` span 1066.7 mm (z_end 6404) and likewise report **3**, vs **1** for all 461 historical evals. So the migration as applied is a REGRESSION for `foilsflash` (1→3) and only conditionally clean for `foilspf`.
-  2. *"`inDS2Vacuum` and `ds2.halfLength` do unrelated jobs"* — false. Keeping `ds2.halfLength=3825` while dropping `tracker.inDS2Vacuum` gives **6 overlaps + rc=134 core dump** (`TrackerMother` + 5 `VirtualDetector_TT_*`): the extended DS2 swallows a tracker that now lives in DS3. They are a matched pair and must move together.
-  - **Mechanism (the real one).** `MECOStyleProtonAbsorberMaker.cc:124-129,164` sizes the proton absorber into the gap between the target's downstream end and the DS2/DS3 split: `targetEnd = target.centerInMu2e().z() + 0.5*cylinderLength + 2*vdHL`; `targetEndToDS2End = ds.vac_zLocDs23Split() - targetEnd`; `pabs1halflen = (targetEndToDS2End - distFromTargetEnd)*0.5`. A longer target pushes `targetEnd` downstream and squeezes the absorber until its support wires no longer fit inside `DS2Vacuum`. `ds2.halfLength=3825` was buying that headroom — it is NOT a bug workaround. Threshold sits between z_end 6271 (clean) and 6404 (3 overlaps).
-  - **Consequence: the overlap is KNOB-DEPENDENT**, so the preflight's managed-vs-baseline whitelist (`bo_driver.py:1607`, matches only `StoppingTargetFoil_*` / `ProductionTarget*`) misfiles it as "known stock-geometry ... ignored" and returns PASS. `foilsflashRUN1BAP01` introduced 3 never-before-seen overlaps and still passed. Proposed guard: fail when the baseline count DIFFERS from the line's established constant (`foilsflash` = 1 for 461 consecutive evals) rather than only on managed hits.
-  - Historical baseline, from all 462 `bo_work/preflight/foilsflash/*.log`: **461 → exactly 1 overlap, always `VirtualDetector_EMC_0_Front`**; the single 3-overlap log is today's `foilsflashRUN1BAP01`. The overlap was a true constant of the line, so the 414 leaderboard rows are mutually comparable.
+- **CORRECTION to the adoption entry below**: dropping the override is
+  clean only up to extent 800 (3 IPA-wire overlaps at 1100), and
+  `inDS2Vacuum`/`ds2.halfLength` are a matched pair — [bo-foilsflash](/projects/bo-foilsflash.md)
 - **ADOPTED Run1Bap for both JSON modes** (operator decision): `foilsflash` + `foilspf` `software.musing` → `/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial/setup_local.sh`, `grid_tarball` → `Code_run1bap_holeradii.tar.bz2` (**15 MB, down from 677 MB** — the partial build ships 2 libs instead of 529 rebuilt-but-unchanged ones), and the `tracker.inDS2Vacuum=true` / `ds2.halfLength=3825` pair **deleted** from both geometries. Validated end-to-end, not just edited: production `bo_driver preflight` PASS for `foilspf` at the corner_hi extreme (`total_hits=0 unique_volumes=0 baseline=0 managed=0`, 49 foils verified against as-built GDML) — the first foils-family config in this project's history to surface-check with **zero** overlaps. Suite 407/407. Goldens `tests/fixtures/golden_geom/foilsflash_*.txt` and `tests/fixtures/modes/foilsflash.json` updated by the **same minimal two-line deletion**, deliberately NOT regenerated (regenerating from the JSON would turn parity into a tautology comparing the JSON to itself — see [tests](/drivers/tests.md)). Python modes `foils`/`foilsf`/`foilsg` deliberately left on Run1Bak, where the override is still mandatory — **the foils family is now split across two Musings**. OPEN: `leaderboard_bo_foilsflash.tsv` holds 414 Run1Bak rows; appending Run1Bap rows would mix baselines in the GP training set (same failure class as the 7 poison rows) — archive-and-restart vs a baseline column is undecided, so **nothing has been launched** — [bo-foilsflash](/projects/bo-foilsflash.md), [muse-backing-pattern](/external/muse-backing-pattern.md)
 - measured **the three remaining "overlap-suppression" overrides are also unnecessary under Run1Bap**, but were LEFT IN PLACE. Dropping `ds.hasServicePipes=false` + `stoppingTarget.foilTarget_supportStructure=false` + `ds.lengthRail2/3=0.1` on top of the migration gives **0 overlaps with 10,532 volumes checked, vs 0 with 10,373** — i.e. 159 volumes currently deleted from the simulation could be restored at no overlap cost. Not done unprompted because all three **remove material** — the 111 foil support wires sit directly on the stopping target, and muon stopping + beam flash are exactly what this line measures. Restoring them makes the geometry more faithful but is a larger expected physics shift than the VD reparenting. Recorded so a future session does not re-derive it — [bo-foilsflash](/projects/bo-foilsflash.md)
 - updated **the holeRadii patch is REBUILT against SimJob/Run1Bap** (p101, Offline v13_32_10) at `/exp/mu2e/app/users/oksuzian/Offline_run1bap_partial`, via an **mgit-style partial checkout + backing build** — `GeometryService` only: **2 libs, 26 s, 178 MB**, vs 535 libs / 11 min / 3.8 GB for the full-tree build (also kept, at `Offline_run1bap`, for the A/B). Both produce identical surface-check results, so the partial is what should ship: it sends ONE library to the grid instead of 529 we rebuilt but never changed, which also cuts the `Code.tar.bz2` footprint behind [data-quota-exhausted-grid-accumulation](/incidents/data-quota-exhausted-grid-accumulation.md). `StoppingTargetMaker.{cc,hh}` are **byte-identical** between v13_12_10 and v13_32_10, so the patch applied with zero adaptation; recipe frozen at `Offline_run1bap_partial/rebuild.sh` — [muse-backing-pattern](/external/muse-backing-pattern.md)

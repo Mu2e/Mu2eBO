@@ -2,12 +2,9 @@
 type: incident
 title: sourced_env stderr swallowed — transient setup blips look like silent stage
   death
-description: pipeline.py:278 sourced_env() swallows bash stderr; 3/10 foilsX06R00
-  children died on transient `setup mu2egrid` rc=127 + missing CET_PLUGIN_PATH mfPlugin
-  "cerr" with no captured cause; ALSO the non-transient face — a missing `${ARTIFACT}`
-  musing is rc=1 too, so the retry loop hid it until paths.require() (2026-08-18)
+description: 'pipeline.py''s sourced_env() swallowed bash stderr, so transient env flakes looked like silent stage death; the retry helper now lives in core/adapters/preflight_checks.py'
 status: active
-timestamp: '2026-08-18'
+timestamp: '2026-10-08'
 updated_note: 'added the NON-transient rc=1 face: a missing musing is the same
   rc as the flake, so the retry loop hides it; fixed by paths.require() on
   local-executor'
@@ -130,6 +127,11 @@ updated_note: 'added the NON-transient rc=1 face: a missing musing is the same
   mfPlugin variant (source returns rc=0, so retry won't trigger).
 
 ## Env-source coverage map — CONSOLIDATED 2026-06-01
+> **Now (2026-10-08):** the helper is
+> `core/adapters/preflight_checks.py:run_sourced_bash` (the geometry
+> pre-check is its only caller left; `graph/sourced_bash.py` was folded in),
+> pinned by `tests/test_sourced_bash.py`. The site table below is history.
+
 The cvmfs/spack flake can hit ANY env-source path; the four sites are NOT
 redundant with each other (a child can flake at submit, harvest, preflight,
 OR token-renew). **All four now route through one shared helper**

@@ -1,37 +1,31 @@
 ---
 type: driver
 title: preflight — local G4 init feasibility check
-description: local `mu2e -n 1` G4 init feasibility check
-status: superseded
-status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
-timestamp: '2026-09-28'
-updated_note: C2a — the rules moved to core/adapters/preflight_checks.py, shared
-  with the engine's offline_preflight kit; runs from the code tarball; holeRadii
-  canary dropped
+description: 'local `mu2e -n 1` G4 init geometry check; the pipeline verb is gone (2026-09-28) but its rules still run in core/adapters/preflight_checks.py'
+status: active
+status_note: 'the rules run in core/adapters/preflight_checks.py; the pipeline verb and paths in the body are history (deleted 2026-09-28)'
+timestamp: '2026-10-08'
 ---
 
 # preflight — local G4 init feasibility check
 
-> **2026-09-26 — Phase C2a:** the rules below now live in
-> `core/adapters/preflight_checks.py`, shared by `bo_driver preflight` and
-> the engine's `offline_preflight` kit ([contract-engine](/drivers/contract-engine.md)).
-> Both run from the study's code tarball (unpacked under
-> `<GRID_DATA_ROOT>/_code/<sha256>/`), not a musing, in
-> `<GRID_DATA_ROOT>/<config>/preflight/` rather than a /tmp workdir.
-> Layer 2 (the `holeRadii vector active` canary) is gone: upstream Offline
-> prints no such line and layer 3 checks every hole radius. Tests:
-> `tests/test_preflight_checks.py`.
+> **The pipeline's `preflight` verb was deleted 2026-09-28 (Phase C3), but
+> its rules still run.** They live in `core/adapters/preflight_checks.py`
+> (`run_preflight`, `classify`, `verify_stopping_target_gdml`), called by
+> the engine's `offline_preflight` adapter: the geometry pre-check before a
+> point's grid steps, and the one `graph.check_study` runs at the knob-box
+> centre. It now runs from a study's code tarball. The body below is the
+> page as of 2026-07-17: the rules it describes still run (minus the
+> holeRadii canary); its file paths and pipeline wiring are history. See
+> [contract-engine](/drivers/contract-engine.md).
 
 > **2026-06-13 — preflight is now a 4-layer gate (foils family):**
 > 1. **Fatal-abort check** (`G4_FATAL_RX`): GeomSolids00xx / `*** Fatal
 >    Exception ***` / "Aborting execution" FAIL unconditionally — before
 >    `past_init` can mask them ([preflight-past-init-false-pass](/incidents/preflight-past-init-false-pass.md)).
-> 2. **holeRadii canary (DROPPED 2026-09-26, Phase C2a)**: geom requests
->    `stoppingTarget.holeRadii` but output lacks "holeRadii vector active"
->    → FAIL (unpatched env,
+> 2. **holeRadii canary**: geom requests `stoppingTarget.holeRadii` but
+>    output lacks "holeRadii vector active" → FAIL (unpatched env,
 >    [foilsg-grid-tarball-scalar-holeradius-fallback](/incidents/foilsg-grid-tarball-scalar-holeradius-fallback.md)).
->    Retired: upstream Offline v13_38_00 prints no such line, and layer 3
->    below already checks every hole radius against the as-built GDML.
 > 3. **As-built GDML assertion** (foils/foilsf/foilsg): surfacecheck FCL
 >    also sets `physics.producers.g4run.debug.writeGDML` →
 >    `preflight_geom.gdml` in the workdir;
@@ -46,15 +40,9 @@ updated_note: C2a — the rules moved to core/adapters/preflight_checks.py, shar
 >    "20") — bit the first live run 2026-06-13. Use non-greedy digits +
 >    anchored optional `0x[0-9a-f]+$` suffix, and report missing foil
 >    indices instead of skipping them.
->    The old pipeline (`bo_driver.py`) keeps a verified dump at
->    `<GRID_DATA_ROOT>/<config>/geom/asbuilt_<config>.gdml` (a `copyfile`,
->    so the raw `<GRID_DATA_ROOT>/<config>/preflight/preflight_geom.gdml`
->    stays too), written only when the as-built comparison passed. The
->    engine's `offline_preflight` kit instead keeps
->    `<GRID_DATA_ROOT>/<config>/preflight/asbuilt.gdml` (a rename, so no
->    raw `preflight_geom.gdml` is left behind) whenever the check produced
->    a dump — pass or fail alike (Phase C2a; this replaced the old
->    node-local, tmpwatch-cleaned /tmp workdir — see the note above).
+>    On PASS the verified GDML is preserved at
+>    `autoresearch_grid/<config>/geom/asbuilt_<config>.gdml` (the /tmp
+>    workdir is node-local and tmpwatch-cleaned).
 >    **`<tube>` name-attribute ordering**: G4's GDML writer does NOT put
 >    `name=` first (`<tube aunit="deg" deltaphi=... name="Foil_NN0x..">`),
 >    so a `grep '<tube name="Foil_'` returns 0 and looks like the foils
@@ -99,8 +87,6 @@ updated_note: C2a — the rules moved to core/adapters/preflight_checks.py, shar
 > - **helical** — surface-check only, no GDML emission.
 
 ## Summary
-Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record; the shared rules file this page describes, `core/adapters/preflight_checks.py`, is still live and used by the engine's `offline_preflight` kit — only the pipeline's `bo_driver preflight` verb this page was written for is gone.
-
 Runs a single `mu2e -n 1` locally (Musing setup) on a BO proposal's geom file
 to verify that Geant4 geometry construction succeeds before paying for grid
 submission. Catches overlapping-volume errors, bad placements, and

@@ -1,10 +1,10 @@
 ---
 type: project
 title: ptg4bl — production target on G4beamline through beamkit
-description: The first G4beamline study on the contract engine (2026-10-02). A bare tungsten production-target rod whose length and 3-point outer-radius profile are knobs (a polycone on deck branch ptarget-polycone), scored by μ⁻+π⁻ per POT crossing Coll_01_DetIn (unique tracks), maximized; kit beamkit (core/adapters/beamkit.py), grid only; built and tested against a fake beamkit, grid acceptance pending the deck branch's push to the operator's fork
+description: 'first G4beamline study on the engine (2026-10-02): W production-target rod, knobs Tlength + 3-point polycone radius, FoM μ⁻+π⁻ per POT at Coll_01_DetIn, kit beamkit; grid acceptance passed'
 status: active
 status_note: grid acceptance passed 2026-10-02 (rows ptgnom02, ptgrmid02); campaigns run on leaderboard_bo_ptg4bl_5k.tsv at 100k POT per point
-timestamp: '2026-10-02'
+timestamp: '2026-10-08'
 ---
 
 # ptg4bl — production target on G4beamline through beamkit
@@ -85,7 +85,6 @@ timestamp: '2026-10-02'
 ## Cross-links
 - Related: [contract-engine](/drivers/contract-engine.md) (the beamkit adapter), [service](/drivers/service.md) (start_campaign), [production-target-stickman](/concepts/production-target-stickman.md) (the Offline production target), [bo-prodtarget](/projects/bo-prodtarget.md) (the Offline-side design)
 - Source files: `mode_specs/ptg4bl.json`, `core/adapters/beamkit.py`, `tests/test_beamkit_kit.py`, `tests/fakebeamkit.py`
-- Spec: `docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md`; plan: `docs/superpowers/plans/2026-10-02-g4bl-ptarget.md`
 
 ## Open questions / TODO
 - The next piece: a "design a new study" recipe drawn from this design (operator's OK, 2026-10-02).

@@ -1,18 +1,19 @@
 ---
 type: driver
 title: pipeline.py — parametric grid runner
-description: 'per-config runner: job description is checked-in `stage_entries/<stage>.json`, execution shells prodtools (env `AUTORESEARCH_PRODTOOLS`: json2jobdef/submit/jobwait/runlocal) — submits grid or local, harvests'
+description: '(deleted 2026-09-28, Phase C3) per-config grid runner: rendered stage_entries/<stage>.json, shelled prodtools to submit grid or local jobs, harvested a summary'
 status: superseded
-status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
-timestamp: '2026-09-28'
-updated_note: '2026-09-25: mustops_ce now sets sequential_aux (one staged mubeam file per job; render_entry passes it by name); P1 spike: a prodtools pin carrying 623dca6 breaks the ledger+outstage submit'
+status_note: 'code deleted in Phase C3 (2026-09-28); see contract-engine'
+timestamp: '2026-10-08'
 ---
 
 # pipeline.py — parametric grid runner
 
-## Summary
-Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record.
+> **Deleted 2026-09-28 (Phase C3).** `core/pipeline.py` is gone. This page is
+> its record as of 2026-08-16, kept as history. The engine that replaced it:
+> [contract-engine](/drivers/contract-engine.md).
 
+## Summary
 One canonical pipeline.py at the repo root. Pass `--config CFG`; per-config
 paths (work tree, geom file, DSCONF, /pnfs staging dir, stage `desc` strings)
 are derived from CFG. Invoked once per BO iteration after `propose` to submit
@@ -126,13 +127,11 @@ this replaced.
   raises `SystemExit` naming the variable if it's unset or the checkout is
   bad. No hardcoded personal-path default in committed code (9f0c43c
   convention) — the operator checkout used for prodtools-switch validation
-  is `/exp/mu2e/app/users/oksuzian/muse_050125/prodtools`; the pin to use is the cvmfs release
-  `/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.2.0` (cvmfs `current`;
-  byte-identical in `utils/` + `bin/` to that checkout at `359c2b5`, the state
-  gridsmoke05 validated). **Not v3.1.0**: it predates the `jobwait`
-  `condor_history -name` fix and the `check_inputs` `dir:` arm, and lost a
-  15/15 cluster on 2026-08-22 — see
-  [prodtools-v310-pin-predates-jobwait-fix](/incidents/prodtools-v310-pin-predates-jobwait-fix.md).
+  is `/exp/mu2e/app/users/oksuzian/muse_050125/prodtools`; since 2026-08-20
+  the README default is the pinned cvmfs release
+  `/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.1.0` (submit-layer files
+  byte-identical to that checkout's head, see
+  [prodtools-submit-entry-tarball-schema-drift](/incidents/prodtools-submit-entry-tarball-schema-drift.md)).
 - **`submit <stage>`**: `submit_stage_prodtools` builds the code tarball,
   loads + renders the stage's `stage_entries/<stage>.json` entry (merging in
   runtime njobs/events/memory/staged-input fields), writes
@@ -227,21 +226,19 @@ this replaced.
   `graph/config.py` (Mu2eBO issue #15, design only as of 2026-06-07);
   invoked-by-name `pipeline.py submit <stage>` works for any STAGES entry
   regardless of mode dispatch.
-- **Per-stage backing override — RETIRED 2026-08-22.** Both keys were
-  added 2026-06-07 for prodtarget (whose output files were otherwise
-  mislabeled `…Run1Bak_pt001…` despite being built against MDC2025aq) and
-  both became unreachable when the STAGES literal retired into
-  `stage_entries/`: a mode spec cannot supply either, because
-  `core/mode_json.py`'s `_STAGE_TUNING_KEYS` was a closed allow-list
-  (`events_per_job`, `memory_mb`, `quorum`) validated at load, and no
-  `stage_entries/*.json` declared them (`core/mode_json.py` itself deleted
-  2026-09-24; replaced by `core/study.py`, the schema-2 loader).
-  - `"code_tarball"` could never reach `stage_cfg`'s result, so
-    `write_code_tarball(base_tarball=...)` had no production caller. The
-    parameter survives as a TEST seam only.
-  - `"dsconf_musing"` was pinned to `None`, so `_stage_dsconf(stage)`
-    could only ever return the module-global `DSCONF = f"Run1Bak_{cfg}"`.
-    The helper is deleted; call sites read `DSCONF` directly.
+- **Per-stage backing override (2026-06-07):** two optional STAGES keys
+  let one stage swap out from the helical-patched Run1Bak default:
+  - `"code_tarball"`: absolute path to an alternate muse-built
+    `Code_*.tar.bz2` (used by `write_code_tarball(stage_dir,
+    base_tarball=...)`). Default is module-global `MUSE_BASE_TARBALL`
+    (helical-patched Run1Bak).
+  - `"dsconf_musing"`: string substituted into DSCONF as
+    `f"{musing}_{cfg}"` (via new `_stage_dsconf(stage)` helper at
+    pipeline.py:113). Default is module-global `DSCONF = f"Run1Bak_{cfg}"`.
+    Only affects the cnf filename and the `--dsconf` arg of mu2ejobdef
+    (does NOT propagate into /pnfs paths). Without this, prodtarget
+    output files were mislabeled `…Run1Bak_pt001…` despite being built
+    against MDC2025aq.
 - **Geom overlay:** ships via `Code.tar`; geom-bearing stages
   (mubeam, run1b_mubeam, mustops_ce) reference the same
   `autoresearch_<cfg>_geom.txt` basename via the stage_entries `{geom}`
@@ -312,53 +309,6 @@ this replaced.
   `/cvmfs/*`** (`/exp/mu2e/app` invisible). Replaced by the tarball-shipping
   approach above; the patched lib travels inside `Code.tar.bz2` via `--code`
   staging, so worker mounts don't matter.
-
-- **mustops_ce reads staged `dir:` inputs one file per job (`"sequential_aux": true`, set 2026-09-25).**
-  Without the key, prodtools picks each job's aux input at random, seeded
-  by the job index (`job_aux_inputs`: v3.2.0 `utils/job_common.py:396-438`,
-  v3.3.4 `:386-398`). Jobs then sample the staged files with replacement:
-  before the change, gridphaseA01's 15 mustops_ce jobs read 10 distinct
-  files, one of them four times, and 5 never (expected ~9.7 of 15). That
-  is unbiased but discards about a third of mubeam's statistics. The
-  measured σ(sob) of every row before 2026-09-25 includes this. With the
-  key, job i reads file i mod N: each file once when njobs ≤ N, and a
-  rollover used equally to within one when njobs > N. Rebuilding
-  gridphaseA01's cnf with v3.2.0 json2jobdef gave 15/15 distinct; 40 jobs
-  gave 10 files ×3 and 5 ×2. elebeam_flash and mubeam leave it unset
-  (SAM Cat inputs, where random sampling is intended).
-  - **`render_entry` emits only the keys it names.** A bare JSON key would
-    have been dropped silently, as `outloc` once was.
-    `prodtools_exec.render_entry` takes a `sequential_aux` kwarg that
-    `_render_and_build_cnf` passes from the entry. json2jobdef copies it
-    into the cnf's `tbs` (v3.2.0 `utils/jobdef.py:579-581`).
-  - **The worker runs the pinned prodtools, not cvmfs `current`.**
-    v3.2.0's `submit_entry` ships its own `utils/`+`bin/` as a dropbox
-    tarball (`_bundle_prodtools`, cached at `/tmp/prodtools-$USER.tar` on
-    the submit host and reused while newer than every source file), and
-    `runjob.sh` execs that `runmu2e.py`. The json2jobdef `prodtools_dir`
-    "None means `current`" default belongs to v3.3.4's `--enqueue` path.
-    That path is not ours.
-  - Pinned by `tests/test_pipeline_verbs.py`
-    (`test_only_mustops_ce_reads_its_aux_inputs_sequentially`,
-    `test_mustops_ce_sequential_aux_reaches_the_rendered_entry`).
-  - Rationale lives in the `core/pipeline.py` mustops_ce.json comment block.
-  - Found by the P1 spike, 2026-09-25.
-- **Grid workers run the pinned prodtools, shipped with the job.**
-  `submit.py` `_bundle_prodtools` tars the submitting prodtools' own
-  `utils/` + `bin/` and the worker runs that (`runjob.sh` → `runmu2e.py` →
-  `jobfcl.py` → `job_common.job_aux_inputs`), so a v3.2.0 submit runs v3.2.0
-  on the worker, not cvmfs `current`. v3.2.0 caches the bundle at
-  `/tmp/prodtools-$USER.tar` and reuses it whenever it is newer than every
-  source file: a submit from a different prodtools version on the same host
-  can ship a stale bundle. The prodtools checkout's newer code
-  content-addresses it (`prodtools-<sha12>.tar`, `utils/submit.py:534-555`).
-  `activate.sh` does not set `AUTORESEARCH_PRODTOOLS`; each launch sets it.
-- **A prodtools pin carrying commit 623dca6 breaks this pipeline's grid
-  submit.** That commit's `_check_tracking` (`submit.py:430`) refuses a
-  ledger combined with outstage outputs, which is exactly what
-  `core/prodtools_submit_driver.py:52` passes. The pin is v3.2.0 (no
-  623dca6); cvmfs `current` is v3.3.4. Check before bumping
-  `AUTORESEARCH_PRODTOOLS`.
 
 ## Cross-links
 - Consumed by: [bo-driver](/drivers/bo-driver.md) `evaluate`, [graph-runner](/drivers/graph-runner.md) (per-stage nodes)

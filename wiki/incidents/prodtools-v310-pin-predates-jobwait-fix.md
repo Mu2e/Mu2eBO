@@ -1,10 +1,10 @@
 ---
 type: incident
 title: The cvmfs prodtools v3.1.0 pin predates the jobwait and check_inputs fixes
-description: 'gridcheck08221321 (2026-08-22) lost a fully successful 15/15 mubeam cluster as `0/15 ok, unknown` because AUTORESEARCH_PRODTOOLS pointed at cvmfs v3.1.0, whose jobwait still shells the jobsub_lite 1.13 `jobsub_history` wrapper that drops `-name <schedd>` — every query hits the default jobsub01, so any cluster on another schedd reads as empty; the fix (condor_history -name direct, 13d561d) and the check_inputs `dir:` fix (e9369b0) are in v3.2.0, which is byte-identical to the validated checkout at 359c2b5; the wiki had called v3.1.0 "a drop-in pin" on the strength of two files'
+description: 'gridcheck08221321 (2026-08-22) lost a 15/15-good cluster as `0/15 ok`: prodtools v3.1.0''s jobwait drops `-name <schedd>`; pin v3.2.0'
 status: resolved
 status_note: root-caused 2026-08-22; pin v3.2.0 (== cvmfs `current` as of 2026-08-20 21:09); the wrong "drop-in" claims corrected the same day
-timestamp: '2026-08-22'
+timestamp: '2026-10-08'
 ---
 
 # The cvmfs prodtools v3.1.0 pin predates the jobwait and check_inputs fixes

@@ -1,11 +1,9 @@
 ---
 type: external
 title: mmackenz_table_plots/ — off-repo analysis + picker scripts dir
-description: off-repo /data dir holding 46 unversioned picker/renderer scripts
-  + artifacts; name is historical misnomer; the 3 repo->dir refs are GONE (no
-  repo module imports it any more) and 12 of its scripts are dead-and-stamped
+description: 'off-repo /data dir of 46 unversioned picker/renderer scripts; no repo module imports it any more; 12 scripts are dead-and-stamped'
 status: active
-timestamp: '2026-08-22'
+timestamp: '2026-10-08'
 updated_note: '2026-08-22 audit: repo->dir coupling fully severed; 12 scripts
   verified DOES-NOT-RUN and stamped in place; the 12 live foilspf deck
   generators import nothing from the repo'

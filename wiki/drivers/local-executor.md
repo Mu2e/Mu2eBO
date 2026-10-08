@@ -1,30 +1,21 @@
 ---
 type: driver
 title: local executor — the grid-free path
-description: '(**DELETED 2026-09-28, Phase C3**, with the rest of the pipeline; SUPERSEDED 2026-08-16 before that by the prodtools switch: `core/local_exec.py` deleted, `submit --local` shelled prodtools `runlocal`) `AUTORESEARCH_LOCAL=1`/`--local` were the pipeline''s grid-free activation switch and are now INERT -- nothing in the engine reads them, and `graph.run`/`graph.closed_loop` REFUSE (exit 2) if `AUTORESEARCH_LOCAL` is set at all (2026-09-29 review fix); the engine''s grid-free path is `--executor local [--parallel N]` (default `--executor grid`). The rest of this description is historical: `AUTORESEARCH_PRODTOOLS` was required even for a local run under the pipeline too; `$AUTORESEARCH_DATA_ROOT` is still the sandbox seam that keeps toy rows off the live board; ~33 s/stage at 1x200 events was measured under prodtools runlocal (was ~20 s pre-switch), and a flash mode could not land a row at that scale by design'
+description: '(deleted 2026-09-28; superseded 2026-08-16 by prodtools runlocal) the pipeline''s grid-free path; today use `--executor local [--parallel N]`'
 status: superseded
-status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
-timestamp: '2026-09-28'
-updated_note: 'SUPERSEDED (prodtools-switch Task 12): core/local_exec.py, the local-build/local-run verbs, cmd_local_build/cmd_local_run were all deleted 2026-08-16 (Task 9). AUTORESEARCH_LOCAL=1 / --local still activate a grid-free run, but pipeline.py submit --local now shells prodtools runlocal (core/prodtools_exec.py:run_runlocal) instead of running the machinery this page describes. See wiki/drivers/pipeline.md, "Execution: submit/poll shell prodtools" for the current mechanism. This page is kept for its still-true operational facts (activation-vs-detection rule, AUTORESEARCH_LOCAL_* scale knobs, flash-mode zero-row math, backing requirement) that were NOT rewritten by the switch, but any fact naming core/local_exec.py, cmd_local_run, or local-build/local-run as live code is now historical.'
+status_note: 'superseded 2026-08-16 by the prodtools switch, deleted with the pipeline 2026-09-28'
+timestamp: '2026-10-08'
 ---
 
 # local executor — the grid-free path (SUPERSEDED)
 
+> **Deleted 2026-09-28 (Phase C3)**, after being superseded on 2026-08-16 by
+> prodtools `runlocal`. A grid-free run today is `graph.run` /
+> `graph.closed_loop` with `--executor local [--parallel N]`; see
+> [contract-engine](/drivers/contract-engine.md). This page is the record as
+> of 2026-08-16, kept as history.
+
 ## Summary
-Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record.
-
-**Current truth (2026-09-29 review fix): grid-free is `--executor local
-[--parallel N]`, not an env var.** `graph.run --executor grid|local` and
-`graph.closed_loop --executor ... --parallel N` (local only, 1..16) choose
-the executor; the default is `--executor grid`. `AUTORESEARCH_LOCAL` and
-its `AUTORESEARCH_LOCAL_{NJOBS,EVENTS,POOL}` siblings are INERT — nothing
-in the engine reads them — and `graph.run`/`graph.closed_loop` now REFUSE
-outright (exit 2, naming `--executor local`) if `AUTORESEARCH_LOCAL` is set
-at all (`graph/run.py:local_env_refusal`), so a stale export from the
-pipeline era is caught loudly instead of silently doing nothing. Everything
-below this notice describes the deleted pipeline's own env-activated local
-path and is history only.
-
 **Superseded 2026-08-16 by the prodtools switch.** `core/local_exec.py` and
 the `local-build`/`local-run` verbs described on this page were deleted; the
 current grid-free path is `pipeline.py --config CFG submit <stage> --local`
@@ -165,15 +156,3 @@ AUTORESEARCH_LOCAL=1 python -m graph.run --mode <m> --config-name <c> \
   carries the superseded `leaderboard_local_<mode>.tsv` requirement; moot
   now that the spec itself is superseded by the prodtools-switch design doc,
   but nobody has gone back to mark the older spec file itself superseded.
-- **Killing a local run orphans its mu2e jobs** (found 2026-09-25 by
-  reading prodtools `utils/runlocal.py`): `_run_child` starts every job
-  with `start_new_session=True`, so its timeout can kill the job's whole
-  group. The same setting means a signal to the runlocal driver, or to
-  the driver's process group, never reaches the jobs, which keep running
-  and writing. Until the fix lands, kill the jobs' own groups too. They
-  are the processes whose cwd is under the run's `job_NNNNNN/`. The fix
-  is in the local `main` of `muse_050125/prodtools` (6640e6e, not pushed to Mu2e). On SIGTERM, SIGINT
-  or SIGHUP the driver ends every job's group and exits 128+signal
-  without a summary. It waits up to 10 s for the whole group to empty,
-  then sends SIGKILL, because mu2e ignores SIGTERM during G4 geometry
-  init. This was checked live on 2026-09-25.

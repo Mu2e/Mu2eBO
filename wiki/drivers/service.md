@@ -1,9 +1,9 @@
 ---
 type: driver
 title: autoresearch MCP server (study and campaign tools)
-description: service/ — the `autoresearch` MCP server (stdio, .mcp.json); start_check/check_result run `graph.check_study --json` as a detached job polled for its report, plus list_studies/show_study/study_guide; liveness is a flock the server hands to the job (pass_fds); never imports modes; accepted 2026-10-02 (ce_chain local 58 s, foilspfbpz_ax grid pre-check 314 s, broken draft 1.3 s). Campaign tools (2026-10-02): start_campaign (a dry run through `graph.closed_loop --check-only`, confirm=true launches detached; one MCP launch per prefix), stop_campaign, campaign_status (any campaign, shell-started too), leaderboard. Dashboard (2026-10-04): `python -m service.dashboard`, a live flow graph of every campaign from the files (snapshot.json every 2 min, served on 127.0.0.1); campaign_status and the dashboard read the point and campaign records (2026-10-05), liveness by flock, no process scan
+description: '`service/` = the `autoresearch` MCP server: check a study (start_check/check_result), run and follow campaigns (start_campaign dry run first), leaderboard, and a live dashboard'
 status: active
-timestamp: '2026-10-05'
+timestamp: '2026-10-08'
 ---
 
 # autoresearch MCP server (study and campaign tools)
@@ -21,8 +21,7 @@ so one broken study file would stop it. The surrogate server is also
 surrokit's generated scaffold. `service/checks.py` imports only the
 standard library plus `core/paths.py` and `core/study.py`.
 
-The campaign tools planned for this server (`campaign_status`,
-`leaderboard`, `start_campaign(confirm)`) come later.
+It also launches and follows campaigns (below) and serves a live dashboard.
 
 ## Key facts
 - **Files:**
@@ -75,23 +74,12 @@ The campaign tools planned for this server (`campaign_status`,
 - **Bare core imports:** `service/checks.py` imports `core/` modules bare, with `core/` on `sys.path`, as every engine module does.
   - A qualified `from core import study` loaded `core.geom_template` beside the bare copy.
   - That failed `tests/test_modes.py` `TestSingleModuleCopy` in the full suite, though not in `tests/test_service.py` on its own.
-- **Tests:** `tests/test_service.py`, 14 tests: the queries, toykit jobs with `--executor local --parallel 1`, and one stdio MCP client session. The suite is 838 OK (skipped=3).
-- **Acceptance (2026-10-02),** through a stdio client in a sandbox data root:
-
-  | Run | Result | Time |
-  |---|---|---|
-  | `ce_chain` local | exit 0, geometry "rendered, not pre-checked" | 58.5 s |
-  | `foilspfbpz_ax` grid | exit 0, pre-check pass (49 foils verified, 0 overlaps) | 313.8 s |
-  | a `study_json` with `"objectives": []` | exit 1, load failed "at least one objective is required", the rest skipped | 1.3 s |
-
-  Side effects were clean.
-- **Live from a Claude Code session (2026-10-02, after the merge and `/mcp`):** `list_studies` listed all 8 studies, each loading; `start_check` on `ce_chain` (local, parallel 1) followed by `check_result` gave exit 0 and `report.ok` true in 50.2 s, against the live data root (job `ce_chain-20261002-151322-3608`).
+- **Tests:** `tests/test_service.py`: the queries, toykit jobs with
+  `--executor local --parallel 1`, and one stdio MCP client session.
 
 ## Campaign tools (2026-10-02)
 
-Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
-`docs/superpowers/plans/2026-10-02-campaign-tools.md`; code
-`service/campaigns.py` (`CampaignService`), `service/jobs.py`
+Code: `service/campaigns.py` (`CampaignService`), `service/jobs.py`
 (`spawn_detached`, `lock_held`, shared with the check jobs).
 
 - **`start_campaign(study, name_prefix, q, max_evals, picker, executor,
@@ -137,10 +125,9 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   and campaign records"):
   - **Parent:** alive while `parent.lock` (closed_loop) or `lock` (the MCP
     wrapper) is held; `exit_code` from `campaign.json`, else `rc`;
-    `launched_by` mcp (`launch.json`, or an old record with `command`),
-    shell (a record only) or None.
-  - **Study:** the record's, else (a campaign from before the records) the
-    one a child's `point.json` names.
+    `launched_by` mcp (`launch.json`), shell (a record only) or None.
+  - **Study:** the record's. A campaign from before the records
+    (2026-10-05) has none, so no board is read for it.
   - **Children** are the `closed_loop_logs/<prefix>R<n>_00.log` files
     (`campaign_dir.is_child`, so `foo` never takes `foo2`). Each is
     `scored` (row on the board), `broken` (`state/broken.txt`), `running`
@@ -171,39 +158,19 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   - confirm is not tied to a dry run: the gate is the operator's
     permission prompt, so never allowlist `start_campaign`.
 - **The `_ax` studies need `--context alpha=…`.** Without it closed_loop
-  refuses "needs --context for ['alpha']". The live `foilspfbpz_ax`
-  board's 41 rows all carry `alpha=100000`.
-- **Acceptance (2026-10-02),** through the stdio client in a sandbox data
-  root, with nothing on the grid:
-  - **`foilspfbpz_ax` grid dry run** (q=10, max_evals=40, alpha=100000):
-    `ok`, with a budget of 130 per point and 5,200 in total.
-  - **`ce_chain` dry run:** refused "has no knobs: … run graph.run".
-  - **branin,** local, q=2, max_evals=4: launched, 4 children scored,
-    `exit_code` 0, and `leaderboard` gave 4 rows.
-- **Live from a Claude Code session (2026-10-02, after the merge and
-  `/mcp`):**
-  - `campaign_status bpzax01` showed 40 children scored, best
-    `bpzax01R15_00` at sob 4.081, parent not alive (it was shell-launched
-    and has ended);
-  - `leaderboard foilspfbpz_ax top=5` gave 41 rows, best `c2bR11ax01` at
-    sob 4.143;
-  - a grid dry run (q=10, max_evals=40, alpha=100000) was refused by
-    closed_loop's board check, which is correct: the live board holds
-    measure_sha 1a91751589c1 and a launch now measures 28a09663f81f (the
-    anakit fork moved). The next `_ax` campaign needs a new
-    `leaderboard.file`. Budget: 130 jobs per point, 5,200 in total.
-- **Tests:** `tests/test_campaigns.py` (17), `TestCheckOnly` in
-  `tests/test_closed_loop.py` (2), `TestSpawn` in `tests/test_service.py`
-  (1), and the stdio test sees nine tools. The suite is 858 OK
-  (skipped=3).
+  refuses "needs --context for ['alpha']". The `foilspfbpz_ax` boards'
+  rows all carry `alpha=100000`.
+- **Tests:** `tests/test_campaigns.py`, `TestCheckOnly` in
+  `tests/test_closed_loop.py`, `TestSpawn` in `tests/test_service.py`; the
+  stdio test sees nine tools.
 
 ## Dashboard (2026-10-04)
 - **What:** `python -m service.dashboard` rebuilds
   `<data root>/autoresearch_dashboard/snapshot.json` every `--every` s
   (default 120) and serves that directory on `127.0.0.1:<port>` (default
   8765); `service/dashboard.html` draws each campaign as a flow graph
-  (campaign → points → steps → result). Start line and tunnel: README
-  "Dashboard". Spec `docs/superpowers/specs/2026-10-04-dashboard-design.md`.
+  (campaign → points → steps → result). Start line and tunnel: QUICKSTART
+  (dashboard).
 - **Source of a step's progress:** the scheduler writes
   `<point>/state/<step>_status.json` on every kit poll (state, the kit's
   message, done/total, time, the chosen `poll_s`). Nothing else reads it;
@@ -220,8 +187,7 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
   polls up to 600 s, beamkit every 120 s, so a fixed 15 min would false-alarm.
 - **Which campaigns:** live ones always, others while their child logs or
   `campaign.json` changed within `--days` (default 7). q and max_evals come
-  from `campaign.json` (an old MCP record's own argv); a shell campaign
-  from before 2026-10-05 has none.
+  from `campaign.json`; a campaign from before 2026-10-05 has none.
 - **Liveness** is the records' flocks (`parent.lock`, `run.lock`), as in
   `campaign_status`: no process table, so another data root's campaigns
   never show (the 2026-10-04 test-suite ghosts are gone).
@@ -230,8 +196,9 @@ Spec `docs/superpowers/specs/2026-10-02-campaign-tools-design.md`; plan
 
 ## Cross-links
 - Related: [contract-engine](/drivers/contract-engine.md) (check_study), [surrogate](/drivers/surrogate.md)
-- Source files: `service/checks.py`, `service/server.py`, `tests/test_service.py`, `.mcp.json`
-- Spec: `docs/superpowers/specs/2026-10-02-autoresearch-mcp-design.md`; plan: `docs/superpowers/plans/2026-10-02-autoresearch-mcp.md`
+- Source files: `service/checks.py`, `service/server.py`,
+  `service/campaigns.py`, `service/jobs.py`, `service/dashboard.py`,
+  `tests/test_service.py`, `tests/test_campaigns.py`, `.mcp.json`
 
 ## Open questions / TODO
 - A real grid campaign launched over MCP (waits for the operator's word).

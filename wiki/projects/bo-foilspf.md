@@ -1,11 +1,7 @@
 ---
 type: project
 title: bo-foilspf — 10D profile-parameterized stopping target
-description: (SEARCH CLOSED 2026-08-08) 10D+ BO over a profile-parameterized
-  all-foils stopping target vs the foilsflash objectives, Run1Bap + IPA-fix
-  stack; bp/bpx/bpz (shape, box, spacing) all stalled best-at-budget at
-  exactly 4.00 — physical ceiling at the deployed damage budget; critical
-  path is full-sim validation of bp04R00_02
+description: '(SEARCH CLOSED 2026-08-08) 10D+ BO over a profile-parameterized foils target; bp/bpx/bpz stalled best-at-budget at 4.00; engine studies now foilspfbpz_ax + foilspf_nominal'
 status: dormant
 status_note: 'SEARCH CLOSED 2026-08-08 on all three axes (shape, box,
   spacing): foilspfbp, bpx, and bpz all stalled best-at-budget at exactly
@@ -43,6 +39,16 @@ production campaign matched the old champion's sob at lower flash with the
 absorber in the *right* place — something no foilsflash row can claim.
 
 ## Key facts
+- **Engine studies now (2026-10-08):** `foilspfbpz_ax` (live, board
+  `leaderboard_bo_foilspfbpz_ax_upstream.tsv`) and `foilspf_nominal` (the
+  deployed baseline and damage-budget source, now in `mode_specs/`). The
+  engine twins `foilspf_ax`, `foilspf2k_ax`, `foilspfbp_ax`,
+  `foilspfbpx_ax`, `foilspfbw_ax` and the archived pipeline copies were
+  deleted 2026-10-08 (git history keeps them). The `_upstream` refill
+  (bpzup02-21 + `nomup01`) ran 2026-10-08; `nomup01` gave sob 1.14014 and
+  flash 7.50675e-06, the damage budget to 6 digits: a no-knob study
+  reproduces the old baseline's simulation exactly. (The earlier MDC2025ax
+  per-POT budget was 6.50684e-07, from `c2bnom01` on 2026-09-28.)
 - **★★ SEARCH CLOSED (2026-08-08): foilspfbpz01 drained 40/40 with 0
   failures and best-at-budget stalled at EXACTLY 4.00 for the third
   consecutive campaign** — still the seed `bp04R00_09` (4.000); bpz's own

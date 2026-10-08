@@ -1,16 +1,11 @@
 ---
 type: incident
 title: EleBeamCat persistent→tape migration wipes out a whole elebeam round
-description: 'EleBeamCat Run1Baa moved persistent→tape mid-campaign (2026-07-09):
-  all foilsflash10 elebeam jobs FileOpenError → blank outputs.txt → fail-soft flash=None
-  → 0 rows despite valid sob; basename filelists mean fresh `submit --force` auto-resolves
-  via SAM; MuBeamCat still on persistent (WATCH — **FIRED 2026-07-13**, fixed 6906cb8);
-  since the prodtools switch workers resolve inputs through SAM, so a migration is
-  followed automatically and the pre-submit probe was retired (b1e3531)'
+description: 'EleBeamCat moved to tape mid-campaign (2026-07-09): every foilsflash10 elebeam job failed to open its input, 0 rows; since prodtools, workers resolve inputs through SAM'
 status: resolved
 status_note: '(migration class closed by the prodtools switch: workers resolve every input
   through SAM at job start; the pre-submit probe was retired in b1e3531, 2026-08-16)'
-timestamp: '2026-09-24'
+timestamp: '2026-10-08'
 updated_note: why the input probe could be retired -- prodtools resolves inputs through SAM on the worker
 ---
 

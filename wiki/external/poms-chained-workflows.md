@@ -1,10 +1,10 @@
 ---
 type: external
 title: POMS chained workflows, compared with the study JSON
-description: POMS chains stages in an .ini campaign file ([dependencies X] = upstream stage + file pattern) and passes data through SAM lineage once the upstream submission is Located; it moves files, not numbers, and needs SAM-declared outputs, so it is no better for autoresearch studies; three ideas worth borrowing (edge file pattern, completion_pct = quorum, multiparam scan)
+description: 'POMS chains stages in an .ini campaign file via SAM lineage; moves files, not numbers, so no better for studies; borrowable: edge file pattern, completion_pct = quorum'
 status: active
 status_note: reviewed 2026-09-25 against fermitools/poms 0dae5d0 (2026-09-11) and Mu2e's Production/CampaignConfig
-timestamp: '2026-09-25'
+timestamp: '2026-10-08'
 ---
 
 # POMS chained workflows, compared with the study JSON

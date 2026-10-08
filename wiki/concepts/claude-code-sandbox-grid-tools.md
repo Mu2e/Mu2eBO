@@ -1,10 +1,10 @@
 ---
 type: concept
 title: Claude Code Bash sandbox vs grid tools
-description: Claude Code's built-in Bash sandbox (bubblewrap) breaks kinit and jobsub_q on mu2esrv01 — its network namespace has no DNS and only proxies HTTP(S), and allowlisting *.fnal.gov does not help; grid commands must run outside it
+description: 'Claude Code''s Bash sandbox breaks kinit + jobsub_q on mu2esrv01 (no DNS, HTTP-only proxy); grid commands need excludedCommands'
 status: active
 status_note: measured 2026-09-30 on mu2esrv01, Claude Code 2.1.286
-timestamp: '2026-09-30'
+timestamp: '2026-10-08'
 ---
 
 # Claude Code Bash sandbox vs grid tools

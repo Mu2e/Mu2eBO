@@ -1,9 +1,9 @@
 ---
 type: concept
 title: loop-framework-spike-2026-09 — can libEnsemble or Xopt replace our BO loop?
-description: 'throwaway spike (2026-09-23): libEnsemble 1.6.1 and Xopt 3.2.2 both drive surrokit (as a gest-api generator) + an MCP kit evaluator asynchronously with pending points; both lose in-flight evals on a kill until ~20 lines of re-queue code are added, then 0 orphans / 0 duplicate submits; libEnsemble stops exactly at target and refuses a bad restart loudly, Xopt overshoots by up to q-1 and never dumps data in async mode'
+description: 'spike (2026-09-23): libEnsemble and Xopt can both drive surrokit + an MCP kit evaluator; recommendation: keep our own loop'
 status: active
-timestamp: '2026-09-23'
+timestamp: '2026-10-08'
 ---
 
 # loop-framework-spike-2026-09
@@ -79,7 +79,7 @@ The evaluator's adopt-by-name then picks the still-running job up. About
   [surrogate](/drivers/surrogate.md),
   [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md),
   [ml-stack-review-2026-07](/concepts/ml-stack-review-2026-07.md)
-- Spec that asked the question: `docs/superpowers/specs/2026-09-22-kit-seam-design.md`
+- The question came from the kit-seam design (2026-09-22; the spec is not kept in the repo).
 - External: [libEnsemble](https://github.com/Libensemble/libensemble),
   [Xopt](https://github.com/xopt-org/Xopt),
   [gest-api](https://github.com/campa-consortium/gest-api),
@@ -89,5 +89,5 @@ The evaluator's adopt-by-name then picks the still-running job up. About
 - Adopt libEnsemble as the loop? Recommendation (2026-09-23): no. Keep
   our loop, make surrokit a gest-api generator, and revisit if HPC
   dispatch, a partner workflow, or recurring loop incidents call for it.
-  Awaiting operator sign-off; reasoning in
-  `docs/superpowers/specs/2026-09-23-mcp-framework-plan.md` §5.
+  Awaiting operator sign-off (the reasoning was in the 2026-09-23 MCP
+  framework plan, not kept in the repo).
