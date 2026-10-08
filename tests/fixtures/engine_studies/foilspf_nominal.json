@@ -426,7 +426,7 @@
   }
  ],
  "leaderboard": {
-  "file": "leaderboards/leaderboard_foilspf_nominal.tsv",
+  "file": "leaderboards/leaderboard_foilspf_nominal_upstream.tsv",
   "layout": "v2",
   "context": [
    "alpha"

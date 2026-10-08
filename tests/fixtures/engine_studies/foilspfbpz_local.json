@@ -497,7 +497,7 @@
   }
  ],
  "leaderboard": {
-  "file": "leaderboards/leaderboard_foilspfbpz_local.tsv",
+  "file": "leaderboards/leaderboard_foilspfbpz_local_upstream.tsv",
   "layout": "v2",
   "context": [
    "alpha"

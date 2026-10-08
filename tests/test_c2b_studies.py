@@ -432,6 +432,12 @@ class TestFixtures(unittest.TestCase):
             self.assertEqual([o["metric"] for o in fixture["objectives"]],
                              [o["metric"] for o in twin["objectives"]])
             self.assertEqual(fixture["constraints"], twin["constraints"])
+            # A new measurement, a new board (as the twins): the old board
+            # holds rows of the fork's measure_sha, so a launch onto it is
+            # refused.
+            self.assertEqual(
+                fixture["leaderboard"]["file"],
+                f"leaderboards/leaderboard_{fixture['name']}_upstream.tsv")
         for mine, theirs in zip(local["evaluate"], twin["evaluate"]):
             self.assertEqual({k: v for k, v in mine.items() if k != "fixed"},
                              {k: v for k, v in theirs.items() if k != "fixed"})
