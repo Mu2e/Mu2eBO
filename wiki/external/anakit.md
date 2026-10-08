@@ -64,6 +64,10 @@ we ran a fork with three analyses of our own; that history is kept below.
   analyses run on MDC2025ay. MDC2025ay's EdepAna reads an MDC2025ax
   CeEndpoint file and its tree agrees with its printed summary (75,000
   generated, 39,152 seen; checked 2026-10-07).
+- The study loader takes one spelling only, `<Musing> <version>` with one
+  space (`core/kit_registry.py:_musing`, 2026-10-07): the setting is
+  hashed as written, so `SimJob/MDC2025ay` would have given the same
+  Musing a second `measure_sha`.
 - The launch check refuses a missing setting, a value that is not a Musing
   and a version (split as his `Mu2eEnv.for_musing` splits: `/` or spaces),
   and an unpublished one (no `/cvmfs/mu2e.opensciencegrid.org/Musings/<M>/<v>`).

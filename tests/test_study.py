@@ -801,8 +801,10 @@ class TestReservedEntry(_Tmp):
 
 
 
-# measure_basis_sha of every study at 8cea00a, before params_from existed: an
-# empty params_from must leave each one, and so each board, as it was.
+# measure_basis_sha of every study: a change moves its board, so re-pin only
+# on purpose. ptg4bl's is still the one from 8cea00a, before params_from
+# existed (an empty params_from left every study as it was); the eight anakit
+# studies were re-pinned on 2026-10-07 for M. MacKenzie's analyses.
 PINNED = {
     "ce_chain": "3a300aecbea8dba8d289c4f78c4a941b01ec18c2293a14a793b86f7263e59189",
     "foilsflash_ax": "b96e6c99648c677b5046f7f223df5477eba156dc27ecb15aaed57d31e6b904bd",
@@ -862,6 +864,17 @@ class TestParamsFrom(_Tmp):
                 _step(doc, "sob")["fixed"][key] = (
                     "/t.tbl" if key == "dio_table" else 0.5)
                 self.assertRejects(doc, key)
+
+    def test_the_musing_has_one_spelling(self):
+        # The setting is hashed as written, so a second spelling of the same
+        # Musing would give a second measure_sha (a board refused at launch).
+        for bad in ("SimJob/MDC2025ay", "SimJob  MDC2025ay", " SimJob MDC2025ay",
+                    "SimJob", "SimJob MDC2025ay extra", 3):
+            with self.subTest(bad=bad):
+                doc = _doc()
+                doc["kits"]["anakit"]["musing"] = bad
+                self.assertRejects(doc, "[kits.anakit][musing]",
+                                   "'SimJob MDC2025ay'")
 
     def test_a_clash_with_params_fixed_or_settings(self):
         cases = (("params_from vs fixed", {"analysis": "flash.v"}, {}, "analysis"),
