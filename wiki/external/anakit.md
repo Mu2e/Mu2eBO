@@ -43,6 +43,13 @@ we ran a fork with three analyses of our own; that history is kept below.
   `trigger_efficiency_ntuple`, and what they import); bump
   `core/adapters/anakit.py:VERSION` if their numbers change. The checkout
   commit is each step's recorded build, never part of `measure_sha`.
+- **Pin:** `core/adapters/anakit.py:ANAKIT_PIN_SHA` names the accepted
+  commit, and the suite asserts the checkout matches it
+  (`tests/test_anakit_kit.py` TestAnakitPin, like `SURROKIT_PIN_SHA`):
+  his defaults and the DIO constants sit outside `measure_basis`, so a
+  pulled checkout fails the suite instead of moving the numbers. The
+  engine itself does not refuse a newer commit (a step records its
+  build); bump the pin after re-validating.
 - `VERSION = "anakit-adapter/2"` (2026-10-07): the server runs on a Musing.
 - `kits.toml [servers.anakit]` runs it under ana 2.7.0 (his
   `pyproject.toml` pins `mcp<2`) with `-P`, and sets
@@ -57,6 +64,10 @@ we ran a fork with three analyses of our own; that history is kept below.
   analyses run on MDC2025ay. MDC2025ay's EdepAna reads an MDC2025ax
   CeEndpoint file and its tree agrees with its printed summary (75,000
   generated, 39,152 seen; checked 2026-10-07).
+- The study loader takes one spelling only, `<Musing> <version>` with one
+  space (`core/kit_registry.py:_musing`, 2026-10-07): the setting is
+  hashed as written, so `SimJob/MDC2025ay` would have given the same
+  Musing a second `measure_sha`.
 - The launch check refuses a missing setting, a value that is not a Musing
   and a version (split as his `Mu2eEnv.for_musing` splits: `/` or spaces),
   and an unpublished one (no `/cvmfs/mu2e.opensciencegrid.org/Musings/<M>/<v>`).
@@ -70,7 +81,9 @@ we ran a fork with three analyses of our own; that history is kept below.
 - `stops`: `muon_stop_rate` on `mubeam` (TargetStops files only),
   `upstream_eff` 0.01278168 (was `input_correction`).
 - `ce_edep`: `edep` on `mustops_ce`; its result file, the EdepAna ntuple,
-  is the next step's input.
+  is the next step's input. The slowest step: 933 s on bpzax01R12_00's
+  files on a loaded node (2026-10-07), under the adapter's
+  `RUN_TIMEOUT_S` of 3000 s.
 - `sob`: `approx_ce_sensitivity` on `ce_edep`, `params_from`
   `{"stops_per_pot": "stops.stops_per_pot"}`, `cosmic_rate_per_s_per_mev`
   0.0018181818181818182 (the macro's 2e4/1.1e7, 141.8x his default).

@@ -6,6 +6,14 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-07
+- **updated** [anakit](/external/anakit.md): review leftovers of the
+  upstream-analyses merge — `ANAKIT_PIN_SHA` (3ba8d23bbf47) asserted by
+  the suite like `SURROKIT_PIN_SHA`; `kits.anakit.musing` takes one
+  spelling (`<Musing> <version>`, one space) so a second spelling cannot
+  give a second `measure_sha`; the old-version refusal gives the rerun
+  recipe; "fork" names in the adapter are "checkout"; an engine test runs
+  each `_ax` study's seven steps; `ce_edep` runtime recorded (933 s of
+  3000 s).
 - **updated** [anakit](/external/anakit.md),
   [contract-engine](/drivers/contract-engine.md): the `_ax` studies and
   `ce_chain` run on M. MacKenzie's analyses — the checkout is his `main`
@@ -16,7 +24,9 @@ superseded, linted.
   analyses and the work area `autoresearch_muse_ax` are retired.
   Acceptance without the grid: bpzax01R12_00 re-analysed (stops exact,
   flash 1e-7, sensitivity 1.32707 = his tool by hand, new/old 0.3474),
-  all eight launch checks pass, `ce_chain` lands a row locally.
+  all eight launch checks pass (`foilspf2k_ax`'s geometry pre-check
+  still fails at its knob-box centre, as before), `ce_chain` lands a row
+  locally.
 - **updated** [contract-engine](/drivers/contract-engine.md): `params_from`,
   a step param from an earlier step's metric (load rules, `Step.upstream`,
   `metrics_read`, run-time refusal of a missing or non-finite metric,

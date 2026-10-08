@@ -48,6 +48,18 @@ def _string(v, where):
     return v
 
 
+def _musing(v, where):
+    # One spelling only: the setting is hashed as written, so
+    # "SimJob/MDC2025ay" would give the same Musing a second measure_sha.
+    if (not isinstance(v, str) or len(v.split(" ")) != 2
+            or not all(p and "/" not in p and p == p.strip()
+                       for p in v.split(" "))):
+        raise ValueError(f"{where}: must be a Musing and its version "
+                         f"separated by one space, e.g. 'SimJob "
+                         f"MDC2025ay', got {v!r}")
+    return v
+
+
 def _number(v, where):
     if (isinstance(v, bool) or not isinstance(v, (int, float))
             or not math.isfinite(v)):
@@ -215,7 +227,7 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             factory="adapters.offline_preflight:OfflinePreflightKit",
             reserved_params=frozenset()),
     KitDecl("anakit",
-            study_keys={"musing": _string},
+            study_keys={"musing": _musing},
             fixed_keys={"analysis": _string, "upstream_eff": _number,
                         "cosmic_rate_per_s_per_mev": _number,
                         "trigger_paths": _string},

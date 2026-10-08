@@ -4,7 +4,7 @@ docs/superpowers/specs/2026-10-05-measure-identity-design.md).
 
 A row's measure_sha is the study's measure basis plus each step kit's
 version (core/study.py:Study.measure_sha). A kit's version changes only
-when its author bumps it by hand (2026-10-05): a build -- the anakit fork
+when its author bumps it by hand (2026-10-05): a build -- the anakit checkout
 commit, the beamkit server -- is recorded with each step, never in the
 version. score and the launch check (contract.launch_problems) both decide
 through this module.

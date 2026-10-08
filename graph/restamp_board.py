@@ -2,7 +2,7 @@
 builds differ (spec
 docs/superpowers/specs/2026-10-05-measure-identity-design.md).
 
-Since 2026-10-05 a kit's version is hand-bumped: the anakit fork commit and
+Since 2026-10-05 a kit's version is hand-bumped: the anakit checkout commit and
 the beamkit server version are a step's recorded build, no longer part of
 the version. Rows measured before carry the old version strings, so their
 measure_sha differs from what a launch computes now, and the launch check
@@ -166,11 +166,11 @@ def restamp(study, board, grid_root: Path, current: Dict[str, str],
 
 
 def git_analysis_log(old: str, new: str) -> str:
-    """The anakit fork's analysis commits between two builds."""
-    fork = os.environ.get("AUTORESEARCH_ANAKIT")
-    if not fork:
+    """The anakit checkout's analysis commits between two builds."""
+    checkout = os.environ.get("AUTORESEARCH_ANAKIT")
+    if not checkout:
         raise RuntimeError("AUTORESEARCH_ANAKIT is not set")
-    r = subprocess.run(["git", "-C", fork, "log", "--oneline",
+    r = subprocess.run(["git", "-C", checkout, "log", "--oneline",
                         f"{old}..{new}", "--", "tools/analyses/"],
                        capture_output=True, text=True)
     if r.returncode != 0:

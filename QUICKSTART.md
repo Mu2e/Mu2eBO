@@ -37,7 +37,7 @@ bash prodtools/mcp/scripts/install.sh       # its MCP venv
 
 # anakit: M. MacKenzie's analysis server, run by the *_ax studies and ce_chain (pinned)
 git clone https://github.com/michaelmackenzie/analysis-mcp-server.git analysis-mcp-server
-git -C analysis-mcp-server switch --detach 3ba8d23
+git -C analysis-mcp-server switch --detach 3ba8d23   # = ANAKIT_PIN_SHA in core/adapters/anakit.py
 
 # beamkit: the G4beamline kit for ptg4bl
 git clone -b v1 https://github.com/oksuzian/beamkit.git beamkit
@@ -74,8 +74,9 @@ update, run `/mcp` in the session to reload them.
 >   (`/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/data/`).
 >
 > Tested on 2026-10-06 against upstream `Mu2e/prodtools` `main`: a local
-> `ce_chain` point ran end to end (median |p| 104.022, the same as on the
-> development checkout).
+> `ce_chain` point ran end to end. On M. MacKenzie's analyses (2026-10-07)
+> a local `ce_chain` point gives n_selected 40, n_triggered 39, efficiency
+> 0.975.
 
 ## 2. Every new shell
 
