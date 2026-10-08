@@ -73,3 +73,6 @@ docs/*.toc
 
 # subagent-driven-development scratch workspace
 .superpowers/
+
+# superpowers specs and plans stay local (not published); files already on main stay tracked
+docs/superpowers/
