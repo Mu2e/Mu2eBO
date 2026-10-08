@@ -1,5 +1,4 @@
-"""core/locks.py: the flock helpers the point and campaign records use
-(spec docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
+"""core/locks.py: the flock helpers the point and campaign records use."""
 import fcntl
 import os
 import signal

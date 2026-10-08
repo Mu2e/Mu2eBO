@@ -6,8 +6,7 @@ leaderboard. No MCP here; service/server.py wraps each method as a tool.
 A campaign is named by its --name-prefix; its children are
 <prefix>R<n>_00 (core/campaign_dir.py: is_child, so `foo` never takes
 `foo2`). Status reads the records every campaign leaves behind, from a
-shell or from here (spec
-docs/superpowers/specs/2026-10-05-point-campaign-records-design.md):
+shell or from here:
   <graph data>/<prefix>/        the campaign record (core/campaign_dir.py):
                                 campaign.json, outcomes.jsonl, parent.lock,
                                 STOP; for a launch from here also

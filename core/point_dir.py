@@ -1,6 +1,5 @@
 """The point record: one owner for a point's state folder,
-<grid>/<config>/state/ (spec
-docs/superpowers/specs/2026-10-05-point-campaign-records-design.md).
+<grid>/<config>/state/.
 
 Every writer (the scheduler, the per-point graph, score, graph.run) and
 every reader (closed_loop's busy check, check_study, the campaign service,

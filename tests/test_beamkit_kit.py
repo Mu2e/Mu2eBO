@@ -1,8 +1,7 @@
 """beamkit as a contract kit: its registry entry and settings, the adapter
 (core/adapters/beamkit.py) against tests/fakebeamkit.py, and the ptg4bl
-study end to end against the fake (spec
-docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md). No grid, no
-Kerberos, no real beamkit."""
+study end to end against the fake (wiki/projects/bo-ptg4bl.md). No grid,
+no Kerberos, no real beamkit."""
 import copy
 import json
 import os

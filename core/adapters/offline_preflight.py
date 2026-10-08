@@ -1,7 +1,5 @@
 """The geometry pre-check as a contract kit: the adapter the engine drives
-for a study whose preflight is `offline_preflight` (Phase C2a spec,
-docs/superpowers/specs/2026-09-26-c2a-preflight-kit-design.md, "1. The
-offline_preflight kit").
+for a study whose preflight is `offline_preflight`.
 
 check hands the point to preflight_checks.run_preflight: unpack the
 study's code tarball (the one its prodtools steps ship, so the pre-check

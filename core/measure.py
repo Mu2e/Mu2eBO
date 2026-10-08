@@ -1,6 +1,5 @@
 """Measure identity: which kit versions a point is measured at, and whether
-a board's rows match it (spec
-docs/superpowers/specs/2026-10-05-measure-identity-design.md).
+a board's rows match it (wiki/drivers/contract-engine.md).
 
 A row's measure_sha is the study's measure basis plus each step kit's
 version (core/study.py:Study.measure_sha). A kit's version changes only

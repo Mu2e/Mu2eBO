@@ -21,7 +21,7 @@ import modes  # noqa: E402
 # want.
 SHIPPED = ("ce_chain", "foilsflash_ax", "foilspf_nominal", "foilspfbpz_ax",
            "ptg4bl")
-# Retired names that must never load (mode_specs/README.md, "archive/"):
+# Retired names that must never load (see mode_specs/README.md):
 # the seven original foilspf studies (their files were deleted on
 # 2026-10-08; git history keeps them, and their boards stay in
 # leaderboards/) and the four schema-1 files in mode_specs/archive/.

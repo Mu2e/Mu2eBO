@@ -1,4 +1,4 @@
-"""The ce_chain study (docs/superpowers/specs/2026-09-30-ce-chain-design.md):
+"""The ce_chain study (wiki/drivers/contract-engine.md):
 the CeEndpoint dts -> dig -> mcs -> nts -> plot chain, zero knobs."""
 import json
 import re
@@ -52,8 +52,7 @@ class TestCeChain(unittest.TestCase):
         self.assertIsNone(re.search(r"^\s*\S+\s*:", text, re.M))
 
     def test_the_plot_step_runs_trigger_efficiency_ntuple(self):
-        """M. MacKenzie's analysis (docs/superpowers/specs/
-        2026-10-07-upstream-analyses-design.md, section 4)."""
+        """M. MacKenzie's analysis (wiki/external/anakit.md)."""
         s = load()
         plot = s.steps[-1]
         self.assertEqual(plot.fixed, {

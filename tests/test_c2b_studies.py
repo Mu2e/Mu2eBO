@@ -20,8 +20,7 @@ from tests.engine_fixtures import ENGINE_STUDIES  # noqa: E402
 MODES = ROOT / "mode_specs"
 TWINS = ("foilsflash_ax", "foilspfbpz_ax")
 TARBALL = "${ARTIFACT}/autoresearch_muse/Code_mdc2025ax.tar.bz2"
-# M. MacKenzie's four analyses (docs/superpowers/specs/
-# 2026-10-07-upstream-analyses-design.md, section 3).
+# M. MacKenzie's four analyses (wiki/external/anakit.md).
 STEPS = ["mubeam", "mustops_ce", "elebeam_flash", "stops", "ce_edep", "sob",
          "flash"]
 

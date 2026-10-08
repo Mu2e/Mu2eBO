@@ -1,8 +1,5 @@
 """anakit as a contract kit: the adapter the engine drives for every
-`kit: "anakit"` step (Phase C2b spec,
-docs/superpowers/specs/2026-09-27-c2b-anakit-analyses-design.md, "3. The
-anakit adapter"; on a Musing since
-docs/superpowers/specs/2026-10-07-upstream-analyses-design.md).
+`kit: "anakit"` step (wiki/external/anakit.md).
 
 anakit is M. MacKenzie's analysis MCP server, run from the checkout of his
 main that $AUTORESEARCH_ANAKIT names. Its mu2e jobs set up the published

@@ -1,5 +1,5 @@
-# Native contract kits (docs/superpowers/specs/2026-09-23-generic-study-design.md,
-# "The evaluator contract"). A kit that speaks submit / status / results over
+# Native contract kits (the evaluator contract: core/contract.py,
+# wiki/drivers/contract-engine.md). A kit that speaks submit / status / results over
 # MCP needs only an entry here: the engine calls its tools directly. Every key
 # is required and unknown keys are rejected (ADR-0002). Tokens in `command`
 # and `set`: ${PYTHON} (the running interpreter), ${REPO_ROOT} and
@@ -63,8 +63,8 @@ env_passthrough = []
 set = { PYTHONPATH = "${AUTORESEARCH_ANAKIT}", SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}", OPENBLAS_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 timeouts = { start = 120, list_analyses = 120, run_analysis = 3600 }
 
-# G4beamline through beamkit (core/adapters/beamkit.py drives it; spec
-# docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md). beamkit runs
+# G4beamline through beamkit (core/adapters/beamkit.py drives it;
+# wiki/projects/bo-ptg4bl.md). beamkit runs
 # from its own checkout's venv ($AUTORESEARCH_BEAMKIT). It submits through
 # prodtools, so it gets the prodtools_write credentials and site settings,
 # and BEAMKIT_PRODTOOLS_ROOT names the same dev checkout the prodtools kit

@@ -1,7 +1,6 @@
 """service/campaigns.py: the autoresearch MCP server's campaign tools --
 start (a dry run, then confirm), stop, status and the leaderboard -- on the
-branin engine study, locally (spec
-docs/superpowers/specs/2026-10-02-campaign-tools-design.md)."""
+branin engine study, locally."""
 import os
 import signal
 import socket

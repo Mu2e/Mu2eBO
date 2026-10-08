@@ -1,6 +1,5 @@
 """service/dashboard.py: the live campaign dashboard -- its data from the
-campaign files, the flow graph, the snapshot loop (spec
-docs/superpowers/specs/2026-10-04-dashboard-design.md)."""
+campaign files, the flow graph, the snapshot loop."""
 import contextlib
 import copy
 import json

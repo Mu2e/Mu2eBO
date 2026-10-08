@@ -1,5 +1,4 @@
-"""core/point_dir.py: one owner for a point's state folder (spec
-docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
+"""core/point_dir.py: one owner for a point's state folder."""
 import json
 import os
 import sys

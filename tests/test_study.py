@@ -759,7 +759,7 @@ class TestParamsFrom(_Tmp):
             ("a self reference", _params_from("sob", {"x": "sob.v"}),
              "params_from.x", "its own result"),
             # The fork's analyses took these; M. MacKenzie's do not
-            # (docs/superpowers/specs/2026-10-07-upstream-analyses-design.md).
+            # (wiki/external/anakit.md).
             *[(f"retired anakit setting {key}",
                lambda d, key=key: _step(d, "sob")["fixed"].update(
                    {key: "/t.tbl" if key == "dio_table" else 0.5}),

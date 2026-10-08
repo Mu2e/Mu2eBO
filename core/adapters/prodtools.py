@@ -1,6 +1,5 @@
 """prodtools as a contract kit: the adapter the engine drives for every
-`kit: "prodtools"` step (Phase C1 spec,
-docs/superpowers/specs/2026-09-25-prodtools-kit-design.md, "The adapter").
+`kit: "prodtools"` step.
 
 submit renders the step's stage template into a json2jobdef entry, builds
 the per-config code tarball, hard-links the upstream outputs into a dir:

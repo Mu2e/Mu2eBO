@@ -85,8 +85,7 @@ class TestBusyNames(TmpCase):
 
 class TestCampaignRecord(TmpCase):
     """Every campaign writes <GRAPH_DATA>/<prefix>/campaign.json and one
-    outcomes.jsonl line per finished child (spec
-    docs/superpowers/specs/2026-10-05-point-campaign-records-design.md).
+    outcomes.jsonl line per finished child.
     TestBraninCampaign checks the record and outcomes of a whole run."""
 
     LOCAL = ["--executor", "local", "--parallel", "1"]

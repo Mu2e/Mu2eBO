@@ -1,6 +1,6 @@
 """beamkit as a contract kit: the adapter the engine drives for every
-`kit: "beamkit"` step, a G4beamline run on the Fermilab grid (spec
-docs/superpowers/specs/2026-10-02-g4bl-ptarget-design.md).
+`kit: "beamkit"` step, a G4beamline run on the Fermilab grid
+(wiki/projects/bo-ptg4bl.md).
 
 beamkit (the MCP server in $AUTORESEARCH_BEAMKIT) runs a pinned
 G4BeamlineScripts deck through prodtools. A step's params are deck params:

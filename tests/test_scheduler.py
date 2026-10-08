@@ -345,8 +345,7 @@ class TestPolling(_Run):
 
 
 class TestStatusFile(_Run):
-    """Each poll lands in <step>_status.json for the dashboard (spec
-    docs/superpowers/specs/2026-10-04-dashboard-design.md)."""
+    """Each poll lands in <step>_status.json for the dashboard."""
 
     def status(self, step_name="a"):
         return json.loads((self.state / f"{step_name}_status.json")

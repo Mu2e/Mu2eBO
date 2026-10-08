@@ -1,6 +1,5 @@
 """core/adapters/anakit.py: anakit (M. MacKenzie's analysis MCP server) as
-a contract kit (Phase C2b spec, section 3; on a Musing since
-docs/superpowers/specs/2026-10-07-upstream-analyses-design.md). Unit tests
+a contract kit, run on a Musing (wiki/external/anakit.md). Unit tests
 drive the adapter with a fake client; one test drives it through the real
 KitClient against tests/fakeanakit.py over stdio."""
 import json

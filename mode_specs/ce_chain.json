@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "ce_chain",
- "note": "The CeEndpoint production chain as a zero-knob study: dts -> dig -> mcs -> nts on SimJob MDC2025ax through AnalysisMDC2025 v02_02_02, then an anakit plot step. Runs through graph.run only. Its count of selected events stands in for the objective the loader demands. The plot step is M. MacKenzie's trigger_efficiency_ntuple. The ntuple is the triggered stream, so its efficiency is conditional: this checks the chain, not the trigger. See docs/superpowers/specs/2026-09-30-ce-chain-design.md and docs/superpowers/specs/2026-10-07-upstream-analyses-design.md.",
+ "note": "The CeEndpoint production chain as a zero-knob study: dts -> dig -> mcs -> nts on SimJob MDC2025ax through AnalysisMDC2025 v02_02_02, then an anakit plot step. Runs through graph.run only. Its count of selected events stands in for the objective the loader demands. The plot step is M. MacKenzie's trigger_efficiency_ntuple. The ntuple is the triggered stream, so its efficiency is conditional: this checks the chain, not the trigger. See wiki/drivers/contract-engine.md and wiki/external/anakit.md.",
  "knobs": [],
  "derive": {
   "consts": {},

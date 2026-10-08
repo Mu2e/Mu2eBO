@@ -1,5 +1,4 @@
-"""The flock helpers, first written for the point and campaign records
-(spec docs/superpowers/specs/2026-10-05-point-campaign-records-design.md).
+"""The flock helpers, first written for the point and campaign records.
 
 A holder keeps an exclusive flock(2) on a file for as long as its `with`
 block lasts; the lock belongs to the open file description, so it is

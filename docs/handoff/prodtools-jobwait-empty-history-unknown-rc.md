@@ -2,7 +2,7 @@
 
 **Repo:** `oksuzian/prodtools` (branch `code-tarball`; also shipped as
 `/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.1.0`)
-**Files in scope:** `utils/jobwait.py`, `docs/superpowers/specs/2026-08-16-jobwait-design.md`
+**Files in scope:** `utils/jobwait.py` and its design spec in prodtools (`2026-08-16-jobwait-design.md`)
 **Reported:** 2026-08-20, from the autoresearch closed-loop grid path
 **Severity:** loses an entire completed cluster; schedd-dependent, so it can
 strike any campaign

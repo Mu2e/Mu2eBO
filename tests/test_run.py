@@ -220,8 +220,7 @@ class TestResume(_Point):
 
 
 class TestRunLock(_Point):
-    """graph.run holds the point's state/run.lock while it runs (spec
-    docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
+    """graph.run holds the point's state/run.lock while it runs."""
 
     def pd(self, config="p1"):
         from point_dir import PointDir

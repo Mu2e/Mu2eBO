@@ -1,7 +1,6 @@
-"""The geometry pre-check's pieces, as plain functions (Phase C2a spec,
-docs/superpowers/specs/2026-09-26-c2a-preflight-kit-design.md, "1. The
-offline_preflight kit"): the surface-check files, running `mu2e -n 1`
-from a code tarball's Code/, and reading its log into a verdict.
+"""The geometry pre-check's pieces, as plain functions: the surface-check
+files, running `mu2e -n 1` from a code tarball's Code/, and reading its log
+into a verdict.
 run_preflight is the whole sequence; the offline_preflight adapter
 (core/adapters/offline_preflight.py) calls it.
 Stdlib and prodtools_entry only.

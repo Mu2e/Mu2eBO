@@ -1,12 +1,10 @@
-"""The live campaign dashboard (spec
-docs/superpowers/specs/2026-10-04-dashboard-design.md): every campaign in
+"""The live campaign dashboard (wiki/drivers/service.md): every campaign in
 flight as a flow graph -- campaign, points, steps, result -- rebuilt from the
 campaign and point records every campaign leaves behind and written to
 snapshot.json, which service/dashboard.html draws.
 
 Monitoring only: it reads files through CampaignService and the records
-(core/campaign_dir.py, core/point_dir.py, spec
-docs/superpowers/specs/2026-10-05-point-campaign-records-design.md); it
+(core/campaign_dir.py, core/point_dir.py); it
 calls no kit, no grid tool and nothing that needs Kerberos. Only the
 standard library and what service/campaigns.py imports: never modes.
 

@@ -1,5 +1,4 @@
-"""core/campaign_dir.py: child names and the campaign record (spec
-docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
+"""core/campaign_dir.py: child names and the campaign record."""
 import json
 import subprocess
 import sys

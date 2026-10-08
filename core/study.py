@@ -3,7 +3,7 @@
 Every key is required, unknown keys are rejected, and every error names the
 file, the field and the rule (ADR-0002). A study reaches the physics only
 through the kits it names (core/kit_registry.py). STDLIB ONLY.
-Spec: docs/superpowers/specs/2026-09-23-generic-study-design.md
+The format: mode_specs/README.md.
 """
 from __future__ import annotations
 

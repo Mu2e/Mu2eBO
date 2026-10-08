@@ -1,6 +1,6 @@
 """service/: the autoresearch MCP server's study tools -- check a study as
 `python -m graph.check_study` does, in a detached job polled for its report
-(spec docs/superpowers/specs/2026-10-02-autoresearch-mcp-design.md)."""
+(wiki/drivers/service.md)."""
 import json
 import os
 import signal

@@ -1,6 +1,5 @@
 """The campaign record: child names and one owner for a campaign's folder,
-<graph data>/<prefix>/ (spec
-docs/superpowers/specs/2026-10-05-point-campaign-records-design.md).
+<graph data>/<prefix>/.
 
 graph.closed_loop writes it for every campaign, from a shell or from the
 MCP server, and the campaign service and the dashboard read it:

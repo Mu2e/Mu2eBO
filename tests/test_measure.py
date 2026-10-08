@@ -1,5 +1,5 @@
 """core/measure.py: one place decides a point's versions and whether a board
-matches (spec docs/superpowers/specs/2026-10-05-measure-identity-design.md)."""
+matches."""
 import sys
 import unittest
 from pathlib import Path

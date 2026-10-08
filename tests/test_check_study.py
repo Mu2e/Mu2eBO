@@ -1,7 +1,7 @@
 """graph/check_study.py: a study file is checked before launch -- it loads,
 its ${ARTIFACT} paths exist, the launch check passes and its geometry
 passes the pre-check at the center point -- with nothing submitted and no
-board row (spec docs/superpowers/specs/2026-10-01-check-study-design.md)."""
+board row."""
 import contextlib
 import fcntl
 import io
