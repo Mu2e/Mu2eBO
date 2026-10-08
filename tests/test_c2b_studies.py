@@ -450,5 +450,58 @@ class TestFixtures(unittest.TestCase):
             st.load_study_file(ENGINE_STUDIES / f"{fixture['name']}.json")
 
 
+class TestTheChainRuns(unittest.TestCase):
+    """Each _ax study's real seven steps through run_steps with a scripted
+    kit: the producers run first, each anakit step reads the files of the
+    step it names in files_from, and sob gets the stops step's
+    stops_per_pot through params_from."""
+
+    def test_each_twin_wires_its_seven_steps(self):
+        import tempfile
+        import time
+        import scheduler as sch
+        from tests.test_scheduler import FakeKit, Kits
+        geom = {"name": "geom", "uri": "file:///tmp/geom", "kind": "geom"}
+        for name in TWINS:
+            with self.subTest(study=name), \
+                    tempfile.TemporaryDirectory() as tmp:
+                study = modes.STUDIES[name]
+                x = [(lo + hi) / 2 for lo, hi in zip(study.bounds_lo,
+                                                     study.bounds_hi)]
+                kit = FakeKit(metrics={"stops": {"stops_per_pot": 1.26e-3}})
+                out = sch.run_steps(
+                    study, config="c", state_dir=Path(tmp) / "state",
+                    env=study.geom.derived_env(x), files={"geom": geom},
+                    kits=Kits(kit), workflow=lambda s: f"camp/c/{s}",
+                    sleep=lambda s: time.sleep(0.001), log=lambda m: None)
+                self.assertEqual(sorted(out), sorted(STEPS))
+                bad = {s: o.message for s, o in out.items() if not o.ok}
+                self.assertEqual(bad, {})
+                ev = kit.events
+                for consumer, producers in (
+                        ("stops", ["mubeam"]), ("ce_edep", ["mustops_ce"]),
+                        ("sob", ["stops", "ce_edep"]),
+                        ("flash", ["elebeam_flash"])):
+                    for producer in producers:
+                        self.assertGreater(ev.index(("submit", consumer)),
+                                           ev.index(("done", producer)),
+                                           f"{consumer} after {producer}")
+                sub = {n.split(".", 1)[1]: (params, inputs)
+                       for n, params, _, inputs, _ in kit.submits}
+                for consumer, producer in (("stops", "mubeam"),
+                                           ("ce_edep", "mustops_ce"),
+                                           ("sob", "ce_edep"),
+                                           ("flash", "elebeam_flash")):
+                    self.assertEqual([f["name"] for f in sub[consumer][1]],
+                                     [producer], consumer)
+                    self.assertEqual(sub[consumer][0]["musing"],
+                                     "SimJob MDC2025ay")
+                sob = sub["sob"][0]
+                self.assertEqual(sob["stops_per_pot"], 1.26e-3)
+                self.assertEqual(sob["analysis"], "approx_ce_sensitivity")
+                self.assertEqual(sob["cosmic_rate_per_s_per_mev"],
+                                 0.0018181818181818182)
+
+
 if __name__ == "__main__":
     unittest.main()
