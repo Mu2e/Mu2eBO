@@ -14,6 +14,9 @@ superseded, linted.
   (flash per generated electron, budget 7.506758e-06), `ce_chain` reads
   `trigger_efficiency_ntuple`, new `_upstream` boards; the fork's three
   analyses and the work area `autoresearch_muse_ax` are retired.
+  Acceptance without the grid: bpzax01R12_00 re-analysed (stops exact,
+  flash 1e-7, sensitivity 1.32707 = his tool by hand, new/old 0.3474),
+  all eight launch checks pass, `ce_chain` lands a row locally.
 - **updated** [contract-engine](/drivers/contract-engine.md): `params_from`,
   a step param from an earlier step's metric (load rules, `Step.upstream`,
   `metrics_read`, run-time refusal of a missing or non-finite metric,

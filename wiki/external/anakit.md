@@ -84,6 +84,29 @@ we ran a fork with three analyses of our own; that history is kept below.
   are history. sob is about 0.35x the old values: the signal fix (x0.371)
   plus counting only selected events (about 6% more).
 
+**Acceptance (2026-10-07, no grid jobs)**
+- `bpzax01R12_00` (bpzax01's point, all 130 files still on /pnfs scratch)
+  re-analysed through the engine in a sandbox data root
+  (`claude-scratch/upstream_accept`): copies of its three prodtools step
+  records and preflight verdict were adopted, so only the four anakit
+  steps ran.
+  - `stops_per_pot` 1.2618671e-03 = 296174 / 3e6 x 0.01278168, exactly.
+  - flash 6.58426e-06 MeV per electron vs the fork's 6.58426068582917e-06:
+    1.0e-7 relative (Offline's EdepAna prints 6 significant figures; the
+    counts, 23180 of 1.1e7, are identical). So the budget conversion stands.
+  - `sensitivity` 1.3270656749061143, identical to his
+    `approx_ce_sensitivity` run by hand on the same ntuple and
+    `stops_per_pot`; the old board's 3.820180850105821 x 0.3474. sob
+    `noise` 0.006 x 0.3474 rounds to 0.0021.
+- `check_study --executor local` on all eight studies: load, `${ARTIFACT}`
+  paths and the launch check (his real catalogue) pass on all eight; the
+  geometry pre-check passes on seven. `foilspf2k_ax`'s fails at its knob-box
+  centre (IPAsupport wires overlap StoppingTargetMother by ~18 cm): its
+  extent is pinned at 2000 mm, outside the 1100 mm certified corridor, and
+  this change touched none of its geometry.
+- `ce_chain` locally (`cechainU01`): 50 triggered-stream events, 40
+  selected, 39 triggered, efficiency 0.975; a row on the new board.
+
 **`ce_chain`**
 - The `plot` step is `trigger_efficiency_ntuple` with `trigger_paths`
   `"apr_TrkDe_80m70p, cpr_TrkDe_80m70p"`; objective `n_selected`, extra
@@ -271,6 +294,7 @@ we ran a fork with three analyses of our own; that history is kept below.
 
 ## Open questions / TODO
 - One grid point of `foilspfbpz_ax` end to end on the new board (spec check
-  4), with the operator's OK.
-- The sob `noise` (0.006 on the old scale) is scaled by the measured
-  new/old ratio; re-measure it from replicates.
+  4), with the operator's OK (needs a fresh Kerberos ticket).
+- The sob `noise` 0.0021 is the old scale's 0.006 x 0.3474; re-measure it
+  from replicates.
+- `foilspf2k_ax`'s knob-box centre fails the geometry pre-check (above).
