@@ -81,7 +81,9 @@ we ran a fork with three analyses of our own; that history is kept below.
 - `stops`: `muon_stop_rate` on `mubeam` (TargetStops files only),
   `upstream_eff` 0.01278168 (was `input_correction`).
 - `ce_edep`: `edep` on `mustops_ce`; its result file, the EdepAna ntuple,
-  is the next step's input.
+  is the next step's input. The slowest step: 933 s on bpzax01R12_00's
+  files on a loaded node (2026-10-07), under the adapter's
+  `RUN_TIMEOUT_S` of 3000 s.
 - `sob`: `approx_ce_sensitivity` on `ce_edep`, `params_from`
   `{"stops_per_pot": "stops.stops_per_pot"}`, `cosmic_rate_per_s_per_mev`
   0.0018181818181818182 (the macro's 2e4/1.1e7, 141.8x his default).

@@ -74,8 +74,9 @@ update, run `/mcp` in the session to reload them.
 >   (`/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/data/`).
 >
 > Tested on 2026-10-06 against upstream `Mu2e/prodtools` `main`: a local
-> `ce_chain` point ran end to end (median |p| 104.022, the same as on the
-> development checkout).
+> `ce_chain` point ran end to end. On M. MacKenzie's analyses (2026-10-07)
+> a local `ce_chain` point gives n_selected 40, n_triggered 39, efficiency
+> 0.975.
 
 ## 2. Every new shell
 
