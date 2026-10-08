@@ -254,7 +254,7 @@ class TestClassify(unittest.TestCase):
     def test_every_code_is_a_verdict_value(self):
         for out, rc in ((CLEAN_LOG, 0), (FATAL_LOG, 134), (NO_MU2E_LOG, 127)):
             self.assertIn(self.classify(out, rc).code,
-                          pc.PREFLIGHT_VERDICTS.values())
+                          pc.PREFLIGHT_VERDICTS)
 
 
 class TestFiles(unittest.TestCase):
@@ -306,7 +306,7 @@ class TestRunCheck(unittest.TestCase):
             p.timed_out = False
             return p
 
-        with mock.patch.object(pc, "_sourced_bash", return_value=fake):
+        with mock.patch.object(pc, "run_sourced_bash", fake):
             result = pc.run_check(Path("/c/abc"), Path("/w/cfg1/preflight"),
                                   "surfacecheck.fcl", timeout_s=60,
                                   log=io.StringIO())

@@ -1,11 +1,6 @@
-"""Targeted regression tests for the /simplify audit fixes (2026-05-29) and
-later ones. The pipeline-only fix classes went with the pipeline in Phase C3
-(2026-09-28); what remains tests surviving code:
-
-  TestRunSourcedBash      -- graph/sourced_bash.py (env-flake retry helper)
-
-Run from project root:
-  PYTHONPATH= "$AUTORESEARCH_PYTHON" -m unittest discover -s tests -t .
+"""core/adapters/preflight_checks.py:run_sourced_bash, the cvmfs/spack
+env-flake retry runner the geometry pre-check runs `mu2e` through. See
+wiki/incidents/sourced-env-stderr-swallowed.md.
 """
 import io
 import subprocess
@@ -14,21 +9,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "graph"))
-sys.path.insert(0, str(PROJECT_ROOT / "core"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+from adapters import preflight_checks  # noqa: E402
 
 
 class TestRunSourcedBash(unittest.TestCase):
-    """graph/sourced_bash.py — shared cvmfs/spack env-flake retry helper
-    (the offline_preflight check runs through it). See
-    wiki/incidents/sourced-env-stderr-swallowed.md.
-    """
-    @classmethod
-    def setUpClass(cls):
-        import sourced_bash
-        cls.sb = sourced_bash
+    sb = preflight_checks
 
     def _proc(self, rc, out="", err=""):
         return subprocess.CompletedProcess(["bash"], rc, stdout=out, stderr=err)
@@ -107,14 +93,6 @@ class TestRunSourcedBash(unittest.TestCase):
         self.assertTrue(argv[2].startswith(
             "export SPACK_USER_CACHE_PATH=/tmp/spack_cache_"))
         self.assertTrue(argv[2].endswith(" && source setup.sh && getToken"))
-
-    def test_spack_cache_export_prepended_login_shell(self):
-        with mock.patch.object(self.sb.subprocess, "run",
-                               return_value=self._proc(0)) as m:
-            self.sb.run_sourced_bash("getToken", login=True)
-        argv = m.call_args[0][0]
-        self.assertEqual(argv[:2], ["bash", "-lc"])
-        self.assertTrue(argv[2].startswith("export SPACK_USER_CACHE_PATH="))
 
 
 if __name__ == "__main__":

@@ -4,19 +4,21 @@ offline_preflight kit"): the surface-check files, running `mu2e -n 1`
 from a code tarball's Code/, and reading its log into a verdict.
 run_preflight is the whole sequence; the offline_preflight adapter
 (core/adapters/offline_preflight.py) calls it.
-Stdlib and prodtools_entry only at import; graph/sourced_bash.py loads
-when a check runs.
+Stdlib and prodtools_entry only.
 """
 from __future__ import annotations
 
 import dataclasses
+import os
 import re
 import shutil
+import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import Callable, Optional, Tuple
 
 from adapters import prodtools_entry as pe
 
@@ -25,8 +27,8 @@ SETUPMU2E = "/cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh"
 TIMEOUT_S = 1200
 
 # Preflight verdict vocabulary: a check returns pass, fail_managed (every
-# FAIL) or ambiguous. The integer keys are the deleted pipeline's exit codes.
-PREFLIGHT_VERDICTS = {0: "pass", 1: "fail_managed", 3: "ambiguous"}
+# FAIL) or ambiguous.
+PREFLIGHT_VERDICTS = ("pass", "fail_managed", "ambiguous")
 
 FCL_NAME = "surfacecheck.fcl"
 # run_preflight keeps the check's output here, in the workdir.
@@ -164,7 +166,7 @@ _BANNERS = ("Geant4", "%MSG", "Art has", "Begin processing", "G4Exception")
 @dataclass(frozen=True)
 class Verdict:
     ok: bool
-    code: str                    # a PREFLIGHT_VERDICTS value
+    code: str                    # one of PREFLIGHT_VERDICTS
     reason: str                  # the PASS / FAIL / AMBIGUOUS line's text
     notes: Tuple[str, ...] = ()  # what the check found on the way
     # The as-built GDML comparison ran and passed (a later rule may still
@@ -229,15 +231,63 @@ def retry_if_mu2e_never_started(proc) -> bool:
     return proc.returncode != 0 and not started
 
 
-def _sourced_bash():
-    """graph/sourced_bash.py's run_sourced_bash: the retry-with-backoff
-    runner, which also exports SPACK_USER_CACHE_PATH onto local /tmp inside
-    the command (wiki/incidents/foilsx04-all-preflight-ambiguous.md)."""
-    graph = str(Path(__file__).resolve().parents[2] / "graph")
-    if graph not in sys.path:
-        sys.path.append(graph)
-    from sourced_bash import run_sourced_bash
-    return run_sourced_bash
+# Retries of run_sourced_bash: 4 attempts in all, ~50 s worst case.
+DEFAULT_BACKOFFS = (5, 15, 30)
+# Node-local /tmp, never NFS HOME (run_sourced_bash).
+_SPACK_CACHE = f"/tmp/spack_cache_{os.environ.get('USER', 'x')}"
+
+
+def run_sourced_bash(
+    cmd: str,
+    *,
+    timeout: Optional[float] = None,
+    backoffs: tuple = DEFAULT_BACKOFFS,
+    should_retry: Optional[Callable[[subprocess.CompletedProcess], bool]] = None,
+    label: str = "sourced_bash",
+    log=sys.stderr,
+) -> subprocess.CompletedProcess:
+    """Run ``bash -c cmd`` with retry + backoff, for a command that sources
+    the mu2e environment.
+
+    Transient class: cvmfs read misses and the NFSv4.0 seqid wedge on
+    ~/.spack locks (wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md) --
+    ``==> Error: [Errno 5]`` mid-``setupmu2e-art.sh`` leaves ``muse``/``mu2e``
+    undefined (often rc=127); a re-run seconds later succeeds. Every command
+    exports ``SPACK_USER_CACHE_PATH`` onto node-local /tmp so spack's fcntl
+    locks never touch NFS. Coverage map:
+    wiki/incidents/sourced-env-stderr-swallowed.md.
+
+    Retries while ``should_retry(proc)`` (default rc != 0), up to
+    ``len(backoffs) + 1`` attempts. A timeout is NON-retriable -- it means
+    the command was running (slow init), not an env flake -- returned as
+    ``CompletedProcess(returncode=-1)`` with ``.timed_out = True``. Every
+    return path sets ``.timed_out``; never raises on a nonzero rc."""
+    if should_retry is None:
+        should_retry = lambda p: p.returncode != 0  # noqa: E731
+    # Must be inside the command string: a parent-shell export does NOT
+    # propagate to the sourced environment (foilsZ05, 2026-06-05).
+    cmd = f"export SPACK_USER_CACHE_PATH={_SPACK_CACHE} && {cmd}"
+    argv = ["bash", "-c", cmd]
+    for attempt in range(len(backoffs) + 1):
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+            proc.timed_out = False
+        except subprocess.TimeoutExpired as exc:
+            out, err = exc.stdout or "", exc.stderr or ""
+            if isinstance(out, bytes):
+                out = out.decode(errors="replace")
+            if isinstance(err, bytes):
+                err = err.decode(errors="replace")
+            proc = subprocess.CompletedProcess(argv, -1, stdout=out, stderr=err)
+            proc.timed_out = True
+            return proc
+        if not should_retry(proc) or attempt == len(backoffs):
+            return proc
+        wait = backoffs[attempt]
+        print(f"[{label}] attempt {attempt + 1}/{len(backoffs) + 1} rc={proc.returncode}; "
+              f"retrying in {wait}s (transient cvmfs/spack flake?)", file=log, flush=True)
+        time.sleep(wait)
+    return proc  # unreachable: the loop always returns on the last attempt
 
 
 def run_check(code_dir, workdir, fcl: str, *, timeout_s,
@@ -262,9 +312,9 @@ def run_check(code_dir, workdir, fcl: str, *, timeout_s,
         f'export FHICL_FILE_PATH="{workdir}:$FHICL_FILE_PATH" && '
         f"cd {workdir} && "
         f"mu2e -c {fcl} -n 1")
-    proc = _sourced_bash()(cmd, timeout=timeout_s,
-                           should_retry=retry_if_mu2e_never_started,
-                           label=label, log=log or sys.stdout)
+    proc = run_sourced_bash(cmd, timeout=timeout_s,
+                            should_retry=retry_if_mu2e_never_started,
+                            label=label, log=log or sys.stdout)
     out = (proc.stdout or "") + "\n--- STDERR ---\n" + (proc.stderr or "")
     return out, proc.returncode, proc.timed_out
 
