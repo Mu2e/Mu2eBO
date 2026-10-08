@@ -5,6 +5,17 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-10-08
+- **updated** [bo-foilspf](/projects/bo-foilspf.md): first grid row on
+  the `_upstream` board — `bpzup01` (foilspfbpz_ax at bpzax01R12_00's x,
+  M. MacKenzie's analyses) landed 2026-10-08 01:48 CDT, all 7 steps ok
+  (mubeam 15/15, elebeam_flash 100/100, mustops_ce 15/15): stops_per_pot
+  1.26038e-3, sob 1.32290 (local re-analysis of the old point 1.32707),
+  flash 7.281e-06 per generated electron (old point 6.584e-06: +10.6%, a
+  third case of the flash replicate wobble). The upstream-minors branch was
+  merged (02dd94b, suite 1024 OK) and generic-study-phase-c1 pushed to
+  github.com/oksuzian/Mu2eBO.
+
 ## 2026-10-07
 - **updated** [anakit](/external/anakit.md): review leftovers of the
   upstream-analyses merge — `ANAKIT_PIN_SHA` (3ba8d23bbf47) asserted by

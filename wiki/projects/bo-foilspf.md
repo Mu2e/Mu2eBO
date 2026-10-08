@@ -11,7 +11,7 @@ status_note: 'SEARCH CLOSED 2026-08-08 on all three axes (shape, box,
   spacing): foilspfbp, bpx, and bpz all stalled best-at-budget at exactly
   4.00. Remaining critical path is full-sim validation of bp04R00_02, not
   more search'
-timestamp: '2026-08-21'
+timestamp: '2026-10-08'
 updated_note: 'foilspfbpz06 (exploit round 3) drained 40/40, 0 failures —
   THE CLIMB STOPPED, exploit line CLOSED. Round mean 4.326 vs bpz05''s
   4.323 (flat to 0.003 = statistically identical at σ=0.006) and NO new
@@ -292,7 +292,11 @@ absorber in the *right* place — something no foilsflash row can claim.
   (2) **flash replicate wobble**: B2000 vs its source = −8.9% (~2.7σ at the
   2.33%/point budget) while A2000 = +1.3% — one of two pairs hot, so
   σ(flash)=0.01 in log10 may be ~1.5–2× underestimated; re-check before the
-  next obs_noise-sensitive fit.
+  next obs_noise-sensitive fit. A third pair (2026-10-08): `bpzup01`, an
+  independent grid replicate of bpzax01R12_00's x on the `_upstream` board
+  (same Code_mdc2025ax tarball, other seeds), gave flash 7.281e-06 vs
+  6.584e-06 per generated electron (+10.6%, tracker edep only; calo per
+  event agrees to 0.5%), sob 1.32290 vs 1.32707 (−0.3%).
 - **Baseline-pitch line (foilspfbp), state at 2026-08-05: 53 evals, 0
   failures, best sob 4.29, damage floor 5.58e-8, 22× damage span, 17
   Pareto points.** foilspfbp01 20/20 (winner `R00_03` in wave 0),
