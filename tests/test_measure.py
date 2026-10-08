@@ -1,7 +1,6 @@
 """core/measure.py: one place decides a point's versions and whether a board
 matches (spec docs/superpowers/specs/2026-10-05-measure-identity-design.md)."""
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,9 +9,7 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import measure  # noqa: E402
 import modes  # noqa: E402
-import study as st  # noqa: E402
-from leaderboard import Leaderboard  # noqa: E402
-from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import TmpCase, toy_study, write_board  # noqa: E402
 
 BASIS = {
     "ce_chain": "3a300aecbea8dba8d289c4f78c4a941b01ec18c2293a14a793b86f7263e59189",
@@ -41,18 +38,17 @@ class TestVersions(unittest.TestCase):
                       str(cm.exception))
 
 
-class _Toy(unittest.TestCase):
+def _two_steps(doc):
+    doc["evaluate"].append(dict(doc["evaluate"][0], step="toy2",
+                                files_from=["toy"]))
+    for o in doc["objectives"]:     # toy2 feeds the objectives
+        o["metric"] = "toy2." + o["metric"].split(".", 1)[1]
+
+
+class _Toy(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-        doc = toy_doc(name="mtoy", layout="v2")
-        doc["evaluate"].append(dict(doc["evaluate"][0], step="toy2",
-                                    files_from=["toy"]))
-        for o in doc["objectives"]:     # toy2 feeds the objectives
-            o["metric"] = "toy2." + o["metric"].split(".", 1)[1]
-        write_study(doc, self.tmp / "studies")
-        self.study = st.load_study_file(self.tmp / "studies" / "mtoy.json")
+        super().setUp()
+        self.study = toy_study(self.tmp / "studies", _two_steps, name="mtoy")
 
 
 class TestPointVersions(_Toy):
@@ -87,17 +83,7 @@ class TestPointVersions(_Toy):
 
 class TestBoardProblems(_Toy):
     def board(self, *shas):
-        lb = Leaderboard.for_study(self.study, path=self.tmp / "b.tsv",
-                                   archive_path=None)
-        cols = lb.header().rstrip("\n").split("\t")
-        lines = [lb.header()]
-        for i, sha in enumerate(shas):
-            row = {c: "1.0" for c in cols}
-            row.update(config=f"r{i}", handles="toy=x", spec_sha="s" * 64,
-                       measure_sha=sha, time="2026-09-30T00:00:00Z")
-            lines.append("\t".join(row[c] for c in cols) + "\n")
-        lb.path.write_text("".join(lines))
-        return lb
+        return write_board(self.study, self.tmp / "b.tsv", *shas)
 
     def test_board_problems(self):
         v = {"toykit": "T"}

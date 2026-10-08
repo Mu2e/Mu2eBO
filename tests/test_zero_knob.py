@@ -1,6 +1,5 @@
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -10,7 +9,8 @@ sys.path.insert(0, str(ROOT / "graph"))
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import study as st  # noqa: E402
-from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import (EngineCase, board_rows,  # noqa: E402
+                                   toy_doc, write_study)
 
 
 def zero_doc(name="zk"):
@@ -21,15 +21,7 @@ def zero_doc(name="zk"):
     return doc
 
 
-class _Tmp(unittest.TestCase):
-    def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-        self.studies = self.tmp / "studies"
-        self.data = self.tmp / "data"
-        self.env = engine_env(self.data, self.studies)
-
+class _Tmp(EngineCase):
     def run_module(self, *args):
         return subprocess.run([sys.executable, "-m", *args], cwd=ROOT,
                               env=self.env, capture_output=True, text=True,
@@ -48,10 +40,9 @@ class TestRunners(_Tmp):
         r = self.run_module("graph.run", "--study", "zk", "--config",
                             "z1", "--campaign", "t")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        board = self.data / "autoresearch_leaderboards" / "leaderboard_zk.tsv"
-        header, row = board.read_text().splitlines()
-        self.assertEqual(header.split("\t")[:3], ["config", "branin", "currin"])
-        self.assertTrue(row.startswith("z1\t"))
+        (row,) = board_rows(self.data, "zk")
+        self.assertEqual(list(row)[:3], ["config", "branin", "currin"])
+        self.assertEqual(row["config"], "z1")
 
     def test_x_is_refused_without_knobs_and_required_with_them(self):
         write_study(zero_doc(), self.studies)

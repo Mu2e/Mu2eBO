@@ -5,7 +5,6 @@ output; the unpack cache, the workdir and the verdict are real."""
 import json
 import sys
 import tarfile
-import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -22,16 +21,15 @@ import study as st  # noqa: E402
 from adapters import offline_preflight as op  # noqa: E402
 from adapters import preflight_checks as pc  # noqa: E402
 from study_graph import build_study_graph  # noqa: E402
-from tests.engine_fixtures import ENGINE_STUDIES, write_study  # noqa: E402
+from tests.engine_fixtures import (ENGINE_STUDIES, TmpCase,  # noqa: E402
+                                   write_study)
 from tests.preflight_logs import (CLEAN_LOG, FATAL_LOG, GEOM,  # noqa: E402
                                   NO_MU2E_LOG, gdml_matching)
 
 
-class _Kit(unittest.TestCase):
+class _Kit(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         self.base = self.tarball(self.tmp / "Code_base.tar.bz2")
         self.geom = self.tmp / "geom.txt"
         self.geom.write_text(GEOM)

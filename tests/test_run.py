@@ -6,7 +6,6 @@ import os
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -23,19 +22,12 @@ import study as st  # noqa: E402
 import run  # noqa: E402
 from kits import KitError  # noqa: E402
 from tests import toykit  # noqa: E402
-from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import (EngineCase, TmpCase,  # noqa: E402
+                                   board_rows, submits, toy_doc, toy_study,
+                                   write_study)
 
 
-class _Point(unittest.TestCase):
-    def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.tmp = Path(self._td.name)
-        self.studies = self.tmp / "studies"
-        self.studies.mkdir(parents=True)
-        self.data = self.tmp / "data"
-        self.env = engine_env(self.data, self.studies)
-
+class _Point(EngineCase):
     def add_study(self, mutate=lambda d: None, name="pointtoy"):
         doc = toy_doc(name=name, layout="v2")
         mutate(doc)
@@ -58,15 +50,10 @@ class _Point(unittest.TestCase):
         return self.data / "autoresearch_grid" / config / "state"
 
     def board_rows(self, study):
-        path = (self.data / "autoresearch_leaderboards"
-                / f"leaderboard_{study}.tsv")
-        return path.read_text().splitlines()[1:] if path.exists() else []
+        return board_rows(self.data, study)
 
     def submits(self):
-        path = self.data / "toykit" / "submits.jsonl"
-        if not path.exists():
-            return []
-        return [json.loads(ln)["name"] for ln in path.read_text().splitlines()]
+        return submits(self.data)
 
 
 class TestAPoint(_Point):
@@ -75,7 +62,9 @@ class TestAPoint(_Point):
         r = self.run_point(s)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         (row,) = self.board_rows(s)
-        self.assertTrue(row.startswith("p1\t1.000000\t2.000000\t"))
+        self.assertEqual(list(row.items())[:3],
+                         [("config", "p1"), ("x1", "1.000000"),
+                          ("x2", "2.000000")])
         res = json.loads((self.state() / "evaluate_result.json").read_text())
         self.assertAlmostEqual(res["primary"], toykit.branin(1.0, 2.0),
                                places=5)
@@ -92,7 +81,9 @@ class TestAPoint(_Point):
         r = self.run_point(s, x=(-3.0, 2.0))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         (row,) = self.board_rows(s)
-        self.assertTrue(row.startswith("p1\t-3.000000\t2.000000\t"))
+        self.assertEqual(list(row.items())[:3],
+                         [("config", "p1"), ("x1", "-3.000000"),
+                          ("x2", "2.000000")])
 
 
 class TestFailedPoints(_Point):
@@ -300,20 +291,6 @@ class _DeadKit:
         self._dead("check")
 
 
-class _DeadKitSet:
-    made = []
-
-    def __init__(self, campaign, *, executor="grid", parallel=None):
-        self.closed = False
-        _DeadKitSet.made.append(self)
-
-    def get(self, name):
-        return _DeadKit(name)
-
-    def close(self):
-        self.closed = True
-
-
 class _HookedKit:
     """A kit that starts but whose step hook finds a problem."""
     accepts_lists, poll_s, version = False, (0.0, 0.0), "1"
@@ -332,18 +309,30 @@ class _HookedKit:
         return [f"step {step.step!r}: no analysis 'nosuch'"]
 
 
-class _HookedKitSet:
-    made = []
+class _FakeKitSet:
+    """run.KitSet stand-in: hands out kit(name) for every name, recording
+    each kit asked for and whether it was closed; `made` lists the sets."""
+    kit, made = None, []
 
     def __init__(self, campaign, *, executor="grid", parallel=None):
+        self.gets = []
         self.closed = False
-        _HookedKitSet.made.append(self)
+        type(self).made.append(self)
 
     def get(self, name):
-        return _HookedKit(name)
+        self.gets.append(name)
+        return self.kit(name)
 
     def close(self):
         self.closed = True
+
+
+class _DeadKitSet(_FakeKitSet):
+    kit, made = _DeadKit, []
+
+
+class _HookedKitSet(_FakeKitSet):
+    kit, made = _HookedKit, []
 
 
 class TestExecutorFlag(_Point):
@@ -379,94 +368,68 @@ class TestExecutorFlag(_Point):
         self.assertIn("executor", r.stdout)
 
     def test_a_step_hook_problem_refuses_and_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            study = st.load_study_file(write_study(
-                toy_doc(name="hooktoy", layout="v2"), tmp / "studies"))
-            grid = tmp / "grid"
-            out = io.StringIO()
-            _HookedKitSet.made = []
-            with mock.patch.dict(modes.STUDIES, {"hooktoy": study}), \
-                    mock.patch.object(run, "KitSet", _HookedKitSet), \
-                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
-                    mock.patch.object(run, "board_for", mock.Mock()), \
-                    contextlib.redirect_stdout(out):
-                rc = run.main(["--study", "hooktoy", "--config", "p1",
-                                     "--campaign", "t", "--x=1.0,2.0"])
-            self.assertEqual(rc, 2, out.getvalue())
-            self.assertIn("REFUSED", out.getvalue())
-            self.assertIn("no analysis 'nosuch'", out.getvalue())
-            self.assertFalse((grid / "p1").exists(),
-                             "state written for a point that never ran")
-            self.assertTrue(_HookedKitSet.made[0].closed)
+        study = toy_study(self.studies, name="hooktoy")
+        grid = self.tmp / "grid"
+        out = io.StringIO()
+        _HookedKitSet.made = []
+        with mock.patch.dict(modes.STUDIES, {"hooktoy": study}), \
+                mock.patch.object(run, "KitSet", _HookedKitSet), \
+                mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                mock.patch.object(run, "board_for", mock.Mock()), \
+                contextlib.redirect_stdout(out):
+            rc = run.main(["--study", "hooktoy", "--config", "p1",
+                           "--campaign", "t", "--x=1.0,2.0"])
+        self.assertEqual(rc, 2, out.getvalue())
+        self.assertIn("REFUSED", out.getvalue())
+        self.assertIn("no analysis 'nosuch'", out.getvalue())
+        self.assertFalse((grid / "p1").exists(),
+                         "state written for a point that never ran")
+        self.assertTrue(_HookedKitSet.made[0].closed)
 
     def test_the_launch_check_gets_the_adopted_step_records(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            study = st.load_study_file(write_study(
-                toy_doc(name="adoptoy", layout="v2"), tmp / "studies"))
-            grid = tmp / "grid"
-            state = grid / "p1" / "state"
-            state.mkdir(parents=True)
-            record = {"kit": "toykit", "kit_version": "V1", "handle": "h"}
-            (state / "toy_results.json").write_text(json.dumps(record))
-            with mock.patch.dict(modes.STUDIES, {"adoptoy": study}), \
-                    mock.patch.object(run, "KitSet", _RecordingKitSet), \
-                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
-                    mock.patch.object(run, "board_for", mock.Mock()), \
-                    mock.patch.object(run, "launch_problems",
-                                      return_value=["stop"]) as launch, \
-                    contextlib.redirect_stdout(io.StringIO()):
-                rc = run.main(["--study", "adoptoy", "--config", "p1",
-                               "--campaign", "t", "--x=1.0,2.0"])
-            self.assertEqual(rc, 2)
-            self.assertEqual(launch.call_args.kwargs["adopted"],
-                             {"toy": record})
+        study = toy_study(self.studies, name="adoptoy")
+        grid = self.tmp / "grid"
+        state = grid / "p1" / "state"
+        state.mkdir(parents=True)
+        record = {"kit": "toykit", "kit_version": "V1", "handle": "h"}
+        (state / "toy_results.json").write_text(json.dumps(record))
+        with mock.patch.dict(modes.STUDIES, {"adoptoy": study}), \
+                mock.patch.object(run, "KitSet", _HookedKitSet), \
+                mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                mock.patch.object(run, "board_for", mock.Mock()), \
+                mock.patch.object(run, "launch_problems",
+                                  return_value=["stop"]) as launch, \
+                contextlib.redirect_stdout(io.StringIO()):
+            rc = run.main(["--study", "adoptoy", "--config", "p1",
+                           "--campaign", "t", "--x=1.0,2.0"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(launch.call_args.kwargs["adopted"],
+                         {"toy": record})
 
 
-class _RecordingKitSet:
-    """A KitSet that records whether any kit was asked for."""
-    made = []
-
-    def __init__(self, campaign, *, executor="grid", parallel=None):
-        self.gets = []
-        self.closed = False
-        _RecordingKitSet.made.append(self)
-
-    def get(self, name):
-        self.gets.append(name)
-        return _HookedKit(name)
-
-    def close(self):
-        self.closed = True
-
-
-class TestNothingStartsBeforeTheChecks(unittest.TestCase):
+class TestNothingStartsBeforeTheChecks(TmpCase):
     def refuse_toy(self, *args, decl_patch=None, before=None):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            study = st.load_study_file(write_study(
-                toy_doc(name="gatetoy", layout="v2"), tmp / "studies"))
-            grid = tmp / "grid"
-            if before:
-                before(grid)
-            out = io.StringIO()
-            _RecordingKitSet.made = []
-            flat = sys.modules["kit_registry"]
-            patched = {}
-            if decl_patch:
-                patched = {"toykit": dataclasses.replace(
-                    flat.KITS["toykit"], **decl_patch)}
-            with mock.patch.dict(modes.STUDIES, {"gatetoy": study}), \
-                    mock.patch.dict(flat.KITS, patched), \
-                    mock.patch.object(run, "KitSet", _RecordingKitSet), \
-                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
-                    mock.patch.object(run, "board_for", mock.Mock()), \
-                    contextlib.redirect_stdout(out):
-                rc = run.main(["--study", "gatetoy", *args, "--campaign", "t",
-                               "--x=1.0,2.0"])
-            gets = [g for k in _RecordingKitSet.made for g in k.gets]
-            return rc, out.getvalue(), grid, gets
+        study = toy_study(self.tmp / "studies", name="gatetoy")
+        grid = self.tmp / "grid"
+        if before:
+            before(grid)
+        out = io.StringIO()
+        _HookedKitSet.made = []
+        flat = sys.modules["kit_registry"]
+        patched = {}
+        if decl_patch:
+            patched = {"toykit": dataclasses.replace(
+                flat.KITS["toykit"], **decl_patch)}
+        with mock.patch.dict(modes.STUDIES, {"gatetoy": study}), \
+                mock.patch.dict(flat.KITS, patched), \
+                mock.patch.object(run, "KitSet", _HookedKitSet), \
+                mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                mock.patch.object(run, "board_for", mock.Mock()), \
+                contextlib.redirect_stdout(out):
+            rc = run.main(["--study", "gatetoy", *args, "--campaign", "t",
+                           "--x=1.0,2.0"])
+        gets = [g for k in _HookedKitSet.made for g in k.gets]
+        return rc, out.getvalue(), grid, gets
 
     def test_a_bad_config_name_refuses_and_writes_nothing(self):
         rc, out, grid, gets = self.refuse_toy(
@@ -490,7 +453,7 @@ class TestNothingStartsBeforeTheChecks(unittest.TestCase):
         self.assertEqual(gets, [])
 
 
-class TestKitStartCheck(unittest.TestCase):
+class TestKitStartCheck(TmpCase):
     """run starts every kit the study names before anything is written
     for the point: one that won't start is an environment problem, refused
     (exit 2), never recorded as a failed evaluation in broken.txt.
@@ -498,27 +461,24 @@ class TestKitStartCheck(unittest.TestCase):
     stage in a subprocess."""
 
     def test_a_kit_that_will_not_start_refuses_and_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            study = st.load_study_file(write_study(
-                toy_doc(name="deadtoy", layout="v2"), tmp / "studies"))
-            grid = tmp / "grid"
-            out = io.StringIO()
-            _DeadKitSet.made = []
-            with mock.patch.dict(modes.STUDIES, {"deadtoy": study}), \
-                    mock.patch.object(run, "KitSet", _DeadKitSet), \
-                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
-                    mock.patch.object(run, "board_for", mock.Mock()), \
-                    contextlib.redirect_stdout(out):
-                rc = run.main(["--study", "deadtoy", "--config", "p1",
-                                     "--campaign", "t", "--x=1.0,2.0"])
-            self.assertEqual(rc, 2, out.getvalue())
-            self.assertIn("REFUSED", out.getvalue())
-            self.assertIn("'toykit'", out.getvalue())
-            self.assertIn("boom", out.getvalue())
-            self.assertFalse((grid / "p1").exists(),
-                             "state written for a point that never ran")
-            self.assertTrue(_DeadKitSet.made and _DeadKitSet.made[0].closed)
+        study = toy_study(self.tmp / "studies", name="deadtoy")
+        grid = self.tmp / "grid"
+        out = io.StringIO()
+        _DeadKitSet.made = []
+        with mock.patch.dict(modes.STUDIES, {"deadtoy": study}), \
+                mock.patch.object(run, "KitSet", _DeadKitSet), \
+                mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                mock.patch.object(run, "board_for", mock.Mock()), \
+                contextlib.redirect_stdout(out):
+            rc = run.main(["--study", "deadtoy", "--config", "p1",
+                           "--campaign", "t", "--x=1.0,2.0"])
+        self.assertEqual(rc, 2, out.getvalue())
+        self.assertIn("REFUSED", out.getvalue())
+        self.assertIn("'toykit'", out.getvalue())
+        self.assertIn("boom", out.getvalue())
+        self.assertFalse((grid / "p1").exists(),
+                         "state written for a point that never ran")
+        self.assertTrue(_DeadKitSet.made and _DeadKitSet.made[0].closed)
 
 
 class _DiskFullKit:
@@ -549,63 +509,58 @@ class _DiskFullKitSet(contract.KitSet):
         super().__init__(campaign, opener=lambda name, campaign: _DiskFullKit())
 
 
-class TestKitErrorContract(unittest.TestCase):
+class TestKitErrorContract(TmpCase):
     """A kit failure the adapters used to let escape as ValueError or
     OSError is a refusal at launch and a broken point mid-step, never a
     traceback."""
 
     def test_a_prodtools_kit_missing_a_server_timeout_refuses(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            study = st.load_study_file(
-                ROOT / "tests/fixtures/engine_studies/prodtools_smoke.json")
-            toml = tmp / "kits.toml"
-            toml.write_text(
-                "[servers.prodtools_write]\n"
-                'command = ["w"]\nenv_passthrough = []\nset = {}\n'
-                "timeouts = { start = 1, submit_once = 1 }\n"
-                "[servers.prodtools_read]\n"
-                'command = ["r"]\nenv_passthrough = []\nset = {}\n'
-                "timeouts = { start = 1, run_status = 1 }\n")
-            servers = kit_config.load_server_configs(toml)
-            grid = tmp / "grid"
-            out = io.StringIO()
-            with mock.patch.dict(modes.STUDIES, {"prodtools_smoke": study}), \
-                    mock.patch.object(kit_config, "load_server_configs",
-                                      return_value=servers), \
-                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
-                    mock.patch.object(run, "board_for", mock.Mock()), \
-                    contextlib.redirect_stdout(out):
-                rc = run.main(["--study", "prodtools_smoke", "--config",
-                               "smoke01", "--campaign", "t", "--executor",
-                               "local"])
-            self.assertEqual(rc, 2, out.getvalue())
-            self.assertIn("REFUSED", out.getvalue())
-            self.assertIn("run_local", out.getvalue())
-            self.assertFalse((grid / "smoke01").exists())
+        study = st.load_study_file(
+            ROOT / "tests/fixtures/engine_studies/prodtools_smoke.json")
+        toml = self.tmp / "kits.toml"
+        toml.write_text(
+            "[servers.prodtools_write]\n"
+            'command = ["w"]\nenv_passthrough = []\nset = {}\n'
+            "timeouts = { start = 1, submit_once = 1 }\n"
+            "[servers.prodtools_read]\n"
+            'command = ["r"]\nenv_passthrough = []\nset = {}\n'
+            "timeouts = { start = 1, run_status = 1 }\n")
+        servers = kit_config.load_server_configs(toml)
+        grid = self.tmp / "grid"
+        out = io.StringIO()
+        with mock.patch.dict(modes.STUDIES, {"prodtools_smoke": study}), \
+                mock.patch.object(kit_config, "load_server_configs",
+                                  return_value=servers), \
+                mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                mock.patch.object(run, "board_for", mock.Mock()), \
+                contextlib.redirect_stdout(out):
+            rc = run.main(["--study", "prodtools_smoke", "--config",
+                           "smoke01", "--campaign", "t", "--executor",
+                           "local"])
+        self.assertEqual(rc, 2, out.getvalue())
+        self.assertIn("REFUSED", out.getvalue())
+        self.assertIn("run_local", out.getvalue())
+        self.assertFalse((grid / "smoke01").exists())
 
     def test_an_adapter_oserror_mid_step_breaks_the_point(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            study = st.load_study_file(write_study(
-                toy_doc(name="fulltoy", layout="v2"), tmp / "studies"))
-            grid = tmp / "grid"
-            board = mock.Mock()
-            board.measure_shas.return_value = set()
-            out = io.StringIO()
-            with mock.patch.dict(modes.STUDIES, {"fulltoy": study}), \
-                    mock.patch.object(run, "KitSet", _DiskFullKitSet), \
-                    mock.patch.object(run, "GRID_DATA_ROOT", grid), \
-                    mock.patch.object(run, "board_for",
-                                      mock.Mock(return_value=board)), \
-                    contextlib.redirect_stdout(out):
-                rc = run.main(["--study", "fulltoy", "--config", "p1",
-                               "--campaign", "t", "--x=1.0,2.0"])
-            self.assertEqual(rc, 0, out.getvalue())
-            broken = (grid / "p1" / "state" / "broken.txt").read_text()
-            self.assertIn("step toy", broken)
-            self.assertIn("OSError", broken)
-            self.assertFalse(board.append.called, "a row was appended")
+        study = toy_study(self.tmp / "studies", name="fulltoy")
+        grid = self.tmp / "grid"
+        board = mock.Mock()
+        board.measure_shas.return_value = set()
+        out = io.StringIO()
+        with mock.patch.dict(modes.STUDIES, {"fulltoy": study}), \
+                mock.patch.object(run, "KitSet", _DiskFullKitSet), \
+                mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                mock.patch.object(run, "board_for",
+                                  mock.Mock(return_value=board)), \
+                contextlib.redirect_stdout(out):
+            rc = run.main(["--study", "fulltoy", "--config", "p1",
+                           "--campaign", "t", "--x=1.0,2.0"])
+        self.assertEqual(rc, 0, out.getvalue())
+        broken = (grid / "p1" / "state" / "broken.txt").read_text()
+        self.assertIn("step toy", broken)
+        self.assertIn("OSError", broken)
+        self.assertFalse(board.append.called, "a row was appended")
 
 
 class TestOldAndArchivedShapes(unittest.TestCase):

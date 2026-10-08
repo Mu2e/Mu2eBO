@@ -9,7 +9,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -22,17 +21,8 @@ import check_study as cs  # noqa: E402
 import paths  # noqa: E402
 import study as st  # noqa: E402
 from study_graph import build_study_graph  # noqa: E402
-from leaderboard import Leaderboard  # noqa: E402
-from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
-
-PRE = {"kit": "toykit", "files": [], "params": {}}
-
-
-class _Tmp(unittest.TestCase):
-    def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+from tests.engine_fixtures import (EngineCase, Kits, TmpCase,  # noqa: E402
+                                   toy_doc, toy_pre, write_board, write_study)
 
 
 class PassingKit:
@@ -51,19 +41,9 @@ class PassingKit:
         raise AssertionError("submit called on a graph built through preflight")
 
 
-class Kits:
-    def __init__(self, kit):
-        self.kit = kit
-
-    def get(self, name):
-        return self.kit
-
-
-class TestThrough(_Tmp):
+class TestThrough(TmpCase):
     def build(self, through, kit=None):
-        doc = toy_doc()
-        doc["preflight"] = dict(PRE)
-        study = st.load_study_file(write_study(doc, self.tmp / "studies"))
+        study = st.load_study_file(write_study(toy_pre(), self.tmp / "studies"))
         self.state = self.tmp / "grid" / "c1" / "state"
         return build_study_graph(study, config="c1", campaign="t", context={},
                                  kits=Kits(kit or PassingKit()),
@@ -87,7 +67,7 @@ class TestThrough(_Tmp):
         self.assertIn("'run_steps'", str(cm.exception))
 
 
-class TestStudyFiles(_Tmp):
+class TestStudyFiles(TmpCase):
     def test_it_lists_what_load_study_dirs_loads(self):
         a, b = self.tmp / "a", self.tmp / "b"
         write_study(toy_doc(name="x"), a)
@@ -98,7 +78,7 @@ class TestStudyFiles(_Tmp):
             st.study_files(a, "relative/dir")
 
 
-class _Studies(_Tmp):
+class _Studies(TmpCase):
     """A study directory on $AUTORESEARCH_STUDY_PATH."""
     def setUp(self):
         super().setUp()
@@ -226,7 +206,7 @@ class TestCrash(_Studies):
         self.assertIn("boom", err.getvalue())
 
 
-class TestArtifacts(_Tmp):
+class TestArtifacts(TmpCase):
     REL = "no/such/file.tbl"
 
     def doc_path(self):
@@ -268,7 +248,7 @@ class TestArtifacts(_Tmp):
                          ("passed", "no ${ARTIFACT} paths"))
 
 
-class TestCenter(_Tmp):
+class TestCenter(TmpCase):
     def load(self, doc):
         return st.load_study_file(write_study(doc, self.tmp / "drafts"))
 
@@ -319,23 +299,12 @@ class TestReport(unittest.TestCase):
         self.assertEqual(text.splitlines()[-1], "FAILED")
 
 
-def toy_pre(**kits):
-    doc = toy_doc()
-    doc["preflight"] = dict(PRE)
-    doc["kits"]["toykit"].update(kits)
-    return doc
-
-
-class TestMain(_Tmp):
+class TestMain(EngineCase):
     """python -m graph.check_study, as the skill and the MCP tool call it."""
     LOCAL = ("--executor", "local", "--parallel", "1")
 
     def setUp(self):
         super().setUp()
-        self.studies = self.tmp / "studies"
-        self.studies.mkdir()
-        self.data = self.tmp / "data"
-        self.env = engine_env(self.data, self.studies)
         self.scratch = self.data / "autoresearch_grid" / "check_toystudy"
 
     def check(self, *args, json_out=True):
@@ -399,17 +368,16 @@ class TestMain(_Tmp):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertEqual(self.checks(out)["load"]["status"], "failed")
 
+    def board(self, path, sha):
+        """The study's live board, holding one row of this measure_sha."""
+        write_board(st.load_study_file(path), self.data
+                    / "autoresearch_leaderboards" / "leaderboard_toystudy.tsv",
+                    sha)
+
     def foreign_board(self, path):
         """The study's board, holding a row of another measure_sha: the
         launch check fails on it."""
-        board = self.data / "autoresearch_leaderboards" / "leaderboard_toystudy.tsv"
-        board.parent.mkdir(parents=True)
-        header = Leaderboard.for_study(st.load_study_file(path), path=board,
-                                       archive_path=None).header()
-        cols = header.rstrip("\n").split("\t")
-        row = ["old1" if c == "config" else "b" * 64 if c == "measure_sha"
-               else "1" for c in cols]
-        board.write_text(header + "\t".join(row) + "\n")
+        self.board(path, "b" * 64)
 
     def test_a_board_of_another_measure_sha_fails_launch_and_skips_geometry(self):
         self.foreign_board(write_study(toy_pre(), self.studies))
@@ -422,15 +390,7 @@ class TestMain(_Tmp):
         self.assertEqual(c["geometry"]["status"], "skipped")
 
     def test_a_board_row_without_measure_sha_fails_launch_with_detail(self):
-        path = write_study(toy_pre(), self.studies)
-        board = self.data / "autoresearch_leaderboards" / "leaderboard_toystudy.tsv"
-        board.parent.mkdir(parents=True)
-        header = Leaderboard.for_study(st.load_study_file(path), path=board,
-                                       archive_path=None).header()
-        cols = header.rstrip("\n").split("\t")
-        row = ["old1" if c == "config" else "" if c == "measure_sha"
-               else "1" for c in cols]
-        board.write_text(header + "\t".join(row) + "\n")
+        self.board(write_study(toy_pre(), self.studies), "")
         r, out = self.check("toystudy")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         launch = self.checks(out)["launch"]
@@ -540,7 +500,6 @@ class TestMain(_Tmp):
 
     def test_a_kit_that_will_not_start_fails_launch(self):
         write_study(toy_pre(), self.studies)
-        self.data.mkdir()
         (self.data / "toykit").write_text("a file where its state dir goes")
         r, out = self.check("toystudy")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)

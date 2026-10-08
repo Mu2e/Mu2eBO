@@ -3,7 +3,6 @@ verdict for the same kit, settings, mapped values and file contents; a
 failure is never reused (Phase C2b spec, section 5)."""
 import json
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,20 +10,17 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT / "graph"))
 sys.path.insert(0, str(ROOT))
-import study as st  # noqa: E402
 from kits import KitError  # noqa: E402
 from study_graph import (build_study_graph, preflight_basis,  # noqa: E402
                          reusable_pass)
-from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import Kits, TmpCase, toy_study  # noqa: E402
 
 PRE = {"kit": "toykit", "params": {"x1": "x1"}, "files": ["geom"]}
 
 
-class TestBasis(unittest.TestCase):
+class TestBasis(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         self.geom = self.tmp / "geom.txt"
         self.geom.write_text("double a = 1;\n")
 
@@ -89,23 +85,13 @@ class CountingKit:
         raise KitError("toykit", "submit", "not in this test")
 
 
-class Kits:
-    def __init__(self, kit):
-        self.kit = kit
-
-    def get(self, name):
-        return self.kit
-
-
-class TestResume(unittest.TestCase):
+class TestResume(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-        doc = toy_doc(name="reusetoy", layout="v2")
-        doc["preflight"] = {"kit": "toykit", "params": {"x1": "x1"},
-                            "files": []}
-        self.study = st.load_study_file(write_study(doc, self.tmp / "studies"))
+        super().setUp()
+        self.study = toy_study(
+            self.tmp / "studies", lambda d: d.update(preflight={
+                "kit": "toykit", "params": {"x1": "x1"}, "files": []}),
+            name="reusetoy")
         self.state = self.tmp / "grid" / "p1" / "state"
 
     def run_point(self, kit, logs):

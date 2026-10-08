@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -15,17 +14,12 @@ sys.path.insert(0, str(ROOT))
 from kit_config import ServerConfig  # noqa: E402
 from kits import (KitClient, KitError, KitTimeout, KitToolError,  # noqa: E402
                   WORKFLOW_META_KEY)
-from tests.engine_fixtures import toy_config  # noqa: E402
+from tests.engine_fixtures import TmpCase, toy_config  # noqa: E402
 
 WF = "camp/cfg/step"
 
 
-class _Client(unittest.TestCase):
-    def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.tmp = Path(self._td.name)
-
+class _Client(TmpCase):
     def client(self, **overrides):
         c = KitClient(toy_config(self.tmp / "toy", **overrides),
                       campaign="camp", trace_dir=self.tmp / "trace")
@@ -213,20 +207,19 @@ class TestLeakedLoop(_Client):
 # this.
 
 
-class TestTextReplies(unittest.TestCase):
+class TestTextReplies(TmpCase):
     """prodtools never sends structured content: its read tools are
     declared `-> dict`, its write tools have no return annotation, and
     neither sets structured_output, so each reply is JSON as text only.
     tests/textkit.py registers its tools both ways."""
 
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
+        super().setUp()
         cfg = ServerConfig(
             name="textkit",
             command=(sys.executable, str(ROOT / "tests" / "textkit.py")),
             env_passthrough=(), set_env={}, timeouts={"start": 60.0})
-        self.c = KitClient(cfg, campaign="camp", trace_dir=Path(td.name))
+        self.c = KitClient(cfg, campaign="camp", trace_dir=self.tmp)
         self.addCleanup(self.c.close)
 
     def call(self, tool, args):

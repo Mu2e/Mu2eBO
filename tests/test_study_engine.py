@@ -15,21 +15,16 @@ import modes  # noqa: E402
 import paths  # noqa: E402
 import scheduler  # noqa: E402
 import study as st  # noqa: E402
-from tests.engine_fixtures import (ENGINE_STUDIES, toy_doc,  # noqa: E402
-                                   write_study)
+from tests.engine_fixtures import (ENGINE_STUDIES, TmpCase,  # noqa: E402
+                                   toy_doc, write_study)
 
 DEMO = ROOT / "tests" / "fixtures" / "studies" / "demo.json"
 V = {"toykit": "1"}
 
 
-class _Tmp(unittest.TestCase):
-    def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.dir = Path(self._td.name)
-
+class _Tmp(TmpCase):
     def load(self, doc):
-        return st.load_study_file(write_study(doc, self.dir))
+        return st.load_study_file(write_study(doc, self.tmp))
 
 
 class TestLayout(_Tmp):
@@ -107,7 +102,7 @@ class TestMeasureSha(_Tmp):
 
     def test_an_artifact_path_hashes_the_same_for_every_operator(self):
         a = st.load_study_file(DEMO).measure_basis
-        with mock.patch.object(paths, "ARTIFACT_ROOT", self.dir):
+        with mock.patch.object(paths, "ARTIFACT_ROOT", self.tmp):
             b = st.load_study_file(DEMO).measure_basis
         self.assertEqual(a, b)
         self.assertIn("${ARTIFACT}/", json.dumps(a["kits"]))
@@ -152,11 +147,10 @@ class TestDerivedEnv(unittest.TestCase):
         self.assertNotIn("Phase B", str(cm.exception))
 
 
-class TestLoadedStudies(unittest.TestCase):
+class TestLoadedStudies(TmpCase):
     def test_the_repo_studies_and_the_engine_fixtures_load(self):
-        data = tempfile.TemporaryDirectory()
-        self.addCleanup(data.cleanup)
-        env = dict(os.environ, PYTHONPATH="", AUTORESEARCH_DATA_ROOT=data.name,
+        env = dict(os.environ, PYTHONPATH="",
+                   AUTORESEARCH_DATA_ROOT=str(self.tmp),
                    AUTORESEARCH_STUDY_PATH=str(ENGINE_STUDIES))
         script = "import modes; print(sorted(modes.STUDIES))"
         r = subprocess.run([sys.executable, "-c", script], env=env,
@@ -220,17 +214,17 @@ class TestFixedPaths(_Tmp):
     def test_the_raw_value_is_kept_and_expanded_for_the_kit(self):
         s = self.load(self.doc(self.RAW))
         self.assertEqual(s.steps[0].fixed["fail"], self.RAW)
-        with mock.patch.multiple(paths, ARTIFACT_ROOT=self.dir / "art",
-                                 BACKING=self.dir / "no_backing"):
+        with mock.patch.multiple(paths, ARTIFACT_ROOT=self.tmp / "art",
+                                 BACKING=self.tmp / "no_backing"):
             params = scheduler.step_params(s, s.steps[0],
                                            {"x1": 1.0, "x2": 2.0}, False, {})
         self.assertEqual(params["fail"],
-                         str(self.dir / "art" / "c2b" / "table.tbl"))
+                         str(self.tmp / "art" / "c2b" / "table.tbl"))
 
     def test_measure_basis_does_not_depend_on_the_artifact_root(self):
         shas = []
         for root in ("a", "b"):
-            with mock.patch.object(paths, "ARTIFACT_ROOT", self.dir / root):
+            with mock.patch.object(paths, "ARTIFACT_ROOT", self.tmp / root):
                 shas.append(self.load(self.doc(self.RAW)).measure_basis_sha)
         self.assertEqual(shas[0], shas[1])
 

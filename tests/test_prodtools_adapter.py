@@ -5,7 +5,6 @@ import json
 import os
 import sys
 import tarfile
-import tempfile
 import types
 import unittest
 import uuid
@@ -16,6 +15,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
 import contract as ct  # noqa: E402
 import kit_config  # noqa: E402
 import scheduler  # noqa: E402
@@ -23,6 +23,7 @@ from adapters import prodtools as pk  # noqa: E402
 from adapters import prodtools_entry as pe  # noqa: E402
 from kits import KitClient, KitError, KitTimeout, KitToolError  # noqa: E402
 from study import Step  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 
 USER = "tester"
 
@@ -128,11 +129,9 @@ class FakeProdtools:
                    outputs=outputs)
 
 
-class _Kit(unittest.TestCase):
+class _Kit(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         self.clock = [1000.0]
         self.fake = FakeProdtools(self.tmp / "prodtools",
                                   lambda: self.clock[0])
@@ -748,7 +747,7 @@ REAL_SERVERS = (bool(os.environ.get("AUTORESEARCH_PRODTOOLS"))
 @unittest.skipUnless(REAL_SERVERS, "needs AUTORESEARCH_PRODTOOLS set and "
                      "AUTORESEARCH_REAL_KIT_TESTS=1 (starts the real "
                      "prodtools servers)")
-class TestRealServers(unittest.TestCase):
+class TestRealServers(TmpCase):
     """The contract check against the real prodtools servers, started from
     kits.toml through KitClient. Read-only: tools/list and run_status on
     a run that cannot exist. It never calls a write tool."""
@@ -756,9 +755,7 @@ class TestRealServers(unittest.TestCase):
     WF = "contract-check/real-servers"
 
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         servers = kit_config.load_server_configs()
         self.clients = {role: KitClient(servers[f"prodtools_{role}"],
                                         campaign="contract-check",

@@ -7,7 +7,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import threading
 import types
 import unittest
@@ -25,6 +24,7 @@ from contract import ContractError  # noqa: E402
 from kit_config import ServerConfig  # noqa: E402
 from kits import KitError  # noqa: E402
 from study import Step  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 from tests.fakeanakit import CATALOGUE  # noqa: E402
 
 MUSING = "SimJob MDC2025ay"
@@ -91,11 +91,9 @@ def commit_in(root) -> str:
     return run("rev-parse", "--short=12", "HEAD").stdout.strip()
 
 
-class _Kit(unittest.TestCase):
+class _Kit(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         self.checkout = git_repo(self.tmp / "checkout", "analysis_mcp_server/__main__.py")
         (self.tmp / "musings" / "SimJob" / "MDC2025ay").mkdir(parents=True)
         patcher = mock.patch.object(ak, "MUSINGS_ROOT", self.tmp / "musings")

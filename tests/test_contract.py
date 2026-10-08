@@ -3,7 +3,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import types
 import unittest
 from dataclasses import replace
@@ -15,11 +14,11 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import contract as ct  # noqa: E402
 import kit_registry  # noqa: E402
-import study as st  # noqa: E402
 from leaderboard import Leaderboard  # noqa: E402
 from adapters import offline_preflight as op  # noqa: E402
 from kits import KitClient, KitError, KitTimeout, KitToolError  # noqa: E402
-from tests.engine_fixtures import toy_config, toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import (TmpCase, toy_config,  # noqa: E402
+                                   toy_study, write_board)
 
 STATUS = {"state": "working", "message": "", "poll_ms": 100, "progress": None}
 RESULTS = {"metrics": {"a": 1.0}, "files": [], "metadata": {}}
@@ -186,13 +185,11 @@ class TestRetryPolicy(unittest.TestCase):
         self.assertEqual(len(c.calls), 1)
 
 
-class _Toy(unittest.TestCase):
+class _Toy(TmpCase):
     P = {"x1": 1.0, "x2": 2.0, "function": "branin_currin"}
 
     def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.tmp = Path(self._td.name)
+        super().setUp()
         self.cfg = toy_config(self.tmp / "toy")
 
     def open(self, name="toykit", campaign="c", cfg=None):
@@ -414,7 +411,7 @@ class TestKitErrorContract(unittest.TestCase):
         self.assertIs(kits.get("k"), kits.get("k"))
 
 
-class TestRegistry(unittest.TestCase):
+class TestRegistry(TmpCase):
     def test_open_calls_the_declared_factory(self):
         class Fake:
             def __init__(self, campaign, *, executor, parallel):
@@ -460,23 +457,19 @@ class TestRegistry(unittest.TestCase):
         self.assertEqual(out.stdout.strip(), "adapters.prodtools False")
 
     def test_launch_stagger(self):
-        with tempfile.TemporaryDirectory() as td:
-            study = st.load_study_file(write_study(toy_doc(), Path(td)))
-        self.assertEqual(ct.launch_stagger(study), 0.0)
+        self.assertEqual(ct.launch_stagger(toy_study(self.tmp)), 0.0)
 
     def test_launch_stagger_is_the_largest_declared(self):
-        with tempfile.TemporaryDirectory() as td:
-            study = st.load_study_file(write_study(toy_doc(), Path(td)))
+        study = toy_study(self.tmp)
         decl = replace(kit_registry.KITS["toykit"], launch_stagger_s=7.0)
         with mock.patch.dict(kit_registry.KITS, {"toykit": decl}):
             self.assertEqual(ct.launch_stagger(study), 7.0)
 
 
-class TestExecutors(unittest.TestCase):
+class TestExecutors(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.study = st.load_study_file(write_study(toy_doc(), Path(td.name)))
+        super().setUp()
+        self.study = toy_study(self.tmp)
 
     def test_toykit_runs_either_way(self):
         for executor in ("grid", "local"):
@@ -507,10 +500,8 @@ class TestExecutors(unittest.TestCase):
 
 
 class TestLaunchProblems(_Toy):
-    def study(self, mutate=lambda doc: None):
-        doc = toy_doc()
-        mutate(doc)
-        return st.load_study_file(write_study(doc, self.tmp / "studies"))
+    def study(self, mutate=None):
+        return toy_study(self.tmp / "studies", mutate)
 
     def kit_set(self, opener):
         kits = ct.KitSet("c", opener=opener)
@@ -562,17 +553,7 @@ class TestLaunchProblems(_Toy):
                             for p in problems), problems)
 
     def board(self, study, *shas, header=None):
-        lb = Leaderboard.for_study(study, path=self.tmp / "b.tsv",
-                                   archive_path=None)
-        cols = lb.header().rstrip("\n").split("\t")
-        lines = [header or lb.header()]
-        for i, sha in enumerate(shas):
-            row = {c: "1.0" for c in cols}
-            row.update(config=f"r{i}", handles="toy=x", spec_sha="s" * 64,
-                       measure_sha=sha, time="2026-09-30T00:00:00Z")
-            lines.append("\t".join(row[c] for c in cols) + "\n")
-        lb.path.write_text("".join(lines))
-        return lb
+        return write_board(study, self.tmp / "b.tsv", *shas, header=header)
 
     def with_board(self, study, board, cfg=None):
         return self.launch(study, lambda n, c: self.open(n, c, cfg=cfg),

@@ -13,8 +13,10 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
 
 import paths  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 
 
 def reload_with(**env):
@@ -79,24 +81,19 @@ class TestPathsResolution(unittest.TestCase):
         self.assertFalse(p.DATA_ROOT.exists())
 
 
-class TestArtifactLinkOrder(unittest.TestCase):
+class TestArtifactLinkOrder(TmpCase):
     """Against a copy of core/paths.py in a scratch repo: the real
     checkout's own `backing` link (a fresh install has one) would win over
     AUTORESEARCH_BACKING."""
 
     def setUp(self):
         import shutil
-        import tempfile
-        self._td = tempfile.TemporaryDirectory()
-        self.tmp = Path(self._td.name)
+        super().setUp()
         (self.tmp / "local").mkdir()
         (self.tmp / "backing").mkdir()
         (self.tmp / "repo" / "core").mkdir(parents=True)
         self.copy = self.tmp / "repo" / "core" / "paths.py"
         shutil.copy2(ROOT / "core" / "paths.py", self.copy)
-
-    def tearDown(self):
-        self._td.cleanup()
 
     def _load(self, **env):
         import importlib.util

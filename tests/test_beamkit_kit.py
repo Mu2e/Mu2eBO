@@ -8,7 +8,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -22,7 +21,7 @@ import study as st  # noqa: E402
 from adapters import beamkit as bk  # noqa: E402
 from kit_config import ServerConfig  # noqa: E402
 from kits import KitError  # noqa: E402
-from tests.engine_fixtures import engine_env, write_study  # noqa: E402
+from tests.engine_fixtures import EngineCase, TmpCase, write_study  # noqa: E402
 
 DECK_URL = "https://github.com/oksuzian/G4BeamlineScripts"
 KNOBS = ("Tlength", "R_up", "R_mid", "R_dn")
@@ -64,12 +63,7 @@ def ptg_doc(name="ptg4bltest", deck_ref="a" * 40):
     }
 
 
-class _Tmp(unittest.TestCase):
-    def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-
+class _Tmp(TmpCase):
     def load(self, doc):
         return st.load_study_file(write_study(doc, self.tmp / "studies"))
 
@@ -470,14 +464,12 @@ Valid starting       Expires              Service principal
 """
 
 
-class TestEndToEnd(_Tmp):
+class TestEndToEnd(EngineCase):
     """check_study and graph.run on a copy of ptg4bl against the fake, with
     a fake klist: no grid, no ticket, no real beamkit."""
 
     def setUp(self):
         super().setUp()
-        self.data = self.tmp / "data"
-        self.studies = self.tmp / "studies"
         self.state = self.tmp / "state"
         self.state.mkdir()
         bindir = self.tmp / "bin"
@@ -495,7 +487,6 @@ class TestEndToEnd(_Tmp):
         doc["name"] = "ptg4blfake"
         doc["leaderboard"]["file"] = "leaderboards/leaderboard_bo_ptg4blfake.tsv"
         write_study(doc, self.studies)
-        self.env = engine_env(self.data, self.studies)
         self.env.update(AUTORESEARCH_BEAMKIT=str(self.tmp / "beamkit"),
                         AUTORESEARCH_PRODTOOLS=str(self.tmp),
                         PATH=f"{bindir}:{os.environ['PATH']}")

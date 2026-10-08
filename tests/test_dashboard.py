@@ -9,7 +9,6 @@ import signal
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 import unittest.mock
@@ -22,8 +21,8 @@ from service import dashboard as dash  # noqa: E402
 from service.campaigns import CampaignService  # noqa: E402
 from campaign_dir import parse_child  # noqa: E402
 from leaderboard import Point  # noqa: E402  (core/ is on sys.path now)
-from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
-from tests.test_boards import META  # noqa: E402
+from tests.engine_fixtures import (META, EngineCase, toy_doc,  # noqa: E402
+                                   write_study)
 
 
 def dag_doc():
@@ -40,17 +39,12 @@ def dag_doc():
     return doc
 
 
-class _Dash(unittest.TestCase):
+class _Dash(EngineCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-        self.data = self.tmp / "data"
-        self.data.mkdir()
-        studies = self.tmp / "studies"
-        write_study(toy_doc("toystudy"), studies)
-        write_study(dag_doc(), studies)
-        self.svc = CampaignService(env=engine_env(self.data, studies))
+        super().setUp()
+        write_study(toy_doc("toystudy"), self.studies)
+        write_study(dag_doc(), self.studies)
+        self.svc = CampaignService(env=self.env)
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
         self.now = time.time()
@@ -139,7 +133,7 @@ class TestData(_Dash):
         doc["evaluate"] = [a, b]
         for o in doc["objectives"]:
             o["metric"] = "b." + o["metric"].split(".", 1)[1]
-        write_study(doc, self.tmp / "studies")
+        write_study(doc, self.studies)
         self.child("pfR00_00", "pfstudy")
         d = self.data_of("pf")
         self.assertEqual(d["steps"], [
@@ -412,7 +406,6 @@ class TestMain(_Dash):
     def setUp(self):
         super().setUp()
         self.out = self.tmp / "dash"
-        self.env = engine_env(self.data, self.tmp / "studies")
         self.child("aaR00_00")
 
     def run_cmd(self, *args, timeout=120):

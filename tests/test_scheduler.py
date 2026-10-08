@@ -1,7 +1,6 @@
 import dataclasses
 import json
 import sys
-import tempfile
 import threading
 import time
 import types
@@ -11,12 +10,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
 import scheduler as sch  # noqa: E402
 import study as st_mod  # noqa: E402
 from contract import ContractError, Results, Status  # noqa: E402
 from contract import KitSet as ContractKits  # noqa: E402
 from kits import KitError  # noqa: E402
 from study import Step  # noqa: E402
+from tests.engine_fixtures import Kits, TmpCase  # noqa: E402
 
 DEMO = ROOT / "tests" / "fixtures" / "studies" / "demo.json"
 
@@ -91,14 +92,6 @@ class FakeKit:
         pass
 
 
-class Kits:
-    def __init__(self, kit):
-        self.kit = kit
-
-    def get(self, name):
-        return self.kit
-
-
 class RaisingToolsKit:
     """Wraps a FakeKit but raises KitError from `tools`, like a NativeKit
     whose MCP server died and could not be restarted (contract.py's
@@ -157,11 +150,10 @@ class FlakyKits:
         return self.by_name[name]
 
 
-class _Run(unittest.TestCase):
+class _Run(TmpCase):
     def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.state = Path(self._td.name) / "state"
+        super().setUp()
+        self.state = self.tmp / "state"
 
     def run_steps(self, st, kit=None, env=None, sleep=None, state=None,
                  log=None, kits=None):

@@ -3,7 +3,6 @@
 Regression anchor: touched-leaderboard-headerless-history-loss (foilspfbw01).
 """
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,12 +15,10 @@ import leaderboard as lbm  # noqa: E402
 import study as st  # noqa: E402
 
 sys.path.insert(0, str(ROOT))
-from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import META, TmpCase, toy_study  # noqa: E402
 
 _DEMO = Path(__file__).parent / "fixtures" / "studies" / "demo.json"
 
-META = {"handles": "toy=c1.toy", "spec_sha": "s" * 64,
-        "measure_sha": "m" * 64, "time": "2026-09-24T00:00:00Z"}
 # META's cells as they end a row, tab-led.
 META_TAIL = "".join("\t" + META[k] for k in lbm.V2_META)
 
@@ -63,14 +60,10 @@ def demo_lb(path: Path, archive_path: Path | None = None) -> Leaderboard:
                                  archive_path=archive_path)
 
 
-class TestHistory(unittest.TestCase):
+class TestHistory(TmpCase):
     def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.tmp = Path(self._td.name)
+        super().setUp()
         self.lb = demo_lb(self.tmp / "leaderboard_bo_test.tsv")
-
-    def tearDown(self):
-        self._td.cleanup()
 
     def test_header_line(self):
         self.assertEqual(self.lb.header(),
@@ -160,19 +153,14 @@ class TestHistory(unittest.TestCase):
                         **common)
 
 
-class TestArchivePlusLive(unittest.TestCase):
+class TestArchivePlusLive(TmpCase):
     """The committed leaderboards/ are read-only priors; this operator's own
     rows append to a separate live file. load() returns both."""
 
     def setUp(self):
-        import tempfile
-        self._td = tempfile.TemporaryDirectory()
-        self.tmp = Path(self._td.name)
+        super().setUp()
         self.archive = self.tmp / "archive.tsv"
         self.live = self.tmp / "live" / "board.tsv"
-
-    def tearDown(self):
-        self._td.cleanup()
 
     def _lb(self):
         return demo_lb(self.live, archive_path=self.archive)
@@ -259,13 +247,10 @@ class TestArchivePlusLive(unittest.TestCase):
             repo.chmod(mode)                   # else tearDown cannot remove it
 
 
-class TestV2Rows(unittest.TestCase):
+class TestV2Rows(TmpCase):
     def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.tmp = Path(self._td.name)
-        self.study = st.load_study_file(
-            write_study(toy_doc(layout="v2"), self.tmp / "studies"))
+        super().setUp()
+        self.study = toy_study(self.tmp / "studies")
         self.lb = Leaderboard.for_study(self.study, path=self.tmp / "b.tsv",
                                         archive_path=self.tmp / "arch.tsv")
 
@@ -327,13 +312,10 @@ class TestV2Rows(unittest.TestCase):
             self.lb.append(self.pt("c2"), {}, META)
         self.assertFalse(self.lb.path.exists())
 
-class TestMeasureShas(unittest.TestCase):
+class TestMeasureShas(TmpCase):
     def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.tmp = Path(self._td.name)
-        self.study = st.load_study_file(
-            write_study(toy_doc(layout="v2"), self.tmp / "studies"))
+        super().setUp()
+        self.study = toy_study(self.tmp / "studies")
         self.lb = Leaderboard.for_study(self.study, path=self.tmp / "b.tsv",
                                         archive_path=None)
 

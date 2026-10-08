@@ -13,7 +13,7 @@ import paths  # noqa: E402
 import study as st  # noqa: E402
 
 sys.path.insert(0, str(ROOT))
-from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import TmpCase, toy_doc, write_study  # noqa: E402
 
 GOOD = """
 [demo]
@@ -139,14 +139,9 @@ class TestConfigNameRule(unittest.TestCase):
         self.assertIn("empty", kit_registry.config_name_problem(""))
 
 
-class TestNativeKitInStudies(unittest.TestCase):
-    def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.dir = Path(self._td.name)
-
+class TestNativeKitInStudies(TmpCase):
     def load(self, doc):
-        return st.load_study_file(write_study(doc, self.dir))
+        return st.load_study_file(write_study(doc, self.tmp))
 
     def assertRejects(self, doc, *needles):
         with self.assertRaises(ValueError) as cm:
@@ -202,11 +197,9 @@ timeouts = { start = 5, do_thing = 7 }
 '''
 
 
-class TestServersAndExecutors(unittest.TestCase):
+class TestServersAndExecutors(TmpCase):
     def write(self, text):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        p = Path(td.name) / "kits.toml"
+        p = self.tmp / "kits.toml"
         p.write_text(text)
         return p
 

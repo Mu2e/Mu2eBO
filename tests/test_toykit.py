@@ -1,12 +1,12 @@
 import json
 import math
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tests import toykit  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 
 P = {"x1": 1.0, "x2": 2.0, "function": "branin_currin"}
 
@@ -19,16 +19,14 @@ class Clock:
         return self.t
 
 
-class _Store(unittest.TestCase):
+class _Store(TmpCase):
     def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.root = Path(self._td.name)
+        super().setUp()
         self.clock = Clock()
-        self.store = toykit.ToyStore(self.root, clock=self.clock)
+        self.store = toykit.ToyStore(self.tmp, clock=self.clock)
 
     def submits(self):
-        path = self.root / "submits.jsonl"
+        path = self.tmp / "submits.jsonl"
         if not path.exists():
             return []
         return [json.loads(ln)["name"] for ln in path.read_text().splitlines()]

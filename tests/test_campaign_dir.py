@@ -3,16 +3,17 @@ docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
 import json
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
 import campaign_dir as cd  # noqa: E402
 from campaign_dir import (CampaignBusy, CampaignDir, child_name,  # noqa: E402
                           is_child, parse_child)
+from tests.engine_fixtures import TmpCase  # noqa: E402
 
 HOLD = """
 import sys, time
@@ -39,11 +40,9 @@ class TestChildNames(unittest.TestCase):
         self.assertFalse(is_child("foo", "fooR5_00"))
 
 
-class _Camp(unittest.TestCase):
+class _Camp(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         self.camp = CampaignDir(self.tmp, "cmp")
 
     def hold_elsewhere(self, prefix="cmp"):

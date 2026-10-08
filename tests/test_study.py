@@ -1,15 +1,16 @@
 import json
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
 import study as st  # noqa: E402
 import kit_registry  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = Path(__file__).parent / "fixtures" / "studies" / "demo.json"
 
 
@@ -44,14 +45,7 @@ def _rename_knob_a(name):
     return mutate
 
 
-class _Tmp(unittest.TestCase):
-    def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.tmp = Path(self._td.name)
-
-    def tearDown(self):
-        self._td.cleanup()
-
+class _Tmp(TmpCase):
     def write(self, doc, name=None, directory=None):
         d = directory or self.tmp
         d.mkdir(parents=True, exist_ok=True)

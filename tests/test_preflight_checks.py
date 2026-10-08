@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 from adapters import preflight_checks as pc  # noqa: E402
 from adapters import prodtools_entry as pe  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 from tests.preflight_logs import (ADVISORY_LOG, CLEAN_LOG, FATAL_LOG,  # noqa: E402
                                   GEOM, MANAGED_LOG, NO_MU2E_LOG,
                                   PRE_INIT_GEOM_LOG, gdml, gdml_matching)
@@ -342,15 +343,13 @@ class TestRunCheck(unittest.TestCase):
         self.assertFalse(pc.retry_if_mu2e_never_started(proc(0)))
 
 
-class TestRunPreflight(unittest.TestCase):
+class TestRunPreflight(TmpCase):
     """run_preflight: the sequence the offline_preflight kit calls -- unpack
     the code tarball, stage the emptied workdir, run, keep preflight.log,
     classify."""
 
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         self.workdir = self.tmp / "grid" / "cfg1" / "preflight"
         self.calls = []
         patch = mock.patch.object(pe, "unpacked",

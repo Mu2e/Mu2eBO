@@ -7,7 +7,6 @@ import signal
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -15,18 +14,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from service.campaigns import CampaignService, is_child  # noqa: E402
-from tests.engine_fixtures import ENGINE_STUDIES, engine_env  # noqa: E402
+from tests.engine_fixtures import (ENGINE_STUDIES, EngineCase,  # noqa: E402
+                                   engine_env)
 
 LOCAL = ["--picker", "budget_sob", "--executor", "local", "--parallel", "1"]
 
 
-class _Camp(unittest.TestCase):
+class _Camp(EngineCase):
+    """The branin engine study (tests/fixtures/engine_studies) on a temp
+    data root."""
+
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-        self.data = self.tmp / "data"
-        self.data.mkdir()
+        super().setUp()
         self.env = engine_env(self.data, ENGINE_STUDIES)
         self.svc = CampaignService(env=self.env)
 

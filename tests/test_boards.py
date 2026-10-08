@@ -1,6 +1,5 @@
 import math
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -11,22 +10,14 @@ sys.path.insert(0, str(ROOT))
 import boards  # noqa: E402
 import botorch_predict as bp  # noqa: E402
 import modes  # noqa: E402
-import study as st  # noqa: E402
 from leaderboard import Point  # noqa: E402
-from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
-
-META = {"handles": "toy=h1.toy", "spec_sha": "s" * 64,
-        "measure_sha": "m" * 64, "time": "2026-09-24T00:00:00Z"}
+from tests.engine_fixtures import META, TmpCase, toy_study  # noqa: E402
 
 
-class TestBoardFor(unittest.TestCase):
+class TestBoardFor(TmpCase):
     def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.tmp = Path(self._td.name)
-        self.study = st.load_study_file(
-            write_study(toy_doc(name="histtoy", layout="v2"),
-                        self.tmp / "studies"))
+        super().setUp()
+        self.study = toy_study(self.tmp / "studies", name="histtoy")
         for patch in (
                 mock.patch.object(boards, "leaderboard_live",
                                   lambda rel: self.tmp / "live" / Path(rel).name),

@@ -5,7 +5,6 @@ import os
 import shutil
 import sys
 import tarfile
-import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -13,7 +12,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
 from adapters import prodtools_entry as pe  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 
 PARITY = ROOT / "tests" / "fixtures" / "prodtools_parity"
 # foilspfbpz's fixed values, which gridphaseA01 ran with.
@@ -230,14 +231,7 @@ class TestSubstitutePlaceholders(unittest.TestCase):
         self.assertEqual(e["_comment"], "see the template")
 
 
-class _Tmp(unittest.TestCase):
-    def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-
-
-class TestIncludeFiles(_Tmp):
+class TestIncludeFiles(TmpCase):
     def test_bare_names_ship_and_published_paths_do_not(self):
         got = pe.include_files(template("mubeam"), pe.TEMPLATES_ROOT)
         self.assertEqual(sorted(p.name for p in got),
@@ -253,7 +247,7 @@ class TestIncludeFiles(_Tmp):
         self.assertIn("nope.fcl", str(cm.exception))
 
 
-class TestCodeTarball(_Tmp):
+class TestCodeTarball(TmpCase):
     def base(self, with_code=True):
         src = self.tmp / "src" / ("Code" if with_code else "Other")
         src.mkdir(parents=True)
@@ -324,7 +318,7 @@ class TestCodeTarball(_Tmp):
             self.build(self.tmp / "missing.tar.bz2")
 
 
-class TestUnpacked(_Tmp):
+class TestUnpacked(TmpCase):
     def tarball(self, setup_text="echo hi\n", with_setup=True):
         """A muse-style tarball at a fixed path: Code/setup.sh and the
         Code/backing link to a /cvmfs release. Rebuilding overwrites it."""
@@ -401,7 +395,7 @@ class TestUnpacked(_Tmp):
         self.assertEqual(list(cache.iterdir()), [])
 
 
-class TestLinkInputs(_Tmp):
+class TestLinkInputs(TmpCase):
     def sources(self, n=2):
         d = self.tmp / "up"
         d.mkdir(exist_ok=True)

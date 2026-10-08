@@ -5,7 +5,6 @@ import os
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -13,7 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
 import locks  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 
 HOLDER = """
 import fcntl, os, sys, time
@@ -24,11 +25,9 @@ time.sleep(float(sys.argv[3]))
 """
 
 
-class TestLocks(unittest.TestCase):
+class TestLocks(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         self.lock = self.tmp / "x.lock"
 
     def holder(self, seconds=5.0):

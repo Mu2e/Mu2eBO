@@ -3,25 +3,24 @@ docs/superpowers/specs/2026-10-05-point-campaign-records-design.md)."""
 import json
 import os
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
 import point_dir as pdm  # noqa: E402
 from point_dir import PointDir, PointMismatch  # noqa: E402
+from tests.engine_fixtures import TmpCase  # noqa: E402
 
 POINT = {"study": "s", "config": "p1", "campaign": "c", "x": [1.0, 2.0],
          "context": {}, "measure_basis_sha": "a" * 64, "executor": "grid"}
 
 
-class _Dir(unittest.TestCase):
+class _Dir(TmpCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
+        super().setUp()
         self.pd = PointDir.of(self.tmp, "p1")
 
     def put(self, name, payload):

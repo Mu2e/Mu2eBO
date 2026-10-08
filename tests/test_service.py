@@ -6,7 +6,6 @@ import os
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -15,28 +14,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from service.checks import CheckService  # noqa: E402
 from service.jobs import lock_held, spawn_detached  # noqa: E402
-from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import (EngineCase, toy_pre,  # noqa: E402
+                                   write_study)
 
 LOCAL = dict(executor="local", parallel=1)
 
 
-def toy_pre(name="toystudy", **kits):
-    doc = toy_doc(name)
-    doc["preflight"] = {"kit": "toykit", "files": [], "params": {}}
-    doc["kits"]["toykit"].update(kits)
-    return doc
-
-
-class _Svc(unittest.TestCase):
+class _Svc(EngineCase):
     def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.tmp = Path(td.name)
-        self.studies = self.tmp / "studies"
-        self.studies.mkdir()
-        self.data = self.tmp / "data"
-        self.data.mkdir()
-        self.env = engine_env(self.data, self.studies)
+        super().setUp()
         self.svc = CheckService(env=self.env)
 
     def wait(self, job_id, svc=None, timeout=120):

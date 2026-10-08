@@ -1,7 +1,6 @@
 import json
 import math
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,9 +9,8 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 import leaderboard as lbm  # noqa: E402
 import score as sc  # noqa: E402
-import study as st  # noqa: E402
 from leaderboard import Leaderboard  # noqa: E402
-from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
+from tests.engine_fixtures import TmpCase, toy_study  # noqa: E402
 
 GOOD = {"branin": 1.5, "currin": 3.0, "n_inputs": 0.0}
 
@@ -23,18 +21,14 @@ def rec(metrics, step="toy", handle="c.toy", version="1"):
             "files": [], "metadata": {}}
 
 
-class _Score(unittest.TestCase):
+class _Score(TmpCase):
     def setUp(self):
-        self._td = tempfile.TemporaryDirectory()
-        self.addCleanup(self._td.cleanup)
-        self.tmp = Path(self._td.name)
+        super().setUp()
         self.state = self.tmp / "state"
         self.state.mkdir()
 
-    def study(self, mutate=lambda d: None, name="scoretoy"):
-        doc = toy_doc(name=name)
-        mutate(doc)
-        return st.load_study_file(write_study(doc, self.tmp / "studies"))
+    def study(self, mutate=None, name="scoretoy"):
+        return toy_study(self.tmp / "studies", mutate, name=name)
 
     def board(self, study):
         return Leaderboard.for_study(study, path=self.tmp / f"{study.name}.tsv",
