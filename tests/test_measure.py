@@ -15,14 +15,14 @@ from leaderboard import Leaderboard  # noqa: E402
 from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
 
 BASIS = {
-    "ce_chain": "79b9b3e212d94d04f3aece224d3968cb33eae4e6f52c6e23c937281cd058e771",
-    "foilsflash_ax": "405cc0e850b9dc4ed28ee96bea8187c94185bce654230acc5016de73a1763d6f",
-    "foilspf2k_ax": "2060c97e7de0a4a18f6364e0a721e6abe45e4bc98a089b4ffedcea75385e12a4",
-    "foilspf_ax": "e96f0491abe95519352962dc51616fca0598eabf5b5cfba122734179da3b250e",
-    "foilspfbp_ax": "54467d3e05b4742da1fbd3a7809cf50f770fdc18219c40773ada487355cb0547",
-    "foilspfbpx_ax": "d6ee2d286f6e8e26a6417dfb9530789beefd8f385179036f60c4385d1e6d8a4d",
-    "foilspfbpz_ax": "c4aafee1c30ba5121ab727bcab4513786b6d076c10f976d1b786daf95e218a80",
-    "foilspfbw_ax": "01bcbd62be9a8f4d8b825e85267a3e7b45a0746b2784f1c48c32aeacba962191",
+    "ce_chain": "3a300aecbea8dba8d289c4f78c4a941b01ec18c2293a14a793b86f7263e59189",
+    "foilsflash_ax": "b96e6c99648c677b5046f7f223df5477eba156dc27ecb15aaed57d31e6b904bd",
+    "foilspf2k_ax": "3f38430b59ddbda1a3701f66da441d4133d45163c82e364c9aa9e4b08b4441cf",
+    "foilspf_ax": "8132f2e3a703b56891df2f3ea82d1002b6016297a5266b4288e09d965c4c1ad0",
+    "foilspfbp_ax": "e08e960e3c1f71eb714ce9c8a9b67c805f12245f510adee10bd620a1617e26d7",
+    "foilspfbpx_ax": "875ccd772454aee7d438f7b7b02ebecc1ee789ae1744ef2155a6f998eee69ed4",
+    "foilspfbpz_ax": "fa84cd6e195e4ef865d62c42f8085deb24a81213197a814e23aab49f8856c570",
+    "foilspfbw_ax": "93dbb4e28fb221f1c0b56a68624279250116964c33fc2bd9853c078a5f4ae7c8",
     "ptg4bl": "b52fce7c37525597cae53862efe0f272af28f766c6deaefa22b71f08a6861689",
 }
 

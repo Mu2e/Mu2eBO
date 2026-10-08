@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "ce_chain",
- "note": "The CeEndpoint production chain as a zero-knob study: dts -> dig -> mcs -> nts on SimJob MDC2025ax through AnalysisMDC2025 v02_02_02, then the anakit nts_momentum plot. Runs through graph.run only. Its fit count stands in for the objective the loader demands. See docs/superpowers/specs/2026-09-30-ce-chain-design.md.",
+ "note": "The CeEndpoint production chain as a zero-knob study: dts -> dig -> mcs -> nts on SimJob MDC2025ax through AnalysisMDC2025 v02_02_02, then an anakit plot step. Runs through graph.run only. Its count of selected events stands in for the objective the loader demands. The plot step is M. MacKenzie's trigger_efficiency_ntuple. The ntuple is the triggered stream, so its efficiency is conditional: this checks the chain, not the trigger. See docs/superpowers/specs/2026-09-30-ce-chain-design.md and docs/superpowers/specs/2026-10-07-upstream-analyses-design.md.",
  "knobs": [],
  "derive": {
   "consts": {},
@@ -20,7 +20,7 @@
    "fatal_log_codes": []
   },
   "anakit": {
-   "work_area": "${ARTIFACT}/autoresearch_muse_ax"
+   "musing": "SimJob MDC2025ay"
   }
  },
  "preflight": null,
@@ -107,14 +107,15 @@
    "params": {},
    "params_from": {},
    "fixed": {
-    "analysis": "nts_momentum"
+    "analysis": "trigger_efficiency_ntuple",
+    "trigger_paths": "apr_TrkDe_80m70p, cpr_TrkDe_80m70p"
    }
   }
  ],
  "objectives": [
   {
-   "name": "n_fits",
-   "metric": "plot.n_fits",
+   "name": "n_selected",
+   "metric": "plot.n_selected",
    "direction": "max",
    "transform": "none",
    "noise": 1.0,
@@ -124,14 +125,14 @@
  "constraints": [],
  "extra_metrics": [
   {
-   "name": "median_p_front",
-   "metric": "plot.median_p_front",
-   "fmt": "{:.3f}"
+   "name": "efficiency",
+   "metric": "plot.efficiency",
+   "fmt": "{:.4f}"
   },
   {
-   "name": "mean_p_front",
-   "metric": "plot.mean_p_front",
-   "fmt": "{:.3f}"
+   "name": "n_triggered",
+   "metric": "plot.n_triggered",
+   "fmt": "{:.0f}"
   },
   {
    "name": "n_events",
@@ -141,7 +142,7 @@
  ],
  "extra_columns": [],
  "leaderboard": {
-  "file": "leaderboards/leaderboard_ce_chain.tsv",
+  "file": "leaderboards/leaderboard_ce_chain_upstream.tsv",
   "layout": "v2",
   "context": []
  }

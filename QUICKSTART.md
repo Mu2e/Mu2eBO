@@ -35,8 +35,9 @@ git -C surrokit checkout 26929f7      # = SURROKIT_PIN_SHA in core/paths.py
 git clone https://github.com/Mu2e/prodtools.git prodtools
 bash prodtools/mcp/scripts/install.sh       # its MCP venv
 
-# anakit: the analysis kit for the *_ax studies (fork, branch autoresearch)
-git clone -b autoresearch https://github.com/oksuzian/analysis-mcp-server.git analysis-mcp-server
+# anakit: M. MacKenzie's analysis server, run by the *_ax studies and ce_chain (pinned)
+git clone https://github.com/michaelmackenzie/analysis-mcp-server.git analysis-mcp-server
+git -C analysis-mcp-server switch --detach 3ba8d23
 
 # beamkit: the G4beamline kit for ptg4bl
 git clone -b v1 https://github.com/oksuzian/beamkit.git beamkit
@@ -44,7 +45,7 @@ git clone -b v1 https://github.com/oksuzian/beamkit.git beamkit
 /cvmfs/mu2e.opensciencegrid.org/env/ana/2.8.0/bin/python -m venv beamkit/.venv
 env -u PYTHONPATH beamkit/.venv/bin/pip install -e beamkit
 
-# borrow a built Offline, the grid code tarballs and the anakit work area
+# borrow a built Offline and the grid code tarballs
 cd autoresearch
 source ./activate.sh
 ./setup.sh --backing /exp/mu2e/app/users/oksuzian
@@ -64,12 +65,13 @@ update, run `/mcp` in the session to reload them.
 
 > **Still shared from one person's area (2026-10-06):**
 > - **The backing.** `setup.sh --backing` points at
->   `/exp/mu2e/app/users/oksuzian`: the built Offline, the grid code
->   tarballs, and the anakit work area `autoresearch_muse_ax`. That work area
->   carries a local Mu2eOptAna branch. All of it is world-readable, but it
->   lives in a personal area until it moves to a shared Mu2e location.
-> - **The anakit fork.** Until `oksuzian/analysis-mcp-server` (branch
->   `autoresearch`) is published, copy `/exp/mu2e/app/users/oksuzian/analysis-mcp-server`.
+>   `/exp/mu2e/app/users/oksuzian`: the built Offline and the grid code
+>   tarballs. All of it is world-readable, but it lives in a personal area
+>   until it moves to a shared Mu2e location.
+> - **anakit needs no work area** (since 2026-10-07): it runs M.
+>   MacKenzie's analyses on the published `SimJob MDC2025ay` Musing.
+>   `approx_ce_sensitivity` reads its DIO table from his area
+>   (`/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/data/`).
 >
 > Tested on 2026-10-06 against upstream `Mu2e/prodtools` `main`: a local
 > `ce_chain` point ran end to end (median |p| 104.022, the same as on the
@@ -172,18 +174,20 @@ measurement or a kit's version changed. Kit versions are bumped by hand
 ## 8. Once, after updating to 2026-10-05 or later
 
 Boards measured before that date carry the old kit version strings.
-First prove they changed only by build, with a dry run:
+Only `ptg4bl`'s board still needs this: the `_ax` studies and `ce_chain`
+moved to new `_upstream` boards on 2026-10-07. First prove its rows
+changed only by build, with a dry run:
 
 ```bash
-PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.restamp_board --study foilspfbpz_ax \
-    --why "the anakit fork moved; no analysis number changed"
+PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.restamp_board --study ptg4bl \
+    --why "kit versions are hand-bumped since 2026-10-05; no number changed"
 ```
 
 Then rewrite the board, which keeps a backup and a log line next to it:
 
 ```bash
-PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.restamp_board --study foilspfbpz_ax \
-    --why "the anakit fork moved; no analysis number changed" --confirm
+PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.restamp_board --study ptg4bl \
+    --why "kit versions are hand-bumped since 2026-10-05; no number changed" --confirm
 ```
 
-Do the same for `ptg4bl`. Run it with no campaign running.
+Run it with no campaign running.

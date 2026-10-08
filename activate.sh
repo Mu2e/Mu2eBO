@@ -86,7 +86,7 @@ fi
 # The kit checkouts the engine starts servers from (kits.toml,
 # core/adapters/). An exported value always wins. Otherwise each defaults to
 # a sibling of this repo, the convention AUTORESEARCH_SURROKIT already uses
-# (core/paths.py): the anakit fork at ../analysis-mcp-server and prodtools
+# (core/paths.py): the anakit checkout at ../analysis-mcp-server and prodtools
 # at ../prodtools, or else inside a Muse work area at ../muse_050125/prodtools.
 # A default is taken only when that directory exists. A missing one stays
 # unset, so the runner refuses with "not set" rather than pointing a kit at

@@ -282,6 +282,9 @@ class TestServersAndExecutors(unittest.TestCase):
                          ("-P", "-m", "analysis_mcp_server", "--transport",
                           "stdio"))
         self.assertEqual(anakit.set_env["PYTHONPATH"], "${AUTORESEARCH_ANAKIT}")
+        # M. MacKenzie's AGENTS.md: one thread per analysis job.
+        self.assertEqual(anakit.set_env["OPENBLAS_NUM_THREADS"], "1")
+        self.assertEqual(anakit.set_env["OMP_NUM_THREADS"], "1")
         self.assertEqual(anakit.timeouts, {"start": 120.0,
                                            "list_analyses": 120.0,
                                            "run_analysis": 3600.0})

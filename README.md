@@ -21,7 +21,7 @@ git clone https://github.com/Mu2e/Mu2eBO && cd Mu2eBO
 source activate.sh                                    # every new shell
 ./setup.sh --backing /exp/mu2e/app/users/oksuzian     # personal-path-ok: borrow a built Offline
 export AUTORESEARCH_PRODTOOLS=<prodtools checkout>    # unless ../prodtools exists
-export AUTORESEARCH_ANAKIT=<anakit fork checkout>      # unless ../analysis-mcp-server exists
+export AUTORESEARCH_ANAKIT=<anakit checkout>           # unless ../analysis-mcp-server exists
 kinit
 ```
 
@@ -44,9 +44,10 @@ kinit
   [prodtools](https://github.com/Mu2e/prodtools), not by this repo. Point it
   at a checkout whose write server has a `submit_once`/`run_local` tool and
   whose read server has `run_status` (`core/adapters/prodtools.py`).
-- **`AUTORESEARCH_ANAKIT`** is required for the `<name>_ax` studies, whose
-  `sob`/`flash` steps run on the `anakit` kit — a fork of M. MacKenzie's
-  analysis MCP server. See `kits.toml`.
+- **`AUTORESEARCH_ANAKIT`** is required for the `<name>_ax` studies and
+  `ce_chain`, whose analysis steps run on the `anakit` kit — M. MacKenzie's
+  analysis MCP server, a checkout of his `main` (pinned in `QUICKSTART.md`),
+  run on the `SimJob MDC2025ay` Musing. See `kits.toml`.
 - **`kits.toml`** is the registry of native contract kits (`command`, `env`,
   timeouts, poll cadence). Grid-backed kits (`prodtools`, `offline_preflight`,
   `anakit`) are declared in `core/kit_registry.py` and run as in-process
