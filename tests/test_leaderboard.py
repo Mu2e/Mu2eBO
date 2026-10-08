@@ -105,26 +105,21 @@ class TestHistory(unittest.TestCase):
         with self.assertRaises(lbm.LeaderboardError):
             self.lb.append(p, {}, META)
 
-    def test_headerless_board_refused(self):
-        self.lb.path.write_text("c1\t2\t0.5\t3\t1e-6\t1e5\t2.9\n")
-        with self.assertRaises(SchemaMismatch):
-            self.lb.load()
-
-    def test_touched_file_is_loud_not_empty(self):
-        # touched-leaderboard-headerless-history-loss: a 0-byte existing file
-        # must raise, never return [] while rows could exist.
-        self.lb.path.touch()
-        with self.assertRaises(SchemaMismatch):
-            self.lb.load()
-
-    def test_fused_header_is_loud(self):
-        # a header fused with row 1 on one line.
-        self.lb.path.write_text(
-            self.lb.header().rstrip("\n")
-            + "t01\t1.0000\t2.0000\t3.00000\t1.00000e-07\t1.000\t3.00000"
-            + META_TAIL + "\n")
-        with self.assertRaises(SchemaMismatch):
-            self.lb.load()
+    def test_a_board_without_its_header_is_loud(self):
+        for label, text in (
+                ("headerless", "c1\t2\t0.5\t3\t1e-6\t1e5\t2.9\n"),
+                # touched-leaderboard-headerless-history-loss: a 0-byte
+                # existing file must raise, never return [] while rows could
+                # exist.
+                ("touched (0 bytes)", ""),
+                # a header fused with row 1 on one line.
+                ("fused header", self.lb.header().rstrip("\n")
+                 + "t01\t1.0000\t2.0000\t3.00000\t1.00000e-07\t1.000"
+                 "\t3.00000" + META_TAIL + "\n")):
+            with self.subTest(label):
+                self.lb.path.write_text(text)
+                with self.assertRaises(SchemaMismatch):
+                    self.lb.load()
 
     def test_malformed_row_is_loud_with_line_number(self):
         self.lb.append(Point("t01", [1.0, 2.0],
@@ -284,16 +279,14 @@ class TestV2Rows(unittest.TestCase):
         self.assertEqual(self.lb.header().rstrip("\n").split("\t")[-4:],
                          list(lbm.V2_META))
 
-    def test_a_v2_row_needs_all_its_meta(self):
-        with self.assertRaises(lbm.LeaderboardError):
-            self.lb.append(self.pt(), {}, {})
-        partial = {k: v for k, v in META.items() if k != "time"}
-        with self.assertRaises(lbm.LeaderboardError):
-            self.lb.append(self.pt(), {}, partial)
-
-    def test_meta_may_not_hold_a_tab(self):
-        with self.assertRaises(lbm.LeaderboardError):
-            self.lb.append(self.pt(), {}, dict(META, handles="a\tb"))
+    def test_a_v2_row_needs_all_its_meta_and_no_tab_in_it(self):
+        for label, meta in (
+                ("no meta", {}),
+                ("no time", {k: v for k, v in META.items() if k != "time"}),
+                ("a tab in a cell", dict(META, handles="a\tb"))):
+            with self.subTest(label), \
+                    self.assertRaises(lbm.LeaderboardError):
+                self.lb.append(self.pt(), {}, meta)
 
     def test_append_then_load(self):
         self.assertTrue(self.lb.append(self.pt(), {}, META))

@@ -21,7 +21,19 @@ def _ev(src, env, allowed=None, profiles=frozenset()):
         compile_expr(src, allowed, "test.json[k]", profiles), env)
 
 
-class TestExpr(unittest.TestCase):
+class _Refusals(unittest.TestCase):
+    def assertRaisesEach(self, exc, cases):
+        """One subTest per (label, build, *needles): build() must raise
+        `exc` with every needle in its message."""
+        for label, build, *needles in cases:
+            with self.subTest(label):
+                with self.assertRaises(exc) as cm:
+                    build()
+                for n in needles:
+                    self.assertIn(n, str(cm.exception))
+
+
+class TestExpr(_Refusals):
     def test_arithmetic(self):
         self.assertAlmostEqual(_ev("a + b * 2", {"a": 1.0, "b": 3.0}), 7.0)
         self.assertAlmostEqual(_ev("(a - b) / 2", {"a": 5.0, "b": 1.0}), 2.0)
@@ -41,45 +53,27 @@ class TestExpr(unittest.TestCase):
         self.assertAlmostEqual(
             _ev("rOut[i] * 2", env, profiles={"rOut"}), 40.0)
 
-    def test_subscripting_a_non_profile_rejected(self):
-        with self.assertRaises(ExprError) as cm:
-            compile_expr("a[i]", {"a", "i"}, "modes/x.json[radii]",
-                         profiles={"p"})
-        msg = str(cm.exception)
-        self.assertIn("a", msg)
-        self.assertIn("modes/x.json[radii]", msg)
+    def test_refusals(self):
+        def compile_(src, known=("a",), where="w", profiles=frozenset()):
+            return lambda: compile_expr(src, set(known), where,
+                                        profiles=profiles)
 
-    def test_unknown_name_names_the_typo_and_location(self):
-        with self.assertRaises(ExprError) as cm:
-            compile_expr("extra_rout_up * 2", {"extra_rOut_up"}, "modes/x.json[radii]")
-        msg = str(cm.exception)
-        self.assertIn("extra_rout_up", msg)
-        self.assertIn("modes/x.json[radii]", msg)
-        self.assertIn("extra_rOut_up", msg)  # lists what IS known
-
-    def test_attribute_access_rejected(self):
-        with self.assertRaises(ExprError):
-            compile_expr("a.__class__", {"a"}, "w")
-
-    def test_arbitrary_call_rejected(self):
-        with self.assertRaises(ExprError):
-            compile_expr("open('x')", {"a"}, "w")
-
-    def test_comprehension_rejected(self):
-        with self.assertRaises(ExprError):
-            compile_expr("[x for x in (1, 2)]", {"a"}, "w")
-
-    def test_string_constant_rejected(self):
-        with self.assertRaises(ExprError):
-            compile_expr("'abc'", {"a"}, "w")
-
-    def test_syntax_error_is_exprerror(self):
-        with self.assertRaises(ExprError):
-            compile_expr("a +", {"a"}, "w")
-
-    def test_exponentiation_rejected(self):
-        with self.assertRaises(ExprError):
-            compile_expr("a ** 2", {"a"}, "w")
+        self.assertRaisesEach(ExprError, [
+            ("subscripting a non-profile",
+             compile_("a[i]", ("a", "i"), "modes/x.json[radii]", {"p"}),
+             "a", "modes/x.json[radii]"),
+            # names the typo, the location, and what IS known
+            ("unknown name",
+             compile_("extra_rout_up * 2", ("extra_rOut_up",),
+                      "modes/x.json[radii]"),
+             "extra_rout_up", "modes/x.json[radii]", "extra_rOut_up"),
+            ("attribute access", compile_("a.__class__")),
+            ("arbitrary call", compile_("open('x')")),
+            ("comprehension", compile_("[x for x in (1, 2)]")),
+            ("string constant", compile_("'abc'")),
+            ("syntax error", compile_("a +")),
+            ("exponentiation", compile_("a ** 2")),
+        ])
 
 
 from geom_template import lagrange_profile  # noqa: E402
@@ -127,7 +121,7 @@ def _tpl(lines, consts=None, derived=None, profiles=None):
     return GeomTemplate.from_dict(d, KNOBS, "t.json")
 
 
-class TestRender(unittest.TestCase):
+class TestRender(_Refusals):
     def test_base_include_is_first_line(self):
         out = _tpl([]).render([1.0, 2.0])
         self.assertTrue(
@@ -199,19 +193,6 @@ class TestRender(unittest.TestCase):
                    consts={"n_foils": 6}).render([1.5, 0.0])
         self.assertIn("// up rOut=1.50 n=6", out)
 
-    def test_unknown_name_rejected_at_from_dict(self):
-        with self.assertRaises(ExprError):
-            _tpl([{"key": "k.x", "type": "double", "fmt": "{:.1f}",
-                   "expr": "nope"}])
-
-    def test_comment_with_undefined_name_rejected_at_from_dict(self):
-        """Bad comment name caught at from_dict, not at render (Critical finding #1)."""
-        with self.assertRaises(ExprError) as cm:
-            _tpl([{"comment": "value is {undefined_knob}"}])
-        msg = str(cm.exception)
-        self.assertIn("undefined_knob", msg)
-        self.assertIn("t.json", msg)  # file locator
-
     def test_comment_undefined_name_not_wrapped_as_malformed(self):
         """Unknown comment name error is not re-wrapped as malformed (Fix A)."""
         with self.assertRaises(ExprError) as cm:
@@ -223,55 +204,6 @@ class TestRender(unittest.TestCase):
         # Should not double the locator
         self.assertEqual(msg.count("t.json"), 1)
 
-    def test_comment_malformed_format_string_detected(self):
-        """Malformed format string (unmatched brace) raises ExprError (Fix A)."""
-        with self.assertRaises(ExprError) as cm:
-            _tpl([{"comment": "value is {a"}])  # missing closing brace
-        msg = str(cm.exception)
-        self.assertIn("malformed", msg.lower())
-        self.assertIn("t.json", msg)
-
-    def test_namespace_collision_knob_vs_const(self):
-        """Const name colliding with knob name is rejected at from_dict (Important finding #2)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([], consts={"a": 5.0})  # knobs are ("a", "b")
-        msg = str(cm.exception)
-        self.assertIn("a", msg)
-        self.assertIn("knobs", msg)
-        self.assertIn("consts", msg)
-
-    def test_namespace_collision_knob_vs_derived(self):
-        """Derived name colliding with knob name is rejected at from_dict."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([], derived={"a": "b * 2"})  # knobs are ("a", "b")
-        msg = str(cm.exception)
-        self.assertIn("a", msg)
-
-    def test_namespace_collision_knob_vs_profile(self):
-        """Profile name colliding with knob name is rejected at from_dict."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([], profiles={"a": {"count": 3, "control": ["b", "b", "b"],
-                                     "clip": [0.0, 100.0]}})  # knobs are ("a", "b")
-        msg = str(cm.exception)
-        self.assertIn("a", msg)
-
-    def test_segment_value_rejects_bool(self):
-        """Segment value=true is rejected, not silently converted to 1.0 (Important finding #3)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
-                   "segments": [{"count": 1, "value": True}]}])
-        msg = str(cm.exception)
-        self.assertIn("segments[0]", msg)
-        self.assertIn("bool", msg)
-
-    def test_segment_value_rejects_non_numeric(self):
-        """Segment value with invalid type is rejected with context."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
-                   "segments": [{"count": 1, "value": "not_a_number"}]}])
-        msg = str(cm.exception)
-        self.assertIn("segments[0]", msg)
-
     def test_segment_value_numeric_still_works(self):
         """Segment value with a valid number still renders correctly (coverage fix)."""
         out = _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
@@ -279,79 +211,12 @@ class TestRender(unittest.TestCase):
         ).render([1.0, 2.0])
         self.assertIn("vector<double> k.v = { 3.1, 3.1, 2.0 };", out)
 
-    # -- C2: fmt must contain a replacement field and actually format -------
-    def test_fmt_without_replacement_field_rejected(self):
-        """Verified bug: 'fmt': '75.0' on stoppingTarget.radii rendered 49
-        identical 75.0 values -- knobs inert, no error at load or render
-        (Critical finding #2)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "75.0",
-                   "segments": [{"count": 3, "expr": "a"}]}])
-        msg = str(cm.exception)
-        self.assertIn("75.0", msg)
-        self.assertIn("replacement field", msg)
-
-    def test_malformed_fmt_rejected_at_load_not_render(self):
-        """A fmt whose spec doesn't apply to floats (e.g. '{:.4q}') must fail
-        at from_dict, not the first time render() runs (Critical finding #2)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.4q}",
-                   "segments": [{"count": 3, "expr": "a"}]}])
-        msg = str(cm.exception)
-        self.assertIn("{:.4q}", msg)
-
-    def test_fmt_missing_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>",
-                   "segments": [{"count": 3, "expr": "a"}]}])
-        self.assertIn("fmt", str(cm.exception))
-
-    # -- C3: clip lo must be <= hi -------------------------------------------
-    def test_profile_clip_lo_greater_than_hi_rejected(self):
-        """Verified bug: clip=[250.0, 50.0] pins every element to 50.00,
-        byte-identical for every optimizer point -- knobs inert, no error
-        (Critical finding #3)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([], profiles={"p": {"count": 3, "control": ["a", "b", "a"],
-                                     "clip": [250.0, 50.0]}})
-        msg = str(cm.exception)
-        self.assertIn("250.0", msg)
-        self.assertIn("50.0", msg)
-
     def test_profile_clip_lo_equal_hi_is_allowed(self):
         """lo == hi is a legitimate (if degenerate) pinned profile, not an
         ordering error -- only lo > hi is rejected."""
         _tpl([], profiles={"p": {"count": 3, "control": ["a", "b", "a"],
                                  "clip": [100.0, 100.0]}})
 
-    # -- I5: geom's own nested schema rejects unknown top-level keys --------
-    def test_unknown_geom_top_level_key_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            GeomTemplate.from_dict(
-                {"base": "Offline/base.txt", "lines": [], "typo_key": 1},
-                KNOBS, "t.json")
-        msg = str(cm.exception)
-        self.assertIn("typo_key", msg)
-
-    # -- Minor: segments/per_index must declare a vector type ----------------
-    def test_scalar_type_with_segments_rejected(self):
-        """Verified bug: a scalar type with 'segments' currently renders
-        'double k = { 7.00, 7.00 };' (Minor finding)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "double", "fmt": "{:.2f}",
-                   "segments": [{"count": 2, "expr": "a"}]}])
-        msg = str(cm.exception)
-        self.assertIn("segments", msg)
-        self.assertIn("double", msg)
-
-    def test_scalar_type_with_per_index_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "double", "fmt": "{:.2f}",
-                   "per_index": {"count": 2, "expr": "a + i"}}])
-        msg = str(cm.exception)
-        self.assertIn("per_index", msg)
-
-    # -- I8: the renderer's clip wiring is exercised, not just accepted -----
     def test_profile_clip_reaches_the_rendered_text(self):
         """Renderer-level check that clip is actually applied by render(),
         not merely accepted at from_dict (Important finding #8):
@@ -375,125 +240,10 @@ class TestRender(unittest.TestCase):
         self.assertLessEqual(max(vals), 250.0)
         self.assertGreaterEqual(min(vals), 50.0)
 
-    # -- X2: line/profile/segment dicts reject unknown keys and mutually
-    # exclusive combinations (final review) ----------------------------------
-    def test_value_with_expr_is_rejected_not_silently_ignored(self):
-        """Verified bug: {"value": 5.0, "expr": "a*2"} rendered the constant
-        and silently dropped the expr (X2 in the final review)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.x", "type": "double", "value": 5.0, "expr": "a * 2"}])
-        msg = str(cm.exception)
-        self.assertIn("value", msg)
-        self.assertIn("expr", msg)
-
-    def test_value_with_segments_is_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
-                   "value": 5.0,
-                   "segments": [{"count": 2, "expr": "a"}]}])
-        msg = str(cm.exception)
-        self.assertIn("value", msg)
-        self.assertIn("segments", msg)
-
-    def test_unknown_line_key_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.x", "type": "double", "value": 5.0, "typo_key": 1}])
-        msg = str(cm.exception)
-        self.assertIn("typo_key", msg)
-
-    def test_unknown_comment_line_key_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"comment": "hi", "key": "k.x"}])
-        msg = str(cm.exception)
-        self.assertIn("key", msg)
-
-    def test_unknown_profile_key_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([], profiles={"p": {"count": 3, "control": ["a", "b", "a"],
-                                     "clip": [0.0, 100.0], "typo_key": 1}})
-        msg = str(cm.exception)
-        self.assertIn("typo_key", msg)
-
-    def test_unknown_segment_key_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
-                   "segments": [{"count": 2, "expr": "a", "typo_key": 1}]}])
-        msg = str(cm.exception)
-        self.assertIn("typo_key", msg)
-
-    # -- F2: `i` and `n` are reserved (the per_index loop scope) -----------
-    def test_knob_named_i_rejected(self):
-        """Verified bug: `_render_line` writes i (loop index) and n (count)
-        into the per_index scope AFTER the env, so a knob/const/derived/
-        profile of either name is silently shadowed there -- knob i=99
-        rendered { 0.0, 1.0, 2.0 } (the loop index), const n=6 rendered
-        { 3.0, 3.0, 3.0 } (the count). Loads clean, renders clean, wrong
-        geometry (F2)."""
-        with self.assertRaises(ValueError) as cm:
-            GeomTemplate.from_dict(
-                {"base": "Offline/base.txt", "lines": []}, ("i", "b"), "t.json")
-        msg = str(cm.exception)
-        self.assertIn("'i'", msg)
-        self.assertIn("t.json", msg)
-
-    def test_const_named_n_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([], consts={"n": 6})
-        msg = str(cm.exception)
-        self.assertIn("'n'", msg)
-        self.assertIn("t.json", msg)
-
-    def test_derived_named_i_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([], derived={"i": "a * 2"})
-        self.assertIn("'i'", str(cm.exception))
-
-    def test_profile_named_n_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([], profiles={"n": {"count": 3, "control": ["a", "b", "a"],
-                                     "clip": [0.0, 100.0]}})
-        self.assertIn("'n'", str(cm.exception))
-
-    # -- F3(b): the same geometry key may not be emitted twice --------------
-    def test_duplicate_line_key_rejected(self):
-        """Verified against the Offline this project runs: GeometryService.hh
-        defaults allowReplacement=true / messageOnReplacement=false and
-        SimpleConfig.cc replaces with no message, so G4 silently takes the
-        LAST of two identical keys. Editing the first of a duplicated pair
-        leaves the stale one winning -- the silent-wrong-geometry class that
-        tainted 62 foilsg rows (F3)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "stoppingTarget.holeRadius", "type": "double",
-                   "raw": "1.0e6"},
-                  {"key": "stoppingTarget.holeRadius", "type": "double",
-                   "value": 21.5}])
-        msg = str(cm.exception)
-        self.assertIn("stoppingTarget.holeRadius", msg)
-        self.assertIn("lines[1]", msg)
-        self.assertIn("lines[0]", msg)
-
     def test_duplicate_comment_lines_are_fine(self):
         """Comments have no key; repeating one is not a redefinition."""
         out = _tpl([{"comment": "note"}, {"comment": "note"}]).render([1.0, 2.0])
         self.assertEqual(out.count("// note"), 2)
-
-    # -- F9: subscripting is only legal on a declared profile ---------------
-    def test_subscripting_a_scalar_rejected_at_load(self):
-        """`expr: "a[b]"` used to load fine and die at RENDER with a bare
-        `TypeError: 'float' object is not subscriptable` -- no file, no key
-        (F9). Spec section 8 allows subscripting declared profiles only."""
-        with self.assertRaises(ExprError) as cm:
-            _tpl([{"key": "k.x", "type": "double", "fmt": "{:.1f}",
-                   "expr": "a[b]"}])
-        msg = str(cm.exception)
-        self.assertIn("a", msg)
-        self.assertIn("t.json", msg)
-
-    def test_subscripting_a_scalar_in_per_index_rejected(self):
-        with self.assertRaises(ExprError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
-                   "per_index": {"count": 3, "expr": "a[i]"}}])
-        self.assertIn("t.json", str(cm.exception))
 
     def test_subscripting_a_declared_profile_still_works(self):
         out = _tpl(
@@ -504,31 +254,161 @@ class TestRender(unittest.TestCase):
         ).render([10.0, 20.0])
         self.assertIn("vector<double> k.v = { 10.0, 20.0, 10.0 };", out)
 
-    # -- F10: a newline in a comment injects a live assignment --------------
-    def test_newline_in_comment_rejected(self):
-        """Verified bug: `_render_line` prefixes only the FIRST line with
-        '// ', so a comment carrying a newline renders a real geometry
-        assignment on the following line (F10)."""
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"comment":
-                   "harmless note\ndouble stoppingTarget.holeRadius = 21.5;"}])
-        msg = str(cm.exception)
-        self.assertIn("newline", msg)
-        self.assertIn("t.json", msg)
+    def test_expression_refusals_at_from_dict(self):
+        def line(**kv):
+            return lambda: _tpl([dict(kv)])
 
-    def test_newline_in_raw_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.hole", "type": "double",
-                   "raw": "1.0e6;\ndouble other = 3.0"}])
-        self.assertIn("newline", str(cm.exception))
+        self.assertRaisesEach(ExprError, [
+            ("unknown name",
+             line(key="k.x", type="double", fmt="{:.1f}", expr="nope")),
+            # A bad comment name is caught at from_dict, not at render
+            # (Critical finding #1); the message carries the file locator.
+            ("comment with an undefined name",
+             line(comment="value is {undefined_knob}"),
+             "undefined_knob", "t.json"),
+            # An unmatched brace in a comment (Fix A).
+            ("malformed comment format string", line(comment="value is {a"),
+             "malformed", "t.json"),
+            # F9: `expr: "a[b]"` used to load fine and die at RENDER with a
+            # bare `TypeError: 'float' object is not subscriptable` -- no
+            # file, no key. Spec section 8 allows subscripting declared
+            # profiles only.
+            ("subscripting a scalar",
+             line(key="k.x", type="double", fmt="{:.1f}", expr="a[b]"),
+             "a", "t.json"),
+            ("subscripting a scalar in per_index",
+             line(key="k.v", type="vector<double>", fmt="{:.1f}",
+                  per_index={"count": 3, "expr": "a[i]"}),
+             "t.json"),
+        ])
 
-    def test_segment_expr_with_value_is_rejected(self):
-        with self.assertRaises(ValueError) as cm:
-            _tpl([{"key": "k.v", "type": "vector<double>", "fmt": "{:.1f}",
-                   "segments": [{"count": 2, "expr": "a", "value": 3.0}]}])
-        msg = str(cm.exception)
-        self.assertIn("expr", msg)
-        self.assertIn("value", msg)
+    def test_schema_refusals_at_from_dict(self):
+        def lines(*ls, **kw):
+            return lambda: _tpl(list(ls), **kw)
+
+        def vec(**kv):
+            return dict({"key": "k.v", "type": "vector<double>",
+                         "fmt": "{:.1f}"}, **kv)
+
+        def prof(**kv):
+            return dict({"count": 3, "control": ["a", "b", "a"],
+                         "clip": [0.0, 100.0]}, **kv)
+
+        self.assertRaisesEach(ValueError, [
+            # A const/derived/profile name colliding with a knob name
+            # (knobs are ("a", "b"); Important finding #2).
+            ("const named after a knob", lines(consts={"a": 5.0}),
+             "a", "knobs", "consts"),
+            ("derived named after a knob", lines(derived={"a": "b * 2"}), "a"),
+            ("profile named after a knob",
+             lines(profiles={"a": prof(control=["b", "b", "b"])}), "a"),
+            # Segment value=true is rejected, not silently converted to 1.0
+            # (Important finding #3); a non-number is rejected with context.
+            ("segment value bool",
+             lines(vec(segments=[{"count": 1, "value": True}])),
+             "segments[0]", "bool"),
+            ("segment value not a number",
+             lines(vec(segments=[{"count": 1, "value": "not_a_number"}])),
+             "segments[0]"),
+            # C2: fmt must contain a replacement field and actually format.
+            # 'fmt': '75.0' on stoppingTarget.radii rendered 49 identical
+            # 75.0 values -- knobs inert, no error at load or render; a fmt
+            # whose spec doesn't apply to floats must fail at from_dict, not
+            # the first time render() runs (Critical finding #2).
+            ("fmt without a replacement field",
+             lines(vec(fmt="75.0", segments=[{"count": 3, "expr": "a"}])),
+             "75.0", "replacement field"),
+            ("malformed fmt",
+             lines(vec(fmt="{:.4q}", segments=[{"count": 3, "expr": "a"}])),
+             "{:.4q}"),
+            ("fmt missing",
+             lines({"key": "k.v", "type": "vector<double>",
+                    "segments": [{"count": 3, "expr": "a"}]}),
+             "fmt"),
+            # C3: clip=[250.0, 50.0] pinned every element to 50.00,
+            # byte-identical for every optimizer point -- knobs inert, no
+            # error (Critical finding #3).
+            ("profile clip lo > hi",
+             lines(profiles={"p": prof(clip=[250.0, 50.0])}), "250.0", "50.0"),
+            # I5: geom's own nested schema rejects unknown top-level keys.
+            ("unknown geom top-level key",
+             lambda: GeomTemplate.from_dict(
+                 {"base": "Offline/base.txt", "lines": [], "typo_key": 1},
+                 KNOBS, "t.json"),
+             "typo_key"),
+            # Minor: segments/per_index must declare a vector type -- a
+            # scalar type with 'segments' rendered 'double k = { 7.00, 7.00 };'.
+            ("scalar type with segments",
+             lines(vec(type="double", fmt="{:.2f}",
+                       segments=[{"count": 2, "expr": "a"}])),
+             "segments", "double"),
+            ("scalar type with per_index",
+             lines(vec(type="double", fmt="{:.2f}",
+                       per_index={"count": 2, "expr": "a + i"})),
+             "per_index"),
+            # X2: line/profile/segment dicts reject unknown keys and mutually
+            # exclusive combinations (final review): {"value": 5.0, "expr":
+            # "a*2"} rendered the constant and silently dropped the expr.
+            ("value with expr",
+             lines({"key": "k.x", "type": "double", "value": 5.0,
+                    "expr": "a * 2"}),
+             "value", "expr"),
+            ("value with segments",
+             lines(vec(value=5.0, segments=[{"count": 2, "expr": "a"}])),
+             "value", "segments"),
+            ("segment expr with value",
+             lines(vec(segments=[{"count": 2, "expr": "a", "value": 3.0}])),
+             "expr", "value"),
+            ("unknown line key",
+             lines({"key": "k.x", "type": "double", "value": 5.0,
+                    "typo_key": 1}),
+             "typo_key"),
+            ("unknown comment line key", lines({"comment": "hi", "key": "k.x"}),
+             "key"),
+            ("unknown profile key",
+             lines(profiles={"p": prof(clip=[0.0, 100.0], typo_key=1)}),
+             "typo_key"),
+            ("unknown segment key",
+             lines(vec(segments=[{"count": 2, "expr": "a", "typo_key": 1}])),
+             "typo_key"),
+            # F2: `_render_line` writes i (loop index) and n (count) into the
+            # per_index scope AFTER the env, so a knob/const/derived/profile
+            # of either name was silently shadowed there -- knob i=99
+            # rendered { 0.0, 1.0, 2.0 } (the loop index), const n=6
+            # rendered { 3.0, 3.0, 3.0 } (the count). Loads clean, renders
+            # clean, wrong geometry.
+            ("knob named i",
+             lambda: GeomTemplate.from_dict(
+                 {"base": "Offline/base.txt", "lines": []}, ("i", "b"),
+                 "t.json"),
+             "'i'", "t.json"),
+            ("const named n", lines(consts={"n": 6}), "'n'", "t.json"),
+            ("derived named i", lines(derived={"i": "a * 2"}), "'i'"),
+            ("profile named n", lines(profiles={"n": prof()}), "'n'"),
+            # F3(b): Offline's GeometryService.hh defaults
+            # allowReplacement=true / messageOnReplacement=false and
+            # SimpleConfig.cc replaces with no message, so G4 silently takes
+            # the LAST of two identical keys. Editing the first of a
+            # duplicated pair leaves the stale one winning -- the
+            # silent-wrong-geometry class that tainted 62 foilsg rows.
+            ("duplicate line key",
+             lines({"key": "stoppingTarget.holeRadius", "type": "double",
+                    "raw": "1.0e6"},
+                   {"key": "stoppingTarget.holeRadius", "type": "double",
+                    "value": 21.5}),
+             "stoppingTarget.holeRadius", "lines[1]", "lines[0]"),
+            # F10: `_render_line` prefixes only the FIRST line with '// ',
+            # so a comment carrying a newline rendered a real geometry
+            # assignment on the following line.
+            ("newline in a comment",
+             lines({"comment":
+                    "harmless note\ndouble stoppingTarget.holeRadius = 21.5;"}),
+             "newline", "t.json"),
+            ("newline in raw",
+             lines({"key": "k.hole", "type": "double",
+                    "raw": "1.0e6;\ndouble other = 3.0"}),
+             "newline"),
+        ])
 
 
 if __name__ == "__main__":

@@ -60,22 +60,20 @@ class TestLoad(_Toml):
             with self.subTest(key=key):
                 self.assertRejects(text, "[demo]", key)
 
-    def test_unknown_key(self):
-        self.assertRejects(GOOD + 'color = "red"\n', "unknown key", "color")
-
-    def test_bad_value_type_name(self):
-        self.assertRejects(GOOD.replace('"positive_int"', '"posint"'),
-                           "fixed_keys.n", "posint")
-
-    def test_timeouts_must_name_every_call(self):
-        self.assertRejects(GOOD.replace(", cancel = 30", ""),
-                           "timeouts", "cancel")
-
-    def test_poll_bounds_must_be_ordered(self):
-        self.assertRejects(GOOD.replace("[0.5, 5]", "[5, 0.5]"), "poll_s")
-
-    def test_invalid_toml_names_the_file(self):
-        self.assertRejects("[demo\n", "invalid TOML")
+    def test_refusals(self):
+        for label, text, *needles in (
+                ("unknown key", GOOD + 'color = "red"\n',
+                 "unknown key", "color"),
+                ("bad value type name",
+                 GOOD.replace('"positive_int"', '"posint"'),
+                 "fixed_keys.n", "posint"),
+                ("timeouts must name every call",
+                 GOOD.replace(", cancel = 30", ""), "timeouts", "cancel"),
+                ("poll bounds must be ordered",
+                 GOOD.replace("[0.5, 5]", "[5, 0.5]"), "poll_s"),
+                ("invalid TOML names the file", "[demo\n", "invalid TOML")):
+            with self.subTest(label):
+                self.assertRejects(text, *needles)
 
 
 class TestResolve(_Toml):
@@ -161,25 +159,23 @@ class TestNativeKitInStudies(unittest.TestCase):
         self.assertEqual(s.steps[0].kit, "toykit")
         self.assertEqual(kit_registry.kits_of(s), {"toykit"})
 
-    def test_unknown_kit_setting(self):
-        doc = toy_doc()
-        doc["kits"]["toykit"]["color"] = "red"
-        self.assertRejects(doc, "kits.toykit", "color")
-
-    def test_missing_kit_setting(self):
-        doc = toy_doc()
-        doc["kits"]["toykit"] = {}
-        self.assertRejects(doc, "kits.toykit", "function")
-
-    def test_fixed_value_type(self):
-        doc = toy_doc()
-        doc["evaluate"][0]["fixed"]["delay_s"] = "slow"
-        self.assertRejects(doc, "delay_s", "number")
-
-    def test_native_kit_takes_no_entry(self):
-        doc = toy_doc()
-        doc["evaluate"][0]["entry"] = "toy"
-        self.assertRejects(doc, "entry")
+    def test_refusals(self):
+        for label, mutate, *needles in (
+                ("unknown kit setting",
+                 lambda d: d["kits"]["toykit"].update(color="red"),
+                 "kits.toykit", "color"),
+                ("missing kit setting",
+                 lambda d: d["kits"].update(toykit={}),
+                 "kits.toykit", "function"),
+                ("fixed value type",
+                 lambda d: d["evaluate"][0]["fixed"].update(delay_s="slow"),
+                 "delay_s", "number"),
+                ("native kit takes no entry",
+                 lambda d: d["evaluate"][0].update(entry="toy"), "entry")):
+            with self.subTest(label):
+                doc = toy_doc()
+                mutate(doc)
+                self.assertRejects(doc, *needles)
 
 
 TOY_ENTRY = '''

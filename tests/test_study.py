@@ -29,6 +29,21 @@ def _step(doc, name):
     return next(s for s in doc["evaluate"] if s["step"] == name)
 
 
+def _template(name):
+    return json.loads((ROOT / "stage_entries" / f"{name}.json").read_text())
+
+
+def _rename_knob_a(name):
+    """Knob 'a' renamed to `name`, carried through everywhere `derive`
+    still says "a" -- or the load fails inside GeomTemplate before it ever
+    reaches the column-collision check (ruling R3, task-2 brief)."""
+    def mutate(d):
+        d["knobs"][0]["name"] = name
+        d["derive"]["exprs"] = {"ab": f"{name} * b"}
+        d["derive"]["profiles"]["a_p"]["control"] = [name, "ab", name]
+    return mutate
+
+
 class _Tmp(unittest.TestCase):
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -61,6 +76,15 @@ class _Tmp(unittest.TestCase):
         _path, msg = self._reject(doc)
         for n in needles:
             self.assertIn(n, msg)
+
+    def assertRefusesEach(self, cases):
+        """One subTest per (label, mutate, *needles): `mutate` edits a fresh
+        demo doc, whose load must fail naming every needle."""
+        for label, mutate, *needles in cases:
+            with self.subTest(label):
+                doc = _doc()
+                mutate(doc)
+                self.assertRejects(doc, *needles)
 
 
 class TestFixtureLoads(_Tmp):
@@ -302,185 +326,141 @@ class TestLoaderEdgeCases(_Tmp):
 
 
 class TestKnobs(_Tmp):
-    def test_int_knob_needs_integer_bounds(self):
-        doc = _doc()
-        doc["knobs"][0]["type"] = "int"
-        doc["knobs"][0]["min"] = 1.5
-        self.assertRejects(doc, "integer bounds")
+    def test_refusals(self):
+        self.assertRefusesEach([
+            ("int knob needs integer bounds",
+             lambda d: d["knobs"][0].update(type="int", min=1.5),
+             "integer bounds"),
+            ("min below max", lambda d: d["knobs"][1].update(min=2.0), "min"),
+            ("duplicate knob name",
+             lambda d: d["knobs"].append(dict(d["knobs"][0])),
+             "[knobs.a]", "appears twice"),
+            ("reserved elementwise name",
+             lambda d: d["knobs"][0].update(name="i"), "reserved"),
+            # Ported from the old loader tests (R1): fmt "75.0" writes a
+            # CONSTANT into every knob column, so every past eval collapses
+            # to one point and the GP trains on garbage -- silently.
+            ("knob fmt without replacement field",
+             lambda d: d["knobs"][0].update(fmt="75.0"),
+             "75.0", "replacement field"),
+            # A knob named after any leaderboard column (F11, ported from
+            # the old loader tests): sob is an objective, `config` a literal
+            # column, alpha/obj come from extra_columns, and the board
+            # appends handles/spec_sha/measure_sha/time to every row
+            # (leaderboard.V2_META) -- a study column of one of those names
+            # loaded fine, then its header held the name twice,
+            # csv.DictReader kept the last one, and every load after the
+            # first append raised RowParseError. Each source is checked.
+            *[(f"knob named {name!r}", _rename_knob_a(name),
+               name, "appears", "twice")
+              for name in ("sob", "config", "flash_edep", "alpha", "obj",
+                           "handles", "spec_sha", "measure_sha", "time")],
+        ])
 
     def test_int_dims_from_type(self):
         doc = _doc()
         doc["knobs"][0]["type"] = "int"
         self.assertEqual(self.load(doc).int_dims, (0,))
 
-    def test_min_below_max(self):
-        doc = _doc()
-        doc["knobs"][1]["min"] = 2.0
-        self.assertRejects(doc, "min")
 
-    def test_knob_name_collides_with_column(self):
-        doc = _doc()
-        doc["knobs"][0]["name"] = "sob"
-        # The rename must carry through everywhere `derive` still says "a",
-        # or the load fails inside GeomTemplate before it ever reaches the
-        # column-collision check (ruling R3, task-2 brief).
-        doc["derive"]["exprs"] = {"ab": "sob * b"}
-        doc["derive"]["profiles"]["a_p"]["control"] = ["sob", "ab", "sob"]
-        self.assertRejects(doc, "sob", "appears", "twice")
+def _derive_without_geom(d):
+    d["geom"] = None
+    for step in d["evaluate"]:
+        step["files"] = []
+    d["preflight"]["files"] = []
 
-    def test_duplicate_knob_name(self):
-        doc = _doc()
-        doc["knobs"].append(dict(doc["knobs"][0]))
-        self.assertRejects(doc, "[knobs.a]", "appears twice")
 
-    def test_reserved_elementwise_name(self):
-        doc = _doc()
-        doc["knobs"][0]["name"] = "i"
-        self.assertRejects(doc, "reserved")
-
-    def test_knob_named_after_any_leaderboard_column(self):
-        # Ported from the old loader tests (F11); the sob case is
-        # test_knob_name_collides_with_column. `config` is a literal column,
-        # alpha/obj come from extra_columns: each source must be checked.
-        for name in ("config", "flash_edep", "alpha", "obj"):
-            doc = _doc()
-            doc["knobs"][0]["name"] = name
-            doc["derive"]["exprs"] = {"ab": f"{name} * b"}
-            doc["derive"]["profiles"]["a_p"]["control"] = [name, "ab", name]
-            with self.subTest(name=name):
-                self.assertRejects(doc, name, "appears", "twice")
-
-    def test_knob_named_after_a_column_the_board_adds(self):
-        # The board appends handles/spec_sha/measure_sha/time to every row
-        # (leaderboard.V2_META). A study column of the same name loaded fine,
-        # then its header held the name twice, csv.DictReader kept the last
-        # one, and every load after the first append raised RowParseError.
-        for name in ("handles", "spec_sha", "measure_sha", "time"):
-            doc = _doc()
-            doc["knobs"][0]["name"] = name
-            doc["derive"]["exprs"] = {"ab": f"{name} * b"}
-            doc["derive"]["profiles"]["a_p"]["control"] = [name, "ab", name]
-            with self.subTest(name=name):
-                self.assertRejects(doc, name, "appears", "twice")
-
-    def test_knob_fmt_without_replacement_field(self):
-        # Ported from the old loader tests (R1): fmt "75.0" writes a CONSTANT
-        # into every knob column, so every past eval collapses to one point
-        # and the GP trains on garbage -- silently.
-        doc = _doc()
-        doc["knobs"][0]["fmt"] = "75.0"
-        self.assertRejects(doc, "75.0", "replacement field")
+def _knob_profile(clip):
+    """a_p controlled by the knob alone, with this clip."""
+    return lambda d: d["derive"]["profiles"]["a_p"].update(
+        control=["a", "a", "a"], clip=clip)
 
 
 class TestDeriveAndGeom(_Tmp):
-    def test_profile_kind_must_be_lagrange(self):
-        doc = _doc()
-        doc["derive"]["profiles"]["a_p"]["kind"] = "spline"
-        self.assertRejects(doc, "lagrange")
-
-    def _knob_profile(self, clip):
-        doc = _doc()
-        doc["derive"]["profiles"]["a_p"].update(control=["a", "a", "a"],
-                                               clip=clip)
-        return doc
-
-    def test_a_knob_profile_clip_wider_than_its_knobs_is_refused(self):
-        # Knob bounds narrowed but the clip left as it was: the profile
-        # leaves the search box between control points.
-        self.assertRejects(self._knob_profile([0.0, 10.0]), "a_p", "clip",
-                           "[1.0, 3.0]")
-
-    def test_a_knob_profile_clip_narrower_than_its_knobs_is_refused(self):
-        # A knob value outside the clip is clamped: a flat region the
-        # search cannot see.
-        self.assertRejects(self._knob_profile([1.5, 2.5]), "a_p", "clip",
-                           "[1.0, 3.0]")
+    def test_refusals(self):
+        self.assertRefusesEach([
+            ("profile kind must be lagrange",
+             lambda d: d["derive"]["profiles"]["a_p"].update(kind="spline"),
+             "lagrange"),
+            # Knob bounds narrowed but the clip left as it was: the profile
+            # leaves the search box between control points.
+            ("knob profile clip wider than its knobs", _knob_profile([0.0, 10.0]),
+             "a_p", "clip", "[1.0, 3.0]"),
+            # A knob value outside the clip is clamped: a flat region the
+            # search cannot see.
+            ("knob profile clip narrower than its knobs",
+             _knob_profile([1.5, 2.5]), "a_p", "clip", "[1.0, 3.0]"),
+            ("derive without geom (phase A)", _derive_without_geom, "derive"),
+            ("unknown writer",
+             lambda d: d["geom"].update(writer="g4bl_include"), "writer"),
+            ("geom file without geom",
+             lambda d: d.update(geom=None, derive={"consts": {}, "exprs": {},
+                                                   "profiles": {}}),
+             "geom"),
+        ])
 
     def test_a_knob_profile_clip_equal_to_its_knobs_loads(self):
-        self.assertIn("a_p", self.load(self._knob_profile([1.0, 3.0])).derive[
-            "profiles"])
+        doc = _doc()
+        _knob_profile([1.0, 3.0])(doc)
+        self.assertIn("a_p", self.load(doc).derive["profiles"])
 
     def test_a_profile_with_an_expression_control_keeps_its_clip(self):
         doc = _doc()          # a_p controls a, ab (an expression), a
         self.assertEqual(doc["derive"]["profiles"]["a_p"]["clip"], [0.0, 10.0])
         self.load(doc)
 
-    def test_derive_without_geom_rejected_in_phase_a(self):
-        doc = _doc()
-        doc["geom"] = None
-        for s in doc["evaluate"]:
-            s["files"] = []
-        doc["preflight"]["files"] = []
-        self.assertRejects(doc, "derive")
-
-    def test_unknown_writer(self):
-        doc = _doc()
-        doc["geom"]["writer"] = "g4bl_include"
-        self.assertRejects(doc, "writer")
-
-    def test_geom_file_without_geom(self):
-        doc = _doc()
-        doc["geom"] = None
-        doc["derive"] = {"consts": {}, "exprs": {}, "profiles": {}}
-        self.assertRejects(doc, "geom")
-
 
 class TestSteps(_Tmp):
-    def test_two_steps_with_one_desc_fmt(self):
-        doc = _doc()
-        _step(doc, "mustops_ce")["entry"] = "mubeam"
-        self.assertRejects(doc, "mubeam", "mustops_ce", "desc_fmt")
+    def test_refusals(self):
+        def fixed(step, **kv):
+            return lambda d: _step(d, step)["fixed"].update(kv)
 
-    def test_an_inline_entry_sharing_a_desc_fmt(self):
-        doc = _doc()
-        template = json.loads((ROOT / "stage_entries" / "mubeam.json").read_text())
-        _step(doc, "mustops_ce")["entry"] = template
-        self.assertRejects(doc, "mubeam", "mustops_ce", "desc_fmt")
-
-    def test_unknown_kit(self):
-        doc = _doc()
-        _step(doc, "sob")["kit"] = "nosuchkit"
-        self.assertRejects(doc, "nosuchkit")
-
-    def test_files_from_unknown_step(self):
-        doc = _doc()
-        _step(doc, "mustops_ce")["files_from"] = ["nope"]
-        self.assertRejects(doc, "nope")
-
-    def test_cycle(self):
-        doc = _doc()
-        _step(doc, "mubeam")["files_from"] = ["mustops_ce"]
-        self.assertRejects(doc, "cycle")
-
-    def test_duplicate_step_name(self):
-        doc = _doc()
-        _step(doc, "flash")["step"] = "sob"
-        self.assertRejects(doc, "duplicate")
-
-    def test_prodtools_step_needs_entry(self):
-        doc = _doc()
-        _step(doc, "mubeam")["entry"] = None
-        self.assertRejects(doc, "entry")
-
-    def test_plugin_step_takes_no_entry(self):
-        doc = _doc()
-        _step(doc, "sob")["entry"] = "x"
-        self.assertRejects(doc, "entry")
-
-    def test_fixed_value_type(self):
-        doc = _doc()
-        _step(doc, "mubeam")["fixed"]["quorum"] = 1.5
-        self.assertRejects(doc, "quorum")
-
-    def test_params_name_must_exist(self):
-        doc = _doc()
-        _step(doc, "mubeam")["params"] = {"x": "nope"}
-        self.assertRejects(doc, "nope")
-
-    def test_step_nothing_uses_is_rejected(self):
-        doc = _doc()
-        _add_digi(doc)
-        self.assertRejects(doc, "evaluate.digi", "nothing uses")
+        self.assertRefusesEach([
+            ("two steps with one desc_fmt",
+             lambda d: _step(d, "mustops_ce").update(entry="mubeam"),
+             "mubeam", "mustops_ce", "desc_fmt"),
+            ("an inline entry sharing a desc_fmt",
+             lambda d: _step(d, "mustops_ce").update(entry=_template("mubeam")),
+             "mubeam", "mustops_ce", "desc_fmt"),
+            ("unknown kit", lambda d: _step(d, "sob").update(kit="nosuchkit"),
+             "nosuchkit"),
+            ("files_from an unknown step",
+             lambda d: _step(d, "mustops_ce").update(files_from=["nope"]),
+             "nope"),
+            ("cycle",
+             lambda d: _step(d, "mubeam").update(files_from=["mustops_ce"]),
+             "cycle"),
+            ("duplicate step name",
+             lambda d: _step(d, "flash").update(step="sob"), "duplicate"),
+            ("prodtools step needs an entry",
+             lambda d: _step(d, "mubeam").update(entry=None), "entry"),
+            ("plugin step takes no entry",
+             lambda d: _step(d, "sob").update(entry="x"), "entry"),
+            ("fixed value type", fixed("mubeam", quorum=1.5), "quorum"),
+            ("params name must exist",
+             lambda d: _step(d, "mubeam").update(params={"x": "nope"}), "nope"),
+            ("a step nothing uses", _add_digi, "evaluate.digi", "nothing uses"),
+            # Ported from the old loader tests (run.stages / presubmit_after
+            # as a bare string): tuple("mubeam") would silently be its
+            # characters.
+            ("files_from as a bare string",
+             lambda d: _step(d, "mustops_ce").update(files_from="mubeam"),
+             "files_from", "must be a list"),
+            # Ported from the old loader tests (F6): njobs reaches the
+            # jobsub command line unchanged, and isinstance(True, int) is
+            # True.
+            *[(f"njobs={bad!r}", fixed("mubeam", njobs=bad),
+               "njobs", "positive int") for bad in (True, 15.5, "20", 0)],
+            # `entry` is reserved for a kit that takes templates.
+            ("entry as a param",
+             lambda d: _step(d, "mubeam")["params"].update(entry="a"),
+             "[evaluate[0]][params.entry]", "reserved"),
+            ("entry as a fixed value", fixed("mubeam", entry=1),
+             "[evaluate[0]][fixed.entry]", "reserved"),
+            ("entry as a kit setting",
+             lambda d: d["kits"]["prodtools"].update(entry="x"),
+             "[kits.prodtools][entry]", "reserved"),
+        ])
 
     def test_an_extra_metric_makes_a_step_used(self):
         doc = _doc()
@@ -490,78 +470,52 @@ class TestSteps(_Tmp):
         self.assertEqual(self.load(doc).steps[-1].step,
                          "digi")
 
-    def test_files_from_bare_string_rejected(self):
-        # Ported from the old loader tests (run.stages / presubmit_after as a
-        # bare string): tuple("mubeam") would silently be its characters.
-        doc = _doc()
-        _step(doc, "mustops_ce")["files_from"] = "mubeam"
-        self.assertRejects(doc, "files_from", "must be a list")
-
-    def test_fixed_njobs_must_be_a_positive_int(self):
-        # Ported from the old loader tests (F6): njobs reaches the jobsub
-        # command line unchanged, and isinstance(True, int) is True.
-        for bad in (True, 15.5, "20", 0):
-            doc = _doc()
-            _step(doc, "mubeam")["fixed"]["njobs"] = bad
-            with self.subTest(njobs=bad):
-                self.assertRejects(doc, "njobs", "positive int")
-
 
 class TestKits(_Tmp):
     # Missing and unknown kit settings: _LEVELS' kits.* rows.
-    def test_configured_but_unused_kit(self):
-        doc = _doc()
-        doc["preflight"] = None   # offline_preflight keeps its settings
-        self.assertRejects(doc, "unused")
-
-    def test_used_kit_needs_settings(self):
-        doc = _doc()
-        del doc["kits"]["prodtools"]
-        self.assertRejects(doc, "prodtools")
-
-    def test_preflight_kit_must_offer_check(self):
-        doc = _doc()
-        doc["preflight"]["kit"] = "prodtools"
-        self.assertRejects(doc, "check")
-
-    def test_personal_path_refused(self):
-        doc = _doc()
-        doc["kits"]["prodtools"]["code_tarball"] = "/exp/mu2e/app/users/somebody/x.tar"  # personal-path-ok: made-up name, exercises the refusal
-        self.assertRejects(doc, "personal")
-
-    def test_unknown_variable_token_refused(self):
-        # Ported from the old loader tests: only '${ARTIFACT}/' expands.
-        doc = _doc()
-        doc["kits"]["offline_preflight"]["code_tarball"] = "${HOME}/x/Code.tar.bz2"
-        self.assertRejects(doc, "ARTIFACT")
+    def test_refusals(self):
+        self.assertRefusesEach([
+            # offline_preflight keeps its settings
+            ("configured but unused kit", lambda d: d.update(preflight=None),
+             "unused"),
+            ("used kit needs settings", lambda d: d["kits"].pop("prodtools"),
+             "prodtools"),
+            ("preflight kit must offer check",
+             lambda d: d["preflight"].update(kit="prodtools"), "check"),
+            ("personal path",
+             lambda d: d["kits"]["prodtools"].update(code_tarball="/exp/mu2e/app/users/somebody/x.tar"),  # personal-path-ok: made-up name, exercises the refusal
+             "personal"),
+            # Ported from the old loader tests: only '${ARTIFACT}/' expands.
+            ("unknown variable token",
+             lambda d: d["kits"]["offline_preflight"].update(
+                 code_tarball="${HOME}/x/Code.tar.bz2"),
+             "ARTIFACT"),
+            # classify() (core/adapters/preflight_checks.py) only reads
+            # require_zero_overlaps INSIDE the `if checks_managed_overlap:`
+            # block, so this combination silently never enforces the policy
+            # (F3, 2026-09-26; tests/test_zero_overlap_policy.py pins the
+            # same rule on the loaded studies' settings).
+            ("zero-overlap policy needs the managed-overlap check",
+             lambda d: d["kits"]["offline_preflight"].update(
+                 require_zero_overlaps=True, checks_managed_overlap=False),
+             "checks_managed_overlap", "require_zero_overlaps"),
+            # MATCHING_SETTINGS: the pre-check and the jobs must name one
+            # code tarball.
+            ("the pre-check names another code tarball",
+             lambda d: d["kits"]["offline_preflight"].update(
+                 code_tarball="${ARTIFACT}/demo/Other.tar.bz2"),
+             "[kits.offline_preflight.code_tarball]",
+             "${ARTIFACT}/demo/Other.tar.bz2", "kits.prodtools.code_tarball",
+             "${ARTIFACT}/demo/Code_demo.tar.bz2"),
+        ])
 
     def test_registry_declares_the_zero_overlap_flag(self):
         self.assertIn("require_zero_overlaps",
                       kit_registry.KITS["offline_preflight"].study_keys)
 
-    def test_zero_overlap_policy_needs_the_managed_overlap_check(self):
-        # classify() (core/adapters/preflight_checks.py) only reads
-        # require_zero_overlaps INSIDE the `if checks_managed_overlap:`
-        # block, so this combination silently never enforces the policy
-        # (F3, 2026-09-26; tests/test_zero_overlap_policy.py pins the same
-        # rule on the loaded studies' settings).
-        doc = _doc()
-        doc["kits"]["offline_preflight"]["require_zero_overlaps"] = True
-        doc["kits"]["offline_preflight"]["checks_managed_overlap"] = False
-        self.assertRejects(doc, "checks_managed_overlap",
-                           "require_zero_overlaps")
-
 
 class TestMatchingSettings(_Tmp):
-    def test_the_pre_check_and_the_jobs_must_name_one_code_tarball(self):
-        doc = _doc()
-        doc["kits"]["offline_preflight"]["code_tarball"] = \
-            "${ARTIFACT}/demo/Other.tar.bz2"
-        self.assertRejects(doc, "[kits.offline_preflight.code_tarball]",
-                           "${ARTIFACT}/demo/Other.tar.bz2",
-                           "kits.prodtools.code_tarball",
-                           "${ARTIFACT}/demo/Code_demo.tar.bz2")
-
+    # The refusal of two tarballs is a TestKits case.
     def test_the_fixture_names_one_tarball_for_both(self):
         s = st.load_study_file(FIXTURE)
         self.assertEqual(s.kits["offline_preflight"]["code_tarball"],
@@ -582,80 +536,58 @@ class TestMatchingSettings(_Tmp):
             s.kits["prodtools"]["code_tarball"].endswith("Code_demo.tar.bz2"))
 
 
+def _obj(**kv):
+    return lambda d: d["objectives"][0].update(kv)
+
+
 class TestObjectivesAndConstraints(_Tmp):
-    def test_at_least_one_objective(self):
-        doc = _doc()
-        doc["objectives"] = []
-        doc["constraints"] = []
-        doc["extra_columns"] = []
-        self.assertRejects(doc, "objective")
-
-    def test_metric_names_a_step(self):
-        doc = _doc()
-        doc["objectives"][0]["metric"] = "nostep.s_over_sqrt_b"
-        self.assertRejects(doc, "nostep")
-
-    def test_metric_needs_step_dot_key(self):
-        doc = _doc()
-        doc["objectives"][0]["metric"] = "s_over_sqrt_b"
-        self.assertRejects(doc, "step.key")
-
-    def test_direction_and_transform_enums(self):
-        doc = _doc()
-        doc["objectives"][0]["direction"] = "up"
-        self.assertRejects(doc, "direction")
-        doc = _doc()
-        doc["objectives"][0]["transform"] = "ln"
-        self.assertRejects(doc, "transform")
-
-    def test_at_most_one_constraint(self):
-        doc = _doc()
-        doc["constraints"].append({"name": "sob", "min": 3.0, "k_sigma": 1.0})
-        self.assertRejects(doc, "at most one")
-
-    def test_constraint_needs_exactly_one_bound(self):
-        doc = _doc()
-        doc["constraints"][0]["min"] = 1e-9
-        self.assertRejects(doc, "exactly one")
-
-    def test_constraint_side_must_match_direction(self):
-        doc = _doc()
-        doc["constraints"] = [{"name": "flash_edep", "min": 1e-9, "k_sigma": 1.0}]
-        self.assertRejects(doc, "'max'")
-
-    def test_log10_bound_must_be_positive(self):
-        doc = _doc()
-        doc["constraints"][0]["max"] = 0.0
-        self.assertRejects(doc, "positive")
-
-    def test_extra_column_unknown_name(self):
-        doc = _doc()
-        doc["extra_columns"][1]["expr"] = "sob - beta"
-        self.assertRejects(doc, "beta")
+    def test_refusals(self):
+        self.assertRefusesEach([
+            ("at least one objective",
+             lambda d: d.update(objectives=[], constraints=[], extra_columns=[]),
+             "objective"),
+            ("metric names a step", _obj(metric="nostep.s_over_sqrt_b"),
+             "nostep"),
+            ("metric needs step.key", _obj(metric="s_over_sqrt_b"), "step.key"),
+            ("direction enum", _obj(direction="up"), "direction"),
+            ("transform enum", _obj(transform="ln"), "transform"),
+            ("at most one constraint",
+             lambda d: d["constraints"].append(
+                 {"name": "sob", "min": 3.0, "k_sigma": 1.0}),
+             "at most one"),
+            ("constraint needs exactly one bound",
+             lambda d: d["constraints"][0].update(min=1e-9), "exactly one"),
+            ("constraint side must match direction",
+             lambda d: d.update(constraints=[
+                 {"name": "flash_edep", "min": 1e-9, "k_sigma": 1.0}]),
+             "'max'"),
+            ("log10 bound must be positive",
+             lambda d: d["constraints"][0].update(max=0.0), "positive"),
+            ("extra column unknown name",
+             lambda d: d["extra_columns"][1].update(expr="sob - beta"), "beta"),
+        ])
 
 
 class TestLeaderboard(_Tmp):
-    def test_dotdot_rejected(self):
-        doc = _doc()
-        doc["leaderboard"]["file"] = "../x.tsv"
-        self.assertRejects(doc, "..")
+    def test_refusals(self):
+        def board(**kv):
+            return lambda d: d["leaderboard"].update(kv)
 
-    def test_absolute_path_rejected(self):
-        # Ported from the old loader tests: pathlib's '/' discards the left
-        # side when the right is absolute, so the board would escape the repo.
-        doc = _doc()
-        doc["leaderboard"]["file"] = "/abs/escaped.tsv"
-        self.assertRejects(doc, "/abs/escaped.tsv", "repo-relative")
-
-    def test_context_collides_with_column(self):
-        doc = _doc()
-        # Keep "alpha" in context: extra_columns[0] ("alpha") passes it
-        # through by name, and dropping it here would make the load fail
-        # earlier, in _extras (unknown name 'alpha'), never reaching the
-        # leaderboard.context collision check this test targets. Adding
-        # "sob" (an objective name) is the actual collision under test.
-        doc["leaderboard"]["context"] = ["alpha", "sob"]
-        self.assertRejects(doc, "context")
+        self.assertRefusesEach([
+            ("dotdot", board(file="../x.tsv"), ".."),
+            # Ported from the old loader tests: pathlib's '/' discards the
+            # left side when the right is absolute, so the board would
+            # escape the repo.
+            ("absolute path", board(file="/abs/escaped.tsv"),
+             "/abs/escaped.tsv", "repo-relative"),
+            # Keep "alpha" in context: extra_columns[0] ("alpha") passes it
+            # through by name, and dropping it here would make the load fail
+            # earlier, in _extras (unknown name 'alpha'), never reaching the
+            # leaderboard.context collision check this case targets. Adding
+            # "sob" (an objective name) is the actual collision under test.
+            ("context collides with a column",
+             board(context=["alpha", "sob"]), "context"),
+        ])
 
 
 class TestDirs(_Tmp):
@@ -745,22 +677,27 @@ class TestEntryTemplate(_Tmp):
 
 
 class TestProdtoolsKeys(_Tmp):
-    def test_a_prodtools_step_without_quorum_is_refused(self):
-        doc = _doc()
-        del _step(doc, "mubeam")["fixed"]["quorum"]
-        self.assertRejects(doc, "evaluate[0]", "quorum")
+    def test_refusals(self):
+        def prodtools(**kv):
+            return lambda d: d["kits"]["prodtools"].update(kv)
 
-    def test_njobs_over_200_is_refused(self):
-        doc = _doc()
-        _step(doc, "elebeam_flash")["fixed"]["njobs"] = 201
-        self.assertRejects(doc, "njobs", "200")
-
-    def test_fatal_log_codes_must_be_a_list_of_strings(self):
-        for bad in ("GeomSolids1001", [""], [3]):
-            doc = _doc()
-            doc["kits"]["prodtools"]["fatal_log_codes"] = bad
-            with self.subTest(bad=bad):
-                self.assertRejects(doc, "fatal_log_codes")
+        self.assertRefusesEach([
+            ("a prodtools step without quorum",
+             lambda d: _step(d, "mubeam")["fixed"].pop("quorum"),
+             "evaluate[0]", "quorum"),
+            ("njobs over 200",
+             lambda d: _step(d, "elebeam_flash")["fixed"].update(njobs=201),
+             "njobs", "200"),
+            # fatal_log_codes must be a list of strings
+            *[(f"fatal_log_codes={bad!r}", prodtools(fatal_log_codes=bad),
+               "fatal_log_codes") for bad in ("GeomSolids1001", [""], [3])],
+            # dsconf holds {cfg} and only name characters
+            *[(f"dsconf={bad!r}", prodtools(dsconf=bad),
+               "[kits.prodtools][dsconf]", needle)
+              for bad, needle in (("Run1Bak", "{cfg}"), (7, "{cfg}"),
+                                  ("Run1Bak-{cfg}", "'-'"),
+                                  ("Run1Bak_{cfg}_{geom}", "'{'"))],
+        ])
 
     def test_the_fixture_carries_the_codes_and_every_quorum(self):
         s = st.load_study_file(FIXTURE)
@@ -770,35 +707,9 @@ class TestProdtoolsKeys(_Tmp):
             if step.kit == "prodtools":
                 self.assertIn("quorum", step.fixed, step.step)
 
-    def test_dsconf_holds_cfg_and_only_name_characters(self):
-        for bad, needle in (("Run1Bak", "{cfg}"), (7, "{cfg}"),
-                            ("Run1Bak-{cfg}", "'-'"),
-                            ("Run1Bak_{cfg}_{geom}", "'{'")):
-            doc = _doc()
-            doc["kits"]["prodtools"]["dsconf"] = bad
-            with self.subTest(bad=bad):
-                self.assertRejects(doc, "[kits.prodtools][dsconf]", needle)
-
     def test_the_fixture_names_the_pipelines_run_label(self):
         self.assertEqual(st.load_study_file(FIXTURE).kits["prodtools"]["dsconf"],
                          "Run1Bak_{cfg}")
-
-
-class TestReservedEntry(_Tmp):
-    def test_entry_is_reserved_for_a_kit_that_takes_templates(self):
-        cases = (
-            ("param", lambda d: _step(d, "mubeam")["params"].update(entry="a"),
-             "[evaluate[0]][params.entry]"),
-            ("fixed", lambda d: _step(d, "mubeam")["fixed"].update(entry=1),
-             "[evaluate[0]][fixed.entry]"),
-            ("setting", lambda d: d["kits"]["prodtools"].update(entry="x"),
-             "[kits.prodtools][entry]"))
-        for label, mutate, field in cases:
-            doc = _doc()
-            mutate(doc)
-            with self.subTest(label):
-                self.assertRejects(doc, field, "reserved")
-
 
 
 # measure_basis_sha of every study: a change moves its board, so re-pin only
@@ -816,6 +727,22 @@ PINNED = {
 }
 
 
+def _params_from(step, value):
+    return lambda d: _step(d, step).update(params_from=value)
+
+
+def _drop_params_from(d):
+    for step in d["evaluate"]:
+        del step["params_from"]
+
+
+def _clash(params_from, params):
+    def mutate(d):
+        s = _step(d, "sob")
+        s["params_from"], s["params"] = params_from, params
+    return mutate
+
+
 class TestParamsFrom(_Tmp):
     def test_existing_studies_keep_their_measure_basis_sha(self):
         got = {}
@@ -824,74 +751,52 @@ class TestParamsFrom(_Tmp):
             got[s.name] = s.measure_basis_sha
         self.assertEqual(got, PINNED)
 
-    def test_params_from_is_required(self):
-        doc = _doc()
-        for s in doc["evaluate"]:
-            del s["params_from"]
-        self.assertRejects(doc, "missing required field(s) ['params_from']")
-
-    def test_params_from_must_be_an_object(self):
-        doc = _doc()
-        _step(doc, "sob")["params_from"] = ["flash.v"]
-        self.assertRejects(doc, "params_from", "must be an object")
-
-    def test_a_bad_source_form(self):
-        for bad in ("flash", "flash.a.b", 3):
-            with self.subTest(bad=bad):
-                doc = _doc()
-                _step(doc, "sob")["params_from"] = {"x": bad}
-                self.assertRejects(doc, "params_from.x", "must be 'step.key'")
-
-    def test_an_unknown_source_step(self):
-        doc = _doc()
-        _step(doc, "sob")["params_from"] = {"x": "nope.v"}
-        self.assertRejects(doc, "params_from.x", "'nope'")
-
-    def test_a_self_reference(self):
-        doc = _doc()
-        _step(doc, "sob")["params_from"] = {"x": "sob.v"}
-        self.assertRejects(doc, "params_from.x", "its own result")
-
-    def test_the_retired_anakit_settings_are_refused(self):
-        # The fork's analyses took these; M. MacKenzie's do not
-        # (docs/superpowers/specs/2026-10-07-upstream-analyses-design.md).
-        for key in ("input_correction", "dio_fraction", "dio_table",
-                    "pot_per_electron"):
-            with self.subTest(key=key):
-                doc = _doc()
-                _step(doc, "sob")["fixed"][key] = (
-                    "/t.tbl" if key == "dio_table" else 0.5)
-                self.assertRejects(doc, key)
-
-    def test_the_musing_has_one_spelling(self):
-        # The setting is hashed as written, so a second spelling of the same
-        # Musing would give a second measure_sha (a board refused at launch).
-        for bad in ("SimJob/MDC2025ay", "SimJob  MDC2025ay", " SimJob MDC2025ay",
-                    "SimJob", "SimJob MDC2025ay extra", 3):
-            with self.subTest(bad=bad):
-                doc = _doc()
-                doc["kits"]["anakit"]["musing"] = bad
-                self.assertRejects(doc, "[kits.anakit][musing]",
-                                   "'SimJob MDC2025ay'")
-
-    def test_a_clash_with_params_fixed_or_settings(self):
-        cases = (("params_from vs fixed", {"analysis": "flash.v"}, {}, "analysis"),
-                 ("params_from vs setting", {"musing": "flash.v"}, {},
-                  "musing"),
-                 ("params_from vs params", {"k": "flash.v"}, {"k": "a"}, "k"),
-                 ("params vs fixed", {}, {"analysis": "a"}, "analysis"))
-        for label, params_from, params, name in cases:
-            with self.subTest(label):
-                doc = _doc()
-                s = _step(doc, "sob")
-                s["params_from"], s["params"] = params_from, params
-                self.assertRejects(doc, "evaluate.sob", f"['{name}']",
-                                   "more than once")
-
-    def test_a_cycle_through_params_from(self):
-        doc = _doc()
-        _step(doc, "mubeam")["params_from"] = {"x": "mustops_ce.v"}
-        self.assertRejects(doc, "cycle")
+    def test_refusals(self):
+        self.assertRefusesEach([
+            ("params_from is required", _drop_params_from,
+             "missing required field(s) ['params_from']"),
+            ("params_from must be an object", _params_from("sob", ["flash.v"]),
+             "params_from", "must be an object"),
+            *[(f"source {bad!r}", _params_from("sob", {"x": bad}),
+               "params_from.x", "must be 'step.key'")
+              for bad in ("flash", "flash.a.b", 3)],
+            ("an unknown source step", _params_from("sob", {"x": "nope.v"}),
+             "params_from.x", "'nope'"),
+            ("a self reference", _params_from("sob", {"x": "sob.v"}),
+             "params_from.x", "its own result"),
+            # The fork's analyses took these; M. MacKenzie's do not
+            # (docs/superpowers/specs/2026-10-07-upstream-analyses-design.md).
+            *[(f"retired anakit setting {key}",
+               lambda d, key=key: _step(d, "sob")["fixed"].update(
+                   {key: "/t.tbl" if key == "dio_table" else 0.5}),
+               key)
+              for key in ("input_correction", "dio_fraction", "dio_table",
+                          "pot_per_electron")],
+            # The setting is hashed as written, so a second spelling of the
+            # same Musing would give a second measure_sha (a board refused
+            # at launch).
+            *[(f"musing {bad!r}",
+               lambda d, bad=bad: d["kits"]["anakit"].update(musing=bad),
+               "[kits.anakit][musing]", "'SimJob MDC2025ay'")
+              for bad in ("SimJob/MDC2025ay", "SimJob  MDC2025ay",
+                          " SimJob MDC2025ay", "SimJob",
+                          "SimJob MDC2025ay extra", 3)],
+            # A name sent twice: params_from, params, fixed, kit settings.
+            *[(label, _clash(params_from, params),
+               "evaluate.sob", f"['{name}']", "more than once")
+              for label, params_from, params, name in (
+                  ("params_from vs fixed", {"analysis": "flash.v"}, {},
+                   "analysis"),
+                  ("params_from vs setting", {"musing": "flash.v"}, {},
+                   "musing"),
+                  ("params_from vs params", {"k": "flash.v"}, {"k": "a"}, "k"),
+                  ("params vs fixed", {}, {"analysis": "a"}, "analysis"))],
+            ("a cycle through params_from",
+             _params_from("mubeam", {"x": "mustops_ce.v"}), "cycle"),
+            ("a reserved name in params_from",
+             _params_from("mubeam", {"entry": "elebeam_flash.v"}),
+             "params_from.entry", "'entry' is reserved"),
+        ])
 
     def test_a_step_read_only_by_params_from_is_used(self):
         doc = _doc()
@@ -902,10 +807,8 @@ class TestParamsFrom(_Tmp):
         _step(doc, "sob")["params_from"] = {"x": "stops.v"}
         self.assertEqual(self.load(doc).steps[-1].step, "stops")
 
-    def test_reserved_names_are_refused_in_params_from(self):
-        doc = _doc()
-        _step(doc, "mubeam")["params_from"] = {"entry": "elebeam_flash.v"}
-        self.assertRejects(doc, "params_from.entry", "'entry' is reserved")
+    def test_beamkit_reserved_names_are_refused_in_params_from(self):
+        # The demo doc's case ('entry') is in test_refusals.
         g4bl = json.loads((ROOT / "mode_specs" / "ptg4bl.json").read_text())
         cases = (("Num_Events", "a beamkit setting"),
                  ("epsMax", "deck_params"),

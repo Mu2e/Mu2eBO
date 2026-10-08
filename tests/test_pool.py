@@ -191,20 +191,16 @@ class TestAbortThreshold(unittest.TestCase):
     proven by racing a real thread pool -- test_q_consecutive_rowless_aborts
     above only pins "it aborts eventually", not the exact threshold."""
 
-    def test_q1_requires_two_not_one(self):
-        self.assertFalse(pool._should_abort(streak=1, q=1))
-        self.assertTrue(pool._should_abort(streak=2, q=1))
-
-    def test_q_gt_1_requires_exactly_q(self):
-        self.assertFalse(pool._should_abort(streak=2, q=3))
-        self.assertTrue(pool._should_abort(streak=3, q=3))
-
-    def test_q20_requires_exactly_20_not_21(self):
-        # The regression this guards: `streak > q` (review round 1's fix)
-        # required q+1=21 at q=20 -- over half a 40-eval budget before
-        # aborting, where the intent was 20.
-        self.assertFalse(pool._should_abort(streak=20, q=21))
-        self.assertTrue(pool._should_abort(streak=20, q=20))
+    def test_the_threshold(self):
+        for streak, q, want in (
+                (1, 1, False), (2, 1, True),     # q=1 requires two, not one
+                (2, 3, False), (3, 3, True),     # q>1 requires exactly q
+                # The regression this guards: `streak > q` (review round 1's
+                # fix) required q+1=21 at q=20 -- over half a 40-eval budget
+                # before aborting, where the intent was 20.
+                (20, 21, False), (20, 20, True)):
+            with self.subTest(streak=streak, q=q):
+                self.assertIs(pool._should_abort(streak=streak, q=q), want)
 
 
 class TestStopFlag(unittest.TestCase):

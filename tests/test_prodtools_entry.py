@@ -50,19 +50,24 @@ class TestParity(unittest.TestCase):
 
 
 class TestEntryForStep(unittest.TestCase):
-    def test_geom_without_a_geom_file_is_refused(self):
-        with self.assertRaises(ValueError) as cm:
-            pe.entry_for_step(template("mubeam"), config="c1", fixed={},
-                              code_tarball="CODE", dsconf="Run1Bak_{cfg}")
-        self.assertIn("{geom}", str(cm.exception))
-
-    def test_a_template_still_naming_dsconf_fmt_is_refused(self):
-        t = dict(template("mubeam"), dsconf_fmt="Run1Bak_{cfg}")
-        with self.assertRaises(ValueError) as cm:
-            pe.entry_for_step(t, config="c1", fixed={}, code_tarball="CODE",
-                              dsconf="Run1Bak_{cfg}", geom_name="g.txt")
-        self.assertIn("dsconf_fmt", str(cm.exception))
-        self.assertIn("kits.prodtools.dsconf", str(cm.exception))
+    def test_refusals(self):
+        mubeam = template("mubeam")
+        for label, t, kw, *needles in (
+                # the template names {geom} but the study has no geom file
+                ("{geom} without a geom file", mubeam,
+                 dict(dsconf="Run1Bak_{cfg}"), "{geom}"),
+                ("a template still naming dsconf_fmt",
+                 dict(mubeam, dsconf_fmt="Run1Bak_{cfg}"),
+                 dict(dsconf="Run1Bak_{cfg}", geom_name="g.txt"),
+                 "dsconf_fmt", "kits.prodtools.dsconf"),
+                ("a dsconf without {cfg}", mubeam,
+                 dict(dsconf="Run1Bak", geom_name="g.txt"), "{cfg}")):
+            with self.subTest(label):
+                with self.assertRaises(ValueError) as cm:
+                    pe.entry_for_step(t, config="c1", fixed={},
+                                      code_tarball="CODE", **kw)
+                for n in needles:
+                    self.assertIn(n, str(cm.exception))
 
     def test_the_run_label_is_the_dsconf_setting_with_cfg_filled(self):
         entry, facts = pe.entry_for_step(
@@ -70,13 +75,6 @@ class TestEntryForStep(unittest.TestCase):
             dsconf="MDC2025ax_{cfg}", geom_name="g.txt")
         self.assertEqual((entry["dsconf"], facts["dsconf"]),
                          ("MDC2025ax_c1", "MDC2025ax_c1"))
-
-    def test_a_dsconf_without_cfg_is_refused(self):
-        with self.assertRaises(ValueError) as cm:
-            pe.entry_for_step(template("mubeam"), config="c1", fixed={},
-                              code_tarball="CODE", dsconf="Run1Bak",
-                              geom_name="g.txt")
-        self.assertIn("{cfg}", str(cm.exception))
 
     def test_template_defaults_fill_what_fixed_omits(self):
         entry, facts = pe.entry_for_step(template("elebeam_flash"),
