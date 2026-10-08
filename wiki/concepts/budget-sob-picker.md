@@ -70,7 +70,7 @@ untouched at 4.00.
   place, which is why it is committed and reverted, never left.
 - **foilspfbpz07 (2026-08-10) ran with `k=0.5` via the now-removed
   `AUTORESEARCH_BUDGET_KSIGMA=0.5` env override.** Reproducing that k today
-  means editing `mode_specs/foilspfbpz.json` `constraints[0].k_sigma` to
+  means editing the study file's `constraints[0].k_sigma` (today `mode_specs/foilspfbpz_ax.json`) to
   0.5 for the round (recipe above), not an env var.
 - **`k` is the real tuning knob.** MEASURED on the 337-row foilspfbpz board
   2026-08-10, q=20 (numbers below predate the env->study-field move and are
@@ -111,7 +111,7 @@ untouched at 4.00.
 - Source files: `core/botorch_predict.py:_problem_from` (constraint
   assembly), `core/botorch_predict.py:compute_explore_picks` (`budget_sob`
   -> `constrained_max` mapping), `core/study.py` (`StudyConstraint`,
-  `constraints` parsing), `mode_specs/foilspfbpz.json` (a live study's
+  `constraints` parsing), `mode_specs/foilspfbpz_ax.json` (a live study's
   `constraints` block), `graph/closed_loop.py:52` (`PICKER_CHOICES`). The
   picker BODY (`constrained_max`) itself lives in the surrokit engine repo,
   not here (see [surrogate](/drivers/surrogate.md) "Surrokit extraction");

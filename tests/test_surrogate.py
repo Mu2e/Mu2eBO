@@ -8,6 +8,7 @@ SDK is absent (it ships in ana 2.8.0 but not in the dev venv).
 The plain-Python facade these tests used to cover was deleted 2026-09-22
 (zero callers); see wiki/drivers/surrogate.md."""
 import asyncio
+import os
 import sys
 import tempfile
 import unittest
@@ -59,6 +60,18 @@ class TestAutoresearchAdapter(unittest.TestCase):
             # G4beamline study, has none; every foilspf twin has one).
             self.assertEqual(prob.constraint is not None,
                              bool(study.constraints), name)
+
+    def test_problems_refuse_a_removed_env_override(self):
+        """The MCP door takes the same build_problem path, so a stale
+        AUTORESEARCH_BUDGET_KSIGMA / AUTORESEARCH_FLASH_BUDGET export is
+        fatal there too, not silently ignored."""
+        from surrogate.adapter import AutoresearchAdapter
+        for var in ("AUTORESEARCH_FLASH_BUDGET", "AUTORESEARCH_BUDGET_KSIGMA"):
+            with self.subTest(var=var), \
+                 mock.patch.dict(os.environ, {var: "0.5"}):
+                with self.assertRaises(ValueError) as cm:
+                    AutoresearchAdapter().problems()
+                self.assertIn(var, str(cm.exception))
 
     def test_a_refused_pick_is_a_tool_error_not_an_exit(self):
         """The MCP SDK turns an Exception into a tool error, but a

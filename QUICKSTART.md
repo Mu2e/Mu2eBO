@@ -129,6 +129,7 @@ Then launch it detached:
 
 ```bash
 GD=$AUTORESEARCH_DATA_ROOT/autoresearch_graph_data
+mkdir -p "$GD"
 PYTHONPATH= setsid nohup "$AUTORESEARCH_PYTHON" -u -m graph.closed_loop \
     --study foilspfbpz_ax --q 20 --max-evals 40 --picker budget_sob \
     --name-prefix bpz09 --context alpha=100000 --executor grid \

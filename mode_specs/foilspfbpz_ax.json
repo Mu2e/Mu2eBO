@@ -1,7 +1,7 @@
 {
  "schema": 2,
  "name": "foilspfbpz_ax",
- "note": "Engine twin of the original foilspfbpz study: the same knobs, geometry, objectives and columns, run by the contract engine on SimJob MDC2025ax (Code_mdc2025ax.tar.bz2), with sob and flash computed by anakit (kit anakit) instead of the pipeline's harvest. Its own v2 board starts empty: rows measured on another release cannot be mixed in. wiki/projects/bo-foilspf.md explains the geometry. Since 2026-10-07 its analyses are M. MacKenzie's (anakit main, on SimJob MDC2025ay): stops -> ce_edep -> sob, and flash. flash_edep is MeV per generated beam electron, so the budget is the per-POT one times 11.536718606512062. A new board: the old one is history.",
+ "note": "Engine twin of mode_specs/foilspfbpz.json (Phase C2b, docs/superpowers/specs/2026-09-27-c2b-anakit-analyses-design.md): the same knobs, geometry, objectives and columns, run by the contract engine on SimJob MDC2025ax (Code_mdc2025ax.tar.bz2), with sob and flash computed by anakit (kit anakit) instead of the pipeline's harvest. Its own v2 board starts empty: rows measured on another release cannot be mixed in. The original's note explains the geometry. Since 2026-10-07 (docs/superpowers/specs/2026-10-07-upstream-analyses-design.md) its analyses are M. MacKenzie's (anakit main, on SimJob MDC2025ay): stops -> ce_edep -> sob, and flash. flash_edep is MeV per generated beam electron, so the budget is the per-POT one times 11.536718606512062. A new board: the old one is history.",
  "knobs": [
   {"name": "rOut_0", "type": "real", "min": 30.0, "max": 150.0, "unit": "", "fmt": "{:.4f}"},
   {"name": "rOut_1", "type": "real", "min": 30.0, "max": 150.0, "unit": "", "fmt": "{:.4f}"},

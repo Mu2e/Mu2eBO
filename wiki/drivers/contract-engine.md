@@ -230,7 +230,7 @@ campaign (q=2, 8 points) runs end to end in 28.7 s.
   (`Leaderboard.header`, `V2_META`). `handles` is sorted `step=handle`
   pairs, e.g. `toy=p1.toy`.
 - `"v2"` is the only layout; a study saying `"v1"` is refused at load.
-- `spec_sha` is recorded, never checked.
+- `spec_sha` hashes the whole study file, `note` included, and the duplicate-row check compares it: after any edit to a live study's file, re-scoring a point that already has a row is refused as a duplicate. Leave a live study's file alone; change it only together with a new board.
 - A row with no `measure_sha` raises `RowParseError` (line number).
 
 ### `graph.run`

@@ -23,8 +23,8 @@ SHIPPED = ("ce_chain", "foilsflash_ax", "foilspf_nominal", "foilspfbpz_ax",
            "ptg4bl")
 # Retired names that must never load (see mode_specs/README.md):
 # the seven original foilspf studies (their files were deleted on
-# 2026-10-08; git history keeps them, and their boards stay in
-# leaderboards/) and the four schema-1 files in mode_specs/archive/.
+# 2026-10-08; git history keeps them) and the four schema-1 files in
+# mode_specs/archive/.
 RETIRED = ("foilsflash", "foilspf", "foilspf2k", "foilspfbp", "foilspfbpx",
            "foilspfbpz", "foilspfbw", "ipa625", "ipafix", "ipaovr", "nominal")
 

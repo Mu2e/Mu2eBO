@@ -12,6 +12,9 @@ superseded, linted.
 - **updated** [contract-engine](/drivers/contract-engine.md), [tests](/drivers/tests.md):
   PR #36 cleanup — five unused `_ax` studies, archived copies, restamp tool and dead
   compat removed; `foilspf_nominal` moved to `mode_specs/`; suite 882 OK (skipped=4).
+- **updated** [contract-engine](/drivers/contract-engine.md): review of the cleanup — the
+  `AUTORESEARCH_LOCAL` and budget env-var refusals stay (no silent fallback); live
+  studies' `note`s are left as they were, since `spec_sha` is in the duplicate-row check.
 - **updated** wiki condensed to current facts: contract-engine (1475 -> 544 lines),
   log bullets cut to 3 lines, tests, anakit, surrogate, service, two concept pages;
   [pipeline](/drivers/pipeline.md) and three sibling pages back to main's text + banner.

@@ -238,13 +238,20 @@ def check_launch(study, kits, *, executor: str, parallel, config: str) -> Check:
     """The check graph.run makes before it writes anything: executor rules,
     Kerberos, the config name, every kit starts and reports a version, the
     params/metrics cross-check, each kit's step checks, and the board."""
+    # run imports modes, which loads every study: safe only once the load
+    # check has proved they all load.
+    from run import local_env_refusal
+    problems = []
+    refusal = local_env_refusal()
+    if refusal:
+        problems.append(refusal)
     try:
-        problems = launch_problems(study, kits, executor=executor,
-                                   parallel=parallel, config_names=[config],
-                                   board=board_for(study))
+        problems += launch_problems(study, kits, executor=executor,
+                                    parallel=parallel, config_names=[config],
+                                    board=board_for(study))
     except (KitError, ContractError, LeaderboardError, OSError) as exc:
-        return Check("launch", "failed", [f"{type(exc).__name__}: {exc}"],
-                     detail=_trace(exc))
+        problems.append(f"{type(exc).__name__}: {exc}")
+        return Check("launch", "failed", problems, detail=_trace(exc))
     if problems:
         return Check("launch", "failed", problems)
     return Check("launch", "passed")

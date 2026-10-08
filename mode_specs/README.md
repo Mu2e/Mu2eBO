@@ -158,6 +158,7 @@ hashes it), so the layout is for readable diffs.
   `desc_fmt` (`{cfg}` and `{geom}` are substituted). The run label is
   `kits.prodtools.dsconf`: it must contain `{cfg}` and, filled in, hold
   only letters, digits and `_` (the `_ax` studies say `MDC2025ax_{cfg}`).
+  A template still carrying `dsconf_fmt` is refused.
 - `"preflight": {"kit": "offline_preflight", ...}` gates each point on
   `mu2e -n 1` with G4's surface check, run on this node from
   `kits.offline_preflight.code_tarball`, which must equal

@@ -57,9 +57,11 @@ class _Dash(EngineCase):
         """A running point: its run.lock held."""
         (stack or self.stack).enter_context(self.svc.point(name).run_lock())
 
-    def child(self, name, study="toystudy", x=(1.0, 2.0), last="[run] x"):
+    def child(self, name, study="toystudy", x=(1.0, 2.0), last="[run] x",
+              record=True):
         """A child that ran (its log and point.json), and its campaign's
-        record, naming `study`, when the campaign has none yet."""
+        record, naming `study`, when the campaign has none yet (unless
+        `record` is False)."""
         self.svc.logs_dir.mkdir(parents=True, exist_ok=True)
         (self.svc.logs_dir / f"{name}.log").write_text(last + "\n")
         sd = self.svc.grid_data / name / "state"
@@ -67,8 +69,8 @@ class _Dash(EngineCase):
         (sd / "point.json").write_text(json.dumps(
             {"config": name, "study": study, "x": list(x)}))
         parsed = parse_child(name)
-        if parsed and not (self.svc.camp(parsed[0]).path
-                           / "campaign.json").exists():
+        if record and parsed and not (self.svc.camp(parsed[0]).path
+                                      / "campaign.json").exists():
             self.record(parsed[0], study)
         return sd
 
@@ -121,6 +123,11 @@ class TestData(_Dash):
         self.live("dd", study="toystudy", q=2, max_evals=6)
         self.assertEqual(dash.prefixes(self.svc, self.now, 7),
                          ["aa", "cc", "dd"])
+
+    def test_a_campaign_without_a_record_is_found_by_its_logs(self):
+        self.child("eeR00_00", record=False)
+        self.assertFalse((self.svc.camp("ee").path / "campaign.json").exists())
+        self.assertEqual(dash.prefixes(self.svc, self.now, 7), ["ee"])
 
     def test_a_params_from_source_is_consumed(self):
         """b takes x2 from a's branin (params_from) and no file from it: a

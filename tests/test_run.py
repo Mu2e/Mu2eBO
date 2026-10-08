@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -562,6 +563,35 @@ class TestKitErrorContract(TmpCase):
         self.assertFalse(board.append.called, "a row was appended")
 
 
+class TestAutoresearchLocalRefused(unittest.TestCase):
+    """AUTORESEARCH_LOCAL was the deleted pipeline's grid-free activation
+    switch (wiki/drivers/local-executor.md); nothing in the engine reads it
+    any more. A stale export must refuse loudly, not be silently ignored --
+    the engine's grid-free equivalent is --executor local."""
+
+    def test_set_env_var_refuses_before_any_kit_starts(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            study = st.load_study_file(write_study(
+                toy_doc(name="localenvtoy", layout="v2"), tmp / "studies"))
+            out = io.StringIO()
+            with mock.patch.dict(modes.STUDIES, {"localenvtoy": study}), \
+                    mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
+                    contextlib.redirect_stdout(out):
+                rc = run.main(["--study", "localenvtoy", "--config", "p1",
+                              "--campaign", "t", "--x=1.0,2.0"])
+            self.assertEqual(rc, 2, out.getvalue())
+            self.assertIn("REFUSED", out.getvalue())
+            self.assertIn("--executor local", out.getvalue())
+            self.assertIn("AUTORESEARCH_LOCAL", out.getvalue())
+
+    def test_env_var_absent_is_unaffected(self):
+        """No regression: TestAPoint.test_a_point_lands_one_row and every
+        other test in this file already run with AUTORESEARCH_LOCAL unset
+        and land a row, so this only pins the negative explicitly."""
+        self.assertNotIn("AUTORESEARCH_LOCAL", os.environ)
+
+
 class TestOldAndArchivedShapes(unittest.TestCase):
     def test_the_old_pipeline_command_shape_is_refused(self):
         """The pipeline's `graph.run --mode foilspf --x-point ...` must fail
@@ -573,10 +603,10 @@ class TestOldAndArchivedShapes(unittest.TestCase):
 
     def test_an_archived_study_is_unknown_with_a_hint(self):
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            rc = run.main(["--study", "foilspf", "--config", "c3x01",
+            rc = run.main(["--study", "ipafix", "--config", "c3x01",
                               "--campaign", "c3x", "--x=1"])
         self.assertEqual(rc, 2)
-        self.assertIn("unknown study 'foilspf'", out.getvalue())
+        self.assertIn("unknown study 'ipafix'", out.getvalue())
         self.assertIn("mode_specs/archive/", out.getvalue())
 
 

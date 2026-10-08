@@ -29,7 +29,8 @@ from campaign_dir import CampaignBusy, CampaignDir  # noqa: E402
 from contract import EXECUTORS, KitSet, launch_problems, launch_stagger  # noqa: E402
 from point_dir import BROKEN, PointDir  # noqa: E402
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
-from run import line_buffered_stdout, parse_context, refuse  # noqa: E402
+from run import (line_buffered_stdout, local_env_refusal,  # noqa: E402
+                 parse_context, refuse)
 
 
 CL = "closed_loop"               # the tag of its refusals (run.refuse)
@@ -166,6 +167,10 @@ def main(argv=None) -> int:
                     help="run every launch check, print OK and exit 0 "
                          "without launching anything")
     args = ap.parse_args(argv_list)
+
+    removed = local_env_refusal()
+    if removed:
+        return refuse(removed, CL)
 
     if args.study not in _modes.STUDIES:
         return refuse(f"unknown study {args.study!r}; known "
