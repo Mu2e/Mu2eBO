@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from service import dashboard as dash  # noqa: E402
 from service.campaigns import CampaignService  # noqa: E402
+from campaign_dir import parse_child  # noqa: E402
 from leaderboard import Point  # noqa: E402  (core/ is on sys.path now)
 from tests.engine_fixtures import engine_env, toy_doc, write_study  # noqa: E402
 from tests.test_boards import META  # noqa: E402
@@ -64,12 +65,18 @@ class _Dash(unittest.TestCase):
         (stack or self.stack).enter_context(self.svc.point(name).run_lock())
 
     def child(self, name, study="toystudy", x=(1.0, 2.0), last="[run] x"):
+        """A child that ran (its log and point.json), and its campaign's
+        record, naming `study`, when the campaign has none yet."""
         self.svc.logs_dir.mkdir(parents=True, exist_ok=True)
         (self.svc.logs_dir / f"{name}.log").write_text(last + "\n")
         sd = self.svc.grid_data / name / "state"
         sd.mkdir(parents=True, exist_ok=True)
         (sd / "point.json").write_text(json.dumps(
             {"config": name, "study": study, "x": list(x)}))
+        parsed = parse_child(name)
+        if parsed and not (self.svc.camp(parsed[0]).path
+                           / "campaign.json").exists():
+            self.record(parsed[0], study)
         return sd
 
     def step_file(self, name, step, kind, payload="h\n"):
@@ -90,11 +97,12 @@ class _Dash(unittest.TestCase):
         s = self.svc.load_study(study)
         self.svc._board(s).append(Point(name, list(x), y), {}, META)
 
-    def mcp(self, prefix, study, args=()):
-        d = self.svc.camp_dir(prefix)
+    def record(self, prefix, study, **fields):
+        """A campaign record, as closed_loop writes it; no parent alive."""
+        d = self.svc.camp(prefix).path
         d.mkdir(parents=True, exist_ok=True)
         (d / "campaign.json").write_text(json.dumps(
-            {"prefix": prefix, "study": study, "args": list(args)}))
+            dict(fields, prefix=prefix, study=study)))
         return d
 
     def data_of(self, prefix):
@@ -108,11 +116,12 @@ class TestData(_Dash):
     def test_prefixes(self):
         self.child("aaR00_00")
         old = self.child("bbR00_00")
-        log = self.svc.logs_dir / "bbR00_00.log"
-        os.utime(log, (self.now - 8 * 86400,) * 2)
+        for path in (self.svc.logs_dir / "bbR00_00.log",
+                     self.svc.camp("bb").path / "campaign.json"):
+            os.utime(path, (self.now - 8 * 86400,) * 2)
         self.child("single_config")
-        self.mcp("cc", "toystudy")
-        stale = self.mcp("oo", "toystudy") / "campaign.json"
+        self.record("cc", "toystudy")
+        stale = self.record("oo", "toystudy") / "campaign.json"
         os.utime(stale, (self.now - 8 * 86400,) * 2)
         self.assertTrue(old.is_dir())
         self.assertEqual(dash.prefixes(self.svc, self.now, 7), ["aa", "cc"])
@@ -199,9 +208,7 @@ class TestData(_Dash):
         self.assertAlmostEqual(step["age_s"], 3600, delta=1)
 
     def test_budget_and_best(self):
-        self.mcp("mm", "toystudy", ["--study", "toystudy", "--q", "3",
-                                    "--max-evals", "9", "--name-prefix",
-                                    "mm"])
+        self.record("mm", "toystudy", q=3, max_evals=9)
         for i, v in enumerate((2.0, 1.0)):
             self.child(f"mmR0{i}_00")
             self.row("toystudy", f"mmR0{i}_00", (1.0, 2.0),

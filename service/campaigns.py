@@ -192,22 +192,6 @@ class CampaignService:
                 "exit_code": camp.exit_code(),
                 "log_tail": _tail(log, LOG_TAIL) if log.exists() else ""}
 
-    def _study_of(self, record: Optional[dict], children: List[str],
-                  errors: List[str]) -> Optional[str]:
-        """The record's study; for a campaign from before the records, the
-        study a child's point.json names (an unreadable one is reported)."""
-        if record and record.get("study"):
-            return record["study"]
-        for name in children:
-            try:
-                point = self.point(name).point()
-            except (OSError, ValueError) as exc:
-                errors.append(f"{name}: {exc}")
-                continue
-            if point and point.get("study"):
-                return point["study"]
-        return None
-
     def campaign_status(self, name_prefix: Optional[str] = None):
         if name_prefix is not None:
             _check_prefix(name_prefix)
@@ -227,7 +211,7 @@ class CampaignService:
             outcomes = {}
             errors.append(str(exc))
         names = self._children(prefix)
-        study_name = self._study_of(record, names, errors)
+        study_name = (record or {}).get("study")
         study, scored, rows, best, board_error = None, {}, 0, None, None
         if study_name is not None:
             try:

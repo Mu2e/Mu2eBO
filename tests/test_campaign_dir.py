@@ -91,25 +91,6 @@ class TestRecord(_Camp):
             self.assertNotIn("exit_code", self.camp.record())
         self.assertEqual(list(self.camp.outcomes()), ["cmpR00_00"])
 
-    def test_legacy_mcp_record(self):
-        self.camp.path.mkdir(parents=True)
-        (self.camp.path / cd.RECORD).write_text(json.dumps(
-            {"prefix": "cmp", "study": "s", "command": "PYTHONPATH= ...",
-             "pid": 12, "started": 1.0,
-             "args": ["--study", "s", "--q", "3", "--max-evals", "9",
-                      "--picker", "qlnei", "--name-prefix", "cmp",
-                      "--executor", "local", "--parallel", "2",
-                      "--stagger", "1.5"]}))
-        rec = self.camp.record()
-        self.assertEqual((rec["q"], rec["max_evals"], rec["picker"],
-                          rec["executor"], rec["parallel"], rec["stagger"]),
-                         (3, 9, "qlnei", "local", 2, 1.5))
-        self.assertEqual(self.camp.launched_by(), "mcp")
-        (self.camp.path / cd.RECORD).write_text(json.dumps(
-            {"prefix": "cmp", "study": "s", "args": ["--study", "s"]}))
-        rec = self.camp.record()
-        self.assertEqual((rec["q"], rec["max_evals"]), (None, None))
-
     def test_a_bad_record_raises(self):
         self.camp.path.mkdir(parents=True)
         (self.camp.path / cd.RECORD).write_text("{")

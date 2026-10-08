@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """BoTorch pickers for any study (objectives, transforms and the constraint
 from modes.STUDIES): graph/closed_loop.py and the surrogate MCP
 (surrogate/adapter.py) call compute_explore_picks / load_history_tensor /
@@ -115,37 +114,14 @@ def _problem_from(study, primary_only: bool) -> "surrokit.Problem":
         noise=tuple(o.noise for o in objs), constraint=constraint)
 
 
-# Env overrides removed in Phase A of the generic-study refactor: the study
-# file is the only source of the constraint. A stale export would otherwise
-# be ignored SILENTLY -- the round runs at the study's value while the
-# operator believes it runs at theirs -- so a set variable is fatal.
-_REMOVED_ENV = {"AUTORESEARCH_FLASH_BUDGET": "max",
-                "AUTORESEARCH_BUDGET_KSIGMA": "k_sigma"}
-
-
-def _refuse_removed_env(study) -> None:
-    for var, field in _REMOVED_ENV.items():
-        if var in os.environ:
-            raise ValueError(
-                f"[botorch_predict] {var}={os.environ[var]!r} is set, but "
-                f"{var} was removed in Phase A of the generic-study refactor "
-                f"(2026-09-24) and nothing reads it any more. The constraint "
-                f"now lives in the study file: constraints[0].{field} in "
-                f"{study.path}. Unset {var}; for a one-off round, edit "
-                f"constraints[0].{field} in the study (commit it, revert it "
-                f"after the round). Refusing to run with a value that would "
-                f"be silently ignored.")
-
-
 def build_problem(mode: str, primary_only: bool = False) -> "surrokit.Problem":
     """The single home for surrokit.Problem assembly over a study. Every
     production path (compute_explore_picks, the MCP adapter) comes through
-    here, so it is also where a removed env override is refused."""
+    here."""
     study = _modes.STUDIES[mode]
     if not study.knobs:
         raise ValueError(f"study {mode!r} has no knobs: there is nothing to "
                          f"fit or pick")
-    _refuse_removed_env(study)
     return _problem_from(study, primary_only)
 
 

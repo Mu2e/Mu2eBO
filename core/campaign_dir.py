@@ -39,13 +39,6 @@ STOP = "STOP"
 
 CHILD_RE = re.compile(r"(.+)R(\d+)_00")
 
-# A record the old MCP launcher wrote carries the launch only as argv:
-# (record key, flag, type).
-_ARG_FIELDS = (("q", "--q", int), ("max_evals", "--max-evals", int),
-               ("picker", "--picker", str), ("executor", "--executor", str),
-               ("parallel", "--parallel", int), ("stagger", "--stagger", float))
-
-
 def child_name(prefix: str, i: int) -> str:
     """THE child-name shape `{prefix}R{i:02d}_00`; every producer and every
     parser goes through here so names cannot drift."""
@@ -67,16 +60,6 @@ def is_child(prefix: str, name: str) -> bool:
     `foo2R00_00`)."""
     parsed = parse_child(name)
     return parsed is not None and parsed[0] == prefix
-
-
-def _flag(argv: List[str], flag: str) -> Optional[str]:
-    """The value of `flag` in argv, as `flag value` or `flag=value`."""
-    for i, a in enumerate(argv):
-        if a == flag and i + 1 < len(argv):
-            return argv[i + 1]
-        if a.startswith(flag + "="):
-            return a[len(flag) + 1:]
-    return None
 
 
 class CampaignBusy(RuntimeError):
@@ -120,24 +103,13 @@ class CampaignDir:
         write_atomic(self._file(RECORD), json.dumps(rec, indent=1) + "\n")
 
     def record(self) -> Optional[Dict[str, Any]]:
-        """The record, or None. A record the old MCP launcher wrote (prefix,
-        study, args, command, pid, started) gets its launch fields from its
-        own args; a field neither has is None. A file that is not JSON
-        raises ValueError."""
+        """The record, or None. A file that is not JSON raises ValueError."""
         try:
             rec = json.loads(self._file(RECORD).read_text())
         except FileNotFoundError:
             return None
         if not isinstance(rec, dict):
             raise ValueError(f"{self._file(RECORD)}: not a JSON object")
-        if "q" not in rec:
-            argv = [str(a) for a in rec.get("args") or []]
-            for key, flag, kind in _ARG_FIELDS:
-                value = _flag(argv, flag)
-                try:
-                    rec[key] = kind(value) if value is not None else None
-                except ValueError:
-                    rec[key] = None
         return rec
 
     # -- outcomes ----------------------------------------------------------
@@ -205,18 +177,11 @@ class CampaignDir:
             return None
 
     def launched_by(self) -> Optional[str]:
-        """"mcp" (launch.json, or a record the old MCP launcher wrote),
-        "shell" (a record only), or None (no sign of a launch)."""
+        """"mcp" (launch.json), "shell" (a record only), or None (no sign of
+        a launch)."""
         if self._file(LAUNCH).exists():
             return "mcp"
-        if not self._file(RECORD).exists():
-            return None
-        try:
-            rec = json.loads(self._file(RECORD).read_text())
-        except (OSError, ValueError):
-            return "shell"
-        return "mcp" if isinstance(rec, dict) and "command" in rec \
-            else "shell"
+        return "shell" if self._file(RECORD).exists() else None
 
     def stopping(self) -> bool:
         return self._file(STOP).exists()

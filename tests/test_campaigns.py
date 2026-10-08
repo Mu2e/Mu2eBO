@@ -136,13 +136,16 @@ class TestStatus(_Camp):
         self.assertEqual(st["children"][0]["state"], "ended without a row")
 
     def test_a_bad_point_json_is_reported(self):
+        d = self.svc.camp("bp").path
+        d.mkdir(parents=True)
+        (d / "campaign.json").write_text('{"study": "branin"}')
         for name, text in (("bpR00_00", "{"), ("bpR01_00", "[1, 2]")):
             self.child_log(name)
             sd = self.svc.grid_data / name / "state"
             sd.mkdir(parents=True)
             (sd / "point.json").write_text(text)
         st = self.svc.campaign_status("bp")
-        self.assertIsNone(st["study"])
+        self.assertEqual(st["study"], "branin")
         self.assertIn("bpR00_00", st["error"])
         self.assertIn("bpR01_00", st["error"])
         self.assertEqual(len(st["children"]), 2)
@@ -156,16 +159,6 @@ class TestStatus(_Camp):
                 self.svc.stop_campaign("rn")["children_running"], 1)
         self.assertEqual(self.svc.campaign_status("rn")["children"][0]
                          ["state"], "ended without a row")
-
-    def test_an_old_shell_campaign_gets_its_study_from_a_point(self):
-        self.child_log("oldsR00_00")
-        sd = self.svc.grid_data / "oldsR00_00" / "state"
-        sd.mkdir(parents=True)
-        (sd / "point.json").write_text('{"study": "branin", "x": [1.0, 2.0]}')
-        st = self.svc.campaign_status("olds")
-        self.assertEqual(st["study"], "branin")
-        self.assertEqual(st["children"][0]["x"], {"x1": 1.0, "x2": 2.0})
-        self.assertIsNone(st["parent"]["launched_by"])
 
     def test_a_bad_record_is_reported(self):
         self.child_log("badR00_00")

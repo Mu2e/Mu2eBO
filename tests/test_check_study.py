@@ -399,8 +399,9 @@ class TestMain(_Tmp):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertEqual(self.checks(out)["load"]["status"], "failed")
 
-    def test_a_board_of_another_measure_sha_fails_launch_and_skips_geometry(self):
-        path = write_study(toy_pre(), self.studies)
+    def foreign_board(self, path):
+        """The study's board, holding a row of another measure_sha: the
+        launch check fails on it."""
         board = self.data / "autoresearch_leaderboards" / "leaderboard_toystudy.tsv"
         board.parent.mkdir(parents=True)
         header = Leaderboard.for_study(st.load_study_file(path), path=board,
@@ -409,6 +410,9 @@ class TestMain(_Tmp):
         row = ["old1" if c == "config" else "b" * 64 if c == "measure_sha"
                else "1" for c in cols]
         board.write_text(header + "\t".join(row) + "\n")
+
+    def test_a_board_of_another_measure_sha_fails_launch_and_skips_geometry(self):
+        self.foreign_board(write_study(toy_pre(), self.studies))
         r, out = self.check("toystudy")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         c = self.checks(out)
@@ -436,8 +440,7 @@ class TestMain(_Tmp):
         self.assertIn("Traceback", launch["detail"])
 
     def test_a_bad_x_is_reported_even_when_launch_fails(self):
-        write_study(toy_pre(), self.studies)
-        self.env["AUTORESEARCH_LOCAL"] = "1"
+        self.foreign_board(write_study(toy_pre(), self.studies))
         r, out = self.check("toystudy", "--x=1,2,3")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         c = self.checks(out)

@@ -29,8 +29,7 @@ from campaign_dir import CampaignBusy, CampaignDir  # noqa: E402
 from contract import EXECUTORS, KitSet, launch_problems, launch_stagger  # noqa: E402
 from point_dir import BROKEN, PointDir  # noqa: E402
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
-from run import (line_buffered_stdout, local_env_refusal,  # noqa: E402
-                 parse_context)
+from run import line_buffered_stdout, parse_context  # noqa: E402
 
 
 def point_dir(name: str) -> PointDir:
@@ -164,11 +163,6 @@ def main(argv=None) -> int:
                     help="run every launch check, print OK and exit 0 "
                          "without launching anything")
     args = ap.parse_args(argv_list)
-
-    removed = local_env_refusal()
-    if removed:
-        print(f"[closed_loop] REFUSED: {removed}", flush=True)
-        return 2
 
     if args.study not in _modes.STUDIES:
         print(f"[closed_loop] REFUSED: unknown study {args.study!r}; known "
