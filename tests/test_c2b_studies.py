@@ -112,8 +112,10 @@ class TestSpotFacts(unittest.TestCase):
     def test_obs_noise_is_the_replicate_measured_sigma(self):
         # Free MLL noise ranked the best-ever eval 16th of 324
         # (wiki/incidents/gp-free-noise-erases-champion.md).
-        # sob: provisional (0.006 scaled by about 0.35, the new/old
-        # sensitivity); set from the measured ratio at acceptance.
+        # sob: 0.006 (replicate-measured on the old scale) times 0.3474, the
+        # new/old sensitivity at bpzax01R12_00 re-analysed on M. MacKenzie's
+        # analyses (1.32707 / 3.82018, 2026-10-07), rounded to 0.0021; to be
+        # re-measured from replicates.
         for name in TWINS:
             with self.subTest(study=name):
                 self.assertEqual(
