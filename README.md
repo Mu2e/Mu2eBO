@@ -60,15 +60,16 @@ kinit
 ## Studies
 
 One file per study, `mode_specs/<name>.json`; every key is required and an
-unknown key is a load error. The seven production lines are their MDC2025ax
-engine twins: `foilsflash_ax`, `foilspf_ax`, `foilspf2k_ax`, `foilspfbp_ax`,
-`foilspfbpx_ax`, `foilspfbpz_ax`, `foilspfbw_ax`.
+unknown key is a load error. The stopping-target production lines are the
+MDC2025ax engine twins `foilsflash_ax` and `foilspfbpz_ax`; `foilspf_nominal`
+(the deployed target, no knobs) is their baseline and damage budget.
 
 `mode_specs/archive/` is unloaded history: the four schema-1 fixed A/B specs
-(`ipa625`, `ipafix`, `ipaovr`, `nominal`) plus, since Phase C3, the seven
-original (Run1Bap) foilspf studies that ran on the now-deleted pipeline. Their
-v1 leaderboards stay in `leaderboards/` as plain files; nothing loads them
-(a study may declare only layout `"v2"` since 2026-09-29).
+(`ipa625`, `ipafix`, `ipaovr`, `nominal`). The seven original (Run1Bap)
+foilspf studies that ran on the now-deleted pipeline, and the twins of them
+that never ran, live in git history. The originals' v1 leaderboards stay in
+`leaderboards/` as plain files; nothing loads them (a study may declare only
+layout `"v2"` since 2026-09-29).
 See `mode_specs/README.md` for the field reference and how to add a study.
 
 ## Run one point

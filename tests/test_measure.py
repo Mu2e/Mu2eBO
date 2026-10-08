@@ -17,12 +17,8 @@ from tests.engine_fixtures import toy_doc, write_study  # noqa: E402
 BASIS = {
     "ce_chain": "3a300aecbea8dba8d289c4f78c4a941b01ec18c2293a14a793b86f7263e59189",
     "foilsflash_ax": "b96e6c99648c677b5046f7f223df5477eba156dc27ecb15aaed57d31e6b904bd",
-    "foilspf2k_ax": "3f38430b59ddbda1a3701f66da441d4133d45163c82e364c9aa9e4b08b4441cf",
-    "foilspf_ax": "8132f2e3a703b56891df2f3ea82d1002b6016297a5266b4288e09d965c4c1ad0",
-    "foilspfbp_ax": "e08e960e3c1f71eb714ce9c8a9b67c805f12245f510adee10bd620a1617e26d7",
-    "foilspfbpx_ax": "875ccd772454aee7d438f7b7b02ebecc1ee789ae1744ef2155a6f998eee69ed4",
+    "foilspf_nominal": "f0a9aa00d9d06eeb8235281fc035ad78b0852b4cdf3e487c919412e247539310",
     "foilspfbpz_ax": "fa84cd6e195e4ef865d62c42f8085deb24a81213197a814e23aab49f8856c570",
-    "foilspfbw_ax": "93dbb4e28fb221f1c0b56a68624279250116964c33fc2bd9853c078a5f4ae7c8",
     "ptg4bl": "b52fce7c37525597cae53862efe0f272af28f766c6deaefa22b71f08a6861689",
 }
 

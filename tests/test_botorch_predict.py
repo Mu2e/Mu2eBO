@@ -255,8 +255,8 @@ class TestSurrokitPin(unittest.TestCase):
 
 class TestMissingBoard(unittest.TestCase):
     def test_a_study_with_no_board_file_has_empty_history(self):
-        """Six of the seven _ax studies have no board yet; neither the live
-        nor the archive file exists. That is an empty history, not an error."""
+        """A new study has no board yet; neither the live nor the archive
+        file exists. That is an empty history, not an error."""
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "nope.tsv"
             with mock.patch.object(

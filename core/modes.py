@@ -1,7 +1,7 @@
 """The study registry: every schema-2 study file under mode_specs/ (plus the
 directories in AUTORESEARCH_STUDY_PATH), loaded once by core/study.py, and
-the batch pickers. mode_specs/archive/ is not loaded: it holds retired and
-archived studies (the seven original foilspf studies since Phase C3).
+the batch pickers. mode_specs/archive/ is not loaded: it holds retired
+studies (older study versions live in git history).
 """
 from __future__ import annotations
 

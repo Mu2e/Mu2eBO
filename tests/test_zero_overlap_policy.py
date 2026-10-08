@@ -77,9 +77,9 @@ def _prechecked():
 class TestPolicyFlagWiring(unittest.TestCase):
 
     def test_the_foilspf_family_requires_zero(self):
-        """foilsflash_ax/foilspf_ax run a release that can reach zero
+        """foilsflash_ax/foilspfbpz_ax run a release that can reach zero
         overlaps."""
-        for name in ("foilsflash_ax", "foilspf_ax"):
+        for name in ("foilsflash_ax", "foilspfbpz_ax"):
             self.assertTrue(
                 modes.STUDIES[name].kits["offline_preflight"]
                 ["require_zero_overlaps"], name)

@@ -128,12 +128,16 @@ Every loaded study runs on the contract engine — `graph.run` per point,
 and its `--mode` dispatch were deleted in Phase C3 (2026-09-28). A study's
 `"leaderboard.layout"` must be `"v2"`, so its board carries `measure_sha`
 and refuses an append measured a different way; `"v1"` is refused at load
-since 2026-09-29 (only the archived studies below still say it).
+since 2026-09-29.
 
-Each foilspf line has an engine twin, `<name>_ax.json` (Phase C2b): the same
-knobs and geometry on SimJob MDC2025ax, with sob and flash from the `anakit`
-kit and its own v2 board. These seven `_ax` studies are the production lines
-now; the originals they were cloned from are archived (see `archive/` below).
+Two foilspf lines have an engine twin, `<name>_ax.json` (Phase C2b):
+`foilsflash_ax` and `foilspfbpz_ax`, each with its original's knobs and
+geometry on SimJob MDC2025ax, sob and flash from the `anakit` kit and its own
+v2 board. They are the production lines. `foilspf_nominal.json` renders the
+deployed target (37 foils, no knobs) in `foilspfbpz_ax`'s geometry template
+and environment: its board holds the baseline sob and the flash damage
+budget. The originals, and the other twins (which never ran), are in git
+history (see `archive/` below).
 
 Since 2026-10-07 their analyses are M. MacKenzie's (the anakit checkout is
 his `main`, and `kits.anakit.musing` = `"SimJob MDC2025ay"`: the server runs
@@ -209,26 +213,14 @@ production line yet — a toy, a one-off experiment — belongs instead of
 
 Not loaded — `core/study.py` leaves this directory out of the load glob, so
 nothing here is ever selectable with `--study`, and it stops none of the
-routing rules above. Two different things live here:
+routing rules above. It holds the four **schema-1** fixed A/B reference
+files, in the pre-generic-study format: `ipa625.json`, `ipafix.json`,
+`ipaovr.json`, `nominal.json`, from the retired IPA/mmackenz lines.
 
-- The four **schema-1** fixed A/B reference files, in the pre-generic-study
-  format: `ipa625.json`, `ipafix.json`, `ipaovr.json`, `nominal.json`, from
-  the retired IPA/mmackenz lines.
-- The **seven original foilspf studies** — `foilsflash.json`,
-  `foilspf.json`, `foilspf2k.json`, `foilspfbp.json`, `foilspfbpx.json`,
-  `foilspfbpz.json`, `foilspfbw.json` — archived in Phase C3 (2026-09-28)
-  when the pipeline that ran them was deleted. These are schema-2, layout
-  `"v1"` (the pipeline's shape), which the loader refuses since
-  2026-09-29. Re-running one is NOT just a layout flip, though: each also
-  names the `ce_sensitivity`/`flash_edep_per_pot` kits, which C3 deleted
-  from `kits.toml` (see e.g. `mode_specs/archive/foilspfbpz.json`'s `sob`/
-  `flash` steps) — those analyses now live only as `analysis` params under
-  the `anakit` kit. Re-running one for real means using its `_ax` twin, or
-  porting its kits to anakit as well as switching the layout to `"v2"`.
-  They are archived rather than deleted because their leaderboards,
-  `leaderboards/leaderboard_bo_<name>.tsv`, stay as plain files. Their engine twins,
-  `<name>_ax.json`, live in this directory's parent, `mode_specs/`, and are
-  loaded normally.
+Older study versions live in git history: the seven original foilspf studies
+(archived here in Phase C3, deleted 2026-10-08) and the twins of them that
+never ran. The originals' leaderboards, `leaderboards/leaderboard_bo_<name>.tsv`,
+stay as plain files.
 
 ## Gotchas
 

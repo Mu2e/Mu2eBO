@@ -132,7 +132,7 @@ class TestStageTemplates(_Tmp):
 
 class TestDerivedEnv(unittest.TestCase):
     def test_env_carries_knobs_consts_and_profiles(self):
-        study = modes.STUDIES["foilspf_ax"]
+        study = modes.STUDIES["foilspfbpz_ax"]
         x = [(lo + hi) / 2 for lo, hi in zip(study.bounds_lo, study.bounds_hi)]
         env = study.geom.derived_env(x)
         for name, v in zip(study.knob_names, x):
@@ -163,19 +163,15 @@ class TestLoadedStudies(unittest.TestCase):
                            cwd=str(ROOT / "core"), capture_output=True,
                            text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
-        # mode_specs/ ships ce_chain, the seven foilspf engine twins
-        # (<name>_ax.json; the originals are archived since C3) and ptg4bl
-        # (G4beamline through beamkit), and
-        # ENGINE_STUDIES holds
-        # branin, prodtools_smoke and the two C2b acceptance fixtures
-        # (foilspfbpz_local, foilspf_nominal).
+        # mode_specs/ ships ce_chain, the two foilspf engine twins
+        # (foilsflash_ax, foilspfbpz_ax), the deployed-target baseline
+        # foilspf_nominal and ptg4bl (G4beamline through beamkit), and
+        # ENGINE_STUDIES holds branin, prodtools_smoke and the C2b local
+        # acceptance fixture foilspfbpz_local.
         self.assertEqual(r.stdout.strip().splitlines()[-1],
                          "['branin', 'ce_chain', 'foilsflash_ax', "
-                         "'foilspf2k_ax', "
-                         "'foilspf_ax', 'foilspf_nominal', 'foilspfbp_ax', "
-                         "'foilspfbpx_ax', 'foilspfbpz_ax', "
-                         "'foilspfbpz_local', 'foilspfbw_ax', "
-                         "'prodtools_smoke', 'ptg4bl']")
+                         "'foilspf_nominal', 'foilspfbpz_ax', "
+                         "'foilspfbpz_local', 'prodtools_smoke', 'ptg4bl']")
 
 
 X_GRIDPHASEA01 = [67.7974, 111.1044, 132.7585, 0.140557, 0.027008, 0.107443,

@@ -97,7 +97,8 @@ checks, and a 1-event geometry pre-check at the centre of the knob box.
 It submits nothing. Exit 0 means every check passed.
 
 The studies are `mode_specs/<name>.json`:
-- the seven stopping-target `*_ax` studies;
+- the stopping-target studies `foilsflash_ax` and `foilspfbpz_ax`, and
+  `foilspf_nominal` (the deployed target, their baseline);
 - `ce_chain`;
 - `ptg4bl`.
 

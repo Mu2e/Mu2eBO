@@ -16,15 +16,14 @@ import modes  # noqa: E402
 
 
 class TestRegistry(unittest.TestCase):
-    def test_the_live_studies_are_the_seven_engine_twins(self):
+    def test_the_live_studies_are_the_engine_twins_and_the_baseline(self):
         import modes
         live = {n for n in modes.STUDIES if not n.startswith("_")}
-        self.assertTrue({"foilsflash_ax", "foilspf_ax", "foilspf2k_ax",
-                         "foilspfbp_ax", "foilspfbpx_ax", "foilspfbpz_ax",
-                         "foilspfbw_ax"} <= live)
+        self.assertTrue({"foilsflash_ax", "foilspfbpz_ax",
+                         "foilspf_nominal"} <= live)
         self.assertFalse({"foilsflash", "foilspf", "foilspf2k", "foilspfbp",
                           "foilspfbpx", "foilspfbpz", "foilspfbw"} & live,
-                         "the originals are archived, not loaded")
+                         "the originals are retired, not loaded")
 
     def test_the_pickers(self):
         self.assertEqual(modes.PICKER_CHOICES,
@@ -33,18 +32,19 @@ class TestRegistry(unittest.TestCase):
 
 
 class TestArchiveIsPresentAndUnloaded(unittest.TestCase):
-    """Archive guard (Phase C3 review): the eleven archived study files and
-    the seven original foilspf boards must still exist on disk -- archived,
-    not deleted -- and none of the archived names may leak into
-    modes.STUDIES (mode_specs/README.md, "archive/")."""
+    """Archive guard (Phase C3 review): the four schema-1 archived study
+    files and the seven original foilspf boards must still exist on disk,
+    and none of the retired names may leak into modes.STUDIES
+    (mode_specs/README.md, "archive/"). The seven original foilspf study
+    files were deleted on 2026-10-08; git history keeps them."""
 
     ORIGINAL_FOILSPF = ("foilsflash", "foilspf", "foilspf2k", "foilspfbp",
                         "foilspfbpx", "foilspfbpz", "foilspfbw")
     SCHEMA1 = ("ipa625", "ipafix", "ipaovr", "nominal")
 
-    def test_the_eleven_archived_files_exist(self):
+    def test_the_four_archived_files_exist(self):
         archive_dir = modes.MODES_DIR / "archive"
-        for name in self.ORIGINAL_FOILSPF + self.SCHEMA1:
+        for name in self.SCHEMA1:
             with self.subTest(name=name):
                 self.assertTrue((archive_dir / f"{name}.json").exists(),
                                 f"missing {archive_dir / (name + '.json')}")
@@ -108,11 +108,13 @@ class TestStudyDirectoryWiring(unittest.TestCase):
         self.assertEqual(Path(modes_dir), ROOT / "mode_specs")
         self.assertEqual(studies, want)
         # C2b: each foilspf study has an engine twin <name>_ax; since C3 the
-        # twins are the foilspf studies shipped (the originals are archived).
+        # twins are the foilspf studies shipped (the originals are retired).
         # ce_chain is the one zero-knob production-chain study; ptg4bl the
-        # G4beamline production-target study (kit beamkit, 2026-10-02).
+        # G4beamline production-target study (kit beamkit, 2026-10-02);
+        # foilspf_nominal the deployed-target baseline (zero knobs).
         self.assertTrue(all(n.endswith("_ax") for n in want
-                            if n not in ("ce_chain", "ptg4bl")), want)
+                            if n not in ("ce_chain", "ptg4bl",
+                                         "foilspf_nominal")), want)
 
     def test_a_study_on_the_study_path_is_loaded(self):
         name = "wiringprobe" + uuid.uuid4().hex[:8]
@@ -142,10 +144,9 @@ class TestStudyDirectoryWiring(unittest.TestCase):
     # here is loaded by EVERY process that imports modes, so the point of the
     # test below is that nothing arrives unnoticed -- adding a line here is a
     # conscious act, which is exactly the review checkpoint we want.
-    SHIPPED_SPECS = {"ce_chain.json", "foilsflash_ax.json", "foilspf_ax.json",
-                     "foilspf2k_ax.json", "foilspfbp_ax.json",
-                     "foilspfbw_ax.json", "foilspfbpx_ax.json",
-                     "foilspfbpz_ax.json", "ptg4bl.json"}
+    SHIPPED_SPECS = {"ce_chain.json", "foilsflash_ax.json",
+                     "foilspf_nominal.json", "foilspfbpz_ax.json",
+                     "ptg4bl.json"}
 
     def test_mode_specs_directory_holds_only_the_readme(self):
         """The real directory holds the README plus exactly the shipped specs:
@@ -158,8 +159,7 @@ class TestStudyDirectoryWiring(unittest.TestCase):
         laxer check would not.
 
         `archive/` is excluded deliberately: nothing loads it. It holds the
-        retired one-shot A/B specs and, since Phase C3, the seven original
-        foilspf studies, whose boards stay in leaderboards/."""
+        retired one-shot A/B specs."""
         stray = sorted(p.name for p in (ROOT / "mode_specs").iterdir()
                        if p.name != "archive")
         self.assertEqual(stray, sorted({"README.md"} | self.SHIPPED_SPECS))
