@@ -16,7 +16,7 @@ description: kits.toml native kits over stdio MCP (KitClient), the evaluator
   pre-check at the center point), submitting nothing; a knob-built
   profile's clip must equal its knobs' bounds (2026-10-02); beamkit adapter
   (2026-10-02): G4beamline studies through beamkit, knobs as deck params,
-  status from queue and quorum, the FoM counted from the ntuples; point and campaign records (2026-10-05): core/point_dir.py and core/campaign_dir.py own a point's state/ and a campaign's folder, graph.run holds state/run.lock, every closed_loop writes campaign.json + outcomes.jsonl and holds parent.lock; measure identity (2026-10-05): kit versions hand-bumped (anakit/beamkit builds recorded per step), core/measure.py decides the board match, graph.restamp_board re-stamps an old board once after a proof; params_from (2026-10-07): a step param from an earlier step's metric, copied as it is
+  status from queue and quorum, the FoM counted from the ntuples; point and campaign records (2026-10-05): core/point_dir.py and core/campaign_dir.py own a point's state/ and a campaign's folder, graph.run holds state/run.lock, every closed_loop writes campaign.json + outcomes.jsonl and holds parent.lock; measure identity (2026-10-05): kit versions hand-bumped (anakit/beamkit builds recorded per step), core/measure.py decides the board match, graph.restamp_board re-stamps an old board once after a proof; params_from (2026-10-07): a step param from an earlier step's metric, copied as it is; upstream analyses (2026-10-07): anakit is M. MacKenzie's main on the SimJob MDC2025ay Musing, the _ax studies chain stops -> ce_edep -> sob plus flash, ce_chain reads trigger_efficiency_ntuple, new _upstream boards
 status: active
 timestamp: '2026-10-07'
 ---
@@ -1286,6 +1286,23 @@ re-stamped once, by hand.
   step '<step>' returned ...`; an adopted (resumed) producer passes its
   recorded value.
 
+**The `_ax` studies and `ce_chain` on M. MacKenzie's analyses (2026-10-07)**
+- Spec `docs/superpowers/specs/2026-10-07-upstream-analyses-design.md`.
+  The anakit checkout is his `main` (`3ba8d23`); the adapter starts the
+  server with `--musing <kits.anakit.musing>` (`"SimJob MDC2025ay"`), not
+  on a work area; `anakit-adapter/2`. Details on [anakit](/external/anakit.md).
+- Each `_ax` study's analysis is four anakit steps, `stops` -> `ce_edep` ->
+  `sob` (the stopping rate through `params_from`) and `flash`: the first
+  use of `params_from`, and of one anakit step's result file (the EdepAna
+  ntuple) as the next anakit step's input. `flash_edep` is per generated
+  electron, so the constraint is 7.506758e-06. New `_upstream` boards.
+- `ce_chain`'s plot step reads `trigger_efficiency_ntuple` (objective
+  `n_selected`); new board.
+- The anakit settings the fork took (`input_correction`, `dio_fraction`,
+  `dio_table`, `pot_per_electron`) are refused at load; the KitDecl keeps
+  `analysis`, `upstream_eff`, `cosmic_rate_per_s_per_mev`,
+  `trigger_paths`.
+
 ## Cross-links
 - Related: [closed-loop-runner](/drivers/closed-loop-runner.md) (superseded
   — the pipeline campaign runner this engine sat alongside, not on top of,
@@ -1295,7 +1312,8 @@ re-stamped once, by hand.
   [tests](/drivers/tests.md), [closed-loop-bo-design](/concepts/closed-loop-bo-design.md)
   (the pipeline's load-bearing constraints, historical — the engine reused
   its rolling pool but not its checkpointing or barrier logic),
-  [anakit](/external/anakit.md) (the fork the C2b kit drives)
+  [anakit](/external/anakit.md) (M. MacKenzie's server the anakit kit
+  drives; a fork until 2026-10-07)
 - Source files: `kits.toml`, `core/kit_config.py`, `core/kit_registry.py`,
   `core/kits.py`, `core/contract.py`, `core/scheduler.py`,
   `core/study.py`, `core/score.py`, `core/leaderboard.py`, `core/boards.py`,

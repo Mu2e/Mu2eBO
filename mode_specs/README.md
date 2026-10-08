@@ -98,7 +98,8 @@ stopping rate a `muon_stop_rate` step measured, and its files from an
     {"step": "sob", "kit": "anakit", "entry": null, "files": [],
      "files_from": ["ce_edep"], "params": {},
      "params_from": {"stops_per_pot": "stops.stops_per_pot"},
-     "fixed": {"analysis": "approx_ce_sensitivity"}}
+     "fixed": {"analysis": "approx_ce_sensitivity",
+               "cosmic_rate_per_s_per_mev": 0.0018181818181818182}}
 
 - The source must be another step of the study, never the step itself.
 - A mapped param (`params` or `params_from`) is set in one place only: not
@@ -134,17 +135,32 @@ knobs and geometry on SimJob MDC2025ax, with sob and flash from the `anakit`
 kit and its own v2 board. These seven `_ax` studies are the production lines
 now; the originals they were cloned from are archived (see `archive/` below).
 
+Since 2026-10-07 their analyses are M. MacKenzie's (the anakit checkout is
+his `main`, and `kits.anakit.musing` = `"SimJob MDC2025ay"`: the server runs
+its mu2e jobs on that published Musing; the grid jobs stay on MDC2025ax).
+Four anakit steps: `stops` (`muon_stop_rate` on `mubeam`), `ce_edep`
+(`edep` on `mustops_ce`), `sob` (`approx_ce_sensitivity` on `ce_edep`, its
+`stops_per_pot` through `params_from`) and `flash` (`edep` on
+`elebeam_flash`). `flash_edep` is MeV per generated beam electron, so the
+budget is the per-POT one times 11.536718606512062 (7.506758e-06). Each
+writes a new `_upstream` board (spec
+`docs/superpowers/specs/2026-10-07-upstream-analyses-design.md`).
+
 `ce_chain.json` is the one other shipped study: the CeEndpoint production
-chain dts -> dig -> mcs -> nts, then an anakit `nts_momentum` plot, with no
+chain dts -> dig -> mcs -> nts, then M. MacKenzie's
+`trigger_efficiency_ntuple` on the ntuple (objective `n_selected`), with no
 knobs (so `graph.run` only; spec
-`docs/superpowers/specs/2026-09-30-ce-chain-design.md`).
+`docs/superpowers/specs/2026-09-30-ce-chain-design.md`). The ntuple is the
+triggered stream, so its efficiency is conditional: it checks the chain,
+not the trigger.
 
 Since 2026-09-30 the launch itself is refused when the study's board holds
 rows of another `measure_sha` (or a header that does not match the study's
 columns): set a new `"leaderboard.file"` to start a new board. A kit's
 version (part of `measure_sha`) changes only when its author bumps it by
 hand (since 2026-10-05): bump an adapter's `VERSION` when a step would
-measure anew, including an anakit fork change that alters an analysis. A
+measure anew, including an anakit checkout change that alters an analysis
+(pull his `main` only on purpose, and read the diff first). A
 board whose rows differ only by an old-scheme build (before 2026-10-05) is
 re-stamped once with `python -m graph.restamp_board --study <name> --why
 "..." [--confirm]`.

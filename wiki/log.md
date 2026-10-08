@@ -6,6 +6,14 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-07
+- **updated** [anakit](/external/anakit.md),
+  [contract-engine](/drivers/contract-engine.md): the `_ax` studies and
+  `ce_chain` run on M. MacKenzie's analyses — the checkout is his `main`
+  (`3ba8d23`), the server runs on the `SimJob MDC2025ay` Musing
+  (`anakit-adapter/2`), four steps stops -> ce_edep -> sob plus flash
+  (flash per generated electron, budget 7.506758e-06), `ce_chain` reads
+  `trigger_efficiency_ntuple`, new `_upstream` boards; the fork's three
+  analyses and the work area `autoresearch_muse_ax` are retired.
 - **updated** [contract-engine](/drivers/contract-engine.md): `params_from`,
   a step param from an earlier step's metric (load rules, `Step.upstream`,
   `metrics_read`, run-time refusal of a missing or non-finite metric,

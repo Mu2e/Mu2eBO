@@ -1,33 +1,110 @@
 ---
 type: external
-title: anakit — our fork of M. MacKenzie's analysis MCP server
-description: 'our fork of M. MacKenzie''s analysis MCP server ($AUTORESEARCH_ANAKIT,
-  branch autoresearch): ce_sensitivity + flash_edep_per_pot for the foilspf
-  engine twins, nts_momentum for ce_chain; needs mcp<2 (ana 2.7.0, -P); one
-  analysis per server at a time; work area autoresearch_muse_ax (MDC2025ax,
-  p107, full-precision EdepAna)'
+title: anakit — M. MacKenzie's analysis MCP server
+description: 'M. MacKenzie''s analysis MCP server ($AUTORESEARCH_ANAKIT, a
+  checkout of his main pinned at 3ba8d23 since 2026-10-07), run on the
+  SimJob MDC2025ay Musing (--musing); the _ax studies chain muon_stop_rate,
+  edep and approx_ce_sensitivity (stops_per_pot via params_from) plus edep
+  for flash, ce_chain reads trigger_efficiency_ntuple; the fork
+  (ce_sensitivity, flash_edep_per_pot, nts_momentum) and the work area
+  autoresearch_muse_ax are retired; needs mcp<2 (ana 2.7.0, -P); one analysis
+  per server at a time'
 status: active
-timestamp: '2026-10-05'
-updated_note: measure identity (2026-10-05) — the kit version is hand-bumped
-  (anakit-adapter/1); the fork commit is each step's recorded build, so a
-  fork commit no longer changes any measure_sha
+timestamp: '2026-10-07'
+updated_note: upstream analyses (2026-10-07) — the checkout is his main, the
+  server runs on a Musing, anakit-adapter/2, new _upstream boards
 ---
 
-# anakit — our fork of M. MacKenzie's analysis MCP server
+# anakit — M. MacKenzie's analysis MCP server
 
 ## Summary
-anakit is M. MacKenzie's analysis MCP server, the tool the contract engine
-now uses to compute the foilspf family's two physics metrics — `sob`
-(`ce_sensitivity`) and `flash` (`flash_edep_per_pot`) — instead of the
-pipeline's local harvest code. Phase C2b works on a fork (never upstream)
-and drives it through `core/adapters/anakit.py`
-([contract-engine](/drivers/contract-engine.md), "anakit kit"), so the
-seven `foilspf*` studies get engine twins that run the same geometry on
-SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
+anakit is M. MacKenzie's analysis MCP server
+(github.com/michaelmackenzie/analysis-mcp-server). The contract engine
+drives it through `core/adapters/anakit.py`
+([contract-engine](/drivers/contract-engine.md), "anakit kit") for every
+`kit: "anakit"` step. Since 2026-10-07 the physics lives only in his repo:
+the seven `_ax` studies chain his separate analyses step by step, the
+stopping rate travelling between steps through `params_from`, and this repo
+only wires numbers (spec
+`docs/superpowers/specs/2026-10-07-upstream-analyses-design.md`). Until then
+we ran a fork with three analyses of our own; that history is kept below.
 
 ## Key facts
 
-**The fork**
+**The checkout**
+- `$AUTORESEARCH_ANAKIT` (the `activate.sh` default
+  `/exp/mu2e/app/users/oksuzian/analysis-mcp-server`) is his `main`,
+  detached at `3ba8d23` (2026-10-07: PR #3 stops_per_pot and PR #4
+  R_mue x captures per stop merged, plus S. Middleton's `fullsim`
+  analyses). The fork's local branch `autoresearch` stays in that clone as
+  the record of the retired analyses; nothing runs from it.
+- **Pull rule:** pull only on purpose; read the diff of the four analyses
+  the studies use (`muon_stop_rate`, `edep`, `approx_ce_sensitivity`,
+  `trigger_efficiency_ntuple`, and what they import); bump
+  `core/adapters/anakit.py:VERSION` if their numbers change. The checkout
+  commit is each step's recorded build, never part of `measure_sha`.
+- `VERSION = "anakit-adapter/2"` (2026-10-07): the server runs on a Musing.
+- `kits.toml [servers.anakit]` runs it under ana 2.7.0 (his
+  `pyproject.toml` pins `mcp<2`) with `-P`, and sets
+  `OPENBLAS_NUM_THREADS=OMP_NUM_THREADS=1` (his `AGENTS.md`).
+
+**The Musing**
+- Study setting `kits.anakit = {"musing": "SimJob MDC2025ay"}`; the adapter
+  appends `--musing <it>`. His `edep` needs EdepAna from Offline v13_39_00
+  (MDC2025ay or later), which writes the `EDepAna/tree` his analyses read;
+  our old work area's EdepAna (a Mu2eOptAna build on MDC2025ax) wrote none.
+- The grid jobs stay on MDC2025ax (`Code_mdc2025ax.tar.bz2`); only the
+  analyses run on MDC2025ay. MDC2025ay's EdepAna reads an MDC2025ax
+  CeEndpoint file and its tree agrees with its printed summary (75,000
+  generated, 39,152 seen; checked 2026-10-07).
+- The launch check refuses a missing setting, a value that is not a Musing
+  and a version (split as his `Mu2eEnv.for_musing` splits: `/` or spaces),
+  and an unpublished one (no `/cvmfs/mu2e.opensciencegrid.org/Musings/<M>/<v>`).
+  The work-area checks (`backing_problem`, `code_commit`) are gone; the
+  result records `musing` in their place.
+- `approx_ce_sensitivity` reads the DIO table from his personal area
+  (`/exp/mu2e/app/users/mmackenz/run1b/Run1BAna/data/heeck_finer_binning_2016_szafron.tbl`,
+  `DIO_TABLE`, not a parameter) and fixes the DIO fraction (0.391).
+
+**The studies' four steps** (all seven `_ax` studies)
+- `stops`: `muon_stop_rate` on `mubeam` (TargetStops files only),
+  `upstream_eff` 0.01278168 (was `input_correction`).
+- `ce_edep`: `edep` on `mustops_ce`; its result file, the EdepAna ntuple,
+  is the next step's input.
+- `sob`: `approx_ce_sensitivity` on `ce_edep`, `params_from`
+  `{"stops_per_pot": "stops.stops_per_pot"}`, `cosmic_rate_per_s_per_mev`
+  0.0018181818181818182 (the macro's 2e4/1.1e7, 141.8x his default).
+  Objective `sob.sensitivity`.
+- `flash`: `edep` on `elebeam_flash`. Objective
+  `flash.avg_trk_edep_per_gen_event_mev` is MeV per generated beam
+  electron, not per POT (the engine does no arithmetic), so the budget is
+  the per-POT one times 11.536718606512062: 7.506758e-06. Under log10 that
+  is a constant shift.
+- New boards `leaderboard_bo_<study>_upstream.tsv`; the old `_ax` boards
+  are history. sob is about 0.35x the old values: the signal fix (x0.371)
+  plus counting only selected events (about 6% more).
+
+**`ce_chain`**
+- The `plot` step is `trigger_efficiency_ntuple` with `trigger_paths`
+  `"apr_TrkDe_80m70p, cpr_TrkDe_80m70p"`; objective `n_selected`, extra
+  metrics `efficiency`, `n_triggered`, `n_events`; board
+  `leaderboard_ce_chain_upstream.tsv`. The ntuple is the triggered stream
+  (`CeEndpointOnSpillTriggered`), so the efficiency is conditional: a
+  check of the chain, not a trigger measurement.
+
+**Retired (2026-10-07)**
+- The fork's `ce_sensitivity`, `flash_edep_per_pot`, `nts_momentum`; the
+  anakit settings `input_correction`, `dio_fraction`, `dio_table`,
+  `pot_per_electron` (refused at load); the work area
+  `/exp/mu2e/app/users/oksuzian/autoresearch_muse_ax` (left on disk,
+  unused).
+- Not used: S. Middleton's `fullsim.sensitivity` — it needs mixed,
+  reconstructed CE EventNtuples and SAM provenance, which per-point files
+  are not.
+
+## History (fork, 2026-09-27 to 2026-10-07)
+
+### The fork
 - `/exp/mu2e/app/users/oksuzian/analysis-mcp-server`, local branch
   `autoresearch` on upstream base `039e969`, exported as
   `$AUTORESEARCH_ANAKIT` (`core/adapters/anakit.py:FORK_ENV`). Nothing is
@@ -53,7 +130,7 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   metadata. An unrelated fork commit no longer splits a board, and no longer
   refuses a running campaign's later submits (the moved-commit refusal was
   dropped; a dirty checkout is still refused).
-- **Until 2026-10-05 any fork commit changed every `_ax` `measure_sha`**
+- **Until 2026-10-05 any fork commit changed every `_ax` `measure_sha`
   (the version was `anakit-adapter/1+anakit-<commit>`). The ce-chain
   commits did exactly that: bpzax01's board
   (`leaderboard_bo_foilspfbpz_ax.tsv`, 41 rows: bpzax01's 40 plus the C2b
@@ -68,7 +145,7 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   PYTHONPATH= /cvmfs/mu2e.opensciencegrid.org/env/ana/2.7.0/bin/python
   tests/test_tools.py` (global-constraints.md).
 
-**Runtime seam**
+### Runtime seam
 - The server needs `mcp<2` (FastMCP): it runs under
   `/cvmfs/mu2e.opensciencegrid.org/env/ana/2.7.0/bin/python -P -m
   analysis_mcp_server --transport stdio` (`kits.toml[servers.anakit]`); `-P`
@@ -86,7 +163,7 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   `--work-area <kits.anakit.work_area>` (`AnakitKit._client`), so that
   fallback is never reached.
 
-**The work area — `/exp/mu2e/app/users/oksuzian/autoresearch_muse_ax`**
+### The work area — `/exp/mu2e/app/users/oksuzian/autoresearch_muse_ax`
 - Backing: SimJob MDC2025ax, Offline v13_38_00, qualifier p107
   (`muse backing SimJob MDC2025ax` created the `backing` link that
   `core/adapters/anakit.py:backing_problem` compares against a study's
@@ -105,7 +182,7 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   (Task 1, Step 6 build recipe).
 - DIO table copy: `${ARTIFACT}/autoresearch_muse_ax/data/heeck_finer_binning_2016_szafron.tbl`,
   md5 `be9d67e140645faff63440fb138a2faa`.
-- **A rebuilt EdepAna lands in a NEW work-area directory, not in place.**
+- **A rebuilt EdepAna lands in a NEW work-area directory, not in place.
   The directory's path is a study setting (`kits.anakit.work_area`, part of
   `measure_basis` and so `measure_sha`); the build inside it is not —
   `code_commit(work_area)` (`core/adapters/anakit.py`) records Mu2eOptAna's
@@ -134,7 +211,7 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   Open question: make it an fcl parameter on our branch (mirroring
   `approx_ce_sensitivity`'s own `dio_table`) and tell M. MacKenzie upstream.
 
-**`nts_momentum` and the art-only checks (ce-chain, 2026-09-30)**
+### `nts_momentum` and the art-only checks (ce-chain, 2026-09-30)
 - `tools/analyses/nts_momentum.py` (fork `1f831a1`): a `root_file`
   analysis (`combines_files=True`) over EventNtuple files, the plot step of
   the `ce_chain` study ([production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md)).
@@ -155,8 +232,7 @@ SimJob MDC2025ax with a rebuilt, full-precision EdepAna.
   spike needed a work area backed by AnalysisMDC2025 and a `Mu2eOptAna`
   symlink just to plot an ntuple.
 
-**GenEventCount and the Task 1 gate (measured on gridphaseA01's archived
-files, first file per stage)**
+### GenEventCount and the Task 1 gate (measured on gridphaseA01's archived files, first file per stage)
 - Every archived output file's SubRun carries its job's
   `GenEventCount("genCounter")`, exactly the pipeline's `events_per_job`:
   200000 (TargetStops), 75000 (CeEndpoint), 110000 (EarlyEleBeamFlash).
@@ -171,7 +247,7 @@ files, first file per stage)**
 - TargetStops: `n_events` (muminus_stops) 6519 of `n_gen` 200000;
   `TargetStopPrescaleFilter` prescale 1.0.
 
-**Spot check before the build (Michael's macro vs. our cosmic rate)**
+### Spot check before the build (Michael's macro vs. our cosmic rate)
 - `approx_ce_sensitivity` with our cosmic rate reproduced the macro's
   printed `s_over_sqrt_b` on three archived points: gridphaseA01 (1.69 →
   1.6922), foilspfbpz07R11_00 (4.15 → 4.1507), foilspfbpz07R19_00 (4.03 →
@@ -194,10 +270,7 @@ files, first file per stage)**
   `/exp/mu2e/app/users/oksuzian/autoresearch_muse_ax/Mu2eOptAna` (clone)
 
 ## Open questions / TODO
-- Acceptance (parity levels 1–3, local, grid, the budget commit) has not
-  run yet; see [contract-engine](/drivers/contract-engine.md)'s Phase C2b
-  section, marked pending.
-- `EdepAna::GetDIOSpectrum()` hardcodes M. MacKenzie's personal-area path to
-  the DIO table in every job (see above); worth turning into an fcl
-  parameter on our branch and telling him, rather than leaving every job
-  dependent on his personal area staying in place.
+- One grid point of `foilspfbpz_ax` end to end on the new board (spec check
+  4), with the operator's OK.
+- The sob `noise` (0.006 on the old scale) is scaled by the measured
+  new/old ratio; re-measure it from replicates.
