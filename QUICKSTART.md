@@ -37,7 +37,7 @@ bash prodtools/mcp/scripts/install.sh       # its MCP venv
 
 # anakit: M. MacKenzie's analysis server, run by the *_ax studies and ce_chain (pinned)
 git clone https://github.com/michaelmackenzie/analysis-mcp-server.git analysis-mcp-server
-git -C analysis-mcp-server switch --detach 3ba8d23
+git -C analysis-mcp-server switch --detach 3ba8d23   # = ANAKIT_PIN_SHA in core/adapters/anakit.py
 
 # beamkit: the G4beamline kit for ptg4bl
 git clone -b v1 https://github.com/oksuzian/beamkit.git beamkit

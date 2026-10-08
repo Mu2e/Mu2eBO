@@ -43,6 +43,13 @@ we ran a fork with three analyses of our own; that history is kept below.
   `trigger_efficiency_ntuple`, and what they import); bump
   `core/adapters/anakit.py:VERSION` if their numbers change. The checkout
   commit is each step's recorded build, never part of `measure_sha`.
+- **Pin:** `core/adapters/anakit.py:ANAKIT_PIN_SHA` names the accepted
+  commit, and the suite asserts the checkout matches it
+  (`tests/test_anakit_kit.py` TestAnakitPin, like `SURROKIT_PIN_SHA`):
+  his defaults and the DIO constants sit outside `measure_basis`, so a
+  pulled checkout fails the suite instead of moving the numbers. The
+  engine itself does not refuse a newer commit (a step records its
+  build); bump the pin after re-validating.
 - `VERSION = "anakit-adapter/2"` (2026-10-07): the server runs on a Musing.
 - `kits.toml [servers.anakit]` runs it under ana 2.7.0 (his
   `pyproject.toml` pins `mcp<2`) with `-P`, and sets

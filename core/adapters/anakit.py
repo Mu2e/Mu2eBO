@@ -55,6 +55,12 @@ else:
 # unrelated commit never splits a board. 2: the server runs on a Musing
 # (--musing), not on our work area (2026-10-07).
 VERSION = "anakit-adapter/2"
+# The checkout of M. MacKenzie's main the anakit studies were accepted
+# against (2026-10-07). The suite asserts the checkout matches: his
+# analyses' defaults and the DIO constants sit outside measure_basis, so a
+# moved checkout is caught there. Bump it deliberately after re-validating,
+# and bump VERSION too when an analysis now computes differently.
+ANAKIT_PIN_SHA = "3ba8d23bbf47f97b5b11c36a0e20ce695a1089af"
 SERVER = "anakit"                      # kits.toml [servers.anakit]
 FORK_ENV = "AUTORESEARCH_ANAKIT"       # the anakit checkout
 RESULT_NAME = "anakit_result.json"

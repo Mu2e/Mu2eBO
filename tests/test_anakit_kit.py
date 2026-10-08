@@ -656,3 +656,22 @@ class TestOverStdio(_Kit):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAnakitPin(unittest.TestCase):
+    def test_checkout_matches_pin(self):
+        """The checkout the anakit studies were accepted against (spec
+        2026-10-07, "Checks before acceptance"). His defaults and the DIO
+        constants sit outside measure_basis, so a moved checkout must be
+        caught here; activate.sh's default is the sibling checkout."""
+        root = Path(os.environ.get("AUTORESEARCH_ANAKIT")
+                    or ROOT.parent / "analysis-mcp-server")
+        if not (root / ".git").exists():
+            self.skipTest(f"no anakit git checkout at {root}")
+        head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                              capture_output=True, text=True,
+                              check=True).stdout.strip()
+        self.assertEqual(head, ak.ANAKIT_PIN_SHA,
+                         "the anakit checkout moved from the accepted pin; "
+                         "re-validate, then bump ANAKIT_PIN_SHA (and "
+                         "VERSION if an analysis now computes differently)")
