@@ -18,6 +18,8 @@ class PathsError(RuntimeError):
 # Deliberately NOT configurable: an env override could only ever let this
 # disagree with where the code is.
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# The study files every runner and the MCP servers load (core/modes.py).
+MODES_DIR = REPO_ROOT / "mode_specs"
 
 
 def _root_from_env_or_user(env_var: str, volume: str) -> Path:

@@ -100,9 +100,9 @@ def _should_abort(streak: int, q: int) -> bool:
     return streak >= max(q, 2)
 
 
-def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
-                next_pick, row_landed, broken, stagger, stop_flag=None,
-                log=print, heartbeat=HEARTBEAT_S, on_outcome=None):
+def run_rolling(picker, q, max_evals, *, run_child, next_pick, row_landed,
+                broken, stagger, stop_flag=None, log=print,
+                heartbeat=HEARTBEAT_S, on_outcome=None):
     """Keep q children in flight until max_evals launched and the pool drains.
 
     Returns {"launched", "rows", "outcomes", "aborted"}. `stagger` separates
@@ -130,7 +130,7 @@ def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
         except Exception as exc:  # noqa: BLE001
             rc = 1
             log(f"[pool] {name} raised: {exc}")
-        oc = classify(name, x, rc, row_landed(name, mode), broken(name))
+        oc = classify(name, x, rc, row_landed(name), broken(name))
         log(f"[pool] {name}: {oc.reason}")
         if on_outcome is not None:
             on_outcome(oc)
@@ -142,7 +142,7 @@ def run_rolling(mode, picker, q, max_evals, name_prefix, *, run_child,
                    and not stop_flag() and not aborted):
                 if launched > 0 and stagger:
                     time.sleep(stagger)
-                x, name = next_pick(mode, picker,
+                x, name = next_pick(picker,
                                     [v for _, v, _t in inflight.values()])
                 inflight[poolx.submit(run_child, name, x)] = (name, x,
                                                               time.time())

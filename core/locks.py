@@ -1,11 +1,15 @@
-"""The flock helpers of the point and campaign records (spec
-docs/superpowers/specs/2026-10-05-point-campaign-records-design.md).
+"""The flock helpers, first written for the point and campaign records
+(spec docs/superpowers/specs/2026-10-05-point-campaign-records-design.md).
 
 A holder keeps an exclusive flock(2) on a file for as long as its `with`
 block lasts; the lock belongs to the open file description, so it is
 released on exit and on SIGKILL. A reader probes with a shared lock taken
 and dropped at once. A probe takes about 0.3 ms, so a holder retries for
 `wait_s` before giving up: a dashboard sweep must never refuse a run.
+
+`wait` is the other kind: a lock whose holders are all brief (the
+leaderboard's row lock, the grid-submit stagger), taken by waiting as long
+as it takes rather than giving up.
 
 Stdlib only.
 """
@@ -42,6 +46,21 @@ def hold(path: Path, wait_s: float = 2.0) -> Iterator[None]:
                         from None
                 time.sleep(RETRY_S)
         yield
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def wait(path: Path, *, shared: bool = False) -> Iterator[None]:
+    """A flock on `path` (created; its parent must exist) for the `with`
+    block, exclusive or `shared`, blocking until it is free."""
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
         os.close(fd)
 

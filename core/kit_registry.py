@@ -90,6 +90,23 @@ def config_name_problem(name: str):
             f"dot-separated run name")
 
 
+def split_handle(kit: str, name: str, *, step: Optional[str] = None,
+                 checks_config: bool = False) -> Tuple[str, str]:
+    """'<config>.<step>' -> (config, step); a ValueError naming `kit`
+    otherwise. With `step`, the handle's step must be that one. With
+    `checks_config`, the config must also pass config_name_problem: the
+    kit names its runs after it."""
+    config, dot, got = name.rpartition(".")
+    if not dot or not config or not got or (step is not None and got != step):
+        raise ValueError(f"{kit}: {name!r} is not "
+                         f"<config>.{step if step is not None else '<step>'}")
+    if checks_config:
+        why = config_name_problem(config)
+        if why:
+            raise ValueError(f"{kit}: {why}")
+    return config, got
+
+
 # prodtools' run_status lists at most this many jobs' outputs (INDEX_CAP in
 # its mcp/src/prodtools_mcp/tools/runs.py): a larger step would read a
 # silently truncated output list.

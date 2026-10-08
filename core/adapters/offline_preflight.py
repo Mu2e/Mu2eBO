@@ -68,7 +68,10 @@ class OfflinePreflightKit:
         pass
 
     def check(self, name, params, files, inputs, workflow):
-        config = self._config_of(name)
+        # The config names the grid jobs' geometry file and runs, so it must
+        # pass the one config-name rule, as the prodtools kit's does.
+        config, _ = kit_registry.split_handle(
+            "offline_preflight", name, step="preflight", checks_config=True)
         params = kit_registry.validate(self.name, params, _SETTINGS,
                                        f"{self.name}: params", required=True)
         if inputs:
@@ -112,18 +115,3 @@ class OfflinePreflightKit:
         if verdict.notes:
             message += "\n" + "\n".join(f"  {n}" for n in verdict.notes)
         return verdict.ok, message
-
-    # --- plumbing ----------------------------------------------------------
-    @staticmethod
-    def _config_of(name) -> str:
-        """'<config>.preflight' -> config. The config names the grid jobs'
-        geometry file and runs, so it must pass the one config-name rule
-        (kit_registry.config_name_problem), as the prodtools kit's does."""
-        config, dot, step = name.rpartition(".")
-        if not dot or not config or step != "preflight":
-            raise ValueError(f"offline_preflight: {name!r} is not "
-                             f"<config>.preflight")
-        why = kit_registry.config_name_problem(config)
-        if why:
-            raise ValueError(f"offline_preflight: {why}")
-        return config

@@ -4,10 +4,11 @@
 Rides surrokit's generic mcp_scaffold.make_server: every tool
 (list_problems, predict, suggest, stats, refit) is generated from the
 AutoresearchAdapter's problems()/history() over the studies (modes.STUDIES).
-All GP logic lives in surrokit (core/botorch_predict.py stays the
-production picker CLI). Uses the official `mcp` SDK (2.0, ships in the
-ana 2.8.0 cvmfs env -- the project's default interpreter -- so there is
-nothing to install). Transport is stdio; registered in .mcp.json.
+All GP logic lives in surrokit (core/botorch_predict.py is the
+production pick path, which graph/closed_loop.py calls). Uses the official
+`mcp` SDK (2.0, ships in the ana 2.8.0 cvmfs env -- the project's default
+interpreter -- so there is nothing to install). Transport is stdio;
+registered in .mcp.json.
 
 Fits are cached in this process and refreshed automatically when the
 leaderboard grows (row-count key inside surrokit.mcp_scaffold). A future

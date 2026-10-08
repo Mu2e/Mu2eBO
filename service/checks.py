@@ -35,9 +35,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import paths  # noqa: E402
 import study as st  # noqa: E402
 
-from service.jobs import lock_held, spawn_detached  # noqa: E402
+from service.jobs import last_lines, lock_held, spawn_detached  # noqa: E402
 
-MODES_DIR = paths.REPO_ROOT / "mode_specs"
 TAIL_LINES = 40
 JOB_SCRIPT = ('source ./activate.sh >/dev/null 2>"$1/stderr.log" && '
               'PYTHONPATH= "$AUTORESEARCH_PYTHON" -m graph.check_study '
@@ -45,12 +44,6 @@ JOB_SCRIPT = ('source ./activate.sh >/dev/null 2>"$1/stderr.log" && '
               'echo $? >"$1/rc.tmp" && mv "$1/rc.tmp" "$1/rc"')
 _DRAFT_NAME = re.compile(r"[A-Za-z0-9_]+")
 NOT_JSON = "check_study's output is not JSON"
-
-
-def _error_text(exc: Exception) -> str:
-    if isinstance(exc, ValueError):
-        return str(exc)
-    return f"{type(exc).__name__}: {exc}"
 
 
 class CheckService:
@@ -64,7 +57,7 @@ class CheckService:
     # -- the read-only queries --------------------------------------------
 
     def study_files(self) -> List[Path]:
-        return st.study_files(MODES_DIR,
+        return st.study_files(paths.MODES_DIR,
                               self.env.get("AUTORESEARCH_STUDY_PATH"))
 
     def list_studies(self) -> List[Dict[str, Any]]:
@@ -76,7 +69,7 @@ class CheckService:
             try:
                 study = st.load_study_file(path)
             except Exception as exc:  # noqa: BLE001 - reported, not raised
-                entry.update(loads=False, error=_error_text(exc))
+                entry.update(loads=False, error=st.load_error_text(exc))
             else:
                 entry.update(
                     knobs=[k.name for k in study.knobs],
@@ -85,20 +78,26 @@ class CheckService:
             out.append(entry)
         return out
 
-    def show_study(self, name: str) -> Dict[str, Any]:
+    def study_path(self, name: str) -> Path:
+        """The file of the study `name` on the study path; ValueError
+        naming the known ones when there is none."""
         files = self.study_files()
-        for path in files:
-            if path.stem == name:
-                try:
-                    doc = json.loads(path.read_text())
-                except ValueError as exc:
-                    raise ValueError(f"{path}: not JSON: {exc}") from exc
-                return {"path": str(path), "study": doc}
-        raise ValueError(f"no study named {name!r} on the study path; "
-                         f"known: {sorted(p.stem for p in files)}")
+        path = st.study_named(files, name)
+        if path is None:
+            raise ValueError(f"no study named {name!r} on the study path; "
+                             f"known: {sorted(p.stem for p in files)}")
+        return path
+
+    def show_study(self, name: str) -> Dict[str, Any]:
+        path = self.study_path(name)
+        try:
+            doc = json.loads(path.read_text())
+        except ValueError as exc:
+            raise ValueError(f"{path}: not JSON: {exc}") from exc
+        return {"path": str(path), "study": doc}
 
     def study_guide(self) -> str:
-        return (MODES_DIR / "README.md").read_text()
+        return (paths.MODES_DIR / "README.md").read_text()
 
     # -- check jobs -------------------------------------------------------
 
@@ -176,8 +175,8 @@ class CheckService:
         out["elapsed_s"] = round(end - job["started"], 1)
         log = job_dir / "stderr.log"
         if log.exists():
-            lines = log.read_text(errors="replace").splitlines()
-            out["stderr_tail"] = "\n".join(lines[-TAIL_LINES:])
+            out["stderr_tail"] = last_lines(log.read_text(errors="replace"),
+                                            TAIL_LINES)
         if state == "done":
             out["exit_code"] = int(rc.read_text())
             if out["exit_code"] != 2:

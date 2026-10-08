@@ -4,16 +4,17 @@ Every read checks the physical header against the spec-derived one and fails
 loudly (never a silent 0-row history — see
 wiki/incidents/touched-leaderboard-headerless-history-loss.md); every append
 hitting a mismatch quarantines the row BEFORE raising, so a finished eval is
-never lost to a schema error. Stdlib-only, no project imports.
+never lost to a schema error. Stdlib only, plus core/locks.py.
 Spec: docs/superpowers/specs/2026-08-08-leaderboard-module-design.md
 """
 from __future__ import annotations
 
 import csv
-import fcntl
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
+
+import locks
 
 # Every row ends in these columns (generic-study design, "Leaderboard
 # rows"); "v2" is the only layout a study may declare since 2026-09-29.
@@ -75,30 +76,16 @@ def _lock_path(target: Path) -> Path:
     return lock_dir / (target.name + ".lock")
 
 
-@contextmanager
 def _flock_ex(target: Path):
     """Exclusive-lock target's locks/-dir anchor for the duration of the block."""
-    lock_path = _lock_path(target)
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+    return locks.wait(_lock_path(target))
 
 
-@contextmanager
 def _flock_sh(target: Path):
     """Shared-lock target's locks/-dir anchor: readers block only writers,
     closing the torn-row race where a reader could observe a partially
     written line mid-append."""
-    lock_path = _lock_path(target)
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_SH)
-        try:
-            yield
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+    return locks.wait(_lock_path(target), shared=True)
 
 
 @dataclass

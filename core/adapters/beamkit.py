@@ -34,24 +34,24 @@ deck, how many jobs, and what to count.
 """
 from __future__ import annotations
 
-import contextlib
-import fcntl
 import hashlib
 import json
 import re
 import threading
 import time
+from functools import partial
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 import kit_config
 import kit_registry
+import locks
 import paths
 from adapters.prodtools import SUBMIT_LOCK, meets_quorum
-from contract import (ContractError, call_with_retries, parse_results,
-                      parse_status)
+from contract import (ContractError, call_with_retries, make_status,
+                      parse_results)
 from kits import KitClient, KitError
-from scheduler import write_atomic
+from point_dir import write_atomic
 
 # The kit's version is f"{VERSION}+fom{FOM_VERSION}", hand-bumped
 # (2026-10-05): bump VERSION when a step would measure anew, FOM_VERSION when
@@ -67,16 +67,6 @@ POLL_MS = 120_000               # condor and SAM per poll: every 2 min
 RECORD = "{step}_beamkit.json"
 
 
-@contextlib.contextmanager
-def _flock(path: Path):
-    with open(path, "a") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-
-
 def _error(call, message) -> KitError:
     return KitError(SERVER, call, message)
 
@@ -88,11 +78,7 @@ def tag_for(name: str) -> str:
             + hashlib.sha256(name.encode()).hexdigest()[:6])
 
 
-def split_handle(name: str):
-    config, dot, step = name.rpartition(".")
-    if not dot or not config or not step:
-        raise ValueError(f"beamkit: {name!r} is not <config>.<step>")
-    return config, step
+split_handle = partial(kit_registry.split_handle, "beamkit")
 
 
 def count_tracks(paths_: Sequence[str], plane: str, pdg: Sequence[int]) -> int:
@@ -235,7 +221,7 @@ class BeamkitKit:
         if run_id is None:
             write_atomic(path, json.dumps(record, indent=1) + "\n")
             try:
-                with _flock(self._submit_lock):
+                with locks.wait(self._submit_lock):
                     reply = self._call("run_beamline", {
                         "tag": tag, "run_as": "self",
                         "deck_url": own["deck_url"],
@@ -278,7 +264,7 @@ class BeamkitKit:
         rec, path = self._record(handle, workflow)
         if rec.get("verdict"):                # decided once, kept
             v = rec["verdict"]
-            return self._status(v["state"], v["message"])
+            return make_status(self.name, v["state"], v["message"])
         reply = self._read("beamline_status", {"run_id": rec["run_id"]},
                            workflow)
         try:
@@ -296,8 +282,8 @@ class BeamkitKit:
             if now - rec["unknown_since"] > UNKNOWN_LIMIT_S:
                 return self._decide(rec, path, "failed", f"queue unreadable "
                                     f"for 6 h: {reason}")
-            return self._status("working", f"queue unreadable: {reason}",
-                                poll_ms=POLL_MS)
+            return make_status(self.name, "working",
+                               f"queue unreadable: {reason}", poll_ms=POLL_MS)
         if rec.get("unknown_since") is not None:
             rec["unknown_since"] = None
             write_atomic(path, json.dumps(rec, indent=1) + "\n")
@@ -310,9 +296,9 @@ class BeamkitKit:
             if rec.get("held_since") is not None:
                 rec["held_since"] = None
                 write_atomic(path, json.dumps(rec, indent=1) + "\n")
-            return self._status("working", f"{live} job(s) queued or "
-                                f"running, {held} held, {n_files} file(s)",
-                                progress, poll_ms=POLL_MS)
+            return make_status(self.name, "working", f"{live} job(s) "
+                               f"queued or running, {held} held, {n_files} "
+                               f"file(s)", progress=progress, poll_ms=POLL_MS)
         quorum = f"quorum {rec['quorum']:g}"
         if meets_quorum(n_files, rec["njobs"], rec["quorum"]):
             return self._decide(rec, path, "completed", f"{n_files} of "
@@ -331,9 +317,9 @@ class BeamkitKit:
                                     f"held for {HELD_LIMIT_S // 3600} h, "
                                     f"{n_files} of {rec['njobs']} files "
                                     f"({quorum}): {reasons}")
-            return self._status("working", f"{held} held, {n_files} "
-                                f"file(s): {reasons}", progress,
-                                poll_ms=POLL_MS)
+            return make_status(self.name, "working", f"{held} held, "
+                               f"{n_files} file(s): {reasons}",
+                               progress=progress, poll_ms=POLL_MS)
         return self._decide(rec, path, "failed", f"{n_files} of "
                             f"{rec['njobs']} files ({quorum}), 0 held")
 
@@ -389,7 +375,7 @@ class BeamkitKit:
         rec["verdict"] = {"state": state, "message": message,
                           "files": files or []}
         write_atomic(path, json.dumps(rec, indent=1) + "\n")
-        return self._status(state, message)
+        return make_status(self.name, state, message)
 
     def _files(self, rec, workflow) -> list:
         reply = self._read("beamline_outputs", {"run_id": rec["run_id"]},
@@ -423,7 +409,3 @@ class BeamkitKit:
             write_atomic(path, json.dumps(rec, indent=1) + "\n")
         return rec, path
 
-    def _status(self, state, message, progress=None, poll_ms=0):
-        return parse_status({"state": state, "message": message,
-                             "poll_ms": poll_ms, "progress": progress},
-                            self.name)

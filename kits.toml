@@ -24,12 +24,12 @@ timeouts = { start = 60, submit = 30, status = 30, results = 30, check = 30, des
 # The prodtools adapter (core/adapters/prodtools.py) starts both from the
 # checkout $AUTORESEARCH_PRODTOOLS names. KRB5CCNAME and XDG_RUNTIME_DIR are
 # the credentials to pass: the servers find the bearer token at
-# $XDG_RUNTIME_DIR/bt_u<uid>, the file the operator's shell, jobsub and the
-# pipeline refresh (without the variable they would read /tmp/bt_u<uid>).
+# $XDG_RUNTIME_DIR/bt_u<uid>, the file the operator's shell and jobsub
+# refresh (without the variable they would read /tmp/bt_u<uid>).
 # The write server refreshes that token from the Kerberos ticket on write
 # calls; it does not renew the ticket. The spack cache goes to local disk,
-# as the pipeline and preflight already do
-# (wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md).
+# as the geometry pre-check's does (core/adapters/preflight_checks.py;
+# wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md).
 # The write server also needs the JOBSUB_* site settings a login shell gets
 # from /etc/profile.d/jobsub_lite.sh: without JOBSUB_DROPBOX_SERVER_LIST,
 # jobsub_submit cannot publish the code tarball (NoPublisherHandlerServerError,

@@ -29,7 +29,10 @@ from campaign_dir import CampaignBusy, CampaignDir  # noqa: E402
 from contract import EXECUTORS, KitSet, launch_problems, launch_stagger  # noqa: E402
 from point_dir import BROKEN, PointDir  # noqa: E402
 from pool import child_name, next_free_name, run_rolling  # noqa: E402
-from run import line_buffered_stdout, parse_context  # noqa: E402
+from run import line_buffered_stdout, parse_context, refuse  # noqa: E402
+
+
+CL = "closed_loop"               # the tag of its refusals (run.refuse)
 
 
 def point_dir(name: str) -> PointDir:
@@ -68,7 +71,7 @@ def make_pick_source(study, name_prefix, pick):
     counter = {"i": 0}
     seen = {}
 
-    def next_pick(mode, picker, x_pending):
+    def next_pick(picker, x_pending):
         if "board" not in seen:
             seen["board"] = {p.cfg for p in board_for(study).load()}
         name, i = next_free_name(
@@ -165,28 +168,24 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv_list)
 
     if args.study not in _modes.STUDIES:
-        print(f"[closed_loop] REFUSED: unknown study {args.study!r}; known "
-              f"{sorted(_modes.STUDIES)} (studies under mode_specs/archive/ "
-              f"are not loaded)", flush=True)
-        return 2
+        return refuse(f"unknown study {args.study!r}; known "
+                      f"{sorted(_modes.STUDIES)} (studies under "
+                      f"mode_specs/archive/ are not loaded)", CL)
     study = _modes.STUDIES[args.study]
     if not study.knobs:
-        print(f"[closed_loop] REFUSED: study {args.study!r} has no knobs: "
-              f"there is nothing to pick; run graph.run", flush=True)
-        return 2
+        return refuse(f"study {args.study!r} has no knobs: there is "
+                      f"nothing to pick; run graph.run", CL)
     if len(study.objectives) < 2 and args.picker != "qlnei":
         # qnehvi/hybrid need two objectives and budget_sob a constraint;
         # surrokit refuses only once rows exist, after grid time is spent.
-        print(f"[closed_loop] REFUSED: study {args.study!r} has one "
-              f"objective; use --picker qlnei (it optimizes the primary "
-              f"objective), not {args.picker!r}", flush=True)
-        return 2
+        return refuse(f"study {args.study!r} has one objective; use "
+                      f"--picker qlnei (it optimizes the primary objective), "
+                      f"not {args.picker!r}", CL)
     try:
         # Once here, not by every child refusing until the pool aborts.
         parse_context(args.context, study)
     except ValueError as exc:
-        print(f"[closed_loop] REFUSED: {exc}", flush=True)
-        return 2
+        return refuse(str(exc), CL)
     kits = KitSet(args.name_prefix, executor=args.executor,
                  parallel=args.parallel)
     try:
@@ -201,7 +200,7 @@ def main(argv=None) -> int:
         kits.close()
     if problems:
         for problem in problems:
-            print(f"[closed_loop] REFUSED: {problem}", flush=True)
+            refuse(problem, CL)
         return 2
     if args.check_only:
         print(f"[closed_loop] OK: would launch study={study.name} q={args.q} "
@@ -221,12 +220,9 @@ def main(argv=None) -> int:
         try:
             stack.enter_context(camp.start(record))
         except CampaignBusy as exc:
-            print(f"[closed_loop] REFUSED: {exc}", flush=True)
-            return 2
+            return refuse(str(exc), CL)
         except OSError as exc:
-            print(f"[closed_loop] REFUSED: cannot write the campaign record: "
-                  f"{exc}", flush=True)
-            return 2
+            return refuse(f"cannot write the campaign record: {exc}", CL)
         recorded = soft(lambda m: print(m, flush=True))
         rc = 1
         try:
@@ -237,15 +233,14 @@ def main(argv=None) -> int:
                   flush=True)
             append = recorded(camp.append_outcome, "outcome")
             result = run_rolling(
-                mode=study.name, picker=args.picker, q=args.q,
-                max_evals=args.max_evals, name_prefix=args.name_prefix,
+                picker=args.picker, q=args.q, max_evals=args.max_evals,
                 run_child=make_run_child(study, args.name_prefix,
                                          args.context, args.executor,
                                          args.parallel),
                 next_pick=make_pick_source(study, args.name_prefix,
                                            surrokit_pick(study)),
                 stop_flag=camp.stopping,
-                row_landed=lambda name, mode: name in {
+                row_landed=lambda name: name in {
                     p.cfg for p in board_for(study).load()},
                 broken=lambda name: point_dir(name).broken() is not None,
                 stagger=stagger,

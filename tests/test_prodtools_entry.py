@@ -89,27 +89,28 @@ class TestEntryForStep(unittest.TestCase):
         self.assertEqual(facts["events_per_job"], 2500)
 
 
-class TestRenderEntry(unittest.TestCase):
-    """render_entry on its own (moved from tests/test_prodtools_exec.py in
-    Phase C3, which reached it through the pipeline's prodtools_exec)."""
+class TestTheEntry(unittest.TestCase):
+    """The json2jobdef entry entry_for_step builds, key by key (render_entry
+    until it was folded into entry_for_step, its only caller)."""
 
-    def _base(self, **kw):
-        args = dict(dsconf="Run1Bak_t001",
-                    desc="Run1A_MuBeam_t001", njobs=200,
-                    code_tarball=Path("/data/t001/Code.tar.bz2"),
-                    # `fcl` is the published Production FCL path, not a
-                    # per-config materialized file's basename.
-                    fcl_name="Production/JobConfig/pileup/MuBeamResampler.fcl")
-        args.update(kw)
-        return args
+    def entry(self, fixed=None, staged=None, **template):
+        t = dict(desc_fmt="Run1A_MuBeam_{cfg}", njobs=200,
+                 # `fcl` is the published Production FCL path, not a
+                 # per-config materialized file's basename.
+                 fcl="Production/JobConfig/pileup/MuBeamResampler.fcl",
+                 output_glob="*.art")
+        t.update(template)
+        entry, _ = pe.entry_for_step(
+            t, config="t001", fixed=fixed or {},
+            code_tarball=Path("/data/t001/Code.tar.bz2"),
+            dsconf="Run1Bak_{cfg}", staged=staged)
+        return entry
 
     def test_resampler_stage_shape(self):
-        e = pe.render_entry(
-            **self._base(
-                events=5000, run=1800,
-                resampler_name="beamResampler",
-                input_data={"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
-                inloc="tape"))
+        e = self.entry(events=5000, run=1800,
+                       resampler_name="beamResampler",
+                       input_data={"sim.mu2e.MuBeamCat.Run1Baa.art": 1},
+                       inloc="tape")
         self.assertEqual(e["desc"], "Run1A_MuBeam_t001")
         self.assertEqual(e["dsconf"], "Run1Bak_t001")
         self.assertEqual(e["fcl"],
@@ -122,53 +123,51 @@ class TestRenderEntry(unittest.TestCase):
         self.assertEqual(e["outloc"],
                          {"*.art": "outstage", "*.root": "outstage"})
         self.assertNotIn("simjob_setup", e)   # exactly one Offline source
-        self.assertNotIn("fcl_overrides", e)  # not passed -> not present
+        self.assertNotIn("fcl_overrides", e)  # not in the template -> absent
 
     def test_fcl_overrides_copied_into_the_entry_when_given(self):
         overrides = {"#include": "epilog_1b.fcl",
                      "services.SeedService.baseSeed": 1}
-        e = pe.render_entry(**self._base(fcl_overrides=overrides))
+        e = self.entry(fcl_overrides=overrides)
         self.assertEqual(e["fcl_overrides"], overrides)
 
     def test_fcl_overrides_is_a_copy_not_an_alias(self):
         # A caller mutating its own overrides dict after the call must never
-        # leak into the already-rendered entry.
+        # leak into the already-built entry.
         overrides = {"a": 1}
-        e = pe.render_entry(**self._base(fcl_overrides=overrides))
+        e = self.entry(fcl_overrides=overrides)
         overrides["a"] = 2
         overrides["b"] = 3
         self.assertEqual(e["fcl_overrides"], {"a": 1})
 
     def test_merge_stage_no_events(self):
-        e = pe.render_entry(
-            **self._base(
-                desc="Run1A_MuStopsCat_t001", njobs=1,
-                input_data={"sim.a.art": 200, "sim.b.art": 200},
-                inloc="dir:/pnfs/stage/t001/mustops_ce_inputs"))
+        e = self.entry(desc_fmt="Run1A_MuStopsCat_{cfg}", njobs=1,
+                       staged=("/pnfs/stage/t001/mustops_ce_inputs",
+                               {"sim.a.art": 200, "sim.b.art": 200}))
         self.assertNotIn("events", e)
         self.assertNotIn("run", e)
         self.assertNotIn("resampler_name", e)
+        self.assertEqual(e["input_data"], {"sim.a.art": 200, "sim.b.art": 200})
         self.assertEqual(e["inloc"], "dir:/pnfs/stage/t001/mustops_ce_inputs")
 
     def test_memory_formatted(self):
-        e = pe.render_entry(**self._base(memory_mb=3000, events=2500,
-                                         run=1801))
+        e = self.entry(fixed={"memory_mb": 3000}, events=2500, run=1801)
         self.assertEqual(e["memory"], "3000MB")
 
     def test_outloc_defaults_to_the_outstage_literal_when_omitted(self):
-        e = pe.render_entry(**self._base())
+        e = self.entry()
         self.assertEqual(e["outloc"], {"*.art": "outstage", "*.root": "outstage"})
 
-    def test_outloc_passed_in_wins_over_the_default(self):
-        # A stage template's "outloc" must actually reach the rendered
-        # entry, not be shadowed by the hardcoded literal.
+    def test_outloc_in_the_template_wins_over_the_default(self):
+        # A stage template's "outloc" must actually reach the entry, not be
+        # shadowed by the hardcoded literal.
         custom = {"*.art": "tape", "*.root": "disk"}
-        e = pe.render_entry(**self._base(outloc=custom))
+        e = self.entry(outloc=custom)
         self.assertEqual(e["outloc"], custom)
 
     def test_outloc_is_a_copy_not_an_alias(self):
         custom = {"*.art": "tape"}
-        e = pe.render_entry(**self._base(outloc=custom))
+        e = self.entry(outloc=custom)
         custom["*.art"] = "disk"
         custom["*.root"] = "outstage"
         self.assertEqual(e["outloc"], {"*.art": "tape"})

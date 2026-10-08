@@ -16,23 +16,24 @@ completion verdict is kept there too.
 from __future__ import annotations
 
 import datetime
-import fcntl
 import fnmatch
 import hashlib
 import json
 import os
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 
 import kit_config
 import kit_registry
+import locks
 import paths
 from adapters import prodtools_entry as pe
-from contract import (Describe, call_with_retries, parse_cancel,
-                      parse_results, parse_status)
+from contract import (Describe, call_with_retries, make_status,
+                      parse_cancel, parse_results)
 from kits import KitClient, KitError, KitToolError
-from scheduler import write_atomic
+from point_dir import write_atomic
 
 VERSION = "prodtools-adapter/1"      # bump when a step would measure anew
 PARAMS = ("entry", "code_tarball", "dsconf", "fatal_log_codes", "njobs",
@@ -65,17 +66,11 @@ PNFS_STAGE_ROOT = Path(f"/pnfs/mu2e/scratch/users/{pe.USER}/autoresearch_grid")
 _POLL = {"grid": ((30.0, 600.0), 60_000), "local": ((5.0, 60.0), 10_000)}
 
 
-def split_handle(name: str):
-    """'<config>.<step>' -> (config, step). The config becomes part of
-    prodtools' dot-separated run name, so it must pass
-    kit_registry.config_name_problem."""
-    config, dot, step = name.rpartition(".")
-    if not dot or not config or not step:
-        raise ValueError(f"prodtools: {name!r} is not <config>.<step>")
-    why = kit_registry.config_name_problem(config)
-    if why:
-        raise ValueError(f"prodtools: {why}")
-    return config, step
+# '<config>.<step>' -> (config, step). The config becomes part of
+# prodtools' dot-separated run name, so it must pass
+# kit_registry.config_name_problem.
+split_handle = partial(kit_registry.split_handle, "prodtools",
+                       checks_config=True)
 
 
 def _digest(blob) -> str:
@@ -132,17 +127,6 @@ def _jobs_without_log(outputs) -> list:
         if job_dir is None or not any(job_dir.glob("*.log")):
             out.append((index, job_dir))
     return out
-
-
-@contextmanager
-def _flock(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def _progress(reply):
@@ -388,8 +372,10 @@ class ProdtoolsKit:
 
     def _launch(self, rec, workflow) -> None:
         tool, args = self._launch_call(rec)
-        lock = (_flock(self._submit_lock) if self.executor == "grid"
-                else nullcontext())
+        lock = nullcontext()
+        if self.executor == "grid":
+            self._submit_lock.parent.mkdir(parents=True, exist_ok=True)
+            lock = locks.wait(self._submit_lock)
         with lock:
             receipt = self._call(self._write, tool, args, workflow)
         if receipt.get("name") != rec["run_name"]:
@@ -608,9 +594,8 @@ class ProdtoolsKit:
                      json.dumps(rec, indent=1, sort_keys=True))
 
     def _working(self, message, progress):
-        return parse_status({"state": "working", "message": message,
-                             "poll_ms": self._poll_ms, "progress": progress},
-                            self.name)
+        return make_status(self.name, "working", message, progress=progress,
+                           poll_ms=self._poll_ms)
 
     def _decide(self, sdir, rec, state, message, **extra):
         rec["verdict"] = {"state": state, "message": message, **extra}
@@ -618,6 +603,5 @@ class ProdtoolsKit:
         return self._status_of(rec["verdict"])
 
     def _status_of(self, verdict):
-        return parse_status({"state": verdict["state"],
-                             "message": verdict["message"], "poll_ms": 0,
-                             "progress": verdict.get("progress")}, self.name)
+        return make_status(self.name, verdict["state"], verdict["message"],
+                           progress=verdict.get("progress"))

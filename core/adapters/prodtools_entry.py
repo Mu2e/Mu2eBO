@@ -52,50 +52,6 @@ def substitute_placeholders(value, mapping: dict, where: str):
     return value
 
 
-def render_entry(*, dsconf, desc, njobs,
-                 code_tarball, fcl_name, events=None, run=None,
-                 memory_mb=None, input_data=None, inloc=None,
-                 resampler_name=None, fcl_overrides=None,
-                 outloc=None, sequential_aux=None) -> dict:
-    """One json2jobdef entry dict for a (config, stage).
-
-    `fcl_name` is the PUBLISHED Production FCL path from
-    stage_entries/<stage>.json; `fcl_overrides` is copied verbatim (prodtools
-    renders it on top of that base FCL). Code-mode for every stage: the
-    per-config tarball ships the geom, so grid and local read identical FCL
-    (the env-divergence incident class is closed by construction).
-    Caller-supplied `outloc` wins; _DEFAULT_OUTLOC covers only a caller that
-    passes none, so editing a stage's JSON outloc actually takes effect
-    instead of being silently shadowed here.
-    Only the keys named here reach json2jobdef; `sequential_aux` is copied
-    when given.
-    """
-    entry = {
-        "desc": desc,
-        "dsconf": dsconf,
-        "owner": USER,
-        "fcl": fcl_name,
-        "code": str(code_tarball),
-        "njobs": njobs,
-        "outloc": dict(outloc) if outloc is not None else dict(_DEFAULT_OUTLOC),
-    }
-    if events is not None:
-        entry["events"] = events
-        entry["run"] = run
-    if memory_mb is not None:
-        entry["memory"] = f"{memory_mb}MB"
-    if input_data is not None:
-        entry["input_data"] = input_data
-        entry["inloc"] = inloc
-    if resampler_name is not None:
-        entry["resampler_name"] = resampler_name
-    if fcl_overrides is not None:
-        entry["fcl_overrides"] = dict(fcl_overrides)
-    if sequential_aux is not None:
-        entry["sequential_aux"] = sequential_aux
-    return entry
-
-
 def entry_for_step(template, *, config, fixed, code_tarball, dsconf,
                    geom_name=None, staged=None):
     """(entry, facts) for one prodtools step.
@@ -109,6 +65,14 @@ def entry_for_step(template, *, config, fixed, code_tarball, dsconf,
     `staged` is (directory, {basename: 1}) when the step reads upstream
     outputs. `facts` are what the adapter records: desc, dsconf, njobs,
     events_per_job and output_glob.
+
+    The entry is one json2jobdef entry: `fcl` is the PUBLISHED Production
+    FCL path from stage_entries/<step>.json, and the template's
+    fcl_overrides are copied verbatim (prodtools renders them on top of
+    that base FCL). Code-mode for every step: the per-config tarball ships
+    the geom, so grid and local read identical FCL. The template's outloc
+    wins; _DEFAULT_OUTLOC covers a template that names none. Only the keys
+    named here reach json2jobdef.
     """
     if "dsconf_fmt" in template:
         raise ValueError("stage template: 'dsconf_fmt' is retired since "
@@ -130,15 +94,32 @@ def entry_for_step(template, *, config, fixed, code_tarball, dsconf,
         raise ValueError("stage template: no njobs in the step's fixed or "
                          "the template")
     events = fixed.get("events_per_job", t.get("events"))
-    entry = render_entry(
-        dsconf=label, desc=t["desc_fmt"], njobs=njobs,
-        code_tarball=code_tarball, fcl_name=t["fcl"], events=events,
-        run=t.get("run"), memory_mb=fixed.get("memory_mb", t.get("memory")),
-        input_data=staged[1] if staged else t.get("input_data"),
-        inloc=f"dir:{staged[0]}" if staged else t.get("inloc"),
-        resampler_name=t.get("resampler_name"),
-        fcl_overrides=t.get("fcl_overrides"), outloc=t.get("outloc"),
-        sequential_aux=t.get("sequential_aux"))
+    outloc = t.get("outloc")
+    entry = {
+        "desc": t["desc_fmt"],
+        "dsconf": label,
+        "owner": USER,
+        "fcl": t["fcl"],
+        "code": str(code_tarball),
+        "njobs": njobs,
+        "outloc": dict(outloc) if outloc is not None else dict(_DEFAULT_OUTLOC),
+    }
+    if events is not None:
+        entry["events"] = events
+        entry["run"] = t.get("run")
+    memory_mb = fixed.get("memory_mb", t.get("memory"))
+    if memory_mb is not None:
+        entry["memory"] = f"{memory_mb}MB"
+    input_data = staged[1] if staged else t.get("input_data")
+    if input_data is not None:
+        entry["input_data"] = input_data
+        entry["inloc"] = f"dir:{staged[0]}" if staged else t.get("inloc")
+    if t.get("resampler_name") is not None:
+        entry["resampler_name"] = t["resampler_name"]
+    if t.get("fcl_overrides") is not None:
+        entry["fcl_overrides"] = dict(t["fcl_overrides"])
+    if t.get("sequential_aux") is not None:
+        entry["sequential_aux"] = t["sequential_aux"]
     facts = {"desc": t["desc_fmt"], "dsconf": label,
              "njobs": njobs, "events_per_job": events,
              "output_glob": t["output_glob"]}

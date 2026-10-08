@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import fcntl
 import json
 import math
 import os
@@ -37,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
 # Not modes, nor run (which imports it): importing modes loads every study,
 # so one broken file would crash this check instead of being reported.
+import locks  # noqa: E402
 import paths  # noqa: E402
 import study as st  # noqa: E402
 from boards import board_for  # noqa: E402
@@ -46,7 +46,6 @@ from leaderboard import LeaderboardError  # noqa: E402
 from point_dir import VERDICT, PointDir  # noqa: E402
 from study_graph import build_study_graph, check_x  # noqa: E402
 
-MODES_DIR = paths.REPO_ROOT / "mode_specs"
 STUDY_PATH_ENV = "AUTORESEARCH_STUDY_PATH"
 ALL_STUDIES = "every launch loads all studies"
 MARKER = ".check_study"
@@ -71,16 +70,8 @@ def _trace(exc: BaseException) -> str:
     return "".join(traceback.format_exception(exc))
 
 
-def _error_text(exc: Exception) -> str:
-    """The loader reports a bad study as a ValueError naming the file; any
-    other exception is a draft it did not expect, named by its type."""
-    if isinstance(exc, ValueError):
-        return str(exc)
-    return f"{type(exc).__name__}: {exc}"
-
-
 def _study_files() -> List[Path]:
-    return st.study_files(MODES_DIR, os.environ.get(STUDY_PATH_ENV))
+    return st.study_files(paths.MODES_DIR, os.environ.get(STUDY_PATH_ENV))
 
 
 def resolve_target(arg: str) -> Path:
@@ -91,9 +82,9 @@ def resolve_target(arg: str) -> Path:
         if not path.is_file():
             raise ValueError(f"{arg}: no such study file")
         return path
-    for path in _study_files():
-        if path.stem == arg:
-            return path
+    path = st.study_named(_study_files(), arg)
+    if path is not None:
+        return path
     raise ValueError(f"no study named {arg!r} in mode_specs/ or "
                      f"${STUDY_PATH_ENV}; pass the file's path to check a "
                      f"draft")
@@ -117,7 +108,7 @@ def check_load(path: Path) -> Tuple[Check, Optional[object]]:
     try:
         study = st.load_study_file(path)
     except Exception as exc:
-        problems.append(_error_text(exc))
+        problems.append(st.load_error_text(exc))
         unexpected(exc)
     if study is not None and study.name != path.stem:
         problems.append(f"study {study.name!r} is in {path.name}; the name "
@@ -142,8 +133,8 @@ def check_load(path: Path) -> Tuple[Check, Optional[object]]:
         try:
             o = st.load_study_file(other)
         except Exception as exc:
-            problems.append(f"{other} fails to load ({_error_text(exc)}); "
-                            f"{ALL_STUDIES}")
+            problems.append(f"{other} fails to load "
+                            f"({st.load_error_text(exc)}); {ALL_STUDIES}")
             unexpected(exc)
             continue
         # A study of the same name is this one: the target is a draft of it.
@@ -159,7 +150,7 @@ def check_load(path: Path) -> Tuple[Check, Optional[object]]:
             st.load_study_list(installed)
         except Exception as exc:
             problems.append(f"the study path fails to load "
-                            f"({_error_text(exc)}); {ALL_STUDIES}")
+                            f"({st.load_error_text(exc)}); {ALL_STUDIES}")
             unexpected(exc)
     if problems:
         return Check("load", "failed", problems,
@@ -287,10 +278,10 @@ def check_geometry(study, kits, *, x: List[float], config: str,
     # empty it under the first and read the first one's verdict as its own.
     lock = paths.GRID_DATA_ROOT / f"{config}.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock, "a") as held:
+    with contextlib.ExitStack() as stack:
         try:
-            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            stack.enter_context(locks.hold(lock, wait_s=0))
+        except locks.LockBusy:
             return Check("geometry", "failed", [
                 f"another check_study of {study.name!r} is running ({lock} "
                 f"is locked); rerun when it ends"])

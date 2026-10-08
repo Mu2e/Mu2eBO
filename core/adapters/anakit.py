@@ -29,15 +29,16 @@ import os
 import shutil
 import subprocess
 import threading
+from functools import partial
 from pathlib import Path
 
 import kit_config
 import kit_registry
 import paths
 from adapters import prodtools_entry as pe
-from contract import ContractError, parse_results, parse_status
+from contract import ContractError, make_status, parse_results
 from kits import KitClient, KitError
-from scheduler import write_atomic
+from point_dir import write_atomic
 from study import expand_artifact, metrics_read
 
 # The kit's version, hand-bumped (2026-10-05): bump when a step would
@@ -127,11 +128,7 @@ def musing_parts(musing: str):
     return tuple(parts) if len(parts) == 2 else None
 
 
-def split_handle(name: str):
-    config, dot, step = name.rpartition(".")
-    if not dot or not config or not step:
-        raise ValueError(f"anakit: {name!r} is not <config>.<step>")
-    return config, step
+split_handle = partial(kit_registry.split_handle, "anakit")
 
 
 def _check_timeouts(server) -> None:
@@ -276,16 +273,19 @@ class AnakitKit:
     def status(self, handle, workflow):
         rec = self._record(handle)
         if rec is None:
-            return self._status(
-                "failed", f"anakit: no {RESULT_NAME} for {handle}: the step "
+            return make_status(
+                self.name, "failed",
+                f"anakit: no {RESULT_NAME} for {handle}: the step "
                 f"directory was removed after the analysis ran; delete the "
                 f"point's state/<step>_cluster.txt and broken.txt to run it "
                 f"again")
         reply = rec["reply"]
         if isinstance(reply, dict) and reply.get("status") == "success":
-            return self._status("completed", str(reply.get("message", "")))
+            return make_status(self.name, "completed",
+                               str(reply.get("message", "")))
         message = reply.get("message") if isinstance(reply, dict) else reply
-        return self._status("failed", f"anakit {rec['analysis']}: {message}")
+        return make_status(self.name, "failed",
+                           f"anakit {rec['analysis']}: {message}")
 
     def results(self, handle, workflow):
         rec = self._record(handle)
@@ -444,6 +444,3 @@ class AnakitKit:
                                 f"{rec.get('handle')!r}, not {handle!r}")
         return rec
 
-    def _status(self, state, message):
-        return parse_status({"state": state, "message": message,
-                             "poll_ms": 0, "progress": None}, self.name)

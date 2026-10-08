@@ -44,7 +44,7 @@ from leaderboard import Leaderboard, LeaderboardError  # noqa: E402
 from point_dir import PointDir  # noqa: E402
 
 from service.checks import CheckService  # noqa: E402
-from service.jobs import spawn_detached  # noqa: E402
+from service.jobs import last_lines, spawn_detached  # noqa: E402
 
 PREFIX_RE = re.compile(r"[A-Za-z0-9_]+")
 LOG_TAIL = 20
@@ -66,19 +66,17 @@ def _check_prefix(prefix: str) -> None:
                          f"{prefix!r}")
 
 
+def _read(path: Path) -> str:
+    """The file's text; "" when it cannot be read."""
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
 def _last_line(path: Path) -> str:
-    try:
-        lines = path.read_text(errors="replace").splitlines()
-    except OSError:
-        return ""
+    lines = _read(path).splitlines()
     return next((ln for ln in reversed(lines) if ln.strip()), "")
-
-
-def _tail(path: Path, n: int) -> str:
-    try:
-        return "\n".join(path.read_text(errors="replace").splitlines()[-n:])
-    except OSError:
-        return ""
 
 
 def child_state(scored: bool, pd: PointDir, outcome: Optional[dict],
@@ -119,9 +117,6 @@ class CampaignService:
         self.grid_data = self.data_root / paths.GRID_DATA_ROOT.name
         self.logs_dir = self.graph_data / "closed_loop_logs"
 
-    def camp_dir(self, prefix: str) -> Path:
-        return self.graph_data / prefix
-
     def camp(self, prefix: str) -> CampaignDir:
         return CampaignDir(self.graph_data, prefix)
 
@@ -131,12 +126,7 @@ class CampaignService:
     # -- the board ---------------------------------------------------------
 
     def load_study(self, name: str):
-        files = self.checks.study_files()
-        for path in files:
-            if path.stem == name:
-                return st.load_study_file(path)
-        raise ValueError(f"no study named {name!r} on the study path; "
-                         f"known: {sorted(p.stem for p in files)}")
+        return st.load_study_file(self.checks.study_path(name))
 
     def _board(self, study) -> Leaderboard:
         # Built from this service's data root, as board_for builds it from
@@ -190,7 +180,7 @@ class CampaignService:
                 "pid": (record or {}).get("pid") or launch.get("pid"),
                 "launched_by": camp.launched_by(),
                 "exit_code": camp.exit_code(),
-                "log_tail": _tail(log, LOG_TAIL) if log.exists() else ""}
+                "log_tail": last_lines(_read(log), LOG_TAIL)}
 
     def campaign_status(self, name_prefix: Optional[str] = None):
         if name_prefix is not None:
@@ -322,7 +312,7 @@ class CampaignService:
         else:
             why = None if proc.returncode in (0, 2) \
                 else f"exit {proc.returncode}"
-        tail = "\n".join(output.splitlines()[-OUTPUT_TAIL:])
+        tail = last_lines(output, OUTPUT_TAIL)
         if why is not None:
             return {"ok": False, "problems": _refusals(output),
                     "output_tail": tail,
@@ -421,8 +411,7 @@ class CampaignService:
                         "error": (None if problems else
                                   "closed_loop exited before starting; see "
                                   "log_tail"),
-                        "log_tail": "\n".join(
-                            text.splitlines()[-OUTPUT_TAIL:]),
+                        "log_tail": last_lines(text, OUTPUT_TAIL),
                         "note": SPENT}
             if time.time() > deadline:
                 return {"state": "starting", "prefix": prefix, "pid": pid,

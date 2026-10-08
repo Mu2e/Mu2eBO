@@ -1,5 +1,6 @@
 """The detached launch the autoresearch MCP server uses for every job it
-starts (a check_study run, a campaign), and its liveness probe.
+starts (a check_study run, a campaign), its liveness probe, and the tail
+of what it printed.
 
 spawn_detached takes an exclusive flock on <job_dir>/lock, hands that file
 to the job (pass_fds) and closes its own copy: the lock belongs to the open
@@ -44,3 +45,8 @@ def spawn_detached(job_dir: Path, script: str, args: Sequence[str],
     # not this thread, says whether it is running).
     threading.Thread(target=proc.wait, daemon=True).start()
     return proc.pid
+
+
+def last_lines(text: str, n: int) -> str:
+    """The last `n` lines of `text`."""
+    return "\n".join(text.splitlines()[-n:])

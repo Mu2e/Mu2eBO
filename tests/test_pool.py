@@ -22,7 +22,7 @@ def _picker(n_dims=2):
     """Deterministic pick source: x is [i, i], name is c{i}."""
     counter = {"i": 0}
 
-    def next_pick(mode, picker, x_pending):
+    def next_pick(picker, x_pending):
         i = counter["i"]
         counter["i"] += 1
         return [float(i)] * n_dims, f"c{i}"
@@ -36,7 +36,7 @@ _NOT_BROKEN = lambda name: False  # noqa: E731
 # Neutral row_landed= fake, same reasoning as _NOT_BROKEN one line up. These
 # cases are about pool MECHANICS (width, stagger, drain, abort arithmetic),
 # not about whether a row landed, so they want "every child landed".
-_ROW_LANDED = lambda name, mode: True  # noqa: E731
+_ROW_LANDED = lambda name: True  # noqa: E731
 
 
 class TestPoolWidth(unittest.TestCase):
@@ -64,7 +64,7 @@ class TestPoolWidth(unittest.TestCase):
 
         counter = {"i": 0}
 
-        def next_pick(mode, picker, x_pending):
+        def next_pick(picker, x_pending):
             pending_sizes.append(len(x_pending))
             i = counter["i"]
             counter["i"] += 1
@@ -72,8 +72,8 @@ class TestPoolWidth(unittest.TestCase):
 
         t = threading.Timer(0.2, gate.set)
         t.start()
-        pool.run_rolling(mode="m", picker="p", q=3, max_evals=9,
-                         name_prefix="t", run_child=run_child,
+        pool.run_rolling(picker="p", q=3, max_evals=9,
+                         run_child=run_child,
                          next_pick=next_pick,
                          stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
@@ -89,8 +89,8 @@ class TestPoolWidth(unittest.TestCase):
 class TestReplenish(unittest.TestCase):
     def test_one_resolution_triggers_exactly_one_new_pick(self):
         next_pick, counter = _picker()
-        pool.run_rolling(mode="m", picker="p", q=2, max_evals=5,
-                         name_prefix="t", run_child=lambda n, x: 0,
+        pool.run_rolling(picker="p", q=2, max_evals=5,
+                         run_child=lambda n, x: 0,
                          next_pick=next_pick,
                          stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
@@ -104,15 +104,15 @@ class TestReplenish(unittest.TestCase):
             gate.wait(timeout=5)
             return 0
 
-        def next_pick(mode, picker, x_pending):
+        def next_pick(picker, x_pending):
             seen.append([list(v) for v in x_pending])
             i = len(seen) - 1
             return [float(i)], f"c{i}"
 
         t = threading.Timer(0.2, gate.set)
         t.start()
-        pool.run_rolling(mode="m", picker="p", q=3, max_evals=3,
-                         name_prefix="t", run_child=run_child,
+        pool.run_rolling(picker="p", q=3, max_evals=3,
+                         run_child=run_child,
                          next_pick=next_pick,
                          stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
@@ -132,8 +132,7 @@ class TestDrain(unittest.TestCase):
             return 0
 
         next_pick, _ = _picker()
-        res = pool.run_rolling(mode="m", picker="p", q=4, max_evals=4,
-                               name_prefix="t",
+        res = pool.run_rolling(picker="p", q=4, max_evals=4,
                                run_child=run_child, next_pick=next_pick,
                                stop_flag=lambda: False,
                                row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
@@ -145,8 +144,7 @@ class TestOnOutcome(unittest.TestCase):
     def test_on_outcome_sees_every_outcome(self):
         seen = []
         next_pick, _ = _picker()
-        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=3,
-                               name_prefix="t",
+        res = pool.run_rolling(picker="p", q=2, max_evals=3,
                                run_child=lambda name, x: 0,
                                next_pick=next_pick, stop_flag=lambda: False,
                                row_landed=_ROW_LANDED, broken=_NOT_BROKEN,
@@ -164,12 +162,11 @@ class TestNoRowStreak(unittest.TestCase):
         rows = {"c0": False, "c1": True, "c2": False}
         next_pick, _ = _picker()
         res = pool.run_rolling(
-            mode="m", picker="p", q=1, max_evals=3,
-            name_prefix="t",
+            picker="p", q=1, max_evals=3,
             run_child=lambda n, x: 0 if rows.get(n) else 1,
             next_pick=next_pick,
             stop_flag=lambda: False,
-            row_landed=lambda name, mode: rows.get(name, False),
+            row_landed=lambda name: rows.get(name, False),
             broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(res["rows"], 1)
         self.assertFalse(res["aborted"])
@@ -177,11 +174,11 @@ class TestNoRowStreak(unittest.TestCase):
     def test_q_consecutive_rowless_aborts(self):
         next_pick, _ = _picker()
         res = pool.run_rolling(
-            mode="m", picker="p", q=2, max_evals=10,
-            name_prefix="t", run_child=lambda n, x: 1,
+            picker="p", q=2, max_evals=10,
+            run_child=lambda n, x: 1,
             next_pick=next_pick,
             stop_flag=lambda: False,
-            row_landed=lambda name, mode: False,
+            row_landed=lambda name: False,
             broken=_NOT_BROKEN, stagger=0)
         self.assertTrue(res["aborted"])
         self.assertLess(res["launched"], 10)
@@ -221,8 +218,7 @@ class TestStopFlag(unittest.TestCase):
             return 0
 
         next_pick, counter = _picker()
-        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=20,
-                               name_prefix="t",
+        res = pool.run_rolling(picker="p", q=2, max_evals=20,
                                run_child=run_child, next_pick=next_pick,
                                stop_flag=lambda: stop["v"],
                                row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
@@ -242,8 +238,7 @@ class TestStagger(unittest.TestCase):
         # test in this file (gate.wait(timeout=5) etc.) becomes flaky.
         next_pick, _ = _picker()
         with mock.patch.object(pool.time, "sleep") as m:
-            pool.run_rolling(mode="m", picker="p", q=2, max_evals=4,
-                             name_prefix="t",
+            pool.run_rolling(picker="p", q=2, max_evals=4,
                              run_child=lambda n, x: 0, next_pick=next_pick,
                              stop_flag=lambda: False,
                              row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
@@ -252,8 +247,7 @@ class TestStagger(unittest.TestCase):
     def test_stagger_sleeps_between_but_not_before_first_launch(self):
         next_pick, _ = _picker()
         with mock.patch.object(pool.time, "sleep") as m:
-            res = pool.run_rolling(mode="m", picker="p", q=1, max_evals=3,
-                                   name_prefix="t",
+            res = pool.run_rolling(picker="p", q=1, max_evals=3,
                                    run_child=lambda n, x: 0,
                                    next_pick=next_pick,
                                    stop_flag=lambda: False,
@@ -281,11 +275,10 @@ class TestHeartbeat(unittest.TestCase):
         next_pick, _ = _picker()
         t = threading.Timer(0.35, gate.set)
         t.start()
-        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=2,
-                               name_prefix="t",
+        res = pool.run_rolling(picker="p", q=2, max_evals=2,
                                run_child=run_child, next_pick=next_pick,
                                stop_flag=lambda: False,
-                               row_landed=lambda n, m: True,
+                               row_landed=lambda n: True,
                                broken=_NOT_BROKEN, stagger=0,
                                log=lines.append, heartbeat=0.05)
         t.cancel()
@@ -313,11 +306,10 @@ class TestHeartbeat(unittest.TestCase):
         next_pick, _ = _picker()
         t = threading.Timer(0.4, gate.set)
         t.start()
-        res = pool.run_rolling(mode="m", picker="p", q=1, max_evals=1,
-                               name_prefix="t",
+        res = pool.run_rolling(picker="p", q=1, max_evals=1,
                                run_child=run_child, next_pick=next_pick,
                                stop_flag=lambda: False,
-                               row_landed=lambda n, m: True,
+                               row_landed=lambda n: True,
                                broken=_NOT_BROKEN, stagger=0,
                                log=lines.append, heartbeat=0.02)
         t.cancel()

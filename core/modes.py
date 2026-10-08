@@ -6,11 +6,10 @@ studies (older study versions live in git history).
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
+from paths import MODES_DIR
 from study import load_study_dirs
 
-MODES_DIR = Path(__file__).resolve().parent.parent / "mode_specs"
 STUDIES = load_study_dirs(MODES_DIR, os.environ.get("AUTORESEARCH_STUDY_PATH"))
 
 # The batch pickers, declared once: graph/closed_loop.py validates --picker

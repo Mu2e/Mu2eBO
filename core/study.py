@@ -823,6 +823,20 @@ def study_files(primary: Path, extra: Optional[str]) -> List[Path]:
     return [p for d in dirs if d.is_dir() for p in sorted(d.glob("*.json"))]
 
 
+def study_named(files: List[Path], name: str) -> Optional[Path]:
+    """The file of the study `name` (its stem) among `files`, or None."""
+    return next((p for p in files if p.stem == name), None)
+
+
+def load_error_text(exc: Exception) -> str:
+    """How a failed load of a study file reads in a report: the loader
+    reports a bad study as a ValueError naming the file; any other
+    exception is a draft it did not expect, named by its type."""
+    if isinstance(exc, ValueError):
+        return str(exc)
+    return f"{type(exc).__name__}: {exc}"
+
+
 def load_study_dirs(primary: Path, extra: Optional[str]) -> Dict[str, Study]:
     """Every study in study_files(primary, extra), as load_study_list."""
     return load_study_list(study_files(primary, extra))

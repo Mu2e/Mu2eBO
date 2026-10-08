@@ -233,7 +233,7 @@ class TestStart(_Camp):
     def _stop_launch(self, prefix):
         """A failed test must not leave a campaign running into a deleted
         data root."""
-        cdir = self.svc.camp_dir(prefix)
+        cdir = self.svc.camp(prefix).path
         try:
             pid = __import__("json").loads(
                 (cdir / "launch.json").read_text()).get("pid")
@@ -272,7 +272,7 @@ class TestStart(_Camp):
         # kit trace in that folder, as any launch check does).
         for name in ("campaign.json", "launch.json", "parent.log", "lock",
                      "STOP"):
-            self.assertFalse((self.svc.camp_dir("dry") / name).exists(), name)
+            self.assertFalse((self.svc.camp("dry").path / name).exists(), name)
 
     def test_a_refused_dry_run(self):
         out = self.svc.start_campaign("branin", "dry", 1, 2,

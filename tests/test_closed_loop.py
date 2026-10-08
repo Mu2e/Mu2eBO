@@ -94,8 +94,8 @@ class TestBusyNames(unittest.TestCase):
         board = types.SimpleNamespace(load=lambda: [])
         with mock.patch.object(closed_loop, "board_for", return_value=board):
             nxt = closed_loop.make_pick_source(object(), "p", pick)
-            self.assertEqual(nxt("s", "budget_sob", [])[1], "pR02_00")
-            self.assertEqual(nxt("s", "budget_sob", [[1.0, 1.0]])[1], "pR03_00")
+            self.assertEqual(nxt("budget_sob", [])[1], "pR02_00")
+            self.assertEqual(nxt("budget_sob", [[1.0, 1.0]])[1], "pR03_00")
         self.assertEqual(calls, [(2, "budget_sob", []),
                                  (3, "budget_sob", [[1.0, 1.0]])])
 

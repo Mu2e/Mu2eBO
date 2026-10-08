@@ -174,6 +174,13 @@ def parse_status(reply, kit) -> Status:
     return Status(r["state"], r["message"], r["poll_ms"], progress)
 
 
+def make_status(kit, state, message, *, progress=None,
+                poll_ms=0) -> Status:
+    """A Status an adapter decides itself, checked as a kit's reply is."""
+    return parse_status({"state": state, "message": message,
+                         "poll_ms": poll_ms, "progress": progress}, kit)
+
+
 def parse_results(reply, kit) -> Results:
     r = _fields(reply, ("metrics", "files", "metadata"), kit, "results")
     metrics = r["metrics"]

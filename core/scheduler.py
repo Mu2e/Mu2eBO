@@ -2,11 +2,10 @@
 (generic-study design, "One point, end to end", step 4).
 
 A step starts as soon as every step in its files_from and params_from has
-completed (Step.upstream), and
-ready steps run concurrently in threads, so a slow independent step never
-holds back a dependent chain. One LangGraph node per step would: LangGraph
-finishes a whole superstep before starting the next, which is the wait
-today's presubmit_after works around.
+completed (Step.upstream), and ready steps run concurrently in threads, so
+a slow independent step never holds back a dependent chain. One LangGraph
+node per step would: LangGraph finishes a whole superstep before starting
+the next.
 
 Each step works from its state files, which is what makes a killed child
 resumable with no second submit:
@@ -35,7 +34,7 @@ from typing import Any, Callable, Dict, Optional
 import kit_registry
 from contract import ContractError
 from kits import KitError
-from point_dir import PointDir, write_atomic  # noqa: F401  (re-exported)
+from point_dir import PointDir
 from study import expand_artifact
 
 

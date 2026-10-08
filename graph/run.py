@@ -26,8 +26,10 @@ from point_dir import BROKEN, RUN_LOCK, PointDir  # noqa: E402
 from study_graph import PointMismatch, build_study_graph, check_x  # noqa: E402
 
 
-def refuse(message: str) -> int:
-    print(f"[run] REFUSED: {message}", flush=True)
+def refuse(message: str, who: str = "run") -> int:
+    """Print the refusal as `[<who>] REFUSED: <message>` (the MCP server
+    reads closed_loop's back from its output) and return exit code 2."""
+    print(f"[{who}] REFUSED: {message}", flush=True)
     return 2
 
 
