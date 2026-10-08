@@ -62,7 +62,7 @@ VERSION = "anakit-adapter/2"
 # and bump VERSION too when an analysis now computes differently.
 ANAKIT_PIN_SHA = "3ba8d23bbf47f97b5b11c36a0e20ce695a1089af"
 SERVER = "anakit"                      # kits.toml [servers.anakit]
-FORK_ENV = "AUTORESEARCH_ANAKIT"       # the anakit checkout
+CHECKOUT_ENV = "AUTORESEARCH_ANAKIT"       # the anakit checkout
 RESULT_NAME = "anakit_result.json"
 # anakit's own limit on one run (its run_analysis allows at most 7200 s).
 # The MCP call's timeout (kits.toml) must leave CALL_MARGIN_S above it, so
@@ -83,16 +83,16 @@ def _error(call, message) -> KitError:
     return KitError(SERVER, call, message)
 
 
-def fork_root() -> Path:
+def checkout_root() -> Path:
     """The anakit checkout $AUTORESEARCH_ANAKIT names."""
-    root = os.environ.get(FORK_ENV)
+    root = os.environ.get(CHECKOUT_ENV)
     if not root:
-        raise _error("open", f"{FORK_ENV} is not set; export it to the "
+        raise _error("open", f"{CHECKOUT_ENV} is not set; export it to the "
                      f"anakit checkout (the directory holding "
                      f"analysis_mcp_server/)")
     root = Path(root)
     if not (root / "analysis_mcp_server" / "__main__.py").is_file():
-        raise _error("open", f"{FORK_ENV}={root} is not an anakit checkout "
+        raise _error("open", f"{CHECKOUT_ENV}={root} is not an anakit checkout "
                      f"(no analysis_mcp_server/__main__.py)")
     return root
 
@@ -115,7 +115,7 @@ def _git(root, *args, call) -> str:
     return r.stdout.strip()
 
 
-def fork_commit(root) -> str:
+def checkout_commit(root) -> str:
     """The checkout's commit, refused when it has uncommitted changes: a
     step's recorded build tells builds of the analyses apart by this commit
     alone."""
@@ -166,16 +166,16 @@ class AnakitKit:
 
     def __init__(self, campaign, *, executor="grid", parallel=None,
                  server=None, client_factory=None, grid_root=None,
-                 fork=None):
+                 checkout=None):
         executors = kit_registry.KITS[self.name].executors
         if executor not in executors:
             raise ValueError(f"{self.name}: executor must be one of "
                              f"{list(executors)}, got {executor!r}")
         self.campaign = campaign
-        self._fork_root = Path(fork) if fork is not None else fork_root()
+        self._checkout_root = Path(checkout) if checkout is not None else checkout_root()
         # A dirty checkout is refused at open (and again at every submit,
         # which records the commit it ran as the step's build).
-        fork_commit(self._fork_root)
+        checkout_commit(self._checkout_root)
         self._version = VERSION
         if server is None:
             servers = kit_config.load_server_configs()
@@ -201,8 +201,8 @@ class AnakitKit:
 
     @property
     def build(self) -> str:
-        """The fork's commit now (a dirty checkout is refused)."""
-        return fork_commit(self._fork_root)
+        """The checkout's commit now (a dirty checkout is refused)."""
+        return checkout_commit(self._checkout_root)
 
     @property
     def tools(self) -> frozenset:
@@ -217,8 +217,8 @@ class AnakitKit:
     def submit(self, name, params, files, inputs, workflow) -> str:
         # Every submit starts its own analysis server from the checkout, so
         # the commit read here is the build this step runs: recorded as its
-        # build. A dirty checkout raises (fork_commit).
-        build = fork_commit(self._fork_root)
+        # build. A dirty checkout raises (checkout_commit).
+        build = checkout_commit(self._checkout_root)
         config, step = split_handle(name)
         if files:
             raise ValueError(f"anakit: takes no step files, got "

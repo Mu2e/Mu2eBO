@@ -96,7 +96,7 @@ class _Kit(unittest.TestCase):
         td = tempfile.TemporaryDirectory()
         self.addCleanup(td.cleanup)
         self.tmp = Path(td.name)
-        self.fork = git_repo(self.tmp / "fork", "analysis_mcp_server/__main__.py")
+        self.checkout = git_repo(self.tmp / "checkout", "analysis_mcp_server/__main__.py")
         (self.tmp / "musings" / "SimJob" / "MDC2025ay").mkdir(parents=True)
         patcher = mock.patch.object(ak, "MUSINGS_ROOT", self.tmp / "musings")
         patcher.start()
@@ -114,7 +114,7 @@ class _Kit(unittest.TestCase):
         return ak.AnakitKit("camp", server=kw.pop("server", server()),
                             client_factory=factory,
                             grid_root=kw.pop("grid_root", self.tmp / "grid"),
-                            fork=self.fork, **kw)
+                            checkout=self.checkout, **kw)
 
     def params(self, **over):
         p = {"musing": MUSING, "analysis": "muon_stop_rate",
@@ -136,30 +136,30 @@ class TestOpen(_Kit):
     def test_the_version_is_the_hand_constant(self):
         """The checkout commit is the step's build, never in the version:
         an unrelated commit never splits a board (2026-10-05)."""
-        head = subprocess.run(["git", "-C", str(self.fork), "rev-parse",
+        head = subprocess.run(["git", "-C", str(self.checkout), "rev-parse",
                                "--short=12", "HEAD"], capture_output=True,
                               text=True, check=True).stdout.strip()
         kit = self.kit()
         self.assertEqual(kit.version, "anakit-adapter/2")
         self.assertEqual(kit.build, head)
 
-    def test_a_fork_with_uncommitted_changes_is_refused(self):
-        (self.fork / "analysis_mcp_server" / "__main__.py").write_text("changed\n")
+    def test_a_checkout_with_uncommitted_changes_is_refused(self):
+        (self.checkout / "analysis_mcp_server" / "__main__.py").write_text("changed\n")
         with self.assertRaises(KitError) as cm:
             self.kit()
         self.assertIn("uncommitted changes", str(cm.exception))
 
-    def test_the_fork_comes_from_the_environment(self):
+    def test_the_checkout_comes_from_the_environment(self):
         with mock.patch.dict(os.environ, {"AUTORESEARCH_ANAKIT": ""}):
             with self.assertRaises(KitError) as cm:
-                ak.fork_root()
+                ak.checkout_root()
         self.assertIn("AUTORESEARCH_ANAKIT is not set", str(cm.exception))
         with mock.patch.dict(os.environ, {"AUTORESEARCH_ANAKIT": str(self.tmp)}):
             with self.assertRaises(KitError) as cm:
-                ak.fork_root()
+                ak.checkout_root()
         self.assertIn("not an anakit checkout", str(cm.exception))
-        with mock.patch.dict(os.environ, {"AUTORESEARCH_ANAKIT": str(self.fork)}):
-            self.assertEqual(ak.fork_root(), self.fork)
+        with mock.patch.dict(os.environ, {"AUTORESEARCH_ANAKIT": str(self.checkout)}):
+            self.assertEqual(ak.checkout_root(), self.checkout)
 
     def test_the_servers_timeouts_must_cover_anakits_own_limit(self):
         for bad, needle in ((server(run_analysis=3000), "at least"),
@@ -334,7 +334,7 @@ class TestSubmit(_Kit):
             return client
 
         kit = ak.AnakitKit("camp", server=server(), client_factory=factory,
-                           grid_root=self.tmp / "grid", fork=self.fork)
+                           grid_root=self.tmp / "grid", checkout=self.checkout)
         threads = [threading.Thread(
             target=kit.submit,
             args=(f"cfg1.{step}", self.params(), [], self.inputs, "w"))
@@ -380,17 +380,17 @@ class TestSubmit(_Kit):
         self.assertIn("muon_stop_rate", msg)
         self.assertIn("root_file", msg)
 
-    def test_a_newer_fork_commit_does_not_refuse_submit(self):
+    def test_a_newer_checkout_commit_does_not_refuse_submit(self):
         kit = self.kit()
-        new = commit_in(self.fork)
+        new = commit_in(self.checkout)
         kit.submit("cfg1.stops", self.params(), [], self.inputs, "w")
         rec = self.record()
         self.assertEqual(rec["build"], new)
         self.assertEqual(rec["version"], "anakit-adapter/2")
 
-    def test_a_fork_left_dirty_after_open_refuses_submit(self):
+    def test_a_checkout_left_dirty_after_open_refuses_submit(self):
         kit = self.kit()
-        (self.fork / "analysis_mcp_server" / "__main__.py").write_text(
+        (self.checkout / "analysis_mcp_server" / "__main__.py").write_text(
             "changed\n")
         with self.assertRaises(KitError) as cm:
             kit.submit("cfg1.stops", self.params(), [], self.inputs, "w")
@@ -420,10 +420,10 @@ class TestStatusAndResults(_Kit):
         self.assertNotIn("code", res.metadata)
         self.assertEqual(res.metadata["adapter"], kit.version)
 
-    def test_a_newer_fork_commit_does_not_break_results(self):
+    def test_a_newer_checkout_commit_does_not_break_results(self):
         kit = self.submitted()
         old = self.record()["build"]
-        commit_in(self.fork)
+        commit_in(self.checkout)
         res = kit.results("cfg1.stops", "w")
         self.assertEqual(res.metadata["build"], old)
         self.assertEqual(res.metadata["adapter"], "anakit-adapter/2")
@@ -643,7 +643,7 @@ class TestOverStdio(_Kit):
                                      "run_analysis": 3600})
         with mock.patch.object(paths, "GRAPH_DATA", self.tmp / "graph"):
             kit = ak.AnakitKit("camp", server=cfg, grid_root=self.tmp / "grid",
-                               fork=self.fork)
+                               checkout=self.checkout)
             kit.submit("cfg1.stops", self.params(), [], self.inputs, "w")
         self.assertEqual(kit.status("cfg1.stops", "w").state, "completed")
         res = kit.results("cfg1.stops", "w")
