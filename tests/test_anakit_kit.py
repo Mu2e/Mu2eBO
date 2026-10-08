@@ -454,6 +454,9 @@ class TestStatusAndResults(_Kit):
             kit.results("cfg1.stops", "w")
         self.assertIn("anakit-adapter/1+anakit-deadbeefcafe", str(cm.exception))
         self.assertIn(kit.version, str(cm.exception))
+        # the same recipe status() gives for a missing result
+        self.assertIn("delete the point's state/stops_cluster.txt and "
+                      "broken.txt to run it again", str(cm.exception))
 
     def test_a_result_from_version_1_is_refused_by_version(self):
         """A version-1 record has work_area and code and no musing: results

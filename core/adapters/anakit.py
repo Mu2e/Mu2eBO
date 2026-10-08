@@ -295,10 +295,13 @@ class AnakitKit:
             raise ContractError(self.name, "results",
                                 f"{handle} has no successful result")
         if rec["version"] != self._version:
+            step = split_handle(handle)[1]
             raise ContractError(self.name, "results", f"{handle}'s result "
                                 f"was written by version "
                                 f"{rec['version']!r}, not this kit's "
-                                f"{self._version!r}: rerun the step")
+                                f"{self._version!r}: rerun the step (delete "
+                                f"the point's state/{step}_cluster.txt and "
+                                f"broken.txt to run it again)")
         reply = rec["reply"]
         meta = dict(reply.get("metadata") or {})
         missing = [m for m in rec["metrics"] if m not in meta]
