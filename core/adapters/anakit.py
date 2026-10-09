@@ -289,6 +289,9 @@ class AnakitKit:
         if rec is None or rec["reply"].get("status") != "success":
             raise ContractError(self.name, "results",
                                 f"{handle} has no successful result")
+        # The engine's own check (state/<step>_submit.json, written by the
+        # scheduler just before this submit) refuses first, so this one
+        # fires only for a handle written before that record existed.
         if rec["version"] != self._version:
             step = split_handle(handle)[1]
             raise ContractError(self.name, "results", f"{handle}'s result "

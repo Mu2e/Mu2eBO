@@ -22,6 +22,7 @@ import modes  # noqa: E402
 import study as st  # noqa: E402
 import run  # noqa: E402
 from kits import KitError  # noqa: E402
+from leaderboard import Leaderboard  # noqa: E402
 from tests import toykit  # noqa: E402
 from tests.engine_fixtures import (EngineCase, TmpCase,  # noqa: E402
                                    board_rows, submits, toy_doc, toy_study,
@@ -55,6 +56,24 @@ class _Point(EngineCase):
 
     def submits(self):
         return submits(self.data)
+
+    def kill_after(self, study, *names, config="p1"):
+        """Start graph.run on `config`, then SIGKILL its process group (its
+        kit server too; toykit's jobs live on disk) once every state file in
+        `names` exists."""
+        proc = subprocess.Popen(self.cmd(study, config, (1.0, 2.0)), cwd=ROOT,
+                                env=self.env, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                start_new_session=True)
+        paths = [self.state(config) / name for name in names]
+        deadline = time.monotonic() + 60
+        while (not all(p.exists() for p in paths)
+               and time.monotonic() < deadline):
+            time.sleep(0.1)
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+        self.assertEqual([p.name for p in paths if not p.exists()], [],
+                         "the child never wrote them")
 
 
 class TestAPoint(_Point):
@@ -182,17 +201,7 @@ class TestRefusals(_Point):
 
 class TestResume(_Point):
     def kill_after_submit(self, study):
-        proc = subprocess.Popen(self.cmd(study, "p1", (1.0, 2.0)), cwd=ROOT,
-                                env=self.env, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL,
-                                start_new_session=True)
-        handle = self.state() / "toy_cluster.txt"
-        deadline = time.monotonic() + 60
-        while not handle.exists() and time.monotonic() < deadline:
-            time.sleep(0.1)
-        self.assertTrue(handle.exists(), "the child never submitted")
-        os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait()
+        self.kill_after(study, "toy_cluster.txt")
         self.assertEqual(self.board_rows(study), [])
 
     def test_a_child_killed_mid_step_resumes_without_a_second_submit(self):
@@ -218,6 +227,167 @@ class TestResume(_Point):
         self.assertEqual(self.board_rows(s), [])
         self.assertEqual(self.submits(), ["p1.toy"])
         self.assertFalse((self.state() / "toy_results.json").exists())
+
+
+def _with_slow(doc):
+    """A second toykit step, slow, beside toy (which feeds the objectives)."""
+    doc["evaluate"].append(dict(doc["evaluate"][0], step="slow",
+                                fixed={"delay_s": 30.0}))
+    doc["extra_metrics"] = [{"name": "slow_branin", "metric": "slow.branin",
+                             "fmt": "{:.6f}"}]
+
+
+class _VersionedKit:
+    """toykit's stand-in for graph.run in this process, at the version a
+    test sets: every job is complete at once, with toykit's metrics at
+    x = (1, 2)."""
+    name, accepts_lists, poll_s = "toykit", False, (0.0, 0.0)
+    tools = frozenset({"submit", "status", "results"})
+
+    def __init__(self, version):
+        self.version = version
+        self.submits = []
+
+    def start(self):
+        pass
+
+    def describe(self):
+        return None
+
+    def close(self):
+        pass
+
+    def submit(self, name, params, files, inputs, workflow):
+        self.submits.append(name)
+        return name
+
+    def status(self, handle, workflow):
+        return contract.Status("completed", "", 0, None)
+
+    def results(self, handle, workflow):
+        return contract.Results({"branin": toykit.branin(1.0, 2.0),
+                                 "currin": toykit.currin(1.0, 2.0),
+                                 "n_inputs": 0.0}, (), {})
+
+
+class TestAKitBumpInFlight(_Point):
+    """A step submitted under one kit version and resumed under another.
+    The version at submit is recorded (state/<step>_submit.json), so the
+    launch check refuses the resume before anything runs, whatever the
+    board holds; before, the board check alone let an empty board, or one
+    at the new version, take the row stamped with the new version."""
+
+    def bump(self, version="2"):
+        """toykit reports `version` from its next start (tests/toykit.py)."""
+        (self.data / "toykit" / "version").write_text(version)
+
+    def assertRefusedUnwritten(self, r, study, *needles):
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        for needle in needles + ("new config name",):
+            self.assertIn(needle, r.stdout)
+        self.assertNotIn("leaderboard.file", r.stdout)
+        self.assertEqual(self.board_rows(study), [])
+        self.assertFalse((self.state() / "broken.txt").exists())
+
+    def run_main(self, study, kit, before):
+        """graph.run's main in this process: `kit` for every kit name, the
+        point's state files staged by `before(state)`, and a board in the
+        temp dir. (rc, stdout, board)."""
+        grid = self.tmp / "grid"
+        state = grid / "p1" / "state"
+        state.mkdir(parents=True)
+        before(state)
+        board = Leaderboard.for_study(study, path=self.tmp / "board.tsv",
+                                      archive_path=None)
+        out = io.StringIO()
+        with mock.patch.dict(modes.STUDIES, {study.name: study}), \
+                mock.patch.object(run, "KitSet", lambda campaign, **kw:
+                                  contract.KitSet(campaign,
+                                                  opener=lambda n, c: kit)), \
+                mock.patch.object(run, "GRID_DATA_ROOT", grid), \
+                mock.patch.object(run, "board_for",
+                                  mock.Mock(return_value=board)), \
+                contextlib.redirect_stdout(out):
+            rc = run.main(["--study", study.name, "--config", "p1",
+                           "--campaign", "t", "--x=1.0,2.0"])
+        return rc, out.getvalue(), board
+
+    def test_a_bump_in_flight_on_an_empty_board_is_refused(self):
+        s = self.add_study(lambda d: d["evaluate"][0]["fixed"].update(
+            delay_s=4.0))
+        self.kill_after(s, "toy_cluster.txt")
+        self.bump()
+        r = self.run_point(s)
+        self.assertRefusedUnwritten(
+            r, s, "['toy'] were submitted under version '1'", "now '2'")
+        self.assertEqual(self.submits(), ["p1.toy"])
+        self.assertFalse((self.state() / "toy_results.json").exists())
+
+    def test_a_bump_beside_a_step_of_the_kit_finished_before_it(self):
+        s = self.add_study(_with_slow)
+        self.kill_after(s, "toy_results.json", "slow_cluster.txt")
+        self.bump()
+        r = self.run_point(s)
+        self.assertRefusedUnwritten(
+            r, s, "['slow'] were submitted under version '1'", "now '2'")
+        self.assertEqual(sorted(self.submits()), ["p1.slow", "p1.toy"])
+        self.assertFalse((self.state() / "slow_results.json").exists())
+
+    def test_a_bump_beside_a_step_of_the_kit_finished_after_it(self):
+        """slow was submitted under 1, then the kit's server respawned at 2
+        and toy ran under it: toy's record agrees with the kit, so only
+        slow's submit record tells that the point spans the bump."""
+        study = toy_study(self.studies, _with_slow, name="spantoy")
+
+        def before(state):
+            (state / "toy_results.json").write_text(json.dumps(
+                {"step": "toy", "kit": "toykit", "kit_version": "2",
+                 "handle": "p1.toy", "params": {}, "inputs": [],
+                 "metrics": {"branin": 1.0, "currin": 2.0, "n_inputs": 0.0},
+                 "files": [], "metadata": {}}))
+            (state / "slow_submit.json").write_text(json.dumps(
+                {"kit": "toykit", "kit_version": "1"}))
+            (state / "slow_cluster.txt").write_text("p1.slow\n")
+
+        kit = _VersionedKit("2")
+        rc, out, board = self.run_main(study, kit, before)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("['slow'] were submitted under version '1'", out)
+        self.assertFalse(board.path.exists(), "a row was written")
+        self.assertEqual(kit.submits, [])
+
+    def test_a_handle_from_before_the_submit_records_resumes_as_before(self):
+        """Written by the code before this record existed (as a point in
+        flight at the upgrade has it): polled, recorded at the kit's
+        version, never refused and never given a guessed record."""
+        study = toy_study(self.studies, name="legacytoy")
+        kit = _VersionedKit("1")
+        rc, out, board = self.run_main(
+            study, kit,
+            lambda state: (state / "toy_cluster.txt").write_text("p1.toy\n"))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("submitted by an earlier run", out)
+        self.assertEqual(kit.submits, [])
+        self.assertEqual(board.measure_shas(),
+                         {study.measure_sha({"toykit": "1"})})
+        state = self.tmp / "grid" / "p1" / "state"
+        self.assertFalse((state / "toy_submit.json").exists())
+
+    def test_a_resume_at_the_submit_version_adopts_the_job(self):
+        s = self.add_study(lambda d: d["evaluate"][0]["fixed"].update(
+            delay_s=4.0))
+        self.kill_after(s, "toy_cluster.txt")
+        r = self.run_point(s)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("submitted by an earlier run", r.stdout)
+        self.assertEqual(self.submits(), ["p1.toy"])
+        study = st.load_study_file(self.studies / f"{s}.json")
+        (row,) = self.board_rows(s)
+        self.assertEqual(row["measure_sha"],
+                         study.measure_sha({"toykit": "1"}))
+        self.assertEqual(json.loads(
+            (self.state() / "toy_submit.json").read_text()),
+            {"kit": "toykit", "kit_version": "1"})
 
 
 class TestRunLock(_Point):

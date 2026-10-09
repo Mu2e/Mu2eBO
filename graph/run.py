@@ -132,8 +132,11 @@ def main(argv=None) -> int:
         return refuse(broken_refusal(pd))
 
     # A retried point adopts the steps it finished (scheduler.run_steps reads
-    # the same files), so the board check must use the versions they ran under.
+    # the same files), so the board check must use the versions they ran under,
+    # and its steps in flight must still find the versions they were
+    # submitted under.
     adopted = pd.adopted(step.step for step in study.steps)
+    submitted = pd.submitted(step.step for step in study.steps)
 
     kits = KitSet(args.campaign, executor=args.executor,
                  parallel=args.parallel)
@@ -145,7 +148,7 @@ def main(argv=None) -> int:
         problems = launch_problems(
             study, kits, executor=args.executor, parallel=args.parallel,
             config_names=[args.config],
-            board=board_for(study), adopted=adopted)
+            board=board_for(study), adopted=adopted, submitted=submitted)
         if problems:
             return refuse("; ".join(problems))
         graph = build_study_graph(

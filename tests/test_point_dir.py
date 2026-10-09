@@ -105,6 +105,40 @@ class TestSteps(_Dir):
         self.assertEqual(self.pd.adopted(["a", "b"]),
                          {"a": {"step": "a", "metrics": {"m": 1.0}}})
 
+    def test_the_submit_record(self):
+        self.assertIsNone(self.pd.submit_version("a"))
+        self.pd.write_submit("a", "toykit", "1")
+        self.assertEqual(self.pd.submit_version("a"), "1")
+        self.assertEqual(self.pd.path("a_submit.json").read_text(),
+                         '{\n "kit": "toykit",\n "kit_version": "1"\n}')
+        self.assertIsNone(self.pd.handle("a"))
+
+    def test_submitted_is_the_steps_in_flight_with_a_record(self):
+        self.pd.write_submit("fly", "k", "1")
+        self.pd.write_handle("fly", "p1.fly")
+        self.pd.write_submit("done", "k", "1")
+        self.pd.write_handle("done", "p1.done")
+        self.pd.write_results("done", {"step": "done"})
+        self.pd.write_handle("legacy", "p1.legacy")     # before the records
+        self.pd.write_submit("cut", "k", "2")           # killed mid-submit
+        self.assertEqual(
+            self.pd.submitted(["fly", "done", "legacy", "cut", "none"]),
+            {"fly": "1", "cut": "2"})
+
+    def test_a_version_that_is_not_a_string_is_not_recorded(self):
+        with self.assertRaises(ValueError) as cm:
+            self.pd.write_submit("a", "beamkit", None)
+        self.assertIn("'beamkit'", str(cm.exception))
+        self.assertFalse(self.pd.path("a_submit.json").exists())
+
+    def test_a_bad_submit_record_raises(self):
+        for text in ("{", "[1]", '{"kit": "k"}', '{"kit_version": 1}'):
+            with self.subTest(text=text):
+                self.put("a_submit.json", text)
+                with self.assertRaises(ValueError) as cm:
+                    self.pd.submit_version("a")
+                self.assertIn("a_submit.json", str(cm.exception))
+
     def test_status(self):
         self.assertEqual(self.pd.status("a"), (None, None))
         self.pd.write_status("a", {"state": "working"})

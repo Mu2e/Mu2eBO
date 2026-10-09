@@ -6,6 +6,9 @@ every reader (closed_loop's busy check, check_study, the campaign service,
 the dashboard) goes through PointDir, so the file names and what they mean
 live here only:
   point.json               the point (claim)
+  <step>_submit.json       the kit and its version when the step was
+                           submitted, written just before the submit (a
+                           handle without one predates the record)
   <step>_cluster.txt       a step's handle: it was submitted
   <step>_status.json       its last status poll (the dashboard's only)
   <step>_results.json      its results: it is done (resume adopts it)
@@ -133,6 +136,46 @@ class PointDir:
 
     def write_handle(self, step: str, handle: str) -> None:
         write_atomic(self.path(f"{step}_cluster.txt"), handle + "\n")
+
+    def write_submit(self, step: str, kit: str, version: str) -> None:
+        """Record the kit's version before its submit: a kill during the
+        submit can leave the kit a job of this version and no handle. A
+        version that is not a string (a kit not started) raises ValueError:
+        submit_version could not read it back."""
+        if not isinstance(version, str):
+            raise ValueError(f"step {step!r}: kit {kit!r} reports version "
+                             f"{version!r}, not a string; no submit record "
+                             f"written")
+        write_atomic(self.path(f"{step}_submit.json"), json.dumps(
+            {"kit": kit, "kit_version": version}, indent=1, sort_keys=True))
+
+    def submit_version(self, step: str) -> Optional[str]:
+        """The kit's version when the step was submitted; None when it was
+        never submitted, or its handle predates the record (unknown, never
+        guessed). A file that is not a submit record raises ValueError."""
+        path = self.path(f"{step}_submit.json")
+        try:
+            rec = self._json(path.name)
+        except ValueError as exc:
+            raise ValueError(f"{path}: not JSON ({exc})") from exc
+        if rec is None:
+            return None
+        if not (isinstance(rec, dict) and isinstance(rec.get("kit"), str)
+                and isinstance(rec.get("kit_version"), str)):
+            raise ValueError(f"{path}: not a submit record (a JSON object "
+                             f"with string kit and kit_version): {rec!r}")
+        return rec["kit_version"]
+
+    def submitted(self, steps: Iterable[str]) -> Dict[str, str]:
+        """{step: version submitted under} for every step of `steps` with a
+        submit record and no results: in flight, or cut short mid-submit."""
+        out = {}
+        for step in steps:
+            version = self.submit_version(step)
+            if (version is not None
+                    and not self.path(f"{step}_results.json").exists()):
+                out[step] = version
+        return out
 
     def status(self, step: str) -> Tuple[Optional[dict], Optional[str]]:
         """(record, error): the last status poll, or why it could not be
