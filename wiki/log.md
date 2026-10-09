@@ -6,6 +6,11 @@ heading at the TOP (create it if absent). One bullet per change:
 superseded, linted.
 
 ## 2026-10-08
+- **created** [engine-deepening-review-2026-10](/concepts/engine-deepening-review-2026-10.md):
+  seven candidates reproduced in a sandbox and re-rated; what landed, what is next, what was refuted.
+- **updated** [contract-engine](/drivers/contract-engine.md), [service](/drivers/service.md), CONTEXT.md:
+  a failing pick drains loudly; beamkit adopts only its own run; the dry-run budget counts every kit;
+  `<step>_submit.json` refuses a kit-version change in flight. The old "Resume guard" claim was false.
 - **updated** [bo-foilspf](/projects/bo-foilspf.md), [anakit](/external/anakit.md):
   the `_upstream` refill ran (bpzup02-21 + `nomup01`); `nomup01` sob 1.14014, flash
   7.50675e-06 = the damage budget to 6 digits (no-knob study, same seeds).

@@ -158,8 +158,8 @@ From Claude Code you can do the same with the `autoresearch` tools:
   point. `parent.lock` is held while the campaign runs.
 - **Point logs:** `$GD/closed_loop_logs/<point>.log`.
 - **Point state:** `$AUTORESEARCH_DATA_ROOT/autoresearch_grid/<point>/state/`:
-  `point.json`, each step's `<step>_cluster.txt`, `_status.json` and
-  `_results.json`, and `broken.txt`, which says why a point failed.
+  `point.json`, each step's `<step>_submit.json`, `_cluster.txt`,
+  `_status.json` and `_results.json`, and `broken.txt`, which says why a point failed.
   `run.lock` is held while the point runs: `flock -n .../state/run.lock true`
   fails during that time. The geometry pre-check log is
   `.../<point>/preflight/preflight.log`.

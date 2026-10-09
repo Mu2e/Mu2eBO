@@ -97,7 +97,9 @@ campaign (q=2, 8 points) runs end to end in 28.7 s.
   `fixed_keys`, `required_fixed`, `uses_entries`, `step_kit`,
   `check_kit`, `executors`, `launch_stagger_s`, `requires_kerberos`,
   `names_runs_after_config`, `factory` (`"adapters.prodtools:ProdtoolsKit"`,
-  relative to `core/`; `None` for a native kit) and `reserved_params`. A
+  relative to `core/`; `None` for a native kit), `reserved_params` and
+  `jobs_of` (how a step counts grid jobs for the dry-run budget:
+  `kit_registry.step_jobs`). A
   name clash between native and declared kits raises at import.
   `contract.load_factory` imports the factory when the kit opens.
 - **`env_passthrough` exists because** the MCP SDK passes a child only a
@@ -171,7 +173,8 @@ campaign (q=2, 8 points) runs end to end in 28.7 s.
 - Each step is driven from its own files under
   `GRID_DATA_ROOT/<config>/state/`, so a killed child resumes with no
   second submit: `<step>_results.json` exists -> adopt; `<step>_cluster.txt`
-  exists -> poll that handle; neither -> `submit`.
+  exists -> poll that handle; neither -> `submit`. `<step>_submit.json`
+  (`{"kit", "kit_version"}`) is written just before `submit`.
 - **`broken.txt` is written at the FIRST step failure.** Running siblings
   are cancelled when their kit offers `cancel` (prodtools does; anakit and
   beamkit do not, so theirs run to completion — remove beamkit jobs with
@@ -221,8 +224,14 @@ campaign (q=2, 8 points) runs end to end in 28.7 s.
   quarantines it (`<board>.quarantine.tsv`), for a board changed mid-run.
 - **Resume guard:** `point.json` records `measure_basis_sha`. Rerunning a
   killed point after the study's measurement changed raises
-  `PointMismatch` in `derive` (exit 2, nothing written), so old handles
-  are never stamped with a new sha.
+  `PointMismatch` in `derive` (exit 2, nothing written). A kit's version
+  is recorded per step at submit (`state/<step>_submit.json`); a launch,
+  resume or result read under another version is refused
+  (`measure.in_flight_problem`: exit 2 at launch, `broken.txt` in the
+  scheduler), so old handles are never stamped with a new sha. Handles
+  written before 2026-10-08 have no submit record and keep the older rule:
+  the version is read with the results, so a bump while such a step is in
+  flight still re-stamps it.
 
 ### v2 rows
 - Columns: `config`, knobs, objectives, extra metrics, extra columns,
@@ -268,6 +277,14 @@ campaign (q=2, 8 points) runs end to end in 28.7 s.
   params.
 - Rows are counted by name against the live board, never from a child's
   own report.
+- **A failing pick** (e.g. `budget_sob` finding no feasible point, which
+  any 2-5 over-budget rows alone cause on the `_upstream` board) stops
+  launches at once: `[pool] FATAL`, then the in-flight children drain
+  with heartbeats and one Outcome each, then the error is re-raised and
+  the campaign exits 1. A failing row or `broken.txt` read is that
+  child's Outcome (`outcome unknown: ...`); a landed row counts whatever
+  the child's rc (`row landed but child rc=N`), and `broken.txt` is read
+  only when no row landed.
 - **Stop launching:** touch `GRAPH_DATA/<prefix>/STOP`; in-flight children
   drain. No credential renewal mid-campaign: the launch check's 4 h ticket
   rule is the only guard.
@@ -464,8 +481,13 @@ campaign (q=2, 8 points) runs end to end in 28.7 s.
   cvmfs prodtools, so its status/outputs tools fail in a session.
 - **submit:** `run_beamline`, tag = the step name's letters and digits
   plus 6 hex of its sha256; a step record
-  `<grid>/<config>/state/<step>_beamkit.json` lets a rerun adopt the run
-  (found by tag if the call failed but the run exists). Submits share the
+  `<grid>/<config>/state/<step>_beamkit.json` lets a rerun adopt the run.
+  A run found by tag (the call failed but the run exists, or there is no
+  record) is adopted only when beamkit's listing proves it is this step's:
+  created after this step began submitting, with exactly the params,
+  `njobs` and `events_per_job` sent; otherwise the submit is refused (rerun
+  under a new config name). Until 2026-10-08 a run was adopted by tag
+  alone, so rerunning a removed `state/` at another x took the old jobs. Submits share the
   prodtools host lock, 90 s apart.
 - **status:** working while the queue has idle or running jobs;
   completed when files meet the quorum (`prodtools.meets_quorum`); failed
@@ -510,6 +532,7 @@ campaign (q=2, 8 points) runs end to end in 28.7 s.
   dashboard), [surrogate](/drivers/surrogate.md) (reads the same v2
   boards), [tests](/drivers/tests.md), [anakit](/external/anakit.md),
   [bo-foilspf](/projects/bo-foilspf.md), [bo-ptg4bl](/projects/bo-ptg4bl.md),
+  [engine-deepening-review-2026-10](/concepts/engine-deepening-review-2026-10.md),
   [production-chain-spike-2026-09](/concepts/production-chain-spike-2026-09.md),
   [closed-loop-bo-design](/concepts/closed-loop-bo-design.md) (the
   pipeline's constraints; the engine reused its rolling pool only)
@@ -540,5 +563,3 @@ campaign (q=2, 8 points) runs end to end in 28.7 s.
   to the picker as pending (`graph/closed_loop.py`).
 - A leftover `STOP` file makes a relaunch under the same prefix launch
   nothing, silently.
-- A picker failure mid-campaign surfaces only after in-flight children
-  finish (`graph/pool.py`).
