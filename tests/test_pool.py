@@ -153,6 +153,126 @@ class TestOnOutcome(unittest.TestCase):
         self.assertEqual(seen, res["outcomes"])
         self.assertEqual({oc.reason for oc in seen}, {"ok"})
 
+    def test_a_raising_on_outcome_is_logged_and_the_pool_goes_on(self):
+        lines = []
+
+        def on_outcome(oc):
+            raise TypeError(f"cannot record {oc.name}")
+
+        next_pick, _ = _picker()
+        res = pool.run_rolling(picker="p", q=2, max_evals=4,
+                               run_child=lambda name, x: 0,
+                               next_pick=next_pick, row_landed=_ROW_LANDED,
+                               broken=_NOT_BROKEN, stagger=0,
+                               log=lines.append, on_outcome=on_outcome)
+        self.assertEqual(res["launched"], 4)
+        self.assertEqual(len(res["outcomes"]), 4)
+        warned = [ln for ln in lines if "on_outcome" in ln]
+        self.assertEqual(len(warned), 4, lines)
+        for i in range(4):
+            self.assertTrue(any(f"cannot record c{i}" in ln for ln in warned))
+
+
+def _eio_for_c0(otherwise):
+    """A row_landed/broken fake that raises for c0 (a CephFS EIO on the
+    board or on broken.txt) and answers `otherwise` for every other child."""
+    def check(name):
+        if name == "c0":
+            raise OSError(5, "Input/output error")
+        return otherwise(name)
+    return check
+
+
+class TestFailures(unittest.TestCase):
+    """A raise from a pool callable used to unwind through the executor's
+    __exit__, which waits for every in-flight child in silence: no
+    heartbeat, no Outcome line, no on_outcome, the traceback only once the
+    last child exited (hours to days on the grid)."""
+
+    def test_a_failing_pick_is_logged_at_once_drained_then_raised(self):
+        """budget_sob's refusal (core/botorch_predict.py) on a fresh board
+        whose first rows are over budget: the realistic trigger."""
+        lines, seen = [], []
+        gate = threading.Event()
+        calls = {"n": 0}
+
+        def run_child(name, x):
+            if name != "c0":
+                gate.wait(timeout=5)
+            return 0
+
+        def next_pick(picker, x_pending):
+            i = calls["n"]
+            calls["n"] += 1
+            if i == 3:      # the first replacement, with c1 and c2 in flight
+                raise ValueError("GP predicts NO point; refusing")
+            return [float(i)], f"c{i}"
+
+        t = threading.Timer(0.3, gate.set)
+        t.start()
+        with self.assertRaises(ValueError) as cm:
+            pool.run_rolling(picker="p", q=3, max_evals=6,
+                             run_child=run_child, next_pick=next_pick,
+                             row_landed=_ROW_LANDED, broken=_NOT_BROKEN,
+                             stagger=0, log=lines.append, heartbeat=0.05,
+                             on_outcome=seen.append)
+        t.cancel()
+        self.assertIn("GP predicts NO point", str(cm.exception))
+        self.assertEqual(calls["n"], 4)     # nothing picked after it
+        fatal = [i for i, ln in enumerate(lines) if "[pool] FATAL" in ln]
+        self.assertEqual(len(fatal), 1, lines)
+        self.assertIn("ValueError: GP predicts NO point", lines[fatal[0]])
+        self.assertIn("2 in flight", lines[fatal[0]])
+        # Logged when it happened: the children still in flight resolve
+        # after it, through the normal drain (heartbeat, a line each).
+        after = lines[fatal[0] + 1:]
+        self.assertTrue(any("heartbeat" in ln for ln in after), lines)
+        self.assertIn("[pool] c1: ok", after)
+        self.assertIn("[pool] c2: ok", after)
+        self.assertEqual(sorted(oc.name for oc in seen), ["c0", "c1", "c2"])
+
+    def test_a_pick_failing_with_nothing_in_flight_still_raises(self):
+        lines = []
+
+        def next_pick(picker, x_pending):
+            raise ValueError("budget_sob needs a constraint")
+
+        with self.assertRaises(ValueError):
+            pool.run_rolling(picker="p", q=2, max_evals=2,
+                             run_child=lambda name, x: 0,
+                             next_pick=next_pick, row_landed=_ROW_LANDED,
+                             broken=_NOT_BROKEN, stagger=0, log=lines.append)
+        self.assertTrue(any("[pool] FATAL" in ln and "0 in flight" in ln
+                            for ln in lines), lines)
+
+    def test_a_raising_row_or_broken_check_is_that_childs_outcome(self):
+        """Fail closed (row_landed never fails open): the child counts as
+        rowless, toward the no-row streak, and keeps its log line."""
+        for check, fake in (("row_landed", _ROW_LANDED),
+                            ("broken", _NOT_BROKEN)):
+            with self.subTest(check=check):
+                lines, seen = [], []
+                checks = {"row_landed": _ROW_LANDED, "broken": _NOT_BROKEN,
+                          check: _eio_for_c0(fake)}
+                next_pick, _ = _picker()
+                res = pool.run_rolling(picker="p", q=2, max_evals=3,
+                                       run_child=lambda name, x: 0,
+                                       next_pick=next_pick, stagger=0,
+                                       log=lines.append,
+                                       on_outcome=seen.append, **checks)
+                self.assertEqual(seen, res["outcomes"])
+                self.assertEqual(sorted(oc.name for oc in seen),
+                                 ["c0", "c1", "c2"])
+                c0 = next(oc for oc in seen if oc.name == "c0")
+                self.assertEqual((c0.rc, c0.row_landed, c0.broken),
+                                 (0, False, False))
+                self.assertEqual(c0.reason, "outcome unknown: OSError: "
+                                            "[Errno 5] Input/output error")
+                self.assertIn(f"[pool] c0: {c0.reason}", lines)
+                self.assertIn("[pool] c0: no-row streak 1/2", lines)
+                self.assertEqual(res["rows"], 2)
+                self.assertFalse(res["aborted"])
+
 
 class TestNoRowStreak(unittest.TestCase):
     def test_streak_increments_on_rowless_and_resets_on_row(self):
@@ -170,6 +290,27 @@ class TestNoRowStreak(unittest.TestCase):
             broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(res["rows"], 1)
         self.assertFalse(res["aborted"])
+
+    def test_a_landed_row_resets_the_streak_whatever_the_rc(self):
+        """A child that lands its row and then exits non-zero (a kit that
+        fails to close, say) succeeded: counting it rowless would push a
+        healthy campaign toward ABORT. Its reason still shows the rc."""
+        rows = {"c1": True, "c3": True}
+        lines = []
+        next_pick, _ = _picker()
+        res = pool.run_rolling(
+            picker="p", q=1, max_evals=4,
+            run_child=lambda n, x: 1,
+            next_pick=next_pick,
+            row_landed=lambda name: rows.get(name, False),
+            broken=_NOT_BROKEN, stagger=0, log=lines.append)
+        self.assertFalse(res["aborted"], lines)
+        self.assertEqual(res["launched"], 4)
+        self.assertEqual(res["rows"], 2)
+        by_name = {oc.name: oc for oc in res["outcomes"]}
+        self.assertTrue(by_name["c1"].row_landed)
+        self.assertEqual(by_name["c1"].reason, "row landed but child rc=1")
+        self.assertEqual(by_name["c0"].reason, "child rc=1")
 
     def test_q_consecutive_rowless_aborts(self):
         next_pick, _ = _picker()

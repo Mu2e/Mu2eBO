@@ -222,6 +222,42 @@ class TestBraninCampaign(TmpCase):
         self.assertFalse(camp.alive())
 
 
+class TestAFailingPick(EngineCase):
+    """budget_sob under a budget no point meets: once two rows land, the
+    GP pick raises (surrokit's InfeasibleError, core/botorch_predict.py),
+    with a child in flight. The parent says so when it happens, records an
+    Outcome for every child it launched, and exits non-zero."""
+
+    def test_the_campaign_drains_records_every_child_and_exits_1(self):
+        doc = toy_doc(name="infeas", layout="v2")
+        # Currin is >= 1.18 over the whole box.
+        doc["constraints"] = [{"name": "currin", "max": 0.5, "k_sigma": 1.0}]
+        write_study(doc, self.studies)
+        r = subprocess.run(loop_cmd("infeas", 2, 4, "inf"), cwd=ROOT,
+                           env=self.env, capture_output=True, text=True,
+                           timeout=300)
+        out = r.stdout
+        self.assertEqual(r.returncode, 1, out[-3000:] + r.stderr[-3000:])
+        self.assertIn("refusing to submit blind picks", r.stderr)
+        lines = out.splitlines()
+        fatal = [i for i, ln in enumerate(lines) if "[pool] FATAL" in ln]
+        self.assertEqual(len(fatal), 1, out)
+        self.assertIn("refusing to submit blind picks", lines[fatal[0]])
+        self.assertIn("1 in flight", lines[fatal[0]])
+        launched = [ln.split()[2] for ln in lines
+                    if ln.startswith("[pool] launched ")]
+        self.assertLess(len(launched), 4, out)
+        # The child in flight at the FATAL line resolves after it.
+        after = lines[fatal[0] + 1:]
+        self.assertTrue(any(ln.startswith(f"[pool] {name}: ")
+                            for ln in after for name in launched), out)
+        from campaign_dir import CampaignDir
+        camp = CampaignDir(self.data / "autoresearch_graph_data", "inf")
+        self.assertEqual(sorted(camp.outcomes()), sorted(launched))
+        self.assertEqual(camp.record()["exit_code"], 1)
+        self.assertFalse(camp.alive())
+
+
 class TestRunnerRestart(EngineCase):
     def test_a_killed_runner_restarts_without_reusing_a_name(self):
         data = self.data
