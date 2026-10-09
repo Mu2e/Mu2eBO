@@ -5,6 +5,12 @@ heading at the TOP (create it if absent). One bullet per change:
 `<verb> <what changed> — <page>`; verbs: created, updated, merged,
 superseded, linted.
 
+## 2026-10-09
+- **updated** QUICKSTART.md, [tests](/drivers/tests.md): a fresh-eyes walkthrough (local ce_chain point,
+  grid dry run, sandboxed) found the how-to silent on running a grid campaign; new "On the grid" section
+  (Kerberos renewal, hard stop, slow jobs and quorum, retrying a failed point, disk), picker per study,
+  parent log in `<prefix>/parent.log`, zero-knob runs, how builds and kit checkouts are found.
+
 ## 2026-10-08
 - **created** [engine-deepening-review-2026-10](/concepts/engine-deepening-review-2026-10.md):
   seven candidates reproduced in a sandbox and re-rated; what landed, what is next, what was refuted.
