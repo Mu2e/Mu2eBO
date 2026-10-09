@@ -14,7 +14,14 @@ deck, how many jobs, and what to count.
   A per-step record written before the call makes a rerun adopt the run;
   a record without a run id (a crash mid-submit), or a failed call whose
   run was created anyway, is matched to beamkit's run by its unique tag
-  (list_beamline_runs), so a rerun never submits a second run.
+  (list_beamline_runs), so a rerun never submits a second run. The tag is
+  unique per name, not per submit: a run of an earlier use of the config
+  name (a removed state/ dir, another data root) carries it too. So a run
+  is adopted only when beamkit's listing shows it is this step's: created
+  no earlier than the record's submit began, and run with exactly the
+  params and job counts this step sends (IDENTITY). Any other run, or one
+  the listing cannot vouch for, is refused, never adopted, as the
+  prodtools adapter refuses a run created before its submit (2659a24).
 - status: beamkit has no "finished" state, so the verdict comes from the
   campaign's queue (prodtools campaign_status) and the output count:
   working while a job is idle or running, then completed when the files
@@ -34,8 +41,10 @@ deck, how many jobs, and what to count.
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
+import math
 import re
 import threading
 import time
@@ -65,6 +74,9 @@ UNKNOWN_LIMIT_S = 6 * 3600      # an unreadable queue, as the prodtools adapter
 HELD_LIMIT_S = 2 * 3600         # only held jobs left: in flight this long
 POLL_MS = 120_000               # condor and SAM per poll: every 2 min
 RECORD = "{step}_beamkit.json"
+# What run_beamline is sent that list_beamline_runs echoes under the same
+# key, exactly as sent: a run is this step's only if all of them match.
+IDENTITY = ("params", "njobs", "events_per_job")
 
 
 def _error(call, message) -> KitError:
@@ -117,6 +129,55 @@ def _not_submitted(reply: dict) -> str:
             + (f"; the tick said:\n{tail}" if tail else "")
             + "\nFix the cause, then make_recoveries on the run (or a "
               "prodtools tick) submits its jobs; rerun this point to adopt it")
+
+
+def _iso(t) -> str:
+    """Epoch seconds as beamkit stamps a run's created (records.now_utc)."""
+    return datetime.datetime.fromtimestamp(
+        t, datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+def _differences(key, theirs, ours) -> str:
+    """What a run ran against what this step sends, for one IDENTITY key:
+    the differing params one by one, else the two values."""
+    if not (isinstance(theirs, dict) and isinstance(ours, dict)):
+        return f"{key} {theirs!r} (this step: {ours!r})"
+
+    def show(d, k):
+        return repr(d[k]) if k in d else "unset"
+    return ", ".join(f"{k}={show(theirs, k)} (this step: {show(ours, k)})"
+                     for k in sorted(set(theirs) | set(ours))
+                     if k not in theirs or k not in ours
+                     or theirs[k] != ours[k])
+
+
+def _why_not_ours(run, since, sent) -> list:
+    """Why beamkit's listed `run` cannot be shown to be the run of a step
+    whose submit began at `since` (epoch s) and sends `sent`; [] when it
+    can. beamkit stamps created to the second, so `since` is too."""
+    why = []
+    created = run.get("created")
+    try:
+        t = datetime.datetime.fromisoformat(created)
+    except (TypeError, ValueError):
+        t = None
+    if t is None or t.tzinfo is None:
+        why.append(f"its created time {created!r} is not an ISO 8601 time "
+                   f"with a UTC offset, so when it was made cannot be told")
+    elif t.timestamp() < math.floor(since):
+        why.append(f"it was created at {created}, before this step started "
+                   f"submitting at {_iso(since)}")
+    for key in IDENTITY:
+        if key not in run:
+            why.append(f"beamkit lists no {key} for it, so what it ran "
+                       f"cannot be told")
+        elif key not in sent:
+            why.append(f"this step's record holds no {key} (it was written "
+                       f"before this check), so what the step sent cannot "
+                       f"be told")
+        elif run[key] != sent[key]:
+            why.append("it ran " + _differences(key, run[key], sent[key]))
+    return why
 
 
 class BeamkitKit:
@@ -195,29 +256,34 @@ class BeamkitKit:
         config, step = split_handle(name)
         path = self._record_path(config, step)
         tag = tag_for(name)
+        own = {k: params[k] for k in kit_registry.BEAMKIT_OWN if k in params}
+        deck = {k: repr(float(v)) for k, v in params.items()
+                if k not in kit_registry.BEAMKIT_OWN}
+        deck.update({k: str(v) for k, v in own["deck_params"].items()})
+        sent = {"params": deck, "njobs": int(own["njobs"]),
+                "events_per_job": int(own["events_per_job"])}
         if path.exists():
             rec = json.loads(path.read_text())
+            # Its run, or the run its tag finds, only if provably this
+            # submit's (a record from before this check included).
+            run_id = self._find_run(rec, sent, "submit", workflow)
             if rec.get("run_id"):
                 return name                   # adopt: never submit twice
-            run_id = self._find_run(tag, workflow)
             if run_id:                        # died before saving the id
                 rec["run_id"] = run_id
                 write_atomic(path, json.dumps(rec, indent=1) + "\n")
                 return name
             path.unlink()                     # no run was made: submit
-        own = {k: params[k] for k in kit_registry.BEAMKIT_OWN if k in params}
-        deck = {k: repr(float(v)) for k, v in params.items()
-                if k not in kit_registry.BEAMKIT_OWN}
-        deck.update({k: str(v) for k, v in own["deck_params"].items()})
         record = {"name": name, "tag": tag, "run_id": None,
-                  "njobs": int(own["njobs"]),
-                  "events_per_job": int(own["events_per_job"]),
+                  "params": sent["params"], "njobs": sent["njobs"],
+                  "events_per_job": sent["events_per_job"],
                   "quorum": float(own["quorum"]), "plane": own["plane"],
                   "pdg": list(own["pdg"]), "submitted": self._clock(),
                   "unknown_since": None, "held_since": None,
                   "verdict": None, "server": self._server_version}
         path.parent.mkdir(parents=True, exist_ok=True)
-        run_id = self._find_run(tag, workflow)    # a run whose record was lost
+        # A run whose record was lost predates this submit: refused.
+        run_id = self._find_run(record, sent, "submit", workflow)
         if run_id is None:
             write_atomic(path, json.dumps(record, indent=1) + "\n")
             try:
@@ -244,7 +310,8 @@ class BeamkitKit:
                 # "created but the first tick failed"): keep it, so a rerun
                 # adopts it instead of submitting a second one.
                 try:
-                    found = self._find_run(tag, workflow)
+                    found = self._find_run(record, sent, "run_beamline",
+                                           workflow)
                 except Exception:   # noqa: BLE001 - cannot tell: keep it
                     raise exc
                 if found is None:
@@ -359,17 +426,45 @@ class BeamkitKit:
                                  call="status", retry_tool_errors=True,
                                  pause=self._pause)
 
-    def _find_run(self, tag, workflow) -> Optional[str]:
-        """beamkit's newest run with this tag, or None."""
+    def _find_run(self, rec, sent, call, workflow) -> Optional[str]:
+        """The id of beamkit's run for the step record `rec`: the run it
+        names, else beamkit's newest run with its tag; None when it names
+        none and beamkit has none with the tag. The run is adopted only if
+        it is provably this step's (_why_not_ours: made no earlier than
+        rec's "submitted", run with exactly `sent`); otherwise this
+        refuses, saying why and how to recover."""
         reply = self._read("list_beamline_runs", {}, workflow)
         runs = reply.get("runs") if isinstance(reply, dict) else None
         if not isinstance(runs, list):
             raise _error("list_beamline_runs", f"reply has no runs: "
                          f"{str(reply)[:200]}")
-        for run in runs:
-            if isinstance(run, dict) and run.get("tag") == tag:
-                return run.get("run_id")
-        return None
+        named = rec.get("run_id")
+        run = next((r for r in runs if isinstance(r, dict)
+                    and r.get("tag") == rec["tag"]
+                    and (not named or r.get("run_id") == named)), None)
+        config, _step = split_handle(rec["name"])
+        if run is None:
+            if named:
+                raise _error(call, f"the step record of {rec['name']} names "
+                             f"run {named}, which beamkit does not list, so "
+                             f"it cannot be shown to be this step's run and "
+                             f"is not adopted. Rerun this point under a new "
+                             f"config name (not {config!r})")
+            return None
+        if not run.get("run_id"):
+            raise _error("list_beamline_runs", f"a run tagged {rec['tag']} "
+                         f"has no run_id: {str(run)[:200]}")
+        why = _why_not_ours(run, rec["submitted"], sent)
+        if why:
+            raise _error(call, f"beamkit's run {run['run_id']}, tagged "
+                         f"{rec['tag']} for {rec['name']}, is not provably "
+                         f"this step's run: " + "; ".join(why) + ". It is "
+                         f"not adopted: a run's tag comes from the config "
+                         f"name alone, so an earlier use of {config!r} (a "
+                         f"removed state/ dir, another data root) leaves its "
+                         f"run under the same tag. Rerun this point under a "
+                         f"new config name")
+        return run["run_id"]
 
     def _decide(self, rec, path, state, message, files=None):
         rec["verdict"] = {"state": state, "message": message,
@@ -400,7 +495,8 @@ class BeamkitKit:
             raise ContractError(self.name, "status", f"{path} records "
                                 f"{rec.get('name')!r}, not {handle!r}")
         if not rec.get("run_id"):
-            run_id = self._find_run(rec["tag"], workflow)
+            # Only by what the record says its submit sent.
+            run_id = self._find_run(rec, rec, "status", workflow)
             if not run_id:
                 raise ContractError(self.name, "status", f"{path} records "
                                     f"no run for {handle}, and beamkit has "

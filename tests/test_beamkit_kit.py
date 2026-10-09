@@ -3,8 +3,10 @@
 study end to end against the fake (wiki/projects/bo-ptg4bl.md). No grid,
 no Kerberos, no real beamkit."""
 import copy
+import datetime
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -389,6 +391,187 @@ class TestAdapter(_Tmp):
         self.assertEqual(len([c for c in self.calls()
                               if c["tool"] == "run_beamline"]), 1)
         self.assertEqual(json.loads(path.read_text())["run_id"], run_id)
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+
+    # --- a run is adopted only when it is provably this step's ------------
+    def record_path(self, name):
+        config, step = name.split(".")
+        return self.tmp / "grid" / config / "state" / f"{step}_beamkit.json"
+
+    def runs_made(self):
+        return len([c for c in self.calls() if c["tool"] == "run_beamline"])
+
+    def sent_params(self):
+        """The params of the first run_beamline call, as sent."""
+        return next(c for c in self.calls()
+                    if c["tool"] == "run_beamline")["args"]["params"]
+
+    def created(self, name):
+        """When the fake made this name's run (beamkit's created), epoch s."""
+        doc = json.loads(self.run_state(name).read_text())
+        return datetime.datetime.fromisoformat(doc["created"]).timestamp()
+
+    def assert_not_adopted(self, cm, name, *needles):
+        msg = str(cm.exception)
+        for needle in (f"{bk.tag_for(name)}.{'a' * 7}", "not provably this "
+                       "step's run", "not adopted", "new config name",
+                       repr(name.split(".")[0]), *needles):
+            self.assertIn(needle, msg)
+
+    def test_a_stale_run_of_other_params_is_refused(self):
+        """Dossier R7: CONTEXT.md's Busy-name recovery (remove the point's
+        state/, rerun the same config at another x) adopted the first
+        run's jobs, and the row recorded x2 while the jobs ran x1."""
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        shutil.rmtree(self.tmp / "grid" / "cfgR00_00" / "state")
+        self.now[0] = self.created(name) + 600
+        x2 = {"Tlength": 250.0, "R_up": 2.0, "R_mid": 5.5, "R_dn": 4.0}
+        with self.assertRaises(KitError) as cm:
+            self.kit.submit(name, step_params(**x2), [], [], "w")
+        self.assert_not_adopted(cm, name, "before this step started "
+                                "submitting", "Tlength='160.0' (this step: "
+                                "'250.0')")
+        self.assertEqual(self.runs_made(), 1)
+        self.assertFalse(self.record_path(name).exists())
+
+    def test_a_stale_run_of_the_same_params_is_refused(self):
+        """A run made before this step's submit began is an earlier use
+        of the config name (a removed state/, another data root), whatever
+        it ran: never this step's, as in the prodtools adapter."""
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        shutil.rmtree(self.tmp / "grid" / "cfgR00_00" / "state")
+        self.now[0] = self.created(name) + 600
+        with self.assertRaises(KitError) as cm:
+            self.kit.submit(name, step_params(), [], [], "w")
+        self.assert_not_adopted(cm, name, "before this step started "
+                                "submitting")
+        self.assertNotIn("this step:", str(cm.exception))
+        self.assertEqual(self.runs_made(), 1)
+        self.assertFalse(self.record_path(name).exists())
+
+    def test_a_resume_adopts_only_a_run_of_the_params_it_sends(self):
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        path = self.record_path(name)
+        before = path.read_text()
+        self.now[0] = self.created(name) + 600       # rerun later
+        self.assertEqual(self.kit.submit(name, step_params(), [], [], "w"),
+                         name)
+        with self.assertRaises(KitError) as cm:
+            self.kit.submit(name, step_params(Tlength=200.0), [], [], "w")
+        self.assert_not_adopted(cm, name, "Tlength='160.0' (this step: "
+                                "'200.0')")
+        self.assertEqual(self.runs_made(), 1)
+        self.assertEqual(path.read_text(), before)
+        # The record holds what was sent, so status can check it too.
+        self.assertEqual(json.loads(before).get("params"), self.sent_params())
+
+    def test_a_record_from_before_the_check_resumes_if_its_run_is_its_own(
+            self):
+        """A step record on disk from before this check (the keys of the
+        ptg records under the live grid root: no params) resumes when
+        beamkit shows its run is its own, unchanged on disk, and is
+        refused when it is not."""
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        path = self.record_path(name)
+        rec = json.loads(path.read_text())
+        old = {k: rec[k] for k in ("name", "tag", "run_id", "njobs",
+                                   "events_per_job", "quorum", "plane",
+                                   "pdg", "submitted", "unknown_since",
+                                   "verdict")}
+        path.write_text(json.dumps(old, indent=1) + "\n")
+        before = path.read_text()
+        self.assertEqual(self.kit.submit(name, step_params(), [], [], "w"),
+                         name)
+        self.assertEqual(path.read_text(), before)
+        self.assertEqual(self.kit.status(name, "w").state, "working")
+        with self.assertRaises(KitError) as cm:
+            self.kit.submit(name, step_params(R_dn=4.0), [], [], "w")
+        self.assert_not_adopted(cm, name, "R_dn='3.1495' (this step: "
+                                "'4.0')")
+        self.assertEqual(self.runs_made(), 1)
+
+    def test_a_crashed_submit_adopts_only_a_run_made_after_it_began(self):
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        path = self.record_path(name)
+        rec = json.loads(path.read_text())
+        # Died before saving the run id, in a submit that began after
+        # beamkit made the run: that run is an earlier submit's.
+        rec["run_id"] = None
+        rec["submitted"] = self.created(name) + 600
+        path.write_text(json.dumps(rec))
+        with self.assertRaises(KitError) as cm:
+            self.kit.submit(name, step_params(), [], [], "w")
+        self.assert_not_adopted(cm, name, "before this step started "
+                                "submitting")
+        self.assertEqual(self.runs_made(), 1)
+        self.assertIsNone(json.loads(path.read_text())["run_id"])
+
+    def test_a_run_the_listing_cannot_vouch_for_is_refused(self):
+        """A listed run without params, job counts or a created time
+        beamkit's way (records.now_utc: ISO 8601 with a UTC offset; an
+        empty string by default) is not guessed to be this step's."""
+        cases = [({"omit": ["params"]}, "lists no params"),
+                 ({"omit": ["njobs"]}, "lists no njobs"),
+                 ({"omit": ["created"]}, "None"),
+                 ({"created": ""}, "''"),
+                 ({"created": "2030-01-01T00:00:00"},
+                  "'2030-01-01T00:00:00'")]
+        for i, (fields, needle) in enumerate(cases):
+            name = f"cfgR0{i}_00.g4bl"
+            with self.subTest(fields=fields):
+                self.kit.submit(name, step_params(), [], [], "w")
+                path = self.record_path(name)
+                rec = json.loads(path.read_text())
+                rec["run_id"] = None             # died before saving it
+                path.write_text(json.dumps(rec))
+                self.set_run(name, **fields)
+                with self.assertRaises(KitError) as cm:
+                    self.kit.submit(name, step_params(), [], [], "w")
+                self.assert_not_adopted(cm, name, "cannot be told", needle)
+                self.assertEqual(self.runs_made(), i + 1)
+
+    def test_a_record_naming_a_run_beamkit_does_not_list_is_refused(self):
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        path = self.record_path(name)
+        rec = json.loads(path.read_text())
+        rec["run_id"] = f"{bk.tag_for(name)}.bbbbbbb"
+        path.write_text(json.dumps(rec))
+        with self.assertRaises(KitError) as cm:
+            self.kit.submit(name, step_params(), [], [], "w")
+        msg = str(cm.exception)
+        for needle in (rec["run_id"], "does not list", "not adopted",
+                       "new config name"):
+            self.assertIn(needle, msg)
+        self.assertEqual(self.runs_made(), 1)
+
+    def test_status_adopts_only_the_records_own_run(self):
+        """A record without a run id at status (not reached through
+        run_steps, which writes the handle only after submit saved the id)
+        adopts a run only by the params the record holds."""
+        name = "cfgR00_00.g4bl"
+        self.kit.submit(name, step_params(), [], [], "w")
+        path = self.record_path(name)
+        rec = json.loads(path.read_text())
+        rec["run_id"] = None
+        rec["params"] = dict(self.sent_params(), Tlength="200.0")
+        path.write_text(json.dumps(rec))
+        with self.assertRaises(KitError) as cm:
+            self.kit.status(name, "w")
+        self.assert_not_adopted(cm, name, "Tlength='160.0' (this step: "
+                                "'200.0')")
+        del rec["params"]                       # a record from before
+        path.write_text(json.dumps(rec))
+        with self.assertRaises(KitError) as cm:
+            self.kit.status(name, "w")
+        self.assert_not_adopted(cm, name, "holds no params")
+        rec["params"] = self.sent_params()
+        path.write_text(json.dumps(rec))
         self.assertEqual(self.kit.status(name, "w").state, "working")
 
     def test_counts(self):
