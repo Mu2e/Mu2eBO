@@ -373,6 +373,40 @@ class TestAKitBumpInFlight(_Point):
         state = self.tmp / "grid" / "p1" / "state"
         self.assertFalse((state / "toy_submit.json").exists())
 
+    def test_a_point_upgraded_mid_flight_resumes_every_step(self):
+        """The state a point started by the earlier code has when the new
+        code resumes it (bpzup08/09 at the 2026-10-08 merge): one step
+        finished, one in flight, one not yet submitted, and no submit
+        record anywhere. The finished step is adopted, the in-flight one
+        polled, and only the new submit gets a record."""
+        def with_late(doc):
+            _with_slow(doc)
+            doc["evaluate"].append(dict(doc["evaluate"][0], step="late"))
+            doc["extra_metrics"].append({"name": "late_branin",
+                                         "metric": "late.branin",
+                                         "fmt": "{:.6f}"})
+        study = toy_study(self.studies, with_late, name="upgradetoy")
+
+        def before(state):
+            (state / "toy_results.json").write_text(json.dumps(
+                {"step": "toy", "kit": "toykit", "kit_version": "1",
+                 "handle": "p1.toy", "params": {}, "inputs": [],
+                 "metrics": {"branin": 1.0, "currin": 2.0, "n_inputs": 0.0},
+                 "files": [], "metadata": {}}))
+            (state / "slow_cluster.txt").write_text("p1.slow\n")
+
+        kit = _VersionedKit("1")
+        rc, out, board = self.run_main(study, kit, before)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(kit.submits, ["p1.late"])
+        self.assertEqual(board.measure_shas(),
+                         {study.measure_sha({"toykit": "1"})})
+        state = self.tmp / "grid" / "p1" / "state"
+        self.assertFalse((state / "toy_submit.json").exists())
+        self.assertFalse((state / "slow_submit.json").exists())
+        self.assertEqual(json.loads((state / "late_submit.json").read_text()),
+                         {"kit": "toykit", "kit_version": "1"})
+
     def test_a_resume_at_the_submit_version_adopts_the_job(self):
         s = self.add_study(lambda d: d["evaluate"][0]["fixed"].update(
             delay_s=4.0))

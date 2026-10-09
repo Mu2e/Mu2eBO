@@ -245,14 +245,32 @@ class TestFailures(unittest.TestCase):
         self.assertTrue(any("[pool] FATAL" in ln and "0 in flight" in ln
                             for ln in lines), lines)
 
+    def test_a_landed_row_counts_even_when_broken_cannot_be_read(self):
+        """broken.txt is read only for a child with no row: a transient
+        error on it (ESTALE on CephFS) must not turn landed rows into a
+        no-row streak and abort a healthy campaign."""
+        def stale(name):
+            raise OSError(116, "Stale file handle")
+        next_pick, _ = _picker()
+        res = pool.run_rolling(picker="p", q=2, max_evals=4,
+                               run_child=lambda name, x: 0,
+                               next_pick=next_pick, stagger=0,
+                               row_landed=_ROW_LANDED, broken=stale,
+                               log=lambda m: None)
+        self.assertEqual(res["rows"], 4)
+        self.assertFalse(res["aborted"])
+        self.assertEqual({oc.reason for oc in res["outcomes"]}, {"ok"})
+
     def test_a_raising_row_or_broken_check_is_that_childs_outcome(self):
-        """Fail closed (row_landed never fails open): the child counts as
-        rowless, toward the no-row streak, and keeps its log line."""
-        for check, fake in (("row_landed", _ROW_LANDED),
-                            ("broken", _NOT_BROKEN)):
+        """Fail closed (row_landed never fails open): a child whose row was
+        not seen counts as rowless, toward the no-row streak, and keeps its
+        log line."""
+        no_row_for_c0 = lambda name: name != "c0"  # noqa: E731
+        for check, rows, fake in (("row_landed", _ROW_LANDED, _ROW_LANDED),
+                                  ("broken", no_row_for_c0, _NOT_BROKEN)):
             with self.subTest(check=check):
                 lines, seen = [], []
-                checks = {"row_landed": _ROW_LANDED, "broken": _NOT_BROKEN,
+                checks = {"row_landed": rows, "broken": _NOT_BROKEN,
                           check: _eio_for_c0(fake)}
                 next_pick, _ = _picker()
                 res = pool.run_rolling(picker="p", q=2, max_evals=3,

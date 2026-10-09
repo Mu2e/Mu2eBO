@@ -142,7 +142,11 @@ def run_rolling(picker, q, max_evals, *, run_child, next_pick, row_landed,
             rc = 1
             log(f"[pool] {name} raised: {exc}")
         try:
-            oc = classify(name, x, rc, row_landed(name), broken(name))
+            # broken.txt is read only when no row landed: a landed row
+            # decides the outcome, so an error reading broken.txt cannot
+            # turn it into a rowless child.
+            landed = row_landed(name)
+            oc = classify(name, x, rc, landed, (not landed) and broken(name))
         except Exception as exc:  # noqa: BLE001
             # Fail closed: a row nobody could see is not counted, so the
             # child adds to the no-row streak like any rowless exit.

@@ -359,8 +359,14 @@ class CampaignService:
             refusals = self._launch_refusals(name_prefix)
             if refusals:
                 out.update(ok=False, problems=refusals + out["problems"])
-            out.update(command=command,
-                       budget=self.budget(study, max_evals, executor))
+            try:
+                budget = self.budget(study, max_evals, executor)
+            except ValueError as exc:
+                # Loud, and the check's own output still comes back.
+                budget = None
+                out.update(ok=False, problems=out["problems"] + [
+                    f"the job budget cannot be counted: {exc}"])
+            out.update(command=command, budget=budget)
             return out
         return self._launch(name_prefix, study, argv, command)
 

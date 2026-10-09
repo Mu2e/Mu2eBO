@@ -271,6 +271,19 @@ class TestStart(_Camp):
                      "STOP"):
             self.assertFalse((self.svc.camp("dry").path / name).exists(), name)
 
+    def test_a_job_count_error_is_a_problem_of_the_dry_run(self):
+        """A budget its kits cannot count fails the dry run loudly, and the
+        check's own output still comes back with it."""
+        why = "step 'mubeam': no njobs in the step or its stage template"
+        with mock.patch.object(self.svc, "budget",
+                               side_effect=ValueError(why)):
+            out = self.svc.start_campaign("branin", "dry", 1, 2, **self.KW)
+        self.assertFalse(out["ok"], out)
+        self.assertIsNone(out["budget"])
+        self.assertTrue(any(why in p for p in out["problems"]), out)
+        self.assertIn("--name-prefix dry", out["command"])
+        self.assertTrue(out["output_tail"], out)
+
     def test_a_refused_dry_run(self):
         out = self.svc.start_campaign("branin", "dry", 1, 2,
                                       context=["alpha=1"], **self.KW)
