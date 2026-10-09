@@ -199,6 +199,38 @@ VALIDATORS: Dict[str, Callable] = {
     "fraction": _fraction, "flag": _flag, "path": _path}
 
 
+# How many jobs one point's step submits, for the start_campaign dry run's
+# budget (service/campaigns.py). Each KitDecl names one of these as its
+# jobs_of: (study, step) -> the count, or a str saying why the step has no
+# one count.
+
+def no_jobs(study, step):
+    """A kit that submits no jobs: an analysis, the pre-check, a toy."""
+    return 0
+
+
+def njobs_of(study, step):
+    """A step that submits `njobs` jobs per point: the step's fixed value,
+    else its stage template's (prodtools_entry.entry_for_step takes the same
+    default at submit). A step that maps njobs (params or params_from) gets
+    it from the point, so it has no one count: a str saying so. Set nowhere
+    is a ValueError: the submit would be refused."""
+    for part in ("params", "params_from"):
+        source = getattr(step, part).get("njobs")
+        if source is not None:
+            return (f"step {step.step!r} maps njobs from {source!r} "
+                    f"({part}), so each point has its own count")
+    if "njobs" in step.fixed:
+        return step.fixed["njobs"]
+    template = study.entry_template(step.step)    # None: the kit takes none
+    if template is not None and "njobs" in template:
+        return _positive_int(template["njobs"],
+                             f"step {step.step!r}: stage template njobs")
+    raise ValueError(f"step {step.step!r} ({step.kit}): njobs is in neither "
+                     f"its fixed values nor its stage template, so its job "
+                     f"count is unknown and its submit would be refused")
+
+
 @dataclass(frozen=True)
 class KitDecl:
     name: str
@@ -215,6 +247,8 @@ class KitDecl:
     factory: Optional[str]            # "module.path:Name" relative to core/;
                                       # None for a native (kits.toml) kit
     reserved_params: FrozenSet[str]   # names a step's params may not map
+    jobs_of: Callable                 # (study, step) -> jobs per point, or
+                                      # why none is fixed (no_jobs, njobs_of)
 
 
 KITS: Dict[str, KitDecl] = {d.name: d for d in (
@@ -228,7 +262,8 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             executors=("grid", "local"), launch_stagger_s=90.0,
             requires_kerberos=True, names_runs_after_config=True,
             factory="adapters.prodtools:ProdtoolsKit",
-            reserved_params=frozenset()),
+            reserved_params=frozenset(), jobs_of=njobs_of),
+    # The pre-check runs one event on this node, before any step.
     KitDecl("offline_preflight",
             study_keys={"code_tarball": _path, "dumps_gdml": _flag,
                         "verifies_foil_gdml": _flag,
@@ -239,7 +274,9 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             executors=("grid", "local"), launch_stagger_s=0.0,
             requires_kerberos=False, names_runs_after_config=True,
             factory="adapters.offline_preflight:OfflinePreflightKit",
-            reserved_params=frozenset()),
+            reserved_params=frozenset(), jobs_of=no_jobs),
+    # An analysis reads an earlier step's files; its mu2e jobs run where
+    # the analysis server runs, not as grid jobs.
     KitDecl("anakit",
             study_keys={"musing": _musing},
             fixed_keys={"analysis": _string, "upstream_eff": _number,
@@ -250,7 +287,7 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             executors=("grid", "local"), launch_stagger_s=0.0,
             requires_kerberos=False, names_runs_after_config=False,
             factory="adapters.anakit:AnakitKit",
-            reserved_params=frozenset()),
+            reserved_params=frozenset(), jobs_of=no_jobs),
     # G4beamline through the beamkit MCP server (core/adapters/beamkit.py).
     # Knobs reach the deck as command-line params, so a step's params name
     # deck params; the adapter's own settings and beamkit's worker params
@@ -271,7 +308,8 @@ KITS: Dict[str, KitDecl] = {d.name: d for d in (
             executors=("grid",), launch_stagger_s=90.0,
             requires_kerberos=True, names_runs_after_config=True,
             factory="adapters.beamkit:BeamkitKit",
-            reserved_params=frozenset(BEAMKIT_OWN + BEAMKIT_RESERVED)),
+            reserved_params=frozenset(BEAMKIT_OWN + BEAMKIT_RESERVED),
+            jobs_of=njobs_of),
 )}
 
 for _decl in KITS.values():
@@ -356,6 +394,9 @@ NATIVE = load_kit_configs()
 
 
 def _native_decl(cfg) -> KitDecl:
+    # kits.toml has no key for a job count, as it has none for a Kerberos
+    # need: a native kit declares no jobs, and one that submits them needs
+    # that key first.
     return KitDecl(cfg.name,
                    study_keys={k: VALIDATORS[t]
                                for k, t in cfg.study_keys.items()},
@@ -366,7 +407,8 @@ def _native_decl(cfg) -> KitDecl:
                    executors=cfg.executors,
                    launch_stagger_s=cfg.launch_stagger_s,
                    requires_kerberos=False, names_runs_after_config=False,
-                   factory=None, reserved_params=frozenset())
+                   factory=None, reserved_params=frozenset(),
+                   jobs_of=no_jobs)
 
 
 _clash = sorted(set(NATIVE) & set(KITS))
@@ -382,6 +424,17 @@ def kits_of(study) -> set:
     if study.preflight is not None:
         names.add(study.preflight["kit"])
     return names
+
+
+def step_jobs(study, step):
+    """The jobs one point's `step` submits, as its kit counts them
+    (KitDecl.jobs_of): an int, or a str saying why the step has no one
+    count. A kit this registry does not declare is a ValueError."""
+    decl = KITS.get(step.kit)
+    if decl is None:
+        raise ValueError(f"step {step.step!r}: kit {step.kit!r} is not "
+                         f"declared, so its job count is unknown")
+    return decl.jobs_of(study, step)
 
 
 def validate(kit: str, raw, table: Dict[str, Callable], where: str, *,
