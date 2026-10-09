@@ -12,11 +12,17 @@ lists {path, size}. A deck_ref of forty "f" is refused, as an unfetchable
 sha would be; forty "e" creates the run and then fails, as beamkit does
 when the first tick loses prodtools' ledger lock. A run's "fail_status": n
 fails the next n beamline_status calls (a transient error).
+list_beamline_runs gives each run's tag, params, job counts and created
+time as beamkit's run record holds them (created is the real time of the
+run_beamline call, in beamkit's format); a run's "created" can be set by a
+test, and its "omit": [keys] drops those keys from its listing (a run the
+listing cannot vouch for).
 
 No `from __future__ import annotations` here (see tests/toykit.py).
 """
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -64,7 +70,10 @@ def make_server():
         run_id = f"{tag}.{deck_ref[:7]}"
         run = {"args": args, "files": [],
                "queue": {"state": "known", "idle": njobs, "running": 0,
-                         "held": 0}}
+                         "held": 0},
+               # beamkit's records.now_utc
+               "created": datetime.now(timezone.utc).isoformat(
+                   timespec="seconds")}
         preset = STATE / "preset.json"
         if preset.exists():     # a test's finished run: queue and files
             run.update(json.loads(preset.read_text()))
@@ -86,8 +95,19 @@ def make_server():
         runs = sorted((p for p in STATE.glob("*.json")
                        if p.name not in ("preset.json",)),
                       key=lambda p: p.stat().st_mtime, reverse=True)
-        out = [{"run_id": p.stem, "tag": json.loads(p.read_text())
-                ["args"]["tag"]} for p in runs]
+        out = []
+        for p in runs:
+            run = json.loads(p.read_text())
+            args = run["args"]
+            listed = {"run_id": p.stem, "tag": args["tag"],
+                      "params": ({} if args["params"] is None
+                                 else args["params"]),
+                      "njobs": args["njobs"],
+                      "events_per_job": args["events_per_job"],
+                      "created": run["created"]}
+            for key in run.get("omit", []):
+                listed.pop(key, None)
+            out.append(listed)
         return {"records_dir": str(STATE), "count": len(out), "runs": out}
 
     @server.tool()
