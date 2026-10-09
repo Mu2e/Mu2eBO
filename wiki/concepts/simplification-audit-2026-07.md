@@ -7,7 +7,9 @@ description: 'delete/keep map EXECUTED through 2026-07-18 (Tier 1 batch + ipa +
   Run1BAna); venv pair consolidated to one .venv 2026-07-18; Tier-2 botorch_predict.py
   test-gap verification note SUPERSEDED 2026-07-19 (unit tests landed)'
 status: active
-timestamp: '2026-08-02'
+timestamp: '2026-09-24'
+updated_note: 'repointed a stale core/mode_json.py mention (deleted
+  2026-09-24, Phase A generic-study Task 9) to core/study.py'
 ---
 
 # Simplification audit 2026-07 — verified delete/keep map
@@ -253,6 +255,11 @@ pipeline stages and all 6 template dirs are reachable from some mode's
   `_reject_unknown` is strict: any window where the validator and a spec
   file disagree crashes the next `propose`/`evaluate`/`preflight` of
   every in-flight child. Do it between campaigns, in one commit.
+  (`core/mode_json.py` deleted 2026-09-24; replaced by `core/study.py`, the
+  schema-2 loader — its `_obj`/`_reject_unknown`-equivalent strict-key
+  checking is the same "any disagreement is a load error" posture, so this
+  item's shape survives the file's deletion even though the specific
+  symbol name is gone.)
 - **`EvalSummary.trk_edep_{per_pot,total_MeV,events,tag}` are dead**, and
   the 2026-07-18 rationale for keeping them ("archived summary.json
   back-compat") is **refuted**: `EvalSummary` is serialize-only

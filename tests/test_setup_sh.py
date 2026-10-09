@@ -4,6 +4,7 @@ Mirrors muse's verbs: --status is `muse status`, --backing is
 `muse backing`. Executed as a subprocess so we test the real script.
 """
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -13,13 +14,24 @@ ROOT = Path(__file__).resolve().parent.parent
 SETUP = ROOT / "setup.sh"
 
 
-def run(*args, env=None):
+def run(*args, env=None, root=ROOT):
     e = dict(os.environ)
     e.pop("PYTHONPATH", None)
     if env:
         e.update(env)
-    return subprocess.run([str(SETUP), *args], capture_output=True,
-                          text=True, env=e, cwd=str(ROOT))
+    return subprocess.run([str(root / "setup.sh"), *args], capture_output=True,
+                          text=True, env=e, cwd=str(root))
+
+
+def scratch_repo(td):
+    """setup.sh and core/paths.py copied to <td>/repo: a checkout of our own
+    to make and remove links in, whatever the real one holds (a fresh
+    install has a backing link and no .venv; a dev checkout the reverse)."""
+    repo = Path(td) / "repo"
+    (repo / "core").mkdir(parents=True)
+    shutil.copy2(SETUP, repo / "setup.sh")
+    shutil.copy2(ROOT / "core" / "paths.py", repo / "core" / "paths.py")
+    return repo
 
 
 class TestSetupSh(unittest.TestCase):
@@ -45,28 +57,33 @@ class TestSetupSh(unittest.TestCase):
         self.assertIn("usage", (r.stdout + r.stderr).lower())
 
     def test_backing_creates_and_removes_the_symlink(self):
-        link = ROOT / "backing"
-        self.assertFalse(link.exists() or link.is_symlink(),
-                         msg="a backing link already exists; refusing to "
-                             "clobber the operator's own link")
         with tempfile.TemporaryDirectory() as td:
-            try:
-                r = run("--backing", td)
-                self.assertEqual(r.returncode, 0, msg=r.stderr)
-                self.assertTrue(link.is_symlink())
-                self.assertEqual(os.path.realpath(link),
-                                 os.path.realpath(td))
-            finally:
-                run("--backing", "-r")
-        self.assertFalse(link.is_symlink())
+            repo = scratch_repo(td)
+            target = Path(td) / "target"
+            target.mkdir()
+            link = repo / "backing"
+            r = run("--backing", str(target), root=repo)
+            self.assertEqual(r.returncode, 0, msg=r.stderr)
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(os.path.realpath(link), os.path.realpath(target))
+            self.assertIn(str(target), run("--status", root=repo).stdout)
+            self.assertEqual(run("--backing", "-r", root=repo).returncode, 0)
+            self.assertFalse(link.is_symlink())
 
     def test_backing_at_a_nonexistent_path_is_refused(self):
-        r = run("--backing", "/no/such/dir")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertFalse((ROOT / "backing").is_symlink())
+        with tempfile.TemporaryDirectory() as td:
+            repo = scratch_repo(td)
+            r = run("--backing", "/no/such/dir", root=repo)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertFalse((repo / "backing").is_symlink())
 
     def test_status_reports_the_venv(self):
-        self.assertIn("VENV", run("--status").stdout)
+        with tempfile.TemporaryDirectory() as td:
+            repo = scratch_repo(td)
+            self.assertNotIn(".venv", run("--status", root=repo).stdout)
+            (repo / ".venv").symlink_to(td)
+            self.assertIn("AUTORESEARCH_VENV",
+                          run("--status", root=repo).stdout)
 
     def test_venv_refuses_to_clobber_an_existing_one(self):
         # The repo under test has its own .venv; a silent `ln -sfn` over a

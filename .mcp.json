@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "surrogate": {
+      "command": "/cvmfs/mu2e.opensciencegrid.org/env/ana/2.8.0/bin/python",
+      "args": ["surrogate/mcp_server.py"]
+    },
+    "autoresearch": {
+      "command": "/cvmfs/mu2e.opensciencegrid.org/env/ana/2.8.0/bin/python",
+      "args": ["service/server.py"]
+    }
+  }
+}

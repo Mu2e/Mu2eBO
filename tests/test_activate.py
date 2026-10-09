@@ -71,7 +71,7 @@ class TestNeverActivates(unittest.TestCase):
     each wrapper re-prepends the env's site-packages to PYTHONPATH and its
     lib/ to LD_LIBRARY_PATH on EVERY call. Exported bash functions cross into
     every child, so an activated shell would push a second ROOT/XRootD
-    binding into the harvest steps that run PyROOT under `muse setup`."""
+    binding into the analysis steps that run PyROOT under `muse setup`."""
 
     def test_does_not_source_pyenv(self):
         text = ACTIVATE.read_text()
@@ -92,6 +92,76 @@ class TestNeverActivates(unittest.TestCase):
         self.assertIn(pythonpath, ("", "unset"), f"PYTHONPATH gained {pythonpath!r}")
         self.assertNotIn("site-packages", out)
         self.assertEqual(out.split("FN=")[1].strip(), "")
+
+
+class TestKitCheckoutDefaults(unittest.TestCase):
+    """AUTORESEARCH_ANAKIT, AUTORESEARCH_PRODTOOLS and AUTORESEARCH_BEAMKIT
+    default to sibling
+    checkouts of the repo, but only when those directories exist: a missing
+    checkout stays unset, so the runner refuses with "not set" instead of
+    pointing a kit at a path that is not there. An exported value wins."""
+
+    def layout(self, tmp, *siblings):
+        """A copy of activate.sh at <tmp>/repo, a stand-in venv (no /cvmfs
+        needed), and the named sibling directories."""
+        root = Path(tmp)
+        (root / "repo").mkdir()
+        (root / "repo" / "activate.sh").write_text(ACTIVATE.read_text())
+        (root / "venv" / "bin").mkdir(parents=True)
+        (root / "venv" / "bin" / "python").symlink_to(sys.executable)
+        for s in siblings:
+            (root / s).mkdir(parents=True)
+        return root
+
+    def source(self, root, env_extra=None):
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("AUTORESEARCH_")}
+        env["AUTORESEARCH_VENV"] = str(root / "venv")
+        env.update(env_extra or {})
+        p = subprocess.run(
+            ["bash", "-c", f"source '{root / 'repo' / 'activate.sh'}' || exit 2\n"
+             'echo "A=${AUTORESEARCH_ANAKIT-unset}"\n'
+             'echo "P=${AUTORESEARCH_PRODTOOLS-unset}"\n'
+             'echo "B=${AUTORESEARCH_BEAMKIT-unset}"'],
+            env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return dict(line.split("=", 1) for line in p.stdout.split())
+
+    def test_existing_siblings_become_the_defaults(self):
+        with TemporaryDirectory() as tmp:
+            root = self.layout(tmp, "analysis-mcp-server", "prodtools",
+                               "beamkit")
+            out = self.source(root)
+            self.assertEqual(out["A"], str(root / "analysis-mcp-server"))
+            self.assertEqual(out["P"], str(root / "prodtools"))
+            self.assertEqual(out["B"], str(root / "beamkit"))
+
+    def test_prodtools_inside_a_muse_work_area_is_still_found(self):
+        with TemporaryDirectory() as tmp:
+            root = self.layout(tmp, "muse_050125/prodtools")
+            out = self.source(root)
+            self.assertEqual(out["P"], str(root / "muse_050125" / "prodtools"))
+
+    def test_plain_prodtools_sibling_wins_over_the_muse_one(self):
+        with TemporaryDirectory() as tmp:
+            root = self.layout(tmp, "prodtools", "muse_050125/prodtools")
+            out = self.source(root)
+            self.assertEqual(out["P"], str(root / "prodtools"))
+
+    def test_missing_siblings_stay_unset(self):
+        with TemporaryDirectory() as tmp:
+            out = self.source(self.layout(tmp))
+            self.assertEqual(out, {"A": "unset", "P": "unset", "B": "unset"})
+
+    def test_exported_values_win(self):
+        with TemporaryDirectory() as tmp:
+            root = self.layout(tmp, "analysis-mcp-server", "prodtools",
+                               "beamkit")
+            out = self.source(root, {"AUTORESEARCH_ANAKIT": "/elsewhere/a",
+                                     "AUTORESEARCH_PRODTOOLS": "/elsewhere/p",
+                                     "AUTORESEARCH_BEAMKIT": "/elsewhere/b"})
+            self.assertEqual(out, {"A": "/elsewhere/a", "P": "/elsewhere/p",
+                                   "B": "/elsewhere/b"})
 
 
 class TestResolvesThePublishedEnv(unittest.TestCase):
@@ -120,57 +190,6 @@ class TestResolvesThePublishedEnv(unittest.TestCase):
                        '2>/dev/null')
         self.assertEqual(rc, 0)
         self.assertEqual(out.strip(), "2", "published env must ship numpy 2.x")
-
-
-class TestLaunchersUseIt(unittest.TestCase):
-    def test_both_launchers_source_activate(self):
-        for script in ("run_grid.sh", "run_local.sh"):
-            text = (ROOT / "tools" / script).read_text()
-            self.assertIn("source activate.sh", text, script)
-
-    def test_launchers_never_call_a_bare_python(self):
-        """A bare `python` would take whatever PATH happens to hold -- on this
-        node, the system 3.9. Every call goes through the resolved path."""
-        for script in ("run_grid.sh", "run_local.sh"):
-            text = (ROOT / "tools" / script).read_text()
-            body = "\n".join(ln for ln in text.splitlines()
-                             if ln.strip() and not ln.lstrip().startswith("#"))
-            self.assertNotIn(" python ", body, script)
-            self.assertNotIn("exec python", body, script)
-            self.assertIn('"$AUTORESEARCH_PYTHON"', body, script)
-
-    def test_launchers_no_longer_activate_a_venv(self):
-        for script in ("run_grid.sh", "run_local.sh"):
-            text = (ROOT / "tools" / script).read_text()
-            self.assertNotIn(".venv/bin/activate", text, script)
-
-
-class TestPickerFollowsTheCaller(unittest.TestCase):
-    """The switch's quietest failure: launchers move to the published env
-    while the GP picker keeps shelling a repo-relative `.venv`, so the BO
-    math runs on a different torch than everything it was verified with."""
-
-    def _runtime_value(self, env_extra):
-        env = dict(os.environ, AUTORESEARCH_MODE="foilspf")
-        env.pop("AUTORESEARCH_BOTORCH_VENV", None)
-        env.update(env_extra)
-        env["PYTHONPATH"] = ""
-        p = subprocess.run(
-            [sys.executable, "-c",
-             "import sys;sys.path.insert(0,'core');import runtime;"
-             "print(runtime.BOTORCH_VENV_PY)"],
-            cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
-        self.assertEqual(p.returncode, 0, p.stderr)
-        return p.stdout.strip()
-
-    def test_defaults_to_the_running_interpreter(self):
-        self.assertEqual(self._runtime_value({}), sys.executable)
-
-    def test_ab_seam_still_names_a_repo_relative_venv(self):
-        """Keep the two-build A/B possible -- it is how a torch-version
-        difference in the picker gets measured."""
-        self.assertEqual(self._runtime_value({"AUTORESEARCH_BOTORCH_VENV": ".venv"}),
-                         str(ROOT / ".venv" / "bin" / "python"))
 
 
 if __name__ == "__main__":

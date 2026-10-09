@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campaigns</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d0d7de;
+  --waiting: #8c959f; --working: #0969da; --stall: #bf8700;
+  --done: #1a7f37; --failed: #cf222e; --node: #f6f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --line: #30363d;
+    --waiting: #6e7681; --working: #4493f8; --stall: #d29922;
+    --done: #3fb950; --failed: #f85149; --node: #161b22;
+  }
+}
+body { margin: 0; background: var(--bg); color: var(--fg);
+       font: 13px/1.4 system-ui, sans-serif; }
+#bar { position: sticky; top: 0; background: var(--bg); padding: 8px 16px;
+       border-bottom: 1px solid var(--line); display: flex; gap: 12px;
+       align-items: center; flex-wrap: wrap; }
+#dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.err { color: var(--failed); }
+.muted { color: var(--muted); }
+.camp { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.head { font-weight: 600; margin-bottom: 6px; }
+.scroll { overflow-x: auto; }
+svg text { fill: var(--fg); font-size: 12px; }
+svg .sub { fill: var(--muted); font-size: 10.5px; }
+svg .click { cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="bar"><span id="dot"></span><span id="when"></span>
+  <span id="errors" class="err"></span></div>
+<div id="camps"></div>
+<script>
+"use strict";
+const COLW = 180, NODEW = 160, NODEH = 36, ROWH = 46, PAD = 10;
+const COLOUR = {waiting: "waiting", working: "working", running: "working",
+  stall: "stall", done: "done", scored: "done", failed: "failed",
+  broken: "failed", ended: "failed"};
+const open = new Set();   // "prefix" (an ended campaign) or "prefix:scored"
+let snap = null;
+const SVG = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function hm(s) {
+  if (s === null || s === undefined) return "";
+  const m = Math.floor(s / 60);
+  return Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0");
+}
+function cut(s, n) { return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+function colour(state) {
+  return "var(--" + (COLOUR[state] || "waiting") + ")";
+}
+
+function drawNode(svg, n, x, y, onclick) {
+  const g = el("g", onclick ? {class: "click"} : {}, svg);
+  if (onclick) g.addEventListener("click", onclick);
+  el("title", {}, g, n.detail || n.label);
+  el("rect", {x, y, width: NODEW, height: NODEH, rx: 6, fill: "var(--node)",
+    stroke: colour(n.state), "stroke-width": n.best ? 3 : 1.5}, g);
+  el("text", {x: x + 8, y: y + 15}, g, cut((n.best ? "★ " : "") + n.label, 24));
+  let sub = n.kind === "point" ? n.state : "";
+  if (n.kind === "step") {
+    sub = n.state === "stall" ? "poller silent" : n.state;
+    if (n.age_s !== null && n.age_s !== undefined &&
+        (n.state === "working" || n.state === "stall"))
+      sub += " · " + hm(n.age_s);
+    const p = n.progress;
+    if (p && p.total) {
+      sub += " · " + p.done + "/" + p.total;
+      el("rect", {x: x + 1, y: y + NODEH - 4, height: 3, rx: 1.5,
+        width: (NODEW - 2) * Math.min(1, p.done / p.total),
+        fill: colour(n.state)}, g);
+    }
+  }
+  if (sub) el("text", {x: x + 8, y: y + 29, class: "sub"}, g, cut(sub, 30));
+}
+
+function drawCampaign(c) {
+  const div = document.createElement("div");
+  div.className = "camp";
+  const head = document.createElement("div");
+  head.className = "head";
+  const life = c.alive ? "alive" : "ended" +
+    (c.exit_code !== null ? " rc=" + c.exit_code : "");
+  head.textContent = [c.prefix, c.study || "?", life,
+    c.rows + (c.max_evals ? "/" + c.max_evals : "") + " rows",
+    c.best_label ? "best " + c.best_label : ""].filter(Boolean).join(" · ");
+  if (c.stopping && c.alive) head.textContent += " · stopping";
+  div.appendChild(head);
+  if (c.error) {
+    const e = document.createElement("div");
+    e.className = "err"; e.textContent = c.error; div.appendChild(e);
+  }
+  const box = document.createElement("div");
+  box.className = "scroll"; div.appendChild(box);
+  const g = c.graph, expanded = !c.collapsed || open.has(c.prefix);
+  const toggle = key => () => {
+    open.has(key) ? open.delete(key) : open.add(key); render(); };
+  const pos = {}, rows = [];
+  let row = 0;
+  if (expanded) {
+    const folded = g.bands.filter(b => b.fold === "scored");
+    let foldDrawn = false;
+    for (const b of g.bands) {
+      if (b.fold === "scored" && !open.has(c.prefix + ":scored")) {
+        if (foldDrawn) continue;
+        foldDrawn = true;
+        rows.push({row, node: {id: c.prefix + ":fold", kind: "fold",
+          layer: 1, subrow: 0, state: "scored", label: folded.length +
+          " scored" + (c.best_label ? ", best " + c.best_label : ""),
+          detail: "click to show the scored points"},
+          click: toggle(c.prefix + ":scored")});
+        pos[c.prefix + ":fold"] = row;
+        row += 1;
+        continue;
+      }
+      for (const n of b.nodes) {
+        const click = b.fold === "scored" && n.kind === "point"
+          ? toggle(c.prefix + ":scored") : null;
+        rows.push({row: row + n.subrow, node: n, click});
+        pos[n.id] = row + n.subrow;
+      }
+      row += b.height;
+    }
+  }
+  const height = PAD * 2 + Math.max(1, row) * ROWH;
+  const width = PAD * 2 + (expanded ? g.columns : 1) * COLW;
+  const svg = el("svg", {width, height, viewBox: `0 0 ${width} ${height}`});
+  const xy = (layer, r) => [PAD + layer * COLW, PAD + r * ROWH];
+  const layerOf = {};
+  rows.forEach(r => { layerOf[r.node.id] = r.node.layer; });
+  pos.campaign = 0; layerOf.campaign = 0;
+  if (expanded) {
+    const edges = g.edges.map(([a, b]) => [a, b]);
+    if (pos[c.prefix + ":fold"] !== undefined)
+      edges.push(["campaign", c.prefix + ":fold"]);
+    for (const [a, b] of edges) {
+      if (pos[a] === undefined || pos[b] === undefined) continue;
+      const [x1, y1] = xy(layerOf[a], pos[a]), [x2, y2] = xy(layerOf[b], pos[b]);
+      const sx = x1 + NODEW, sy = y1 + NODEH / 2, ey = y2 + NODEH / 2;
+      el("path", {d: `M${sx},${sy} C${sx + 20},${sy} ${x2 - 20},${ey} ${x2},${ey}`,
+        fill: "none", stroke: "var(--line)", "stroke-width": 1.5}, svg);
+    }
+  }
+  const [cx, cy] = xy(0, 0);
+  drawNode(svg, {kind: "campaign", label: c.prefix,
+    state: c.alive ? "running" : (c.rows ? "done" : "failed"),
+    detail: expanded && !c.alive ? "click to collapse" :
+      (!expanded ? "click to expand" : c.prefix)}, cx, cy,
+    c.alive ? null : toggle(c.prefix));
+  for (const r of rows) {
+    const [x, y] = xy(r.node.layer, r.row);
+    drawNode(svg, r.node, x, y, r.click);
+  }
+  box.appendChild(svg);
+  return div;
+}
+
+function age() {
+  if (!snap) return;
+  const a = Date.now() / 1000 - snap.time, e = snap.every_s;
+  document.getElementById("dot").style.background = colour(
+    a <= 2 * e ? "done" : a <= 3 * e ? "stall" : "failed");
+  document.getElementById("when").textContent = "snapshot " + hm(a) +
+    " old · built " + new Date(snap.time * 1000).toLocaleTimeString() +
+    " on " + snap.host;
+}
+
+function render() {
+  const camps = document.getElementById("camps");
+  camps.replaceChildren(...snap.campaigns.map(drawCampaign));
+  document.getElementById("errors").textContent = snap.errors.join("; ");
+  if (!snap.campaigns.length)
+    camps.textContent = "No campaign in the last few days.";
+  age();
+}
+
+function load() {
+  fetch("snapshot.json?t=" + Date.now())
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(s => { snap = s; render(); })
+    .catch(e => { document.getElementById("errors").textContent =
+      "cannot read snapshot.json: " + e.message; age(); });
+}
+load();
+setInterval(load, 60000);
+setInterval(age, 10000);
+</script>
+</body>
+</html>

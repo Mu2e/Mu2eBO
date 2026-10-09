@@ -1,0 +1,149 @@
+{
+ "schema": 2,
+ "name": "ce_chain",
+ "note": "The CeEndpoint production chain as a zero-knob study: dts -> dig -> mcs -> nts on SimJob MDC2025ax through AnalysisMDC2025 v02_02_02, then an anakit plot step. Runs through graph.run only. Its count of selected events stands in for the objective the loader demands. The plot step is M. MacKenzie's trigger_efficiency_ntuple. The ntuple is the triggered stream, so its efficiency is conditional: this checks the chain, not the trigger. See docs/superpowers/specs/2026-09-30-ce-chain-design.md and docs/superpowers/specs/2026-10-07-upstream-analyses-design.md.",
+ "knobs": [],
+ "derive": {
+  "consts": {},
+  "exprs": {},
+  "profiles": {}
+ },
+ "geom": {
+  "writer": "offline_simpleconfig",
+  "base": "Offline/Mu2eG4/geom/geom_run1_a.txt",
+  "lines": []
+ },
+ "kits": {
+  "prodtools": {
+   "code_tarball": "${ARTIFACT}/autoresearch_muse/Code_ana_v020202.tar.bz2",
+   "dsconf": "MDC2025ax_{cfg}",
+   "fatal_log_codes": []
+  },
+  "anakit": {
+   "musing": "SimJob MDC2025ay"
+  }
+ },
+ "preflight": null,
+ "evaluate": [
+  {
+   "step": "ce",
+   "kit": "prodtools",
+   "entry": "ce_dts",
+   "files": [
+    "geom"
+   ],
+   "files_from": [],
+   "params": {},
+   "params_from": {},
+   "fixed": {
+    "njobs": 1,
+    "events_per_job": 100,
+    "memory_mb": 3000,
+    "quorum": 1.0
+   }
+  },
+  {
+   "step": "dig",
+   "kit": "prodtools",
+   "entry": "ce_dig",
+   "files": [
+    "geom"
+   ],
+   "files_from": [
+    "ce"
+   ],
+   "params": {},
+   "params_from": {},
+   "fixed": {
+    "njobs": 1,
+    "memory_mb": 3000,
+    "quorum": 1.0
+   }
+  },
+  {
+   "step": "mcs",
+   "kit": "prodtools",
+   "entry": "ce_mcs",
+   "files": [
+    "geom"
+   ],
+   "files_from": [
+    "dig"
+   ],
+   "params": {},
+   "params_from": {},
+   "fixed": {
+    "njobs": 1,
+    "memory_mb": 4000,
+    "quorum": 1.0
+   }
+  },
+  {
+   "step": "nts",
+   "kit": "prodtools",
+   "entry": "ce_nts",
+   "files": [
+    "geom"
+   ],
+   "files_from": [
+    "mcs"
+   ],
+   "params": {},
+   "params_from": {},
+   "fixed": {
+    "njobs": 1,
+    "memory_mb": 3000,
+    "quorum": 1.0
+   }
+  },
+  {
+   "step": "plot",
+   "kit": "anakit",
+   "entry": null,
+   "files": [],
+   "files_from": [
+    "nts"
+   ],
+   "params": {},
+   "params_from": {},
+   "fixed": {
+    "analysis": "trigger_efficiency_ntuple",
+    "trigger_paths": "apr_TrkDe_80m70p, cpr_TrkDe_80m70p"
+   }
+  }
+ ],
+ "objectives": [
+  {
+   "name": "n_selected",
+   "metric": "plot.n_selected",
+   "direction": "max",
+   "transform": "none",
+   "noise": 1.0,
+   "fmt": "{:.0f}"
+  }
+ ],
+ "constraints": [],
+ "extra_metrics": [
+  {
+   "name": "efficiency",
+   "metric": "plot.efficiency",
+   "fmt": "{:.4f}"
+  },
+  {
+   "name": "n_triggered",
+   "metric": "plot.n_triggered",
+   "fmt": "{:.0f}"
+  },
+  {
+   "name": "n_events",
+   "metric": "plot.n_events",
+   "fmt": "{:.0f}"
+  }
+ ],
+ "extra_columns": [],
+ "leaderboard": {
+  "file": "leaderboards/leaderboard_ce_chain_upstream.tsv",
+  "layout": "v2",
+  "context": []
+ }
+}

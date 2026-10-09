@@ -1,0 +1,16 @@
+{
+ "_comment": "Step nts of ce_chain (docs/superpowers/specs/2026-09-30-ce-chain-design.md): EventNtuple from the reconstructed events (from_mcs-mockdata); needs the AnalysisMDC2025 code tarball.",
+ "desc_fmt": "CeEndpointOnSpillNtuple_{cfg}",
+ "output_glob": "nts.*.CeEndpointOnSpillTriggered.*.root",
+ "njobs": 1,
+ "fcl": "EventNtuple/fcl/from_mcs-mockdata.fcl",
+ "fcl_overrides": {
+  "services.GeometryService.inputFile": "{geom}",
+  "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt",
+  "services.TFileService.fileName": "nts.owner.CeEndpointOnSpillTriggered.version.sequencer.root"
+ },
+ "outloc": {
+  "*.art": "outstage",
+  "*.root": "outstage"
+ }
+}

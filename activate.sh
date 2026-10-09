@@ -10,10 +10,17 @@
 #   AUTORESEARCH_VENV=/path/to/venv source activate.sh   # a writable venv
 #   AUTORESEARCH_PYENV="ana 2.9.0"  source activate.sh   # a different release
 #
+# AUTORESEARCH_SURROKIT: path to the surrokit engine checkout
+# (default: the repo's sibling directory ../surrokit; see core/paths.py).
+# AUTORESEARCH_ANAKIT / AUTORESEARCH_PRODTOOLS / AUTORESEARCH_BEAMKIT: the kit
+# checkouts; exported here from sibling directories when unset (see the end
+# of this file).
+#
 # Why a published env: a personal /exp venv is one operator's directory, so a
 # second person, a cron job, or a fresh node has nothing to point at.
-# requirements.lock pins WHAT we depend on; this pins the interpreter those
-# pins were verified against.
+# requirements.txt lists WHAT we depend on; the published prefix pins the
+# interpreter AND the resolution, immutably -- which is why this project
+# stopped carrying a lockfile of its own.
 #
 # The version is ALWAYS explicit. `pyenv ana` with no version silently means
 # 2.7.0 (pyenv.sh:40) and `current` is 2.6.1 -- both ship numpy 1.26, which
@@ -75,3 +82,29 @@ if ! PYTHONPATH= "$AUTORESEARCH_PYTHON" -c 'import sys' 2>/dev/null; then
          "($AUTORESEARCH_PYTHON_SOURCE)" >&2
     return 1
 fi
+
+# The kit checkouts the engine starts servers from (kits.toml,
+# core/adapters/). An exported value always wins. Otherwise each defaults to
+# a sibling of this repo, the convention AUTORESEARCH_SURROKIT already uses
+# (core/paths.py): the anakit checkout at ../analysis-mcp-server and prodtools
+# at ../prodtools, or else inside a Muse work area at ../muse_050125/prodtools.
+# A default is taken only when that directory exists. A missing one stays
+# unset, so the runner refuses with "not set" rather than pointing a kit at
+# a path that is not there.
+_parent="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -z "${AUTORESEARCH_ANAKIT:-}" && -d "$_parent/analysis-mcp-server" ]]; then
+    export AUTORESEARCH_ANAKIT="$_parent/analysis-mcp-server"
+fi
+if [[ -z "${AUTORESEARCH_PRODTOOLS:-}" ]]; then
+    for _d in "$_parent/prodtools" "$_parent/muse_050125/prodtools"; do
+        if [[ -d "$_d" ]]; then
+            export AUTORESEARCH_PRODTOOLS="$_d"
+            break
+        fi
+    done
+    unset _d
+fi
+if [[ -z "${AUTORESEARCH_BEAMKIT:-}" && -d "$_parent/beamkit" ]]; then
+    export AUTORESEARCH_BEAMKIT="$_parent/beamkit"
+fi
+unset _parent

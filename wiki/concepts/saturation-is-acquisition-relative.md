@@ -6,7 +6,7 @@ description: '"saturated" = flat acquisition signal, NOT fully-mapped front (foi
   (foilspfbp 2026-08-06) — use budget-conditioned best-sob + Pareto-front bound-hitting;
   end-of-campaign checklist: corner-picker round + sibling-champion transplant probes'
 status: active
-timestamp: '2026-08-09'
+timestamp: '2026-09-24'
 updated_note: 'second production confirmation: foilspfbpz04 pareto_sob round broke the 4.33 "ceiling" to 4.37'
 ---
 
@@ -37,8 +37,11 @@ knew it.
   the ceiling, it does not reopen deployment. Checklist status: the
   end-of-campaign corner-picker round is now 2-for-2 (SOBX01 transplant,
   bpz04) at finding tail the acquisition had abandoned. (`pareto_sob` was
-  retired 2026-08-19; the corner round is now `budget_sob` — raise
-  `AUTORESEARCH_FLASH_BUDGET` for an unconstrained ceiling-mapping round.)
+  retired 2026-08-19; the corner round is now `budget_sob` — raise the
+  budget for an unconstrained ceiling-mapping round. Since 2026-09-24 that
+  means editing the study's `constraints[0].max` in place for the round;
+  the `AUTORESEARCH_FLASH_BUDGET` env var is removed and setting it is
+  fatal — see [budget-sob-picker](/concepts/budget-sob-picker.md).)
 - **★ THE SCALAR RECORD IS THE WRONG SATURATION TEST (foilspfbp, 2026-08-06).**
   Four campaigns at a fixed 9D box (83 evals) moved the sob ceiling
   4.16 → 4.33 (+4%) — but the ceiling is a 1-D shadow of a 2-D problem, and

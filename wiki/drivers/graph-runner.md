@@ -3,8 +3,9 @@ type: driver
 title: graph-runner — LangGraph orchestrator for the BO loop
 description: LangGraph state-machine orchestrator (Phase 1 mock-grid); Studio +
   Streamlit overlay
-status: active
-timestamp: '2026-07-08'
+status: superseded
+status_note: 'deleted in Phase C3 (2026-09-28); see contract-engine'
+timestamp: '2026-09-28'
 updated_note: headless-log format gotcha
 ---
 
@@ -20,6 +21,8 @@ updated_note: headless-log format gotcha
 > not node names.
 
 ## Summary
+Deleted in Phase C3 (2026-09-28); see [contract-engine](/drivers/contract-engine.md), "Pipeline deleted (Phase C3)". The rest of this page is the historical record.
+
 LangGraph runner that replaces the manual `propose → preflight → submit → poll
 → harvest → evaluate` script chain with a state-machine graph. Provides
 checkpointed iteration state, visual step-through in LangGraph Studio, and a

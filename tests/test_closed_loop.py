@@ -1,222 +1,537 @@
-"""Self-tests for graph/closed_loop.py — pure-ish, no grid contact.
-
-Run from project root:
-  python -m unittest tests.test_closed_loop -v
-
-The barrier/checkpoint/graph machinery (node_assign_names, node_launch_children,
-node_barrier, node_decide_next, route_after_decide, _build_outer_graph,
-is_child_terminal) is gone -- the parent is now graph/pool.py's bounded
-work-pool (see tests/test_pool.py). What remains here are the pieces
-graph/pool.py still depends on: the picker subprocess wrapper, the renew-
-token gate, and the child-broken signal.
-"""
-import argparse
 import contextlib
 import io
+import json
 import os
+import subprocess
 import sys
 import tempfile
+import time
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "graph"))
-sys.path.insert(0, str(PROJECT_ROOT / "core"))  # BO/pipeline modules (2026-07-17 reorg)
-
-# closed_loop.py calls modes.stamp_mode_from_argv() at import, which only
-# stamps when "--mode <spec>" is on the command line (real launches always
-# pass it) or an already-set AUTORESEARCH_MODE; under `-m unittest` there is
-# no such flag, so core/runtime.py's module-level
-# `_modes.SPECS[os.environ.get("AUTORESEARCH_MODE", _modes.DEFAULT_MODE)]`
-# decides. tests/__init__.py stamps the suite's mode once for the whole
-# process -- this setdefault is only reached by `discover -s tests` without
-# `-t .`, which never imports the package __init__. It must therefore agree
-# with tests/__init__.py; it used to say "foilsflash" and, because this file
-# sorts first under discovery, silently pinned the ENTIRE suite to foilsflash.
-os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
-import closed_loop as cl  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "graph"))
+sys.path.insert(0, str(ROOT / "core"))
+sys.path.insert(0, str(ROOT))
+import paths  # noqa: E402
+import closed_loop  # noqa: E402
+import study as st  # noqa: E402
+from tests import toykit  # noqa: E402
+from tests.engine_fixtures import (ENGINE_STUDIES, EngineCase,  # noqa: E402
+                                   TmpCase, board_rows, engine_env, submits,
+                                   toy_doc, toy_study, write_study)
 
 
-class TestRenewToken(unittest.TestCase):
-    """renew_token() is a plain zero-arg callable (no more RoundState/round_idx
-    shape) wired into run_rolling as `renew=renew_token` -- see
-    tests/test_pool.py::TestRenewHook for the call-once-per-launch and
-    exception-propagation contracts at the pool level."""
+def loop_cmd(study, q, max_evals, prefix, picker="budget_sob"):
+    return [sys.executable, "-m", "graph.closed_loop", "--study", study,
+            "--q", str(q), "--max-evals", str(max_evals), "--picker", picker,
+            "--name-prefix", prefix]
+
+
+class TestBusyNames(TmpCase):
+    def setUp(self):
+        super().setUp()
+        patch = mock.patch.object(paths, "GRID_DATA_ROOT", self.tmp)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def touch(self, name, file):
+        sd = paths.GRID_DATA_ROOT / name / "state"
+        sd.mkdir(parents=True, exist_ok=True)
+        (sd / file).write_text("x\n")
+
+    def test_every_busy_signal(self):
+        self.touch("pR01_00", "broken.txt")
+        self.touch("pR02_00", "point.json")
+        self.touch("pR03_00", "toy_cluster.txt")
+        for name, needle in (("pR00_00", "leaderboard row"),
+                             ("pR01_00", "broken.txt"),
+                             ("pR02_00", "in flight"),
+                             ("pR03_00", "in flight")):
+            with self.subTest(name=name):
+                self.assertIn(needle, closed_loop.busy_reason(name, {"pR00_00"}))
+        self.assertIsNone(closed_loop.busy_reason("pR04_00", {"pR00_00"}))
+
+    def test_the_in_flight_recovery_steers_to_a_new_prefix(self):
+        """Removing the state dir re-picks the name with a new x, and the
+        kit refuses the same <config>.<step> handle with other params: safe
+        only when nothing was ever submitted."""
+        self.touch("pR00_00", "toy_cluster.txt")
+        reason = closed_loop.busy_reason("pR00_00", set())
+        self.assertIn("another --name-prefix", reason)
+        self.assertIn("flock -n", reason)
+        self.assertIn("pR00_00/state/run.lock", reason)
+        self.assertIn("only", reason)
+        self.assertIn("*_cluster.txt", reason)
+        self.assertNotIn("or use another --name-prefix", reason)
+
+    def test_the_pick_source_skips_busy_names_and_seeds_by_index(self):
+        self.touch("pR00_00", "toy_cluster.txt")
+        self.touch("pR01_00", "broken.txt")
+        calls = []
+
+        def pick(round_idx, picker, x_pending):
+            calls.append((round_idx, picker, x_pending))
+            return [0.0, 0.0]
+
+        board = types.SimpleNamespace(load=lambda: [])
+        with mock.patch.object(closed_loop, "board_for", return_value=board):
+            nxt = closed_loop.make_pick_source(object(), "p", pick)
+            self.assertEqual(nxt("budget_sob", [])[1], "pR02_00")
+            self.assertEqual(nxt("budget_sob", [[1.0, 1.0]])[1], "pR03_00")
+        self.assertEqual(calls, [(2, "budget_sob", []),
+                                 (3, "budget_sob", [[1.0, 1.0]])])
+
+
+class TestCampaignRecord(TmpCase):
+    """Every campaign writes <GRAPH_DATA>/<prefix>/campaign.json and one
+    outcomes.jsonl line per finished child.
+    TestBraninCampaign checks the record and outcomes of a whole run."""
+
+    LOCAL = ["--executor", "local", "--parallel", "1"]
 
     def setUp(self):
-        # RENEW_MIN_INTERVAL_S gate state is module-global (deliberately --
-        # it must survive across run_rolling's many renew() calls within one
-        # campaign); reset it so tests don't leak state into each other.
-        cl._last_renewed_at = 0.0
+        super().setUp()
+        self.data = self.tmp
+        self.env = engine_env(self.data, ENGINE_STUDIES)
 
-    @staticmethod
-    def _ok():
-        return mock.Mock(returncode=0, stderr="")
+    def camp(self, prefix):
+        from campaign_dir import CampaignDir
+        return CampaignDir(self.data / "autoresearch_graph_data", prefix)
 
-    @staticmethod
-    def _fail():
-        return mock.Mock(returncode=1, stderr="auth failed")
+    def loop(self, prefix, max_evals):
+        return subprocess.run(loop_cmd("branin", 1, max_evals, prefix)
+                              + self.LOCAL, cwd=ROOT, env=self.env,
+                              capture_output=True, text=True, timeout=180)
 
-    # kinit -R goes through cl.subprocess.run; getToken now goes through the
-    # shared cl.run_sourced_bash helper (retry-protected), so the two are
-    # mocked separately rather than as one ordered side_effect list.
-    def test_happy_path_returns_normally(self):
-        with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
-             mock.patch.object(cl, "run_sourced_bash", return_value=self._ok()):
-            self.assertIsNone(cl.renew_token())
+    def test_a_shell_relaunch_of_an_ended_prefix(self):
+        r = self.loop("rel", 1)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        first = self.camp("rel").record()["started"]
+        r = self.loop("rel", 1)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        self.assertIn("SKIP relR00_00", r.stdout)
+        self.assertEqual(sorted(self.camp("rel").outcomes()),
+                         ["relR00_00", "relR01_00"])
+        self.assertGreater(self.camp("rel").record()["started"], first)
+        lines = (self.camp("rel").path / "outcomes.jsonl").read_text()
+        self.assertEqual(len(lines.splitlines()), 2)
 
-    def test_getToken_nonzero_rc_exits(self):
-        with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
-             mock.patch.object(cl, "run_sourced_bash", return_value=self._fail()):
-            with self.assertRaises(SystemExit) as cm:
-                cl.renew_token()
-        self.assertEqual(cm.exception.code, 2)
+    def main_in_process(self, prefix, **patches):
+        """closed_loop.main in this process, on the sandbox data root."""
+        out = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(
+                paths, "GRAPH_DATA", self.data / "autoresearch_graph_data"))
+            stack.enter_context(mock.patch.object(
+                paths, "GRID_DATA_ROOT", self.data / "autoresearch_grid"))
+            stack.enter_context(mock.patch.dict(
+                closed_loop._modes.STUDIES,
+                {"branin": st.load_study_file(ENGINE_STUDIES
+                                              / "branin.json")}))
+            stack.enter_context(mock.patch.object(
+                closed_loop, "launch_problems", return_value=[]))
+            stack.enter_context(mock.patch.object(
+                closed_loop, "KitSet", return_value=mock.MagicMock()))
+            for name, value in patches.items():
+                stack.enter_context(mock.patch.object(closed_loop, name,
+                                                      value))
+            stack.enter_context(contextlib.redirect_stdout(out))
+            try:
+                rc = closed_loop.main(["--study", "branin", "--q", "1",
+                                       "--max-evals", "2", "--picker",
+                                       "budget_sob", "--name-prefix", prefix,
+                                       "--stagger", "0", *self.LOCAL])
+            except RuntimeError as exc:
+                rc = exc
+        return rc, out.getvalue()
 
-    def test_getToken_raises_exits(self):
-        with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
-             mock.patch.object(cl, "run_sourced_bash", side_effect=OSError("ENOKEY")):
-            with self.assertRaises(SystemExit) as cm:
-                cl.renew_token()
-        self.assertEqual(cm.exception.code, 2)
+    def test_a_live_prefix_is_refused(self):
+        rolling = mock.MagicMock()
+        with self.camp("liv").start({"study": "branin"}):
+            rc, out = self.main_in_process("liv", run_rolling=rolling)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("[closed_loop] REFUSED: ", out)
+        self.assertIn("already running", out)
+        rolling.assert_not_called()
 
-    def test_kinit_failure_does_not_exit(self):
-        # kinit -R is best-effort; only getToken failure is fatal
-        with mock.patch.object(cl.subprocess, "run", return_value=self._fail()), \
-             mock.patch.object(cl, "run_sourced_bash", return_value=self._ok()):
-            self.assertIsNone(cl.renew_token())
+    def test_a_failing_outcome_write_does_not_stop_the_pool(self):
+        def rolling(**kw):
+            from pool import Outcome
+            for i in range(2):
+                kw["on_outcome"](Outcome(f"owR0{i}_00", [0.0, 0.0], 0, True,
+                                         False, "ok"))
+            return {"launched": 2, "rows": 2, "outcomes": [],
+                    "aborted": False}
+        from campaign_dir import CampaignDir
+        with mock.patch.object(CampaignDir, "append_outcome",
+                               side_effect=OSError(122, "Disk quota")):
+            rc, out = self.main_in_process("ow", run_rolling=rolling)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(out.count("campaign record not written"), 1, out)
+        self.assertIn("Disk quota", out)
+        self.assertEqual(self.camp("ow").record()["exit_code"], 0)
 
-    def test_time_gate_skips_within_window(self):
-        # IMPORTANT 7, review round 2: run_rolling calls renew() once per
-        # LAUNCH (~40/campaign vs ~2 before), and every real call sources
-        # setupmu2e-art.sh from /cvmfs -- a known flake class that is FATAL
-        # on persistent failure. The gate caps exposure regardless of call
-        # frequency.
-        with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
-             mock.patch.object(cl, "run_sourced_bash",
-                               return_value=self._ok()) as m_bash:
-            cl.renew_token()  # first call: real, sets _last_renewed_at
-            m_bash.assert_called_once()
-            m_bash.reset_mock()
-            cl.renew_token()  # second call, same instant: gated, no-op
-        m_bash.assert_not_called()
+    def test_finish_records_1_when_the_pool_raises(self):
+        rc, out = self.main_in_process(
+            "fin", run_rolling=mock.MagicMock(side_effect=RuntimeError("x")))
+        self.assertIsInstance(rc, RuntimeError, out)
+        self.assertEqual(self.camp("fin").record()["exit_code"], 1)
 
-    def test_time_gate_allows_after_window_elapses(self):
-        with mock.patch.object(cl.subprocess, "run", return_value=self._ok()), \
-             mock.patch.object(cl, "run_sourced_bash",
-                               return_value=self._ok()) as m_bash:
-            cl.renew_token()
-            cl._last_renewed_at -= (cl.RENEW_MIN_INTERVAL_S + 1)
-            m_bash.reset_mock()
-            cl.renew_token()
-        m_bash.assert_called_once()
 
-    def test_wired_into_run_rolling_call(self):
-        # The actual regression this whole class guards against: run_rolling
-        # supporting `renew`/`stop_flag` hooks is necessary but not
-        # sufficient -- main() has to actually pass them. Before the round-1
-        # fix, main() called run_rolling() with no `renew=` at all, silently
-        # dropping krb5 renewal (kerberos-mid-run-expiry); before round 2,
-        # `stop_flag=` was likewise never passed, so STOP_CLOSED_LOOP did
-        # nothing. run_rolling is imported at module level specifically so
-        # it's a patchable cl.run_rolling attribute here (MINOR 12, review
-        # round 2 -- this used to grep the source text, which also caught
-        # the regression but doesn't survive a reformat).
-        fake_result = {"launched": 0, "rows": 0, "aborted": False, "outcomes": []}
-        argv = ["closed_loop.py", "--mode", "foilspf", "--q", "2",
-                "--max-evals", "4", "--name-prefix", "zz"]
+class TestBraninCampaign(TmpCase):
+    """The Phase B acceptance: a toy study runs end to end from its JSON file
+    alone (Branin, 2 objectives, 1 constraint, q = 2, 8 evaluations) in
+    under a minute, and leaves its campaign record and one outcome per
+    child."""
+
+    def test_eight_points_in_under_a_minute(self):
+        data = self.tmp
+        t0 = time.monotonic()
+        r = subprocess.run(loop_cmd("branin", 2, 8, "brn"), cwd=ROOT,
+                           env=engine_env(data, ENGINE_STUDIES),
+                           capture_output=True, text=True, timeout=180)
+        elapsed = time.monotonic() - t0
+        self.assertEqual(r.returncode, 0,
+                         r.stdout[-3000:] + r.stderr[-3000:])
+        rows = board_rows(data, "branin")
+        names = [f"brnR{i:02d}_00" for i in range(8)]
+        self.assertEqual(sorted(row["config"] for row in rows), names)
+        self.assertEqual(len({row["measure_sha"] for row in rows}), 1)
+        for row in rows:
+            x1, x2 = float(row["x1"]), float(row["x2"])
+            self.assertEqual(row["handles"], f"toy={row['config']}.toy")
+            self.assertTrue(-5.0 <= x1 <= 10.0 and 0.0 <= x2 <= 15.0)
+            self.assertAlmostEqual(float(row["branin"]),
+                                   toykit.branin(x1, x2), places=3)
+        self.assertEqual(sorted(submits(data)),
+                         [f"{n}.toy" for n in names])
+        self.assertLess(elapsed, 60, f"the campaign took {elapsed:.1f} s")
+        from campaign_dir import CampaignDir
+        camp = CampaignDir(data / "autoresearch_graph_data", "brn")
+        rec = camp.record()
+        self.assertEqual((rec["study"], rec["q"], rec["max_evals"],
+                          rec["exit_code"]), ("branin", 2, 8, 0))
+        self.assertTrue(rec["host"])
+        self.assertIn("--name-prefix", rec["args"])
+        out = camp.outcomes()
+        self.assertEqual(sorted(out), names)
+        self.assertEqual({o["reason"] for o in out.values()}, {"ok"})
+        self.assertFalse(camp.alive())
+
+
+class TestAFailingPick(EngineCase):
+    """budget_sob under a budget no point meets: once two rows land, the
+    GP pick raises (surrokit's InfeasibleError, core/botorch_predict.py),
+    with a child in flight. The parent says so when it happens, records an
+    Outcome for every child it launched, and exits non-zero."""
+
+    def test_the_campaign_drains_records_every_child_and_exits_1(self):
+        doc = toy_doc(name="infeas", layout="v2")
+        # Currin is >= 1.18 over the whole box.
+        doc["constraints"] = [{"name": "currin", "max": 0.5, "k_sigma": 1.0}]
+        write_study(doc, self.studies)
+        r = subprocess.run(loop_cmd("infeas", 2, 4, "inf"), cwd=ROOT,
+                           env=self.env, capture_output=True, text=True,
+                           timeout=300)
+        out = r.stdout
+        self.assertEqual(r.returncode, 1, out[-3000:] + r.stderr[-3000:])
+        self.assertIn("refusing to submit blind picks", r.stderr)
+        lines = out.splitlines()
+        fatal = [i for i, ln in enumerate(lines) if "[pool] FATAL" in ln]
+        self.assertEqual(len(fatal), 1, out)
+        self.assertIn("refusing to submit blind picks", lines[fatal[0]])
+        self.assertIn("1 in flight", lines[fatal[0]])
+        launched = [ln.split()[2] for ln in lines
+                    if ln.startswith("[pool] launched ")]
+        self.assertLess(len(launched), 4, out)
+        # The child in flight at the FATAL line resolves after it.
+        after = lines[fatal[0] + 1:]
+        self.assertTrue(any(ln.startswith(f"[pool] {name}: ")
+                            for ln in after for name in launched), out)
+        from campaign_dir import CampaignDir
+        camp = CampaignDir(self.data / "autoresearch_graph_data", "inf")
+        self.assertEqual(sorted(camp.outcomes()), sorted(launched))
+        self.assertEqual(camp.record()["exit_code"], 1)
+        self.assertFalse(camp.alive())
+
+
+class TestRunnerRestart(EngineCase):
+    def test_a_killed_runner_restarts_without_reusing_a_name(self):
+        data = self.data
+        doc = toy_doc(name="slowtoy", layout="v2")
+        doc["evaluate"][0]["fixed"]["delay_s"] = 5.0
+        write_study(doc, self.studies)
+        cmd = loop_cmd("slowtoy", 2, 2, "rst")
+        runner = subprocess.Popen(cmd, cwd=ROOT, env=self.env,
+                                  stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL,
+                                  start_new_session=True)
+        handles = [data / "autoresearch_grid" / f"rstR0{i}_00" / "state"
+                   / "toy_cluster.txt" for i in (0, 1)]
+        deadline = time.monotonic() + 60
+        while (not all(h.exists() for h in handles)
+               and time.monotonic() < deadline):
+            time.sleep(0.2)
+        self.assertTrue(all(h.exists() for h in handles))
+        runner.kill()           # the parent only: children have own sessions
+        runner.wait()
+        r = subprocess.run(cmd, cwd=ROOT, env=self.env, capture_output=True,
+                           text=True, timeout=180)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        self.assertIn("SKIP rstR00_00", r.stdout)
+        self.assertIn("SKIP rstR01_00", r.stdout)
+        deadline = time.monotonic() + 60
+        while (len(board_rows(data, "slowtoy")) < 4
+               and time.monotonic() < deadline):
+            time.sleep(0.2)
+        names = sorted(row["config"] for row in board_rows(data, "slowtoy"))
+        self.assertEqual(names, [f"rstR0{i}_00" for i in range(4)])
+        self.assertEqual(sorted(submits(data)),
+                         [f"rstR0{i}_00.toy" for i in range(4)])
+
+
+class TestLaunchRefusals(EngineCase):
+    def test_a_study_its_kit_rejects_launches_nothing(self):
+        doc = toy_doc(name="badtoy", layout="v2")
+        doc["evaluate"][0]["params"]["x3"] = "x1"
+        write_study(doc, self.studies)
+        r = subprocess.run(loop_cmd("badtoy", 1, 1, "bad"), cwd=ROOT,
+                           env=self.env, capture_output=True, text=True,
+                           timeout=120)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("x3", r.stdout)
+        self.assertFalse((self.data / "autoresearch_graph_data"
+                          / "closed_loop_logs").exists())
+
+    def test_a_bad_context_launches_nothing(self):
+        """Validated once at launch, not by every child refusing."""
+        doc = toy_doc(name="ctxtoy", layout="v2")
+        doc["leaderboard"]["context"] = ["alpha"]
+        write_study(doc, self.studies)
+        for study, extra, needle in (
+                ("ctxtoy", [], "needs --context"),
+                ("ctxtoy", ["--context", "beta=1"], "'beta'")):
+            with self.subTest(context=extra):
+                r = subprocess.run(loop_cmd(study, 1, 1, "ctx") + extra,
+                                   cwd=ROOT, env=self.env,
+                                   capture_output=True, text=True,
+                                   timeout=120)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("REFUSED", r.stdout)
+                self.assertIn(needle, r.stdout)
+                self.assertFalse((self.data / "autoresearch_graph_data"
+                                  / "closed_loop_logs").exists())
+                self.assertEqual(submits(self.data), [])
+
+
+class TestChildFlags(TmpCase):
+    def test_children_get_the_executor_and_parallel(self):
+        seen = {}
+
+        class P:
+            def __init__(self, cmd, **kw):
+                seen["cmd"] = cmd
+
+            def wait(self):
+                return 0
+
+        study = types.SimpleNamespace(name="toy")
+        with mock.patch.object(closed_loop.subprocess, "Popen", P), \
+                mock.patch.object(closed_loop.paths, "GRAPH_DATA", self.tmp):
+            closed_loop.make_run_child(study, "camp", [], "local", 3)(
+                "n1", [1.0, 2.0])
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[cmd.index("--executor") + 1], "local")
+        self.assertEqual(cmd[cmd.index("--parallel") + 1], "3")
+
+    def test_grid_children_get_no_parallel(self):
+        seen = {}
+
+        class P:
+            def __init__(self, cmd, **kw):
+                seen["cmd"] = cmd
+
+            def wait(self):
+                return 0
+
+        with mock.patch.object(closed_loop.subprocess, "Popen", P), \
+                mock.patch.object(closed_loop.paths, "GRAPH_DATA", self.tmp):
+            closed_loop.make_run_child(types.SimpleNamespace(name="toy"),
+                                      "camp", [], "grid", None)("n1", [1.0])
+        self.assertNotIn("--parallel", seen["cmd"])
+
+
+class TestNamePrefix(TmpCase):
+    def test_a_prefix_a_kit_cannot_name_launches_nothing(self):
+        study = toy_study(self.tmp, name="pfxtoy")
+        seen = []
+        boards = []
+        study_board = object()
+
+        def rule(study_, kits, *, config_names, **kw):
+            seen.extend(config_names)
+            boards.append(kw.get("board"))
+            return [f"kit 'x': config name {config_names[0]!r} has "
+                    f"character(s) '-'"]
+
+        out = io.StringIO()
+        with mock.patch.dict(closed_loop._modes.STUDIES, {"pfxtoy": study}), \
+                mock.patch.object(closed_loop, "board_for",
+                                  return_value=study_board) as board_for, \
+                mock.patch.object(closed_loop, "launch_problems",
+                                  side_effect=rule), \
+                mock.patch.object(closed_loop, "run_rolling") as rolling, \
+                contextlib.redirect_stdout(out):
+            rc = closed_loop.main(["--study", "pfxtoy", "--q", "1",
+                                  "--max-evals", "1", "--name-prefix",
+                                  "smoke-1"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(seen, ["smoke-1R00_00"])
+        # The board check is part of the launch check: dropping board=
+        # would pass every other assertion here.
+        board_for.assert_called_with(study)
+        self.assertEqual(len(boards), 1)
+        self.assertIs(boards[0], study_board)
+        rolling.assert_not_called()
+        self.assertIn("REFUSED", out.getvalue())
+        self.assertIn("smoke-1R00_00", out.getvalue())
+
+    def test_the_launch_check_kits_are_closed_on_refusal(self):
+        study = toy_study(self.tmp, name="clstoy")
+        made = []
+
+        class Kits:
+            def __init__(self, campaign, **kw):
+                self.closed = False
+                made.append(self)
+
+            def close(self):
+                self.closed = True
+
+        with mock.patch.dict(closed_loop._modes.STUDIES, {"clstoy": study}), \
+                mock.patch.object(closed_loop, "KitSet", Kits), \
+                mock.patch.object(closed_loop, "launch_problems",
+                                  return_value=["x"]), \
+                mock.patch.object(closed_loop, "run_rolling") as rolling, \
+                contextlib.redirect_stdout(io.StringIO()):
+            rc = closed_loop.main(["--study", "clstoy", "--q", "1",
+                                  "--max-evals", "1", "--name-prefix", "cls"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(len(made), 1)
+        self.assertTrue(made[0].closed)
+        rolling.assert_not_called()
+
+
+class TestAutoresearchLocalRefused(unittest.TestCase):
+    """AUTORESEARCH_LOCAL was the deleted pipeline's grid-free activation
+    switch (wiki/drivers/local-executor.md); nothing in the engine reads it
+    any more. A stale export must refuse loudly, not be silently ignored --
+    the engine's grid-free equivalent is --executor local."""
+
+    def test_set_env_var_refuses_before_any_kit_starts(self):
         with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            with mock.patch.object(cl, "run_rolling",
-                                   return_value=fake_result) as m, \
-                 mock.patch.object(cl, "GRAPH_DATA", tmp), \
-                 mock.patch("paths.verify"), \
-                 mock.patch.object(sys, "argv", argv):
-                rc = cl.main()
-        m.assert_called_once()
-        kwargs = m.call_args.kwargs
-        self.assertIs(kwargs.get("renew"), cl.renew_token)
-        self.assertIs(kwargs.get("stop_flag"), cl._stop_requested)
-        self.assertEqual(rc, 0)
+            study = st.load_study_file(
+                write_study(toy_doc(name="localenvloop", layout="v2"),
+                           Path(td)))
+            out = io.StringIO()
+            with mock.patch.dict(closed_loop._modes.STUDIES,
+                                 {"localenvloop": study}), \
+                    mock.patch.dict(os.environ, {"AUTORESEARCH_LOCAL": "1"}), \
+                    mock.patch.object(closed_loop, "run_rolling") as rolling, \
+                    contextlib.redirect_stdout(out):
+                rc = closed_loop.main(["--study", "localenvloop", "--q", "1",
+                                      "--max-evals", "1", "--name-prefix",
+                                      "lel"])
+            self.assertEqual(rc, 2, out.getvalue())
+            self.assertIn("REFUSED", out.getvalue())
+            self.assertIn("--executor local", out.getvalue())
+            self.assertIn("AUTORESEARCH_LOCAL", out.getvalue())
+            rolling.assert_not_called()
+
+    def test_env_var_absent_is_unaffected(self):
+        """No regression: TestBraninCampaign and every other test in this
+        file already run with AUTORESEARCH_LOCAL unset and complete, so this
+        only pins the negative explicitly."""
+        self.assertNotIn("AUTORESEARCH_LOCAL", os.environ)
 
 
-class TestDryRun(unittest.TestCase):
-    """`node_predict_picks` and `_leaderboard_len` were deleted (final
-    review, finding M2): nothing called them, `_dry_run` always went
-    straight to `_botorch_picks_subprocess`, and their return dict was the
-    retired RoundState shape. These retarget the four assertions that had
-    real value -- that every picker, including the default, routes through
-    the one picker subprocess -- at the live caller.
-    """
+class TestRenamedHints(TmpCase):
+    def test_busy_hint_names_the_renamed_runner(self):
+        with mock.patch.object(paths, "GRID_DATA_ROOT", self.tmp):
+            sd = self.tmp / "c3R00_00" / "state"
+            sd.mkdir(parents=True)
+            (sd / "point.json").write_text("{}")
+            why = closed_loop.busy_reason("c3R00_00", set())
+        self.assertIn("c3R00_00/state/run.lock", why)
 
-    @staticmethod
-    def _args(**kw):
-        base = dict(mode="foilspf", q=2, picker="hybrid", name_prefix="foo")
-        base.update(kw)
-        return argparse.Namespace(**base)
-
-    def _run(self, args, picks):
-        buf = io.StringIO()
-        with mock.patch.object(cl, "_botorch_picks_subprocess",
-                               return_value=picks) as m, \
-             contextlib.redirect_stdout(buf):
-            rc = cl._dry_run(args)
-        return rc, m, buf.getvalue()
-
-    def _dims(self, mode):
-        return len(cl._modes.SPECS[mode].knob_names)
-
-    def test_default_picker_routes_through_the_subprocess(self):
-        n = self._dims("foilspf")
-        picks = [(float(i),) * n for i in range(2)]
-        rc, m, out = self._run(self._args(), picks)
-        self.assertEqual(rc, 0)
-        self.assertEqual(m.call_args.kwargs.get("picker"), cl.DEFAULT_PICKER)
-        self.assertEqual(m.call_args.kwargs.get("round_idx"), 0)
-        self.assertEqual(m.call_args.args[0], "foilspf")
-
-    def test_explicit_picker_is_forwarded(self):
-        n = self._dims("foilsflash")
-        picks = [(float(i),) * n for i in range(3)]
-        rc, m, out = self._run(
-            self._args(mode="foilsflash", q=3, picker="qlnei"), picks)
-        self.assertEqual(m.call_args.kwargs.get("picker"), "qlnei")
-        self.assertEqual(m.call_args.args[1], 3)  # q
-
-    def test_prints_production_shaped_names(self):
-        """Finding M3: the preview printed `{prefix}R00_{j:02d}` while
-        graph/pool.py emits `{prefix}R{i:02d}_00`, so an operator was shown
-        names the campaign would never use."""
-        n = self._dims("foilspf")
-        picks = [(float(i),) * n for i in range(3)]
-        rc, m, out = self._run(self._args(q=3), picks)
-        for j in range(3):
-            self.assertIn(f"fooR{j:02d}_00", out)
-        self.assertNotIn("fooR00_01", out)
-
-    def test_labels_come_from_the_registry(self):
-        n = self._dims("foilspf")
-        picks = [(1.0,) * n]
-        rc, m, out = self._run(self._args(q=1), picks)
-        for label in cl._modes.SPECS["foilspf"].knob_names:
-            self.assertIn(f"{label}=", out)
+    def test_an_archived_study_is_unknown_with_a_hint(self):
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            rc = closed_loop.main(["--study", "ipafix", "--q", "1",
+                                  "--max-evals", "1", "--name-prefix", "c3x"])
+        self.assertEqual(rc, 2)
+        self.assertIn("mode_specs/archive/", out.getvalue())
 
 
-class TestChildIsBroken(unittest.TestCase):
-    def test_broken_present(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            with mock.patch.object(cl, "GRID_DATA_ROOT", tmp):
-                state_dir = tmp / "fooR00_00" / "state"
-                state_dir.mkdir(parents=True)
-                (state_dir / "broken.txt").write_text("x")
-                self.assertTrue(cl._child_is_broken("fooR00_00"))
+class TestCheckOnly(EngineCase):
+    """--check-only: every launch check, then exit; nothing launched. The
+    autoresearch MCP server's start_campaign dry run is this command."""
 
-    def test_broken_absent(self):
-        with tempfile.TemporaryDirectory() as td:
-            with mock.patch.object(cl, "GRID_DATA_ROOT", Path(td)):
-                self.assertFalse(cl._child_is_broken("nope"))
+    def run_loop(self, argv, data):
+        return subprocess.run(argv, cwd=ROOT,
+                              env=engine_env(data, ENGINE_STUDIES),
+                              capture_output=True, text=True, timeout=180)
+
+    def test_check_only_launches_nothing(self):
+        data = self.data
+        r = self.run_loop(loop_cmd("branin", 1, 2, "chk")
+                          + ["--check-only"], data)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("[closed_loop] OK: would launch study=branin q=1 "
+                      "max_evals=2 prefix=chk", r.stdout)
+        self.assertFalse((data / "autoresearch_graph_data"
+                          / "closed_loop_logs").exists())
+        self.assertEqual(board_rows(data, "branin"), [])
+        self.assertEqual(submits(data), [])
+
+    def test_check_only_refusals(self):
+        cases = [
+            (loop_cmd("nope", 1, 2, "chk"), "unknown study 'nope'"),
+            (loop_cmd("ce_chain", 1, 2, "chk"), "has no knobs"),
+            (loop_cmd("branin", 1, 2, "chk") + ["--context", "alpha=1"],
+             "--context 'alpha'"),
+        ]
+        for i, (argv, fragment) in enumerate(cases):
+            with self.subTest(fragment=fragment):
+                data = self.tmp / f"case{i}"      # a fresh data root each
+                data.mkdir()
+                r = self.run_loop(argv + ["--check-only"], data)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("[closed_loop] REFUSED: ", r.stdout)
+                self.assertIn(fragment, r.stdout)
+
+
+    def test_a_one_objective_study_needs_qlnei(self):
+        """qnehvi, hybrid and budget_sob need two objectives (or a
+        constraint); surrokit refuses only once rows exist, so the launch
+        check must."""
+        doc = json.loads((ENGINE_STUDIES / "branin.json").read_text())
+        doc["name"] = "branin1"
+        doc["objectives"] = doc["objectives"][:1]
+        doc["constraints"] = []
+        doc["leaderboard"]["file"] = "leaderboards/leaderboard_branin1.tsv"
+        write_study(doc, self.studies)
+        for picker, rc in (("hybrid", 2), ("qlnei", 0)):
+            argv = loop_cmd("branin1", 1, 2, "one", picker=picker)
+            r = subprocess.run(argv + ["--check-only"], cwd=ROOT,
+                               env=self.env, capture_output=True, text=True,
+                               timeout=180)
+            self.assertEqual(r.returncode, rc, r.stdout + r.stderr)
+            if rc:
+                self.assertIn("one objective", r.stdout)
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()

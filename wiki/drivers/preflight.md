@@ -1,15 +1,23 @@
 ---
 type: driver
 title: preflight — local G4 init feasibility check
-description: local `mu2e -n 1` G4 init feasibility check
+description: 'local `mu2e -n 1` G4 init geometry check; the pipeline verb is gone (2026-09-28) but its rules still run in core/adapters/preflight_checks.py'
 status: active
-timestamp: '2026-07-17'
-updated_note: fatal-abort gate + holeRadii canary + as-built GDML geometry assertion
-  added after the foilsg uniform-hole incident; documented foils-only GDML emission
-  scope
+status_note: 'the rules run in core/adapters/preflight_checks.py; the pipeline verb and paths in the body are history (deleted 2026-09-28)'
+timestamp: '2026-10-08'
 ---
 
 # preflight — local G4 init feasibility check
+
+> **The pipeline's `preflight` verb was deleted 2026-09-28 (Phase C3), but
+> its rules still run.** They live in `core/adapters/preflight_checks.py`
+> (`run_preflight`, `classify`, `verify_stopping_target_gdml`), called by
+> the engine's `offline_preflight` adapter: the geometry pre-check before a
+> point's grid steps, and the one `graph.check_study` runs at the knob-box
+> centre. It now runs from a study's code tarball. The body below is the
+> page as of 2026-07-17: the rules it describes still run (minus the
+> holeRadii canary); its file paths and pipeline wiring are history. See
+> [contract-engine](/drivers/contract-engine.md).
 
 > **2026-06-13 — preflight is now a 4-layer gate (foils family):**
 > 1. **Fatal-abort check** (`G4_FATAL_RX`): GeomSolids00xx / `*** Fatal

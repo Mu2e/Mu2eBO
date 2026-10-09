@@ -1,0 +1,220 @@
+"""The per-point graph for a study on the contract engine (generic-study
+design, "One point, end to end"): derive -> render -> preflight ->
+run_steps -> score, built from the Study. Kits come in through a KitSet
+the caller owns and closes. No checkpointer: the state files are the
+durability, so a killed child re-run on the same point adopts its steps.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import unquote, urlparse
+
+from typing_extensions import TypedDict
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+
+from langgraph.graph import END, START, StateGraph  # noqa: E402
+
+from contract import ContractError  # noqa: E402
+from kits import KitError  # noqa: E402
+from leaderboard import LeaderboardError  # noqa: E402
+from point_dir import (DERIVED, GEOM, VERDICT, PointDir,  # noqa: E402
+                       PointMismatch, write_atomic)
+from scheduler import map_params, merge_params, run_steps  # noqa: E402
+from score import ScoreError, score  # noqa: E402
+
+__all__ = ["PointMismatch", "build_study_graph", "check_x"]
+
+
+class PointState(TypedDict, total=False):
+    config_name: str
+    x_point: List[float]
+    broken: bool
+    reason: str
+    objective: Optional[float]
+
+
+def check_x(study, x) -> None:
+    """One value per knob, each inside its knob's bounds."""
+    if len(x) != len(study.knobs):
+        raise ValueError(f"x has {len(x)} value(s); study {study.name!r} has "
+                         f"{len(study.knobs)} knobs {list(study.knob_names)}")
+    for knob, v in zip(study.knobs, x):
+        if not knob.min <= v <= knob.max:
+            raise ValueError(f"x: knob {knob.name!r} = {v!r} is outside its "
+                             f"bounds [{knob.min}, {knob.max}]")
+
+
+def preflight_basis(pre, settings, env, files) -> dict:
+    """What a pre-check verdict depends on: the kit, its settings, the
+    point's values the pre-check maps, and the content of every file it
+    reads (a file:// file by SHA-256; any other ref by its URI).
+    JSON-normalized, so it compares equal to the copy read back from
+    preflight_verdict.json."""
+    def ident(ref):
+        uri = ref["uri"]
+        if uri.startswith("file://"):
+            data = Path(unquote(urlparse(uri).path)).read_bytes()
+            return {"sha256": hashlib.sha256(data).hexdigest()}
+        return {"uri": uri}
+    basis = {"kit": pre["kit"], "settings": settings,
+             "mapped": {k: env[v] for k, v in pre["params"].items()},
+             "files": {ref["name"]: ident(ref) for ref in files}}
+    return json.loads(json.dumps(basis, sort_keys=True))
+
+
+def reusable_pass(path: Path, basis: dict) -> bool:
+    """True when `path` holds a PASSING verdict for exactly this basis. A
+    failure is never reused: retrying a point (deleting broken.txt) checks
+    it again."""
+    if not path.exists():
+        return False
+    try:
+        saved = json.loads(path.read_text())
+    except (ValueError, OSError):
+        return False
+    return saved.get("ok") is True and saved.get("basis") == basis
+
+
+def build_study_graph(study, *, config: str, campaign: str, context: dict,
+                      kits, state_dir: Path, board, log=print,
+                      executor: str = "grid",
+                      through: str = "score") -> StateGraph:
+    """through="preflight" ends the graph after the pre-check: no step runs
+    and nothing is scored (graph/check_study.py)."""
+    if through not in ("score", "preflight"):
+        raise ValueError(f"through must be 'score' or 'preflight', got "
+                         f"{through!r}")
+
+    def workflow(step: str) -> str:
+        return f"{campaign}/{config}/{step}"
+
+    shared: Dict[str, Any] = {}     # env, x, files, records: process-local
+    pd = PointDir(state_dir)
+
+    def broken(reason: str, step: Optional[str] = None) -> dict:
+        pd.mark_broken(reason, step=step)
+        text = f"step {step}: {reason}" if step is not None else reason
+        log(f"[run] {config}: broken: {text}")
+        return {"broken": True, "reason": text}
+
+    def node_derive(state):
+        x = [float(v) for v in state["x_point"]]
+        check_x(study, x)
+        env = (study.geom.derived_env(x) if study.geom is not None
+               else dict(zip(study.knob_names, x)))
+        point = {"study": study.name, "config": config, "campaign": campaign,
+                 "x": x, "context": context,
+                 "measure_basis_sha": study.measure_basis_sha,
+                 "executor": executor}
+        pd.claim(point)
+        write_atomic(pd.path(DERIVED),
+                     json.dumps(env, indent=1, sort_keys=True))
+        shared["env"], shared["x"] = env, x
+        return {"broken": False}
+
+    def node_render(state):
+        files = {}
+        if study.geom is not None:
+            path = pd.path(GEOM)
+            write_atomic(path, study.geom.render(shared["x"]))
+            files["geom"] = {"name": "geom", "uri": path.resolve().as_uri(),
+                             "kind": "geom"}
+        shared["files"] = files
+        return {"broken": False}
+
+    def node_preflight(state):
+        pre = study.preflight
+        if pre is None:
+            return {"broken": False}
+        verdict_path = pd.path(VERDICT)
+        basis = None
+
+        def finish(ok, message):
+            record = {"ok": ok, "message": message}
+            if basis is not None:
+                record["basis"] = basis
+            write_atomic(verdict_path, json.dumps(record, indent=1))
+            return {"broken": False} if ok else broken(f"preflight: {message}")
+
+        def refused(exc):
+            return finish(False, f"{type(exc).__name__}: {exc}")
+
+        # Engine-side work fails with KeyError/ValueError/OSError; a kit only
+        # ever raises KitError or ContractError.
+        try:
+            files = [shared["files"][f] for f in pre["files"]]
+            basis = preflight_basis(pre, study.kits.get(pre["kit"], {}),
+                                    shared["env"], files)
+            # A resumed point already checked: a transient failure on a
+            # second run must not break a point whose jobs are running.
+            if reusable_pass(verdict_path, basis):
+                log(f"[run] {config}: preflight passed earlier with "
+                    f"the same settings and files; reusing that verdict")
+                return {"broken": False}
+        except (KeyError, ValueError, OSError) as exc:
+            return refused(exc)
+        try:
+            kit = kits.get(pre["kit"])
+            accepts_lists = kit.accepts_lists
+        except (KitError, ContractError) as exc:
+            return refused(exc)
+        try:
+            params = merge_params("preflight",
+                                  map_params(pre["params"], shared["env"],
+                                             accepts_lists),
+                                  study.kits.get(pre["kit"], {}))
+        except (KeyError, ValueError, OSError) as exc:
+            return refused(exc)
+        try:
+            ok, message = kit.check(f"{config}.preflight", params, files, [],
+                                    workflow("preflight"))
+        except (KitError, ContractError) as exc:
+            return refused(exc)
+        return finish(ok, message)
+
+    def node_run_steps(state):
+        outcomes = run_steps(study, config=config, state_dir=state_dir,
+                             env=shared["env"], files=shared["files"],
+                             kits=kits, workflow=workflow, log=log)
+        failed = [o for o in outcomes.values() if not o.ok]
+        if failed:
+            return broken(failed[0].message, step=failed[0].step)
+        shared["records"] = {s: o.record for s, o in outcomes.items()}
+        return {"broken": False}
+
+    def node_score(state):
+        try:
+            result = score(study, config=config, x=shared["x"],
+                           records=shared["records"], context=context,
+                           board=board, state_dir=state_dir)
+        except (ScoreError, LeaderboardError) as exc:
+            return broken(f"score: {exc}")
+        log(f"[run] {config}: primary={result['primary']} "
+            f"row_appended={result['row_appended']}")
+        return {"objective": result["primary"]}
+
+    def route(state):
+        return END if state.get("broken") else "next"
+
+    g = StateGraph(PointState)
+    nodes = [("derive", node_derive), ("render", node_render),
+             ("preflight", node_preflight)]
+    if through == "score":
+        nodes += [("run_steps", node_run_steps), ("score", node_score)]
+    for name, fn in nodes:
+        g.add_node(name, fn)
+    g.add_edge(START, "derive")
+    g.add_edge("derive", "render")
+    g.add_edge("render", "preflight")
+    if through == "preflight":
+        g.add_edge("preflight", END)
+        return g
+    g.add_conditional_edges("preflight", route, {"next": "run_steps", END: END})
+    g.add_conditional_edges("run_steps", route, {"next": "score", END: END})
+    g.add_edge("score", END)
+    return g

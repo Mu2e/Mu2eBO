@@ -1,0 +1,455 @@
+"""Declared kits for schema-2 studies (generic-study design, Phase A).
+
+A study names kits in three places: study["kits"], study["preflight"]["kit"]
+and each step's "kit". This table says which names exist and which settings
+each accepts, so a typo is a load error. The Python-adapter kits are declared
+here; the native contract kits come from kits.toml. STDLIB ONLY.
+"""
+from __future__ import annotations
+
+import math
+import re
+from dataclasses import dataclass
+from typing import Callable, Dict, FrozenSet, Optional, Tuple
+
+from kit_config import load_kit_configs
+
+
+def _positive_int(v, where):
+    if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+        raise ValueError(f"{where}: must be a positive int, got {v!r}")
+    return v
+
+
+def _fraction(v, where):
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 < v <= 1:
+        raise ValueError(f"{where}: must be a number in (0, 1], got {v!r}")
+    return float(v)
+
+
+def _flag(v, where):
+    if not isinstance(v, bool):
+        raise ValueError(f"{where}: must be true or false, got {v!r}")
+    return v
+
+
+def _path(v, where):
+    if not isinstance(v, str) or not v:
+        raise ValueError(f"{where}: must be a non-empty path string, got {v!r}")
+    return v
+
+
+def _string(v, where):
+    if not isinstance(v, str):
+        raise ValueError(f"{where}: must be a string, got {v!r}")
+    return v
+
+
+def _musing(v, where):
+    # One spelling only: the setting is hashed as written, so
+    # "SimJob/MDC2025ay" would give the same Musing a second measure_sha.
+    if (not isinstance(v, str) or len(v.split(" ")) != 2
+            or not all(p and "/" not in p and p == p.strip()
+                       for p in v.split(" "))):
+        raise ValueError(f"{where}: must be a Musing and its version "
+                         f"separated by one space, e.g. 'SimJob "
+                         f"MDC2025ay', got {v!r}")
+    return v
+
+
+def _number(v, where):
+    if (isinstance(v, bool) or not isinstance(v, (int, float))
+            or not math.isfinite(v)):
+        raise ValueError(f"{where}: must be a finite number, got {v!r}")
+    return float(v)
+
+
+# prodtools builds a run's name from dot-separated parts, the config name
+# among them, and its file names from the run's: a part may hold only
+# letters, digits and _.
+_RUN_NAME_PART = re.compile(r"[A-Za-z0-9_]+")
+
+
+def bad_run_name_characters(text: str) -> list:
+    """The characters of `text` a prodtools run-name part cannot hold
+    (anything but letters, digits and _), sorted; empty when none."""
+    return sorted(set(_RUN_NAME_PART.sub("", text)))
+
+
+def config_name_problem(name: str):
+    """Why `name` cannot be a config name, or None. Every kit that names a
+    run after the config applies this one rule."""
+    if not name:
+        return "config name is empty"
+    bad = bad_run_name_characters(name)
+    if not bad:
+        return None
+    return (f"config name {name!r} has character(s) "
+            f"{', '.join(repr(c) for c in bad)}; only letters, digits and _ "
+            f"may appear, because the config is part of prodtools' "
+            f"dot-separated run name")
+
+
+def split_handle(kit: str, name: str, *, step: Optional[str] = None,
+                 checks_config: bool = False) -> Tuple[str, str]:
+    """'<config>.<step>' -> (config, step); a ValueError naming `kit`
+    otherwise. With `step`, the handle's step must be that one. With
+    `checks_config`, the config must also pass config_name_problem: the
+    kit names its runs after it."""
+    config, dot, got = name.rpartition(".")
+    if not dot or not config or not got or (step is not None and got != step):
+        raise ValueError(f"{kit}: {name!r} is not "
+                         f"<config>.{step if step is not None else '<step>'}")
+    if checks_config:
+        why = config_name_problem(config)
+        if why:
+            raise ValueError(f"{kit}: {why}")
+    return config, got
+
+
+# prodtools' run_status lists at most this many jobs' outputs (INDEX_CAP in
+# its mcp/src/prodtools_mcp/tools/runs.py): a larger step would read a
+# silently truncated output list.
+MAX_JOBS_PER_STEP = 200
+
+
+def _job_count(v, where):
+    _positive_int(v, where)
+    if v > MAX_JOBS_PER_STEP:
+        raise ValueError(f"{where}: at most {MAX_JOBS_PER_STEP} jobs per "
+                         f"step, got {v}: prodtools run_status lists at most "
+                         f"{MAX_JOBS_PER_STEP} jobs' outputs, so a larger "
+                         f"step would read a truncated output list")
+    return v
+
+
+def _string_list(v, where):
+    if not isinstance(v, list) or not all(isinstance(s, str) and s
+                                          for s in v):
+        raise ValueError(f"{where}: must be a list of non-empty strings, "
+                         f"got {v!r}")
+    return list(v)
+
+
+def _dsconf(v, where):
+    """A prodtools run label (json2jobdef's dsconf): one per config, so it
+    holds {cfg}; with {cfg} filled it goes into prodtools' dot-separated
+    run and file names, so it must pass the same rule as a config name
+    (config_name_problem)."""
+    if not isinstance(v, str) or "{cfg}" not in v:
+        raise ValueError(f"{where}: must be a string containing {{cfg}} "
+                         f"(each config needs its own run label), got {v!r}")
+    filled = v.replace("{cfg}", "cfg")
+    bad = bad_run_name_characters(filled)
+    if bad:
+        raise ValueError(f"{where}: {v!r} has character(s) "
+                         f"{', '.join(repr(c) for c in bad)}; with {{cfg}} "
+                         f"filled in only letters, digits and _ may appear, "
+                         f"because the label is part of prodtools' "
+                         f"dot-separated run and file names")
+    return v
+
+
+def _sha40(v, where):
+    if not (isinstance(v, str) and re.fullmatch(r"[0-9a-f]{40}", v)):
+        raise ValueError(f"{where}: must be a full 40-hex git sha (the deck "
+                         f"pin), got {v!r}")
+    return v
+
+
+def _int_list(v, where):
+    if not (isinstance(v, list) and v and all(
+            isinstance(i, int) and not isinstance(i, bool) for i in v)):
+        raise ValueError(f"{where}: must be a non-empty list of integers, "
+                         f"got {v!r}")
+    return list(v)
+
+
+# Names beamkit's worker sets on the g4bl command line itself (beamkit
+# compose.py): a study may not pass them.
+BEAMKIT_RESERVED = ("First_Event", "Num_Events", "histoFile", "viewer")
+# The beamkit adapter's own settings: every other step param is a deck param.
+BEAMKIT_OWN = ("deck_url", "deck_ref", "main_input", "deck_params", "njobs",
+               "events_per_job", "quorum", "plane", "pdg")
+_DECK_PARAM = re.compile(r"[A-Za-z_]\w*")
+
+
+def _deck_params(v, where):
+    """Fixed G4beamline deck parameters: name -> number or string."""
+    if not isinstance(v, dict):
+        raise ValueError(f"{where}: must be an object of deck parameters, "
+                         f"got {v!r}")
+    for name, value in v.items():
+        if not _DECK_PARAM.fullmatch(name):
+            raise ValueError(f"{where}[{name!r}]: a deck parameter name is "
+                             f"letters, digits and _, not starting with a "
+                             f"digit")
+        if name in BEAMKIT_RESERVED or name in BEAMKIT_OWN:
+            raise ValueError(f"{where}[{name!r}]: set by beamkit's worker or "
+                             f"the adapter, not by a study")
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValueError(f"{where}[{name!r}]: must be a number or a "
+                             f"string, got {value!r}")
+    return dict(v)
+
+
+# kits.toml names value types by these keys (kit_config.VALUE_TYPES).
+VALIDATORS: Dict[str, Callable] = {
+    "string": _string, "number": _number, "positive_int": _positive_int,
+    "fraction": _fraction, "flag": _flag, "path": _path}
+
+
+# How many jobs one point's step submits, for the start_campaign dry run's
+# budget (service/campaigns.py). Each KitDecl names one of these as its
+# jobs_of: (study, step) -> the count, or a str saying why the step has no
+# one count.
+
+def no_jobs(study, step):
+    """A kit that submits no jobs: an analysis, the pre-check, a toy."""
+    return 0
+
+
+def njobs_of(study, step):
+    """A step that submits `njobs` jobs per point: the step's fixed value,
+    else its stage template's (prodtools_entry.entry_for_step takes the same
+    default at submit). A step that maps njobs (params or params_from) gets
+    it from the point, so it has no one count: a str saying so. Set nowhere
+    is a ValueError: the submit would be refused."""
+    for part in ("params", "params_from"):
+        source = getattr(step, part).get("njobs")
+        if source is not None:
+            return (f"step {step.step!r} maps njobs from {source!r} "
+                    f"({part}), so each point has its own count")
+    if "njobs" in step.fixed:
+        return step.fixed["njobs"]
+    template = study.entry_template(step.step)    # None: the kit takes none
+    if template is not None and "njobs" in template:
+        return _positive_int(template["njobs"],
+                             f"step {step.step!r}: stage template njobs")
+    raise ValueError(f"step {step.step!r} ({step.kit}): njobs is in neither "
+                     f"its fixed values nor its stage template, so its job "
+                     f"count is unknown and its submit would be refused")
+
+
+@dataclass(frozen=True)
+class KitDecl:
+    name: str
+    study_keys: Dict[str, Callable]   # study["kits"][name]: every key required
+    fixed_keys: Dict[str, Callable]   # a step's "fixed": each key optional ...
+    required_fixed: FrozenSet[str]    # ... except these, which every step sets
+    uses_entries: bool                # step "entry" names a stage template
+    step_kit: bool                    # may appear in evaluate[]
+    check_kit: bool                   # may be study["preflight"]["kit"]
+    executors: Tuple[str, ...]        # the --executor values it runs under
+    launch_stagger_s: float           # pause between a campaign's launches
+    requires_kerberos: bool           # a grid launch needs a ticket
+    names_runs_after_config: bool     # the config name goes into run names
+    factory: Optional[str]            # "module.path:Name" relative to core/;
+                                      # None for a native (kits.toml) kit
+    reserved_params: FrozenSet[str]   # names a step's params may not map
+    jobs_of: Callable                 # (study, step) -> jobs per point, or
+                                      # why none is fixed (no_jobs, njobs_of)
+
+
+KITS: Dict[str, KitDecl] = {d.name: d for d in (
+    KitDecl("prodtools",
+            study_keys={"code_tarball": _path, "dsconf": _dsconf,
+                        "fatal_log_codes": _string_list},
+            fixed_keys={"njobs": _job_count, "events_per_job": _positive_int,
+                        "memory_mb": _positive_int, "quorum": _fraction},
+            required_fixed=frozenset({"quorum"}),
+            uses_entries=True, step_kit=True, check_kit=False,
+            executors=("grid", "local"), launch_stagger_s=90.0,
+            requires_kerberos=True, names_runs_after_config=True,
+            factory="adapters.prodtools:ProdtoolsKit",
+            reserved_params=frozenset(), jobs_of=njobs_of),
+    # The pre-check runs one event on this node, before any step.
+    KitDecl("offline_preflight",
+            study_keys={"code_tarball": _path, "dumps_gdml": _flag,
+                        "verifies_foil_gdml": _flag,
+                        "checks_managed_overlap": _flag,
+                        "require_zero_overlaps": _flag},
+            fixed_keys={}, required_fixed=frozenset(), uses_entries=False,
+            step_kit=False, check_kit=True,
+            executors=("grid", "local"), launch_stagger_s=0.0,
+            requires_kerberos=False, names_runs_after_config=True,
+            factory="adapters.offline_preflight:OfflinePreflightKit",
+            reserved_params=frozenset(), jobs_of=no_jobs),
+    # An analysis reads an earlier step's files; its mu2e jobs run where
+    # the analysis server runs, not as grid jobs.
+    KitDecl("anakit",
+            study_keys={"musing": _musing},
+            fixed_keys={"analysis": _string, "upstream_eff": _number,
+                        "cosmic_rate_per_s_per_mev": _number,
+                        "trigger_paths": _string},
+            required_fixed=frozenset({"analysis"}), uses_entries=False,
+            step_kit=True, check_kit=False,
+            executors=("grid", "local"), launch_stagger_s=0.0,
+            requires_kerberos=False, names_runs_after_config=False,
+            factory="adapters.anakit:AnakitKit",
+            reserved_params=frozenset(), jobs_of=no_jobs),
+    # G4beamline through the beamkit MCP server (core/adapters/beamkit.py).
+    # Knobs reach the deck as command-line params, so a step's params name
+    # deck params; the adapter's own settings and beamkit's worker params
+    # may not be among them.
+    KitDecl("beamkit",
+            study_keys={"deck_url": _string, "deck_ref": _sha40,
+                        "main_input": _string, "deck_params": _deck_params},
+            fixed_keys={"njobs": _job_count, "events_per_job": _positive_int,
+                        "quorum": _fraction, "plane": _string,
+                        "pdg": _int_list},
+            required_fixed=frozenset({"njobs", "events_per_job", "quorum",
+                                      "plane", "pdg"}),
+            uses_entries=False, step_kit=True, check_kit=False,
+            # Each run_beamline ends in a prodtools submissions tick, which
+            # takes the personal ledger's lock without waiting: launches
+            # 90 s apart, as prodtools', plus the adapter's host-wide
+            # submit lock.
+            executors=("grid",), launch_stagger_s=90.0,
+            requires_kerberos=True, names_runs_after_config=True,
+            factory="adapters.beamkit:BeamkitKit",
+            reserved_params=frozenset(BEAMKIT_OWN + BEAMKIT_RESERVED),
+            jobs_of=njobs_of),
+)}
+
+for _decl in KITS.values():
+    if _decl.factory is not None and not re.fullmatch(
+            r"[A-Za-z_][\w.]*:[A-Za-z_]\w*", _decl.factory):
+        raise ValueError(f"kit {_decl.name!r}: factory {_decl.factory!r} "
+                         f"must have the form 'module.path:Name'")
+
+# Settings two kits must agree on when a study uses both:
+# (kit, key, other kit, other key, why).
+MATCHING_SETTINGS = (
+    ("offline_preflight", "code_tarball", "prodtools", "code_tarball",
+     "the geometry pre-check must run the code the jobs run, or a geometry "
+     "it passes can build differently on the grid (the env-divergence "
+     "incidents)"),
+)
+
+
+def check_matching_settings(kits: dict, where: str) -> None:
+    """Refuse a study whose kits disagree on a MATCHING_SETTINGS pair.
+    `kits` is study["kits"] as written, so the message names the values
+    the author wrote."""
+    for kit, key, other, other_key, why in MATCHING_SETTINGS:
+        if kit in kits and other in kits:
+            mine, theirs = kits[kit].get(key), kits[other].get(other_key)
+            if mine != theirs:
+                raise ValueError(
+                    f"{where}[kits.{kit}.{key}]: {mine!r} differs from "
+                    f"kits.{other}.{other_key} {theirs!r}; the two must "
+                    f"name the same file: {why}")
+
+
+def check_deck_params_shadowing(kits: dict, steps, where: str) -> None:
+    """Refuse a beamkit step whose knob-mapped deck param is also a fixed
+    kits.beamkit.deck_params value: the adapter would send the fixed value
+    while the board records the knob's."""
+    fixed = (kits.get("beamkit") or {}).get("deck_params")
+    if not isinstance(fixed, dict):
+        return
+    for step in steps:
+        if step.kit != "beamkit":
+            continue
+        # A params_from deck param is mapped too (from an earlier step's
+        # metric), so the same two rules hold for it.
+        for part in ("params", "params_from"):
+            names = getattr(step, part)
+            clash = sorted(set(names) & set(fixed))
+            if clash:
+                raise ValueError(
+                    f"{where}[evaluate.{step.step}.{part}]: {clash} also set "
+                    f"in kits.beamkit.deck_params; a deck param is either "
+                    f"mapped or fixed, not both")
+            bad = sorted(n for n in names if not _DECK_PARAM.fullmatch(n))
+            if bad:
+                raise ValueError(
+                    f"{where}[evaluate.{step.step}.{part}]: {bad} cannot be "
+                    f"g4bl deck parameter names (letters, digits and _)")
+
+
+def check_offline_preflight_overlap_policy(kits: dict, where: str) -> None:
+    """Refuse an offline_preflight study whose settings turn on the
+    zero-overlap policy while the scan that enforces it is off. classify()
+    (core/adapters/preflight_checks.py) reads require_zero_overlaps only
+    INSIDE the `if checks_managed_overlap:` block, so
+    require_zero_overlaps=true with checks_managed_overlap=false is
+    silently never enforced -- a geometry with overlaps passes."""
+    settings = kits.get("offline_preflight")
+    if not isinstance(settings, dict):
+        return
+    if settings.get("require_zero_overlaps") and not settings.get(
+            "checks_managed_overlap"):
+        raise ValueError(
+            f"{where}[kits.offline_preflight]: require_zero_overlaps=true "
+            f"needs checks_managed_overlap=true; with the managed-overlap "
+            f"scan off, classify() never reaches the require_zero_overlaps "
+            f"check, so a geometry with overlaps would silently pass")
+
+
+# Native contract kits: one kits.toml entry each, no Python. The engine calls
+# their MCP tools directly (core/contract.py).
+NATIVE = load_kit_configs()
+
+
+def _native_decl(cfg) -> KitDecl:
+    # kits.toml has no key for a job count, as it has none for a Kerberos
+    # need: a native kit declares no jobs, and one that submits them needs
+    # that key first.
+    return KitDecl(cfg.name,
+                   study_keys={k: VALIDATORS[t]
+                               for k, t in cfg.study_keys.items()},
+                   fixed_keys={k: VALIDATORS[t]
+                               for k, t in cfg.fixed_keys.items()},
+                   required_fixed=frozenset(), uses_entries=False,
+                   step_kit=True, check_kit=cfg.check,
+                   executors=cfg.executors,
+                   launch_stagger_s=cfg.launch_stagger_s,
+                   requires_kerberos=False, names_runs_after_config=False,
+                   factory=None, reserved_params=frozenset(),
+                   jobs_of=no_jobs)
+
+
+_clash = sorted(set(NATIVE) & set(KITS))
+if _clash:
+    raise ValueError(f"kits.toml declares {_clash}, which core/kit_registry.py "
+                     f"already declares as adapter kits")
+KITS.update({name: _native_decl(cfg) for name, cfg in NATIVE.items()})
+
+
+def kits_of(study) -> set:
+    """Every kit a study names: its steps' kits and its preflight kit."""
+    names = {s.kit for s in study.steps}
+    if study.preflight is not None:
+        names.add(study.preflight["kit"])
+    return names
+
+
+def step_jobs(study, step):
+    """The jobs one point's `step` submits, as its kit counts them
+    (KitDecl.jobs_of): an int, or a str saying why the step has no one
+    count. A kit this registry does not declare is a ValueError."""
+    decl = KITS.get(step.kit)
+    if decl is None:
+        raise ValueError(f"step {step.step!r}: kit {step.kit!r} is not "
+                         f"declared, so its job count is unknown")
+    return decl.jobs_of(study, step)
+
+
+def validate(kit: str, raw, table: Dict[str, Callable], where: str, *,
+             required: bool) -> dict:
+    """study["kits"][kit] (table=study_keys, required=True: exactly the
+    declared keys) or a step's "fixed" (table=fixed_keys, required=False:
+    any subset). Each value is type-checked by its table entry."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: must be an object, got {raw!r}")
+    unknown = sorted(set(raw) - set(table))
+    if unknown:
+        raise ValueError(f"{where}: unknown key(s) {unknown}; kit {kit!r} "
+                         f"accepts {sorted(table)}")
+    missing = sorted(set(table) - set(raw))
+    if required and missing:
+        raise ValueError(f"{where}: missing required key(s) {missing} for "
+                         f"kit {kit!r}")
+    return {k: table[k](v, f"{where}[{k}]") for k, v in raw.items()}

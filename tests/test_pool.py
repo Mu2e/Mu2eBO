@@ -5,10 +5,7 @@ terminal, pid_alive, *_cluster.txt, broken.txt, leaderboard membership). The
 pool has ONE: a child resolves when its subprocess exits. run_child is an
 injected callable, so none of this touches the grid, sqlite, or a subprocess.
 """
-import contextlib
-import os
 import sys
-import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -18,13 +15,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT / "graph"))
 
-# pool.py's default row_landed/broken/pick-source callables lazily `import
-# closed_loop`, which (via core/runtime.py) resolves AUTORESEARCH_MODE
-# against modes.SPECS at import time. Every test below passes its own
-# run_child/next_pick fakes but not always row_landed/broken, so the lazy
-# import can fire. Same pattern as tests/test_no_mock_mode.py.
-os.environ.setdefault("AUTORESEARCH_MODE", "foilspf")
-
 import pool  # noqa: E402
 
 
@@ -32,26 +22,21 @@ def _picker(n_dims=2):
     """Deterministic pick source: x is [i, i], name is c{i}."""
     counter = {"i": 0}
 
-    def next_pick(mode, picker, x_pending):
+    def next_pick(picker, x_pending):
         i = counter["i"]
         counter["i"] += 1
         return [float(i)] * n_dims, f"c{i}"
     return next_pick, counter
 
 
-# Neutral broken= fake: MINOR 10 (review round 2) -- without this, five of
-# seven original test_pool.py cases fell through to _default_broken, which
-# stats real paths under the live grid data root. Read-only, so not a
-# constraint violation, but it left half the injection seam unused and made
-# unit tests depend on operator environment state.
+# Neutral broken= fake: run_rolling requires the callable, and these cases
+# are about pool MECHANICS, not about which child broke.
 _NOT_BROKEN = lambda name: False  # noqa: E731
 
 # Neutral row_landed= fake, same reasoning as _NOT_BROKEN one line up. These
 # cases are about pool MECHANICS (width, stagger, drain, abort arithmetic),
-# not about whether a row landed, so they want "every child landed" without
-# reaching _default_row_landed -- which stats the live grid data root and,
-# until this seam was made explicit, fell open to True for a synthetic mode.
-_ROW_LANDED = lambda name, mode: True  # noqa: E731
+# not about whether a row landed, so they want "every child landed".
+_ROW_LANDED = lambda name: True  # noqa: E731
 
 
 class TestPoolWidth(unittest.TestCase):
@@ -79,7 +64,7 @@ class TestPoolWidth(unittest.TestCase):
 
         counter = {"i": 0}
 
-        def next_pick(mode, picker, x_pending):
+        def next_pick(picker, x_pending):
             pending_sizes.append(len(x_pending))
             i = counter["i"]
             counter["i"] += 1
@@ -87,10 +72,10 @@ class TestPoolWidth(unittest.TestCase):
 
         t = threading.Timer(0.2, gate.set)
         t.start()
-        pool.run_rolling(mode="m", picker="p", q=3, max_evals=9, alpha=1.0,
-                         name_prefix="t", run_child=run_child,
+        pool.run_rolling(picker="p", q=3, max_evals=9,
+                         run_child=run_child,
                          next_pick=next_pick,
-                         stop_flag=lambda: False, renew=lambda: None,
+                         stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         t.cancel()
         self.assertLessEqual(peak["max"], 3)
@@ -104,10 +89,10 @@ class TestPoolWidth(unittest.TestCase):
 class TestReplenish(unittest.TestCase):
     def test_one_resolution_triggers_exactly_one_new_pick(self):
         next_pick, counter = _picker()
-        pool.run_rolling(mode="m", picker="p", q=2, max_evals=5, alpha=1.0,
-                         name_prefix="t", run_child=lambda n, x: 0,
+        pool.run_rolling(picker="p", q=2, max_evals=5,
+                         run_child=lambda n, x: 0,
                          next_pick=next_pick,
-                         stop_flag=lambda: False, renew=lambda: None,
+                         stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(counter["i"], 5)
 
@@ -119,17 +104,17 @@ class TestReplenish(unittest.TestCase):
             gate.wait(timeout=5)
             return 0
 
-        def next_pick(mode, picker, x_pending):
+        def next_pick(picker, x_pending):
             seen.append([list(v) for v in x_pending])
             i = len(seen) - 1
             return [float(i)], f"c{i}"
 
         t = threading.Timer(0.2, gate.set)
         t.start()
-        pool.run_rolling(mode="m", picker="p", q=3, max_evals=3, alpha=1.0,
-                         name_prefix="t", run_child=run_child,
+        pool.run_rolling(picker="p", q=3, max_evals=3,
+                         run_child=run_child,
                          next_pick=next_pick,
-                         stop_flag=lambda: False, renew=lambda: None,
+                         stop_flag=lambda: False,
                          row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         t.cancel()
         self.assertEqual(seen[0], [])
@@ -147,13 +132,164 @@ class TestDrain(unittest.TestCase):
             return 0
 
         next_pick, _ = _picker()
-        res = pool.run_rolling(mode="m", picker="p", q=4, max_evals=4,
-                               alpha=1.0, name_prefix="t",
+        res = pool.run_rolling(picker="p", q=4, max_evals=4,
                                run_child=run_child, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=lambda: None,
+                               stop_flag=lambda: False,
                                row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(len(finished), 4)
         self.assertEqual(len(res["outcomes"]), 4)
+
+
+class TestOnOutcome(unittest.TestCase):
+    def test_on_outcome_sees_every_outcome(self):
+        seen = []
+        next_pick, _ = _picker()
+        res = pool.run_rolling(picker="p", q=2, max_evals=3,
+                               run_child=lambda name, x: 0,
+                               next_pick=next_pick, stop_flag=lambda: False,
+                               row_landed=_ROW_LANDED, broken=_NOT_BROKEN,
+                               stagger=0, on_outcome=seen.append)
+        self.assertEqual(len(seen), 3)
+        self.assertEqual(seen, res["outcomes"])
+        self.assertEqual({oc.reason for oc in seen}, {"ok"})
+
+    def test_a_raising_on_outcome_is_logged_and_the_pool_goes_on(self):
+        lines = []
+
+        def on_outcome(oc):
+            raise TypeError(f"cannot record {oc.name}")
+
+        next_pick, _ = _picker()
+        res = pool.run_rolling(picker="p", q=2, max_evals=4,
+                               run_child=lambda name, x: 0,
+                               next_pick=next_pick, row_landed=_ROW_LANDED,
+                               broken=_NOT_BROKEN, stagger=0,
+                               log=lines.append, on_outcome=on_outcome)
+        self.assertEqual(res["launched"], 4)
+        self.assertEqual(len(res["outcomes"]), 4)
+        warned = [ln for ln in lines if "on_outcome" in ln]
+        self.assertEqual(len(warned), 4, lines)
+        for i in range(4):
+            self.assertTrue(any(f"cannot record c{i}" in ln for ln in warned))
+
+
+def _eio_for_c0(otherwise):
+    """A row_landed/broken fake that raises for c0 (a CephFS EIO on the
+    board or on broken.txt) and answers `otherwise` for every other child."""
+    def check(name):
+        if name == "c0":
+            raise OSError(5, "Input/output error")
+        return otherwise(name)
+    return check
+
+
+class TestFailures(unittest.TestCase):
+    """A raise from a pool callable used to unwind through the executor's
+    __exit__, which waits for every in-flight child in silence: no
+    heartbeat, no Outcome line, no on_outcome, the traceback only once the
+    last child exited (hours to days on the grid)."""
+
+    def test_a_failing_pick_is_logged_at_once_drained_then_raised(self):
+        """budget_sob's refusal (core/botorch_predict.py) on a fresh board
+        whose first rows are over budget: the realistic trigger."""
+        lines, seen = [], []
+        gate = threading.Event()
+        calls = {"n": 0}
+
+        def run_child(name, x):
+            if name != "c0":
+                gate.wait(timeout=5)
+            return 0
+
+        def next_pick(picker, x_pending):
+            i = calls["n"]
+            calls["n"] += 1
+            if i == 3:      # the first replacement, with c1 and c2 in flight
+                raise ValueError("GP predicts NO point; refusing")
+            return [float(i)], f"c{i}"
+
+        t = threading.Timer(0.3, gate.set)
+        t.start()
+        with self.assertRaises(ValueError) as cm:
+            pool.run_rolling(picker="p", q=3, max_evals=6,
+                             run_child=run_child, next_pick=next_pick,
+                             row_landed=_ROW_LANDED, broken=_NOT_BROKEN,
+                             stagger=0, log=lines.append, heartbeat=0.05,
+                             on_outcome=seen.append)
+        t.cancel()
+        self.assertIn("GP predicts NO point", str(cm.exception))
+        self.assertEqual(calls["n"], 4)     # nothing picked after it
+        fatal = [i for i, ln in enumerate(lines) if "[pool] FATAL" in ln]
+        self.assertEqual(len(fatal), 1, lines)
+        self.assertIn("ValueError: GP predicts NO point", lines[fatal[0]])
+        self.assertIn("2 in flight", lines[fatal[0]])
+        # Logged when it happened: the children still in flight resolve
+        # after it, through the normal drain (heartbeat, a line each).
+        after = lines[fatal[0] + 1:]
+        self.assertTrue(any("heartbeat" in ln for ln in after), lines)
+        self.assertIn("[pool] c1: ok", after)
+        self.assertIn("[pool] c2: ok", after)
+        self.assertEqual(sorted(oc.name for oc in seen), ["c0", "c1", "c2"])
+
+    def test_a_pick_failing_with_nothing_in_flight_still_raises(self):
+        lines = []
+
+        def next_pick(picker, x_pending):
+            raise ValueError("budget_sob needs a constraint")
+
+        with self.assertRaises(ValueError):
+            pool.run_rolling(picker="p", q=2, max_evals=2,
+                             run_child=lambda name, x: 0,
+                             next_pick=next_pick, row_landed=_ROW_LANDED,
+                             broken=_NOT_BROKEN, stagger=0, log=lines.append)
+        self.assertTrue(any("[pool] FATAL" in ln and "0 in flight" in ln
+                            for ln in lines), lines)
+
+    def test_a_landed_row_counts_even_when_broken_cannot_be_read(self):
+        """broken.txt is read only for a child with no row: a transient
+        error on it (ESTALE on CephFS) must not turn landed rows into a
+        no-row streak and abort a healthy campaign."""
+        def stale(name):
+            raise OSError(116, "Stale file handle")
+        next_pick, _ = _picker()
+        res = pool.run_rolling(picker="p", q=2, max_evals=4,
+                               run_child=lambda name, x: 0,
+                               next_pick=next_pick, stagger=0,
+                               row_landed=_ROW_LANDED, broken=stale,
+                               log=lambda m: None)
+        self.assertEqual(res["rows"], 4)
+        self.assertFalse(res["aborted"])
+        self.assertEqual({oc.reason for oc in res["outcomes"]}, {"ok"})
+
+    def test_a_raising_row_or_broken_check_is_that_childs_outcome(self):
+        """Fail closed (row_landed never fails open): a child whose row was
+        not seen counts as rowless, toward the no-row streak, and keeps its
+        log line."""
+        no_row_for_c0 = lambda name: name != "c0"  # noqa: E731
+        for check, rows, fake in (("row_landed", _ROW_LANDED, _ROW_LANDED),
+                                  ("broken", no_row_for_c0, _NOT_BROKEN)):
+            with self.subTest(check=check):
+                lines, seen = [], []
+                checks = {"row_landed": rows, "broken": _NOT_BROKEN,
+                          check: _eio_for_c0(fake)}
+                next_pick, _ = _picker()
+                res = pool.run_rolling(picker="p", q=2, max_evals=3,
+                                       run_child=lambda name, x: 0,
+                                       next_pick=next_pick, stagger=0,
+                                       log=lines.append,
+                                       on_outcome=seen.append, **checks)
+                self.assertEqual(seen, res["outcomes"])
+                self.assertEqual(sorted(oc.name for oc in seen),
+                                 ["c0", "c1", "c2"])
+                c0 = next(oc for oc in seen if oc.name == "c0")
+                self.assertEqual((c0.rc, c0.row_landed, c0.broken),
+                                 (0, False, False))
+                self.assertEqual(c0.reason, "outcome unknown: OSError: "
+                                            "[Errno 5] Input/output error")
+                self.assertIn(f"[pool] c0: {c0.reason}", lines)
+                self.assertIn("[pool] c0: no-row streak 1/2", lines)
+                self.assertEqual(res["rows"], 2)
+                self.assertFalse(res["aborted"])
 
 
 class TestNoRowStreak(unittest.TestCase):
@@ -164,24 +300,44 @@ class TestNoRowStreak(unittest.TestCase):
         rows = {"c0": False, "c1": True, "c2": False}
         next_pick, _ = _picker()
         res = pool.run_rolling(
-            mode="m", picker="p", q=1, max_evals=3, alpha=1.0,
-            name_prefix="t",
+            picker="p", q=1, max_evals=3,
             run_child=lambda n, x: 0 if rows.get(n) else 1,
             next_pick=next_pick,
-            stop_flag=lambda: False, renew=lambda: None,
-            row_landed=lambda name, mode: rows.get(name, False),
+            stop_flag=lambda: False,
+            row_landed=lambda name: rows.get(name, False),
             broken=_NOT_BROKEN, stagger=0)
         self.assertEqual(res["rows"], 1)
         self.assertFalse(res["aborted"])
 
+    def test_a_landed_row_resets_the_streak_whatever_the_rc(self):
+        """A child that lands its row and then exits non-zero (a kit that
+        fails to close, say) succeeded: counting it rowless would push a
+        healthy campaign toward ABORT. Its reason still shows the rc."""
+        rows = {"c1": True, "c3": True}
+        lines = []
+        next_pick, _ = _picker()
+        res = pool.run_rolling(
+            picker="p", q=1, max_evals=4,
+            run_child=lambda n, x: 1,
+            next_pick=next_pick,
+            row_landed=lambda name: rows.get(name, False),
+            broken=_NOT_BROKEN, stagger=0, log=lines.append)
+        self.assertFalse(res["aborted"], lines)
+        self.assertEqual(res["launched"], 4)
+        self.assertEqual(res["rows"], 2)
+        by_name = {oc.name: oc for oc in res["outcomes"]}
+        self.assertTrue(by_name["c1"].row_landed)
+        self.assertEqual(by_name["c1"].reason, "row landed but child rc=1")
+        self.assertEqual(by_name["c0"].reason, "child rc=1")
+
     def test_q_consecutive_rowless_aborts(self):
         next_pick, _ = _picker()
         res = pool.run_rolling(
-            mode="m", picker="p", q=2, max_evals=10, alpha=1.0,
-            name_prefix="t", run_child=lambda n, x: 1,
+            picker="p", q=2, max_evals=10,
+            run_child=lambda n, x: 1,
             next_pick=next_pick,
-            stop_flag=lambda: False, renew=lambda: None,
-            row_landed=lambda name, mode: False,
+            stop_flag=lambda: False,
+            row_landed=lambda name: False,
             broken=_NOT_BROKEN, stagger=0)
         self.assertTrue(res["aborted"])
         self.assertLess(res["launched"], 10)
@@ -194,20 +350,16 @@ class TestAbortThreshold(unittest.TestCase):
     proven by racing a real thread pool -- test_q_consecutive_rowless_aborts
     above only pins "it aborts eventually", not the exact threshold."""
 
-    def test_q1_requires_two_not_one(self):
-        self.assertFalse(pool._should_abort(streak=1, q=1))
-        self.assertTrue(pool._should_abort(streak=2, q=1))
-
-    def test_q_gt_1_requires_exactly_q(self):
-        self.assertFalse(pool._should_abort(streak=2, q=3))
-        self.assertTrue(pool._should_abort(streak=3, q=3))
-
-    def test_q20_requires_exactly_20_not_21(self):
-        # The regression this guards: `streak > q` (review round 1's fix)
-        # required q+1=21 at q=20 -- over half a 40-eval budget before
-        # aborting, where the intent was 20.
-        self.assertFalse(pool._should_abort(streak=20, q=21))
-        self.assertTrue(pool._should_abort(streak=20, q=20))
+    def test_the_threshold(self):
+        for streak, q, want in (
+                (1, 1, False), (2, 1, True),     # q=1 requires two, not one
+                (2, 3, False), (3, 3, True),     # q>1 requires exactly q
+                # The regression this guards: `streak > q` (review round 1's
+                # fix) required q+1=21 at q=20 -- over half a 40-eval budget
+                # before aborting, where the intent was 20.
+                (20, 21, False), (20, 20, True)):
+            with self.subTest(streak=streak, q=q):
+                self.assertIs(pool._should_abort(streak=streak, q=q), want)
 
 
 class TestStopFlag(unittest.TestCase):
@@ -221,52 +373,12 @@ class TestStopFlag(unittest.TestCase):
             return 0
 
         next_pick, counter = _picker()
-        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=20,
-                               alpha=1.0, name_prefix="t",
+        res = pool.run_rolling(picker="p", q=2, max_evals=20,
                                run_child=run_child, next_pick=next_pick,
                                stop_flag=lambda: stop["v"],
-                               renew=lambda: None,
                                row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         self.assertLess(res["launched"], 20)
         self.assertEqual(len(res["outcomes"]), len(done))
-
-
-class TestRenewHook(unittest.TestCase):
-    """The `renew` injection point fires before every launch AND at every
-    resolution (not once per round -- there are no rounds; and not
-    launch-only, or the drain runs unrenewed -- finding M7). See
-    graph/closed_loop.py's `renew_token`, which run_rolling's production
-    caller wires in as `renew=renew_token` and which is time-gated
-    internally, so the extra call sites cost nothing; a fatal renewal
-    failure (kinit/getToken) must not be swallowed."""
-
-    def test_renew_called_at_every_launch_and_every_resolution(self):
-        calls = {"n": 0}
-
-        def renew():
-            calls["n"] += 1
-
-        next_pick, _ = _picker()
-        res = pool.run_rolling(mode="m", picker="p", q=3, max_evals=7,
-                               alpha=1.0, name_prefix="t",
-                               run_child=lambda n, x: 0, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=renew,
-                               row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
-        self.assertEqual(res["launched"], 7)
-        self.assertEqual(len(res["outcomes"]), 7)
-        self.assertEqual(calls["n"], 14)  # 7 launches + 7 resolutions
-
-    def test_renew_failure_propagates_not_swallowed(self):
-        def renew():
-            raise RuntimeError("getToken rc=1: krb5 expired")
-
-        next_pick, _ = _picker()
-        with self.assertRaises(RuntimeError):
-            pool.run_rolling(mode="m", picker="p", q=2, max_evals=5,
-                             alpha=1.0, name_prefix="t",
-                             run_child=lambda n, x: 0, next_pick=next_pick,
-                             stop_flag=lambda: False, renew=renew,
-                             row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
 
 
 class TestStagger(unittest.TestCase):
@@ -281,333 +393,23 @@ class TestStagger(unittest.TestCase):
         # test in this file (gate.wait(timeout=5) etc.) becomes flaky.
         next_pick, _ = _picker()
         with mock.patch.object(pool.time, "sleep") as m:
-            pool.run_rolling(mode="m", picker="p", q=2, max_evals=4,
-                             alpha=1.0, name_prefix="t",
+            pool.run_rolling(picker="p", q=2, max_evals=4,
                              run_child=lambda n, x: 0, next_pick=next_pick,
-                             stop_flag=lambda: False, renew=lambda: None,
+                             stop_flag=lambda: False,
                              row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=0)
         m.assert_not_called()
 
     def test_stagger_sleeps_between_but_not_before_first_launch(self):
         next_pick, _ = _picker()
         with mock.patch.object(pool.time, "sleep") as m:
-            res = pool.run_rolling(mode="m", picker="p", q=1, max_evals=3,
-                                   alpha=1.0, name_prefix="t",
+            res = pool.run_rolling(picker="p", q=1, max_evals=3,
                                    run_child=lambda n, x: 0,
                                    next_pick=next_pick,
                                    stop_flag=lambda: False,
-                                   renew=lambda: None,
                                    row_landed=_ROW_LANDED, broken=_NOT_BROKEN, stagger=42)
         # 3 launches -> 2 gaps between them, none before the first.
         self.assertEqual(m.call_args_list, [mock.call(42), mock.call(42)])
         self.assertEqual(res["launched"], 3)
-
-    def test_default_stagger_comes_from_config(self):
-        next_pick, _ = _picker()
-        with mock.patch.object(pool.time, "sleep") as m:
-            pool.run_rolling(mode="m", picker="p", q=1, max_evals=2,
-                             alpha=1.0, name_prefix="t",
-                             run_child=lambda n, x: 0, next_pick=next_pick,
-                             stop_flag=lambda: False, renew=lambda: None,
-                             row_landed=_ROW_LANDED, broken=_NOT_BROKEN)  # stagger omitted
-        import runtime
-        m.assert_called_once_with(runtime.CLOSED_LOOP_STAGGER_SEC)
-
-
-class TestNameSkip(unittest.TestCase):
-    """CRITICAL 1, review round 2 + finding C1, final review:
-    _default_pick_source must skip any candidate name a PRIOR run under the
-    same --name-prefix already RESOLVED (leaderboard row / broken.txt) or
-    still has WORK IN FLIGHT for (*_cluster.txt / pending TSV row).
-    Relaunching under the same prefix is the standard recovery move here.
-
-    Without the resolution half, a fresh in-process counter starting at i=0
-    collides with the prior run's names and _default_row_landed/
-    _default_broken read the OLD run's outcome for the NEW child. Without
-    the in-flight half, a second graph.run launches alongside a surviving
-    detached child, re-uses its cluster files, and lands TWO leaderboard
-    rows under one name -- both carrying the FIRST child's metrics.
-    """
-
-    def setUp(self):
-        # Hermetic: neither the live grid state root nor the live pending
-        # TSV may decide a unit test. Each case overrides as needed.
-        self._td = tempfile.TemporaryDirectory()
-        self.state_root = Path(self._td.name)
-        self.addCleanup(self._td.cleanup)
-
-    def _state_dir(self, name):
-        d = self.state_root / name / "state"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
-
-    def _patches(self, cl, *, lb=frozenset(), broken=(), pending=frozenset(),
-                 picks=((1.0, 2.0),)):
-        return (
-            mock.patch.object(cl, "_leaderboard_names",
-                              return_value=set(lb)),
-            mock.patch.object(cl, "_child_is_broken",
-                              side_effect=lambda n: n in broken),
-            mock.patch.object(cl, "_child_state_dir",
-                              side_effect=self._state_dir),
-            mock.patch.object(pool, "_pending_names",
-                              return_value=set(pending)),
-            mock.patch.object(cl, "_botorch_picks_subprocess",
-                              return_value=list(picks)),
-        )
-
-    def test_skips_name_already_in_leaderboard(self):
-        import closed_loop as cl
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl, lb={"fooR00_00"}):
-                st.enter_context(p)
-            x, name = next_pick("foilspf", "hybrid", [])
-        self.assertEqual(name, "fooR01_00")
-
-    def test_skips_broken_name(self):
-        import closed_loop as cl
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl, broken={"fooR00_00"}):
-                st.enter_context(p)
-            x, name = next_pick("foilspf", "hybrid", [])
-        self.assertEqual(name, "fooR01_00")
-
-    def test_skips_name_with_stale_cluster_file(self):
-        """Finding C1: a surviving child from a crashed parent has NO
-        leaderboard row and NO broken.txt -- its only trace is the
-        `<stage>_cluster.txt` its submit wrote. Launching a second
-        graph.run under that name double-submits and lands two corrupt
-        rows. FAILS without the *_cluster.txt condition in
-        _name_busy_reason (the pool hands back fooR00_00)."""
-        import closed_loop as cl
-        (self._state_dir("fooR00_00") / "mubeam_cluster.txt").write_text("12345\n")
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl):
-                st.enter_context(p)
-            x, name = next_pick("foilspf", "hybrid", [])
-        self.assertEqual(name, "fooR01_00")
-
-    def test_cluster_skip_logs_the_recovery_recipe(self):
-        """Finding I3's diagnostic half: the deleted STALE_CLUSTER
-        Resolution carried an actionable message; the skip must too."""
-        import closed_loop as cl
-        sd = self._state_dir("fooR00_00")
-        (sd / "mustops_ce_cluster.txt").write_text("999\n")
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl):
-                st.enter_context(p)
-            buf = st.enter_context(mock.patch("builtins.print"))
-            next_pick("foilspf", "hybrid", [])
-        printed = " ".join(str(c.args[0]) for c in buf.call_args_list)
-        self.assertIn("fooR00_00", printed)
-        self.assertIn(str(sd), printed)
-        self.assertIn("_cluster.txt", printed)
-        self.assertIn("--name-prefix", printed)
-
-    def test_skips_name_with_unresolved_pending_row(self):
-        """The pre-submit half of the same window: a prior child that died
-        in propose/preflight has a pending TSV row and nothing else."""
-        import closed_loop as cl
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl, pending={"fooR00_00"}):
-                st.enter_context(p)
-            x, name = next_pick("foilspf", "hybrid", [])
-        self.assertEqual(name, "fooR01_00")
-
-    def test_skips_multiple_consecutive_collisions(self):
-        import closed_loop as cl
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl, lb={"fooR00_00", "fooR02_00"},
-                                   pending={"fooR01_00"}):
-                st.enter_context(p)
-            x, name = next_pick("foilspf", "hybrid", [])
-        self.assertEqual(name, "fooR03_00")
-
-    def test_skip_logging_is_capped_and_summarised(self):
-        """Finding M-b: each SKIP line carries a multi-line recovery recipe,
-        so an uncapped loop over a long-lived --name-prefix floods the
-        parent log at exactly the moment an operator is reading it, before
-        the first launch. Cap the full lines, then count the rest."""
-        import closed_loop as cl
-        n_busy = pool.SKIP_LOG_LIMIT + 20
-        busy = {f"fooR{i:02d}_00" for i in range(n_busy)}
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl, lb=busy):
-                st.enter_context(p)
-            buf = st.enter_context(mock.patch("builtins.print"))
-            x, name = next_pick("foilspf", "hybrid", [])
-        lines = [str(c.args[0]) for c in buf.call_args_list]
-        skips = [ln for ln in lines if ln.startswith("[pool] SKIP ")]
-        self.assertEqual(len(skips), pool.SKIP_LOG_LIMIT)
-        summary = [ln for ln in lines if "further" in ln]
-        self.assertEqual(len(summary), 1)
-        self.assertIn(str(n_busy - pool.SKIP_LOG_LIMIT), summary[0])
-        self.assertIn(name, summary[0])
-        self.assertEqual(name, f"fooR{n_busy:02d}_00")
-
-    def test_skips_below_the_cap_are_all_logged_in_full(self):
-        import closed_loop as cl
-        busy = {f"fooR{i:02d}_00" for i in range(2)}
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl, lb=busy):
-                st.enter_context(p)
-            buf = st.enter_context(mock.patch("builtins.print"))
-            next_pick("foilspf", "hybrid", [])
-        lines = [str(c.args[0]) for c in buf.call_args_list]
-        self.assertEqual(
-            len([ln for ln in lines if ln.startswith("[pool] SKIP ")]), 2)
-        self.assertFalse([ln for ln in lines if "further" in ln])
-
-    def test_skip_always_yields_a_name_never_an_empty_launch(self):
-        """The monotonic-counter property that makes this safe: unlike the
-        retired node_launch_children (which filtered a FIXED list of q names
-        and could end with pending == [] -- closed-loop-stale-cluster-
-        silent-no-launch), a skip here ADVANCES to a fresh index. Every
-        next_pick returns a usable name, however many are busy."""
-        import closed_loop as cl
-        busy = {f"fooR{i:02d}_00" for i in range(7)}
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            for p in self._patches(cl, lb=busy):
-                st.enter_context(p)
-            names = [next_pick("foilspf", "hybrid", [])[1] for _ in range(3)]
-        self.assertEqual(names, ["fooR07_00", "fooR08_00", "fooR09_00"])
-
-    def test_no_collision_uses_first_name(self):
-        import closed_loop as cl
-        next_pick = pool._default_pick_source("foo")
-        with contextlib.ExitStack() as st:
-            ps = self._patches(cl)
-            for p in ps[:-1]:
-                st.enter_context(p)
-            m = st.enter_context(ps[-1])
-            x, name = next_pick("foilspf", "hybrid", [])
-        self.assertEqual(name, "fooR00_00")
-        self.assertEqual(x, [1.0, 2.0])
-        # round_idx passed to the picker subprocess is the POST-skip index.
-        self.assertEqual(m.call_args.kwargs["round_idx"], 0)
-
-
-class TestPendingNames(unittest.TestCase):
-    def test_unregistered_mode_raises(self):
-        # Was: returned set(). An empty busy-name set silently disarms the
-        # double-launch guard, so the registry lookup stays loud.
-        with self.assertRaises(KeyError):
-            pool._pending_names("definitely-not-a-mode")
-
-    def test_reads_names_from_the_mode_pending_file(self):
-        import bo_driver as bo
-        fake = mock.Mock()
-        fake.load_pending.return_value = [("aR00_00", [1.0]), ("aR01_00", [2.0])]
-        with mock.patch.dict(bo.MODES, {"zz": fake}, clear=False):
-            self.assertEqual(pool._pending_names("zz"),
-                             {"aR00_00", "aR01_00"})
-
-
-class TestDefaultRowLanded(unittest.TestCase):
-    """_default_row_landed must fail CLOSED on every error, including an
-    unregistered mode. It used to return True there so synthetic-mode tests
-    could fall through; "every child landed a row" is the wrong answer to
-    give the one signal the abort guard reads."""
-
-    def test_unregistered_mode_raises(self):
-        with self.assertRaises(KeyError):
-            pool._default_row_landed("c0", "definitely-not-a-real-mode")
-
-    def test_real_mode_membership(self):
-        import closed_loop as cl
-        with mock.patch.object(cl, "_leaderboard_names",
-                               return_value={"foilspfR00_00"}):
-            self.assertTrue(pool._default_row_landed("foilspfR00_00", "foilspf"))
-            self.assertFalse(pool._default_row_landed("foilspfR00_01", "foilspf"))
-
-    def test_real_error_inside_load_history_propagates(self):
-        # A genuine failure reading a REGISTERED mode's leaderboard must not
-        # be swallowed into "landed=True" -- that would fail the no-row-
-        # streak abort guard open on the one signal it reads.
-        import closed_loop as cl
-        with mock.patch.object(cl, "_leaderboard_names",
-                               side_effect=KeyError("cfg")):
-            with self.assertRaises(KeyError):
-                pool._default_row_landed("foilspfR00_00", "foilspf")
-
-
-class TestDefaultRunChild(unittest.TestCase):
-    """IMPORTANT 6, review round 2: the production launch path
-    (_default_run_child) had zero tests. subprocess.Popen is stubbed -- no
-    grid contact. Covers the argv shape the deleted
-    TestUniqueThreadIdPerLaunch used to pin (--config-name vs --thread-id,
-    --x-point %.6f formatting, --mode, --alpha, start_new_session=True,
-    cwd) plus the log-handle-closing behavior (one leaked fd per child over
-    a 40-eval campaign would exhaust the parent's ulimit)."""
-
-    def test_argv_shape_and_popen_kwargs(self):
-        import paths
-        captured = {}
-
-        class _FakeProc:
-            def __init__(self, cmd, **kwargs):
-                captured["cmd"] = cmd
-                captured["kwargs"] = kwargs
-                captured["stdout_open_at_popen"] = not kwargs["stdout"].closed
-
-            def wait(self):
-                return 0
-
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            with mock.patch.object(paths, "GRAPH_DATA", tmp), \
-                 mock.patch.object(paths, "REPO_ROOT", tmp), \
-                 mock.patch.object(pool.subprocess, "Popen", _FakeProc):
-                run_child = pool._default_run_child("foilspf", 1.0e5)
-                rc = run_child("fooR00_00", [1.0, 2.5, -3.0])
-
-        self.assertEqual(rc, 0)
-        cmd = captured["cmd"]
-        self.assertEqual(cmd[0], sys.executable)
-        self.assertEqual(cmd[1:3], ["-m", "graph.run"])
-        self.assertEqual(cmd[cmd.index("--config-name") + 1], "fooR00_00")
-        tid = cmd[cmd.index("--thread-id") + 1]
-        self.assertNotEqual(tid, "fooR00_00",
-                            "thread_id must not equal config_name (collision risk)")
-        self.assertTrue(tid.startswith("fooR00_00_"))
-        self.assertEqual(cmd[cmd.index("--mode") + 1], "foilspf")
-        self.assertEqual(cmd[cmd.index("--alpha") + 1], str(1.0e5))
-        self.assertEqual(cmd[cmd.index("--x-point") + 1],
-                         "1.000000,2.500000,-3.000000")
-        self.assertTrue(captured["kwargs"]["start_new_session"])
-        self.assertEqual(captured["kwargs"]["cwd"], str(tmp))
-        self.assertTrue(captured["stdout_open_at_popen"],
-                        "child must receive an OPEN handle to write to")
-        self.assertTrue(captured["kwargs"]["stdout"].closed,
-                        "parent must not leak its copy of the child's log handle")
-
-    def test_log_file_written_under_graph_data(self):
-        import paths
-
-        class _FakeProc:
-            def __init__(self, cmd, **kwargs):
-                pass
-
-            def wait(self):
-                return 0
-
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            with mock.patch.object(paths, "GRAPH_DATA", tmp), \
-                 mock.patch.object(paths, "REPO_ROOT", tmp), \
-                 mock.patch.object(pool.subprocess, "Popen", _FakeProc):
-                run_child = pool._default_run_child("foilspf", 1.0e5)
-                run_child("fooR00_00", [1.0])
-            self.assertTrue((tmp / "closed_loop_logs" / "fooR00_00.log").exists())
 
 
 class TestHeartbeat(unittest.TestCase):
@@ -628,11 +430,10 @@ class TestHeartbeat(unittest.TestCase):
         next_pick, _ = _picker()
         t = threading.Timer(0.35, gate.set)
         t.start()
-        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=2,
-                               alpha=1.0, name_prefix="t",
+        res = pool.run_rolling(picker="p", q=2, max_evals=2,
                                run_child=run_child, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=lambda: None,
-                               row_landed=lambda n, m: True,
+                               stop_flag=lambda: False,
+                               row_landed=lambda n: True,
                                broken=_NOT_BROKEN, stagger=0,
                                log=lines.append, heartbeat=0.05)
         t.cancel()
@@ -660,11 +461,10 @@ class TestHeartbeat(unittest.TestCase):
         next_pick, _ = _picker()
         t = threading.Timer(0.4, gate.set)
         t.start()
-        res = pool.run_rolling(mode="m", picker="p", q=1, max_evals=1,
-                               alpha=1.0, name_prefix="t",
+        res = pool.run_rolling(picker="p", q=1, max_evals=1,
                                run_child=run_child, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=lambda: None,
-                               row_landed=lambda n, m: True,
+                               stop_flag=lambda: False,
+                               row_landed=lambda n: True,
                                broken=_NOT_BROKEN, stagger=0,
                                log=lines.append, heartbeat=0.02)
         t.cancel()
@@ -673,14 +473,17 @@ class TestHeartbeat(unittest.TestCase):
         self.assertEqual(res["rows"], 1)
 
     def test_stall_warning_carries_the_recovery_text(self):
+        """The advice must match graph/closed_loop.py::busy_reason: a
+        same-prefix relaunch is NOT safe once state exists for the name."""
         lines = []
         inflight = {object(): ("cX", [1.0], 0.0)}
         pool._log_inflight(inflight, lines.append, now=25 * 3600.0)
         joined = " ".join(lines)
         self.assertIn("WARNING cX", joined)
-        self.assertIn("_cluster.txt", joined)
-        self.assertIn("--name-prefix", joined)
-        self.assertIn("pgrep", joined)
+        self.assertIn("busy_reason", joined)
+        self.assertIn("another --name-prefix", joined)
+        self.assertIn("do NOT relaunch it under the same --name-prefix", joined)
+        self.assertIn("run.lock", joined)
 
     def test_no_warning_below_threshold(self):
         lines = []
@@ -691,55 +494,26 @@ class TestHeartbeat(unittest.TestCase):
         self.assertNotIn("WARNING", lines[0])
 
 
-class TestRenewDuringDrain(unittest.TestCase):
-    """Finding M7: renew() ran only in the top-up loop, so a q=20 pool could
-    drain for hours after its last launch with no `kinit -R`. Children share
-    the parent ccache; an expiry during a late stage submit is
-    kerberos-mid-run-expiry (the eval VANISHES, no row, no loud failure)."""
-
-    def test_renew_called_on_every_resolution_including_the_drain(self):
-        calls = {"n": 0}
-        next_pick, _ = _picker()
-
-        def renew():
-            calls["n"] += 1
-
-        pool.run_rolling(mode="m", picker="p", q=3, max_evals=3, alpha=1.0,
-                         name_prefix="t", run_child=lambda n, x: 0,
-                         next_pick=next_pick, stop_flag=lambda: False,
-                         renew=renew, row_landed=lambda n, m: True,
-                         broken=_NOT_BROKEN, stagger=0)
-        # 3 launches + 3 resolutions; the point is that it exceeds the
-        # launch count, i.e. the drain renews too.
-        self.assertGreater(calls["n"], 3)
-
-    def test_resolution_time_renew_failure_is_reported_not_fatal(self):
-        """Asymmetric on purpose: the PRE-LAUNCH renew is the fatal gate
-        ("can we still submit?"); the resolution-time one is hygiene for
-        children already running, and aborting the parent on it would
-        abandon reporting for a pool that is only draining."""
+class TestNextFreeName(unittest.TestCase):
+    def test_skips_busy_names_and_summarises_after_the_limit(self):
+        n = pool.SKIP_LOG_LIMIT + 3
+        busy = {pool.child_name("p", i) for i in range(n)}
         lines = []
-        state = {"launches": 0}
-        next_pick, _ = _picker()
+        name, i = pool.next_free_name(
+            "p", 0, lambda nm: "busy" if nm in busy else None,
+            log=lines.append, summary_hint="HINT")
+        self.assertEqual((name, i), (pool.child_name("p", n), n))
+        self.assertEqual(sum(ln.startswith("[pool] SKIP") for ln in lines),
+                         pool.SKIP_LOG_LIMIT)
+        self.assertIn("3 further", lines[-1])
+        self.assertIn("HINT", lines[-1])
 
-        def renew():
-            # Fail only after every launch is done, i.e. during the drain.
-            if state["launches"] < 2:
-                state["launches"] += 1
-                return
-            raise SystemExit(2)
-
-        res = pool.run_rolling(mode="m", picker="p", q=2, max_evals=2,
-                               alpha=1.0, name_prefix="t",
-                               run_child=lambda n, x: 0, next_pick=next_pick,
-                               stop_flag=lambda: False, renew=renew,
-                               row_landed=lambda n, m: True,
-                               broken=_NOT_BROKEN, stagger=0,
-                               log=lines.append)
-        self.assertEqual(res["rows"], 2)
-        self.assertEqual(len(res["outcomes"]), 2)
-        self.assertTrue(any("renew at resolution failed" in ln
-                            for ln in lines), lines)
+    def test_a_free_start_is_returned_as_is(self):
+        lines = []
+        self.assertEqual(pool.next_free_name("p", 4, lambda nm: None,
+                                             log=lines.append, summary_hint=""),
+                         ("pR04_00", 4))
+        self.assertEqual(lines, [])
 
 
 if __name__ == "__main__":

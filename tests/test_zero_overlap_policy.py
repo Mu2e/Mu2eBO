@@ -18,10 +18,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 import modes  # noqa: E402
-from bo_driver import (  # noqa: E402
+from adapters.preflight_checks import (  # noqa: E402
     SURFACE_OVERLAP_MANAGED,
     SURFACE_OVERLAP_RX,
-    _overlap_banner,
+    overlap_banner,
 )
 
 # Verbatim G4 output from bo_work/preflight/foilsflash/foilsflashRUN1BAP01.log
@@ -66,34 +66,36 @@ class TestOverlapClassification(unittest.TestCase):
         self.assertTrue(SURFACE_OVERLAP_MANAGED.match("StoppingTargetFoil_07"))
 
 
+def _prechecked():
+    """{study: its offline_preflight settings}, for every study that runs
+    the geometry pre-check."""
+    return {name: s.kits["offline_preflight"]
+            for name, s in modes.STUDIES.items()
+            if "offline_preflight" in s.kits}
+
+
 class TestPolicyFlagWiring(unittest.TestCase):
 
-    def test_run1bap_modes_require_zero(self):
-        """foilsflash/foilspf run a Musing that can reach zero overlaps."""
-        for name in ("foilsflash", "foilspf"):
-            self.assertTrue(modes.SPECS[name].require_zero_overlaps, name)
+    def test_the_foilspf_family_requires_zero(self):
+        """foilsflash_ax/foilspfbpz_ax run a release that can reach zero
+        overlaps."""
+        for name in ("foilsflash_ax", "foilspfbpz_ax"):
+            self.assertTrue(
+                modes.STUDIES[name].kits["offline_preflight"]
+                ["require_zero_overlaps"], name)
 
-    # test_run1bak_modes_do_not_require_zero removed 2026-08-08: pinned
-    # "foils"/"foilsf"/"foilsg" (Run1Bak-backed, EMC_0_Front unavoidable)
-    # against require_zero_overlaps=False. All three were archived, and
-    # every surviving mode runs Run1Bap (Offline_run1bap_partial) -- there
-    # is no live Run1Bak-backed mode left to exercise this scenario against.
-    # (ipa625/ipafix/ipaovr/nominal also have require_zero_overlaps=False,
-    # but for an unrelated reason -- known-wrong/inert throwaway A/B arms,
-    # not an unavoidable Run1Bak overlap -- so repointing here would
-    # misstate what the flag is guarding against.)
+    def test_every_study_declares_the_flag(self):
+        """No silent defaults: a study must state its overlap policy."""
+        self.assertTrue(_prechecked())
+        for name, pre in _prechecked().items():
+            self.assertIsInstance(pre["require_zero_overlaps"], bool, name)
 
-    def test_every_mode_declares_the_flag(self):
-        """No silent defaults: a new mode must state its overlap policy."""
-        for name, spec in modes.SPECS.items():
-            self.assertIsInstance(spec.require_zero_overlaps, bool, name)
-
-    def test_strict_modes_also_scan_overlaps(self):
+    def test_strict_studies_also_scan_overlaps(self):
         """require_zero_overlaps is meaningless unless the scan runs -- the
         gate lives inside the `if checks_managed_overlap:` block."""
-        for name, spec in modes.SPECS.items():
-            if spec.require_zero_overlaps:
-                self.assertTrue(spec.checks_managed_overlap, name)
+        for name, pre in _prechecked().items():
+            if pre["require_zero_overlaps"]:
+                self.assertTrue(pre["checks_managed_overlap"], name)
 
 
 class TestPassBanner(unittest.TestCase):
@@ -101,19 +103,14 @@ class TestPassBanner(unittest.TestCase):
     banner drift is why checks_managed_overlap exists at all)."""
 
     def test_banner_reports_strict_policy(self):
-        self.assertEqual(_overlap_banner("foilsflash"),
+        pre = modes.STUDIES["foilsflash_ax"].kits["offline_preflight"]
+        self.assertEqual(overlap_banner(pre["checks_managed_overlap"],
+                                        pre["require_zero_overlaps"]),
                          " and zero surface-check overlaps")
 
     def test_banner_reports_managed_policy(self):
-        # Task 5 (2026-08-19): the "managed, non-strict" modes (ipa625/ipafix/
-        # ipaovr/nominal) were the sole carriers of this policy and have been
-        # archived; all live modes now carry "strict" (require_zero_overlaps=True).
-        # This test has no candidate to run against, so skip it rather than
-        # hardcode a dead-end name into an archived set that may never return.
-        self.skipTest(
-            "No live modes carry the 'managed, non-strict' overlap policy; "
-            "all archived A/B one-shots (ipa625/ipafix/ipaovr/nominal) have "
-            "been moved to mode_specs/archive/")
+        self.assertEqual(overlap_banner(True, False),
+                         " and no managed-volume overlap")
 
 
 class TestJsonSchemaRequiresTheKey(unittest.TestCase):
@@ -122,8 +119,9 @@ class TestJsonSchemaRequiresTheKey(unittest.TestCase):
         """A JSON mode that omits require_zero_overlaps must be a load error,
         not a silent False -- silently-lenient is the failure mode this whole
         policy exists to remove."""
-        import mode_json
-        self.assertIn("require_zero_overlaps", mode_json._REQUIRED_PREFLIGHT)
+        import kit_registry
+        self.assertIn("require_zero_overlaps",
+                      kit_registry.KITS["offline_preflight"].study_keys)
 
 
 if __name__ == "__main__":

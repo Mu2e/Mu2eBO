@@ -1,19 +1,17 @@
 ---
 type: driver
 title: pipeline.py — parametric grid runner
-description: 'per-config runner: job description is checked-in `stage_entries/<stage>.json`, execution shells prodtools (env `AUTORESEARCH_PRODTOOLS`: json2jobdef/submit/jobwait/runlocal) — submits grid or local, harvests'
-status: active
-timestamp: '2026-08-16'
-updated_note: 'prodtools-switch Task 12: page rewritten end-to-end for the
-  final architecture (Tasks 1-14) — job description is now checked-in
-  stage_entries/<stage>.json + mode_specs stage_tuning, execution is shelled
-  to prodtools (json2jobdef/submit/jobwait/runlocal) via core/prodtools_exec.py,
-  mu2ejobdef/mu2ejobsub/local_exec.py/poll_cluster/list_outputs-glob/
-  local-build/local-run/--cap-hours are all deleted; supersedes the
-  mu2ejobdef-era content this page carried through 2026-08-16'
+description: '(deleted 2026-09-28, Phase C3) per-config grid runner: rendered stage_entries/<stage>.json, shelled prodtools to submit grid or local jobs, harvested a summary'
+status: superseded
+status_note: 'code deleted in Phase C3 (2026-09-28); see contract-engine'
+timestamp: '2026-10-08'
 ---
 
 # pipeline.py — parametric grid runner
+
+> **Deleted 2026-09-28 (Phase C3).** `core/pipeline.py` is gone. This page is
+> its record as of 2026-08-16, kept as history. The engine that replaced it:
+> [contract-engine](/drivers/contract-engine.md).
 
 ## Summary
 One canonical pipeline.py at the repo root. Pass `--config CFG`; per-config

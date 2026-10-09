@@ -1,0 +1,83 @@
+# Native contract kits (the evaluator contract: core/contract.py,
+# wiki/drivers/contract-engine.md). A kit that speaks submit / status / results over
+# MCP needs only an entry here: the engine calls its tools directly. Every key
+# is required and unknown keys are rejected (ADR-0002). Tokens in `command`
+# and `set`: ${PYTHON} (the running interpreter), ${REPO_ROOT} and
+# ${DATA_ROOT} (core/paths.py), and ${NAME} for any environment variable,
+# which must be set. They resolve when the kit starts, never at import.
+
+[toykit]
+# The reference implementation and the CI engine: tests/toykit.py.
+command = ["${PYTHON}", "${REPO_ROOT}/tests/toykit.py"]
+env_passthrough = []
+set = { TOYKIT_STATE_DIR = "${DATA_ROOT}/toykit" }
+study_keys = { function = "string" }
+fixed_keys = { delay_s = "number", fail = "string", submit_sleep_s = "number", x1 = "number", x2 = "number" }
+accepts_lists = false
+check = true
+executors = ["grid", "local"]
+launch_stagger_s = 0
+poll_s = [0.1, 2.0]
+timeouts = { start = 60, submit = 30, status = 30, results = 30, check = 30, describe = 30, cancel = 30 }
+
+# Servers an adapter talks to (core/kit_config.py ServerConfig): not kits.
+# The prodtools adapter (core/adapters/prodtools.py) starts both from the
+# checkout $AUTORESEARCH_PRODTOOLS names. KRB5CCNAME and XDG_RUNTIME_DIR are
+# the credentials to pass: the servers find the bearer token at
+# $XDG_RUNTIME_DIR/bt_u<uid>, the file the operator's shell and jobsub
+# refresh (without the variable they would read /tmp/bt_u<uid>).
+# The write server refreshes that token from the Kerberos ticket on write
+# calls; it does not renew the ticket. The spack cache goes to local disk,
+# as the geometry pre-check's does (core/adapters/preflight_checks.py;
+# wiki/incidents/nfsv4-badseqid-lock-wedge-nashome.md).
+# The write server also needs the JOBSUB_* site settings a login shell gets
+# from /etc/profile.d/jobsub_lite.sh: without JOBSUB_DROPBOX_SERVER_LIST,
+# jobsub_submit cannot publish the code tarball (NoPublisherHandlerServerError,
+# found in the c1grid02 acceptance run, 2026-09-26).
+[servers.prodtools_write]
+command = ["${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_write_mcp.sh"]
+env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR", "JOBSUB_DROPBOX_SERVER_LIST",
+                   "JOBSUB_OUTPUT_URL", "JOBSUB_FETCHLOG_URL", "JOBSUB_AUTH_METHODS",
+                   "JOBSUB_POOL_MAP"]
+set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
+timeouts = { start = 120, submit_once = 900, run_local = 300, cancel_run = 120 }
+
+[servers.prodtools_read]
+command = ["${AUTORESEARCH_PRODTOOLS}/mcp/scripts/start_mcp.sh"]
+env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR"]
+set = { SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}" }
+timeouts = { start = 120, run_status = 120 }
+
+# The anakit adapter (core/adapters/anakit.py) starts one of these per step,
+# from the anakit checkout $AUTORESEARCH_ANAKIT (M. MacKenzie's analysis MCP
+# server, his main), under ana 2.7.0: his pyproject.toml pins mcp<2. -P
+# keeps the working directory off sys.path, so this repo's tools/ cannot
+# shadow anakit's `tools` package. The adapter appends --musing <the study's
+# kits.anakit.musing>, so anakit's own fallback (its author's work area) is
+# never used. One thread per job (OPENBLAS/OMP), as his AGENTS.md asks.
+# anakit runs an analysis synchronously and one at a time per server; the
+# adapter stops a run at 3000 s, so run_analysis must allow more.
+[servers.anakit]
+command = ["/cvmfs/mu2e.opensciencegrid.org/env/ana/2.7.0/bin/python", "-P", "-m", "analysis_mcp_server", "--transport", "stdio"]
+env_passthrough = []
+set = { PYTHONPATH = "${AUTORESEARCH_ANAKIT}", SPACK_USER_CACHE_PATH = "/tmp/spack_cache_${USER}", OPENBLAS_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+timeouts = { start = 120, list_analyses = 120, run_analysis = 3600 }
+
+# G4beamline through beamkit (core/adapters/beamkit.py drives it;
+# wiki/projects/bo-ptg4bl.md). beamkit runs
+# from its own checkout's venv ($AUTORESEARCH_BEAMKIT). It submits through
+# prodtools, so it gets the prodtools_write credentials and site settings,
+# and BEAMKIT_PRODTOOLS_ROOT names the same dev checkout the prodtools kit
+# uses (the cvmfs prodtools has no MCP venv). The OTEL_* pair is jobsub's
+# tracing endpoint from /etc/profile.d/jobsub_lite.sh: without it jobsub_q
+# prints "Continuing without tracing..." into its queue table, prodtools'
+# tick refuses the count ("top-up: queue count failed") and submits nothing
+# (found in the ptg4bl grid acceptance, 2026-10-02).
+[servers.beamkit]
+command = ["${AUTORESEARCH_BEAMKIT}/.venv/bin/beamkit-mcp"]
+env_passthrough = ["KRB5CCNAME", "XDG_RUNTIME_DIR", "JOBSUB_DROPBOX_SERVER_LIST",
+                   "JOBSUB_OUTPUT_URL", "JOBSUB_FETCHLOG_URL", "JOBSUB_AUTH_METHODS",
+                   "JOBSUB_POOL_MAP", "OTEL_EXPORTER_JAEGER_ENDPOINT",
+                   "OTEL_EXPORTER_JAEGER_TIMEOUT"]
+set = { BEAMKIT_PRODTOOLS_ROOT = "${AUTORESEARCH_PRODTOOLS}" }
+timeouts = { start = 120, get_server_info = 60, run_beamline = 900, beamline_status = 120, beamline_outputs = 120, list_beamline_runs = 60 }

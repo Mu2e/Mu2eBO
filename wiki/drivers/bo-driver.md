@@ -1,16 +1,18 @@
 ---
 type: driver
 title: bo_driver.py — driver
-description: '`propose | evaluate | preflight` (6 modes; michael/helical retired
-  2026-07-12, ipa 2026-07-18; all BO asks via botorch_ask since 2026-07-18)'
-status: active
-timestamp: '2026-08-19'
-updated_note: 'fixed recorded drift: KNOB_NAMES/KNOB_FMTS/CALO_COL are registry
-  properties (modes.SPECS) not driver-owned data; preflight/evaluate carry
-  --emit-json; build_space lockstep guard now lives in ModeSpec.__post_init__'
+description: '(deleted 2026-09-28, Phase C3) `propose | evaluate | preflight` driver over the BO modes; all asks via botorch_ask since 2026-07-18'
+status: superseded
+status_note: 'code deleted in Phase C3 (2026-09-28); see contract-engine'
+timestamp: '2026-10-08'
 ---
 
 # bo_driver.py — driver
+
+> **Deleted 2026-09-28 (Phase C3).** `core/bo_driver.py` is gone. This page
+> is its record as of 2026-08-19, kept as history. The engine that replaced it:
+> [contract-engine](/drivers/contract-engine.md); picks now come from
+> [surrogate](/drivers/surrogate.md).
 
 ## Summary
 The multi-mode BO driver (all 6 live modes — foils/foilsf/foilsflash/

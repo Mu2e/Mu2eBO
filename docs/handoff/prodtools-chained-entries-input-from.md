@@ -1,3 +1,5 @@
+> Note (2026-10-08): `core/pipeline.py`, which this request cites, was deleted on 2026-09-28 (`315563a`); its line numbers below are those of `53610de`.
+
 # prodtools: feature request — chained entries (`input_from` + `jobwait --quorum`)
 
 **Repo:** `oksuzian/prodtools` (branch `code-tarball`; shipped as

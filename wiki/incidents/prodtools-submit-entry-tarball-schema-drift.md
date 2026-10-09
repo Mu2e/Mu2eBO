@@ -4,7 +4,7 @@ title: prodtools submit_entry requires entry key 'tarball' — schema drift brok
 description: 'first grid submit after the branch cuts died rc=1 "map entry missing required field: tarball" — the prodtools code-tarball branch was REBASED upstream (2026-08-15 commits, validated SHAs 8d6fe0e6/2eec6842/7a55ab4 gone) and submit_entry now requires the cnf tarball NAME as entry key `tarball`; our json2jobdef entry schema never had it; fixed by stamping Path(cnf).name at the driver seam'
 status: resolved
 status_note: fixed 2026-08-20 — prodtools_submit_driver.py stamps entry["tarball"] from a new --cnf arg
-timestamp: '2026-08-20'
+timestamp: '2026-08-22'
 ---
 
 # prodtools submit_entry requires entry key 'tarball' — schema drift broke grid submit
@@ -48,7 +48,7 @@ passed while the first grid submit failed.
   on our side — but a cnf built by an OLDER json2jobdef would now fail the
   gate with `code_mismatch` ("entry and cnf disagree about code mode");
   rebuild the cnf (fresh submit) rather than fighting the gate.
-- **cvmfs release `v3.1.0` is a drop-in pin**: `/cvmfs/mu2e.opensciencegrid.org/bin/prodtools/v3.1.0` ships all four verbs we shell and its `utils/jobdesc.py` + `utils/submit.py` are byte-identical to the checkout head the fix was validated against — README default switched to it 2026-08-20, which both kills this drift class and drops the personal-path dependency for outside users.
+- **cvmfs release `v3.1.0` is NOT a drop-in pin** (claim retracted 2026-08-22): its `utils/jobdesc.py` + `utils/submit.py` are byte-identical to the checkout head this fix was validated against, but its `utils/jobwait.py` still shells the schedd-dropping `jobsub_history` wrapper and its `utils/check_inputs.py` has no `dir:` arm — it lost a 15/15 cluster on 2026-08-22. Pin `v3.2.0` (== checkout `359c2b5`, gridsmoke05-validated); see [prodtools-v310-pin-predates-jobwait-fix](/incidents/prodtools-v310-pin-predates-jobwait-fix.md)
 - The operator prodtools checkout
   (`/exp/mu2e/app/users/oksuzian/muse_050125/prodtools`, branch
   `code-tarball`) is a moving target that rebases: pinning validated SHAs in

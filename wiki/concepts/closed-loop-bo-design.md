@@ -5,7 +5,7 @@ description: load-bearing constraints for `graph/closed_loop.py` (SqliteSaver WA
   leaderboard/pending locking, barrier source-of-truth, config-SHA stamping, scan_logs
   gating)
 status: active
-timestamp: '2026-07-18'
+timestamp: '2026-09-25'
 updated_note: skopt CL bullets superseded/resolved by the botorch_ask consolidation
 ---
 
@@ -118,7 +118,9 @@ already paid to learn.
   brokenness, not a slow-but-correct simulation.
 
 ## Cross-links
-- Related: [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md), [batch-bo](/concepts/batch-bo.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md),
+- Related: [contract-engine](/drivers/contract-engine.md) (the Phase B
+  engine reuses `graph/pool.py`'s rolling pool from this design, but not
+  its checkpointing or barrier logic), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md), [batch-bo](/concepts/batch-bo.md), [events-per-job-mid-flight-edit](/incidents/events-per-job-mid-flight-edit.md),
   [tessellated-solid-facet-orientation](/incidents/tessellated-solid-facet-orientation.md),
   [orchestrator-evaluation-2026-05](/concepts/orchestrator-evaluation-2026-05.md), [bo-helical](/projects/bo-helical.md), [architecture-friction-survey-2026-07](/concepts/architecture-friction-survey-2026-07.md), [mode-registry-childtracker-design](/concepts/mode-registry-childtracker-design.md), [qlnei-sob-only-picker](/concepts/qlnei-sob-only-picker.md), [saturation-is-acquisition-relative](/concepts/saturation-is-acquisition-relative.md)
 - Source: `graph/run.py:51` (sqlite connect, no WAL today),

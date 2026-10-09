@@ -1,0 +1,44 @@
+[
+ {
+  "desc": "Run1A_CeEndpoint_gridphaseA01",
+  "dsconf": "Run1Bak_gridphaseA01",
+  "owner": "oksuzian",
+  "fcl": "Production/JobConfig/primary/CeEndpoint.fcl",
+  "code": "CODE",
+  "njobs": 15,
+  "outloc": {
+   "*.art": "outstage",
+   "*.root": "outstage"
+  },
+  "events": 75000,
+  "run": 1801,
+  "memory": "2000MB",
+  "input_data": {
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000000.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000001.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000010.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000011.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000012.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000013.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000014.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000002.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000003.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000004.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000005.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000006.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000007.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000008.art": 1,
+   "sim.oksuzian.TargetStops.Run1Bak_gridphaseA01.001800_00000009.art": 1
+  },
+  "inloc": "dir:STAGED",
+  "resampler_name": "TargetStopResampler",
+  "fcl_overrides": {
+   "physics.producers.g4run.physics.physicsListName": "FTFP_BERT",
+   "services.SeedService.baseSeed": 1,
+   "outputs.PrimaryOutput.fileName": "dts.owner.CeEndpoint.version.sequencer.art",
+   "services.GeometryService.inputFile": "autoresearch_gridphaseA01_geom.txt",
+   "services.GeometryService.bFieldFile": "Offline/Mu2eG4/geom/bfgeom_v01.txt",
+   "physics.filters.TargetStopResampler.mu2e.MaxEventsToSkip": 8000
+  }
+ }
+]

@@ -1,0 +1,136 @@
+"""Tests for the MCP surrogate door (adapter + server wiring).
+
+Reuses the foilsflash_ax fixture board from test_botorch_predict —
+botorch_predict.boards.board_for is patched to read a tmp v2 board; live
+leaderboards are never touched. The MCP test is skipped where the `mcp`
+SDK is absent (it ships in ana 2.8.0 but not in the dev venv).
+
+The plain-Python facade these tests used to cover was deleted 2026-09-22
+(zero callers); see wiki/drivers/surrogate.md."""
+import asyncio
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from tests.test_botorch_predict import (  # noqa: E402
+    STUDY, patched_leaderboard,
+)
+
+try:
+    import mcp  # noqa: F401
+    HAVE_MCP = True
+except ImportError:
+    HAVE_MCP = False
+
+
+@unittest.skipUnless(HAVE_MCP, "mcp SDK not installed")
+class TestMcpAdapter(unittest.TestCase):
+    def test_tool_names(self):
+        import surrogate.mcp_server as ms
+        tools = asyncio.run(ms.server.list_tools())
+        names = sorted(t.name for t in tools)
+        self.assertEqual(names, ["list_problems", "predict", "refit",
+                                 "stats", "suggest"])
+        # The adapter provides suggest(), so the tool speaks round_idx
+        # (production seed derivation), not a raw engine seed.
+        sg = next(t for t in tools if t.name == "suggest")
+        props = (sg.input_schema if hasattr(sg, "input_schema")
+                 else sg.inputSchema)["properties"]
+        self.assertIn("round_idx", props)
+        self.assertNotIn("seed", props)
+
+
+class TestAutoresearchAdapter(unittest.TestCase):
+    def test_problems_cover_all_modes(self):
+        from surrogate.adapter import AutoresearchAdapter
+        import modes as _modes
+        probs = AutoresearchAdapter().problems()
+        self.assertEqual(sorted(probs),
+                         sorted(n for n, s in _modes.STUDIES.items() if s.knobs))
+        for name, prob in probs.items():
+            study = _modes.STUDIES[name]
+            self.assertEqual(prob.dim, len(study.knobs))
+            self.assertEqual(prob.noise, tuple(o.noise for o in study.objectives))
+            # A constraint exactly when the study declares one (ptg4bl, the
+            # G4beamline study, has none; every foilspf twin has one).
+            self.assertEqual(prob.constraint is not None,
+                             bool(study.constraints), name)
+
+    def test_problems_refuse_a_removed_env_override(self):
+        """The MCP door takes the same build_problem path, so a stale
+        AUTORESEARCH_BUDGET_KSIGMA / AUTORESEARCH_FLASH_BUDGET export is
+        fatal there too, not silently ignored."""
+        from surrogate.adapter import AutoresearchAdapter
+        for var in ("AUTORESEARCH_FLASH_BUDGET", "AUTORESEARCH_BUDGET_KSIGMA"):
+            with self.subTest(var=var), \
+                 mock.patch.dict(os.environ, {var: "0.5"}):
+                with self.assertRaises(ValueError) as cm:
+                    AutoresearchAdapter().problems()
+                self.assertIn(var, str(cm.exception))
+
+    def test_a_refused_pick_is_a_tool_error_not_an_exit(self):
+        """The MCP SDK turns an Exception into a tool error, but a
+        SystemExit escapes it and takes the server down (2026-10-05:
+        suggest(ptg4bl, budget_sob) closed the connection)."""
+        from surrogate.adapter import AutoresearchAdapter
+        import botorch_predict as bp
+        with mock.patch.object(bp, "history_points", return_value=[]):
+            with self.assertRaises(ValueError) as cm:
+                AutoresearchAdapter().suggest("ptg4bl", q=1,
+                                              picker="budget_sob")
+        self.assertIn("needs a constraint", str(cm.exception))
+
+    def test_suggest_is_production_pick_path(self):
+        from surrogate.adapter import AutoresearchAdapter
+        import botorch_predict as bp
+        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
+            got = AutoresearchAdapter().suggest(
+                STUDY, q=2, picker="qnehvi", round_idx=1)
+            want = [list(t) for t in bp.compute_explore_picks(
+                STUDY, q=2, round_idx=1, picker="qnehvi")]
+            self.assertEqual(got, want)
+
+    def test_suggest_rejects_unknowns(self):
+        from surrogate.adapter import AutoresearchAdapter
+        a = AutoresearchAdapter()
+        with self.assertRaisesRegex(ValueError, "unknown problem"):
+            a.suggest("nope")
+        with self.assertRaisesRegex(ValueError, "unknown picker"):
+            a.suggest(STUDY, picker="qnparego")
+
+    def test_history_shape_and_meta(self):
+        from surrogate.adapter import AutoresearchAdapter
+        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
+            X, Y, meta = AutoresearchAdapter().history(STUDY)
+            self.assertEqual(len(X), len(Y))
+            self.assertEqual(len(Y[0]), 2)
+            self.assertIn("objectives", meta)
+            self.assertEqual([o["axis"] for o in meta["objectives"]],
+                             ["sob", "-log10(flash_edep)"])
+
+    def test_meta_carries_board_summary(self):
+        """Champion + primary-objective range ride in history() meta, which
+        is what the scaffold's `stats` tool returns. Ported from the deleted
+        surrogate.board_stats facade (2026-09-22) -- same assertions."""
+        from surrogate.adapter import AutoresearchAdapter
+        with tempfile.TemporaryDirectory() as tmp, patched_leaderboard(tmp):
+            _, _, meta = AutoresearchAdapter().history(STUDY)
+            self.assertEqual(meta["best"]["config"], "cfg009")
+            self.assertAlmostEqual(meta["best"]["values"]["sob"], 3.8,
+                                   places=4)
+            # Values are nested, never spread beside config/x: an objective
+            # named "x" or "config" must not overwrite the knob vector.
+            self.assertEqual(sorted(meta["best"]),
+                             ["config", "values", "x"])
+            self.assertEqual(len(meta["best"]["x"]), 6)
+            self.assertAlmostEqual(meta["primary_range"][0], 3.0, places=4)
+            self.assertAlmostEqual(meta["primary_range"][1], 3.8, places=4)
+
+
+if __name__ == "__main__":
+    unittest.main()
