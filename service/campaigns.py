@@ -18,8 +18,8 @@ shell or from here:
 Liveness is the records' flocks, so a campaign on any node that shares the
 data root shows as running.
 
-Only the standard library and bare core/ modules (paths, study, leaderboard):
-never modes, so one broken study file cannot stop the server.
+Only the standard library and bare core/ modules (paths, study, leaderboard,
+kit_registry): never modes, so one broken study file cannot stop the server.
 """
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
+import kit_registry  # noqa: E402
 import paths  # noqa: E402
 import study as st  # noqa: E402
 from campaign_dir import CampaignDir, is_child  # noqa: E402,F401  (re-exported)
@@ -282,19 +283,32 @@ class CampaignService:
     # -- start -------------------------------------------------------------
 
     def budget(self, study: str, max_evals: int,
-               executor: str) -> Optional[Dict[str, int]]:
-        """Jobs a campaign would run: prodtools steps' njobs per point."""
+               executor: str) -> Optional[Dict[str, Any]]:
+        """Jobs a campaign would run: every step's jobs per point, each
+        counted by its own kit (kit_registry.step_jobs). jobs_vary says why
+        a step has no one count (it maps its job count from the point);
+        then the per-point and total counts are None, never a partial sum.
+        None when the study does not load; a count its kit cannot give is a
+        ValueError."""
         try:
             s = self.load_study(study)
         except ValueError:
             return None
-        per = sum(int(step.fixed.get("njobs", 0)) for step in s.steps
-                  if step.kit == "prodtools")
+        per, vary = 0, []
+        for step in s.steps:
+            n = kit_registry.step_jobs(s, step)
+            if isinstance(n, str):
+                vary.append(n)
+            else:
+                per += n
+        if vary:
+            per = None
         if executor == "local":
             return {"grid_jobs_per_point": 0, "grid_jobs_total": 0,
-                    "local_jobs_per_point": per}
+                    "local_jobs_per_point": per, "jobs_vary": vary}
         return {"grid_jobs_per_point": per,
-                "grid_jobs_total": per * max_evals}
+                "grid_jobs_total": None if per is None else per * max_evals,
+                "jobs_vary": vary}
 
     def _dry_run(self, argv: List[str]) -> Dict[str, Any]:
         proc = subprocess.Popen(

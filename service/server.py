@@ -110,9 +110,12 @@ def start_campaign(study: str, name_prefix: str, q: int, max_evals: int,
                    confirm: bool = False) -> dict[str, Any]:
     """A graph.closed_loop campaign. confirm=false (the default) is a dry
     run: {ok, problems, command, budget, output_tail, error}, nothing
-    launched. confirm=true launches it detached and returns {state:
-    "launched" | "refused" | "starting", ...}; only with the operator's OK.
-    context: "name=value" strings."""
+    launched; budget is {grid_jobs_per_point, grid_jobs_total, jobs_vary}
+    (plus local_jobs_per_point with executor "local"), every step's jobs
+    as its kit counts them; a null count means a step takes its job count
+    from the point, and jobs_vary says which. confirm=true launches it
+    detached and returns {state: "launched" | "refused" | "starting", ...};
+    only with the operator's OK. context: "name=value" strings."""
     return campaigns.start_campaign(study, name_prefix, q, max_evals, picker,
                                     executor, parallel, context, stagger,
                                     confirm)
