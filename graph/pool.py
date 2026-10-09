@@ -82,9 +82,12 @@ def _wait_one(inflight, log, heartbeat=HEARTBEAT_S):
 
 
 def classify(name, x, rc, row_landed, broken) -> Outcome:
-    """Exit code plus artifacts decide the outcome. No polling."""
-    if rc == 0 and row_landed:
-        return Outcome(name, x, rc, True, False, "ok")
+    """Exit code plus artifacts decide the outcome. No polling. A landed row
+    counts whatever the rc: the point is on the board, so the child must
+    not add to the no-row streak."""
+    if row_landed:
+        return Outcome(name, x, rc, True, False,
+                       "ok" if rc == 0 else f"row landed but child rc={rc}")
     if broken:
         return Outcome(name, x, rc, False, True, "broken")
     if rc != 0:
@@ -111,6 +114,13 @@ def run_rolling(picker, q, max_evals, *, run_child, next_pick, row_landed,
     `heartbeat` is REPORT-ONLY -- never resolves/abandons (_log_inflight).
     `on_outcome(oc)`, if given, sees each Outcome once it is logged, in the
     main loop and the drain alike (graph/closed_loop.py records it).
+
+    Failures never hide a drain. A raise in the main loop (next_pick --
+    budget_sob refusing to pick, core/botorch_predict.py -- or stop_flag)
+    stops launching and is logged as FATAL at once; the children in flight
+    then drain as usual, and only then is it raised again. A raise from
+    row_landed/broken for one child becomes that child's Outcome; one from
+    on_outcome is logged. Neither stops the pool.
     """
     stop_flag = stop_flag or (lambda: False)
 
@@ -120,57 +130,81 @@ def run_rolling(picker, q, max_evals, *, run_child, next_pick, row_landed,
     streak = 0
     aborted = False
     outcomes = []
+    failure = None
 
     def _resolve_one(fut):
         """Pop one resolved future -> Outcome, logging per child from main
-        loop and drain alike."""
+        loop and drain alike, whatever the checks or on_outcome raise."""
         name, x, _t0 = inflight.pop(fut)
         try:
             rc = fut.result()
         except Exception as exc:  # noqa: BLE001
             rc = 1
             log(f"[pool] {name} raised: {exc}")
-        oc = classify(name, x, rc, row_landed(name), broken(name))
+        try:
+            oc = classify(name, x, rc, row_landed(name), broken(name))
+        except Exception as exc:  # noqa: BLE001
+            # Fail closed: a row nobody could see is not counted, so the
+            # child adds to the no-row streak like any rowless exit.
+            oc = Outcome(name, x, rc, False, False,
+                         f"outcome unknown: {type(exc).__name__}: {exc}")
         log(f"[pool] {name}: {oc.reason}")
         if on_outcome is not None:
-            on_outcome(oc)
+            try:
+                on_outcome(oc)
+            except Exception as exc:  # noqa: BLE001
+                log(f"[pool] WARNING: on_outcome raised for {name} "
+                    f"({type(exc).__name__}: {exc}); the pool goes on")
         return oc
 
     with ThreadPoolExecutor(max_workers=q) as poolx:
-        while (launched < max_evals or inflight) and not aborted:
-            while (len(inflight) < q and launched < max_evals
-                   and not stop_flag() and not aborted):
-                if launched > 0 and stagger:
-                    time.sleep(stagger)
-                x, name = next_pick(picker,
-                                    [v for _, v, _t in inflight.values()])
-                inflight[poolx.submit(run_child, name, x)] = (name, x,
-                                                              time.time())
-                launched += 1
-                log(f"[pool] launched {name} ({launched}/{max_evals}), "
-                    f"in_flight={len(inflight)}")
-            if not inflight:
-                break
-            oc = _resolve_one(_wait_one(inflight, log, heartbeat))
-            outcomes.append(oc)
-            if oc.row_landed:
-                rows += 1
-                streak = 0
-            else:
-                streak += 1
-                log(f"[pool] {oc.name}: no-row streak {streak}/{max(q, 2)}")
-            if _should_abort(streak, q):
-                aborted = True
-                log(f"[pool] ABORT: {streak} consecutive resolutions with "
-                    f"no row (>= {max(q, 2)})")
+        try:
+            while (launched < max_evals or inflight) and not aborted:
+                while (len(inflight) < q and launched < max_evals
+                       and not stop_flag() and not aborted):
+                    if launched > 0 and stagger:
+                        time.sleep(stagger)
+                    x, name = next_pick(picker,
+                                        [v for _, v, _t in inflight.values()])
+                    inflight[poolx.submit(run_child, name, x)] = (name, x,
+                                                                  time.time())
+                    launched += 1
+                    log(f"[pool] launched {name} ({launched}/{max_evals}), "
+                        f"in_flight={len(inflight)}")
+                if not inflight:
+                    break
+                oc = _resolve_one(_wait_one(inflight, log, heartbeat))
+                outcomes.append(oc)
+                if oc.row_landed:
+                    rows += 1
+                    streak = 0
+                else:
+                    streak += 1
+                    log(f"[pool] {oc.name}: no-row streak "
+                        f"{streak}/{max(q, 2)}")
+                if _should_abort(streak, q):
+                    aborted = True
+                    log(f"[pool] ABORT: {streak} consecutive resolutions "
+                        f"with no row (>= {max(q, 2)})")
+        except Exception as exc:  # noqa: BLE001
+            # Leaving the with-block on this raise would wait in the
+            # executor's __exit__ for every child in flight -- silently, for
+            # hours on the grid -- and print the error only at the end.
+            failure = exc
+            log(f"[pool] FATAL: {type(exc).__name__}: {exc} -- launching "
+                f"nothing more; draining {len(inflight)} in flight first "
+                f"(this has NOT hung), then raising it")
         # Drain: never exit with work in flight -- the structural fix for
         # wiki/incidents/closed-loop-final-round-orphan-children.md. Same
-        # _resolve_one/_wait_one, so an abort/STOP drain still logs per child.
+        # _resolve_one/_wait_one, so an abort/STOP/FATAL drain still logs
+        # per child under the heartbeat.
         while inflight:
             oc = _resolve_one(_wait_one(inflight, log, heartbeat))
             outcomes.append(oc)
             if oc.row_landed:
                 rows += 1
+    if failure is not None:
+        raise failure
     return {"launched": launched, "rows": rows,
             "outcomes": outcomes, "aborted": aborted}
 
