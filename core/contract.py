@@ -543,7 +543,7 @@ def kit_step_problems(kit, study, name: str) -> List[str]:
 
 def launch_problems(study, kits, *, executor: str, parallel,
                     config_names, kerberos=None, board=None,
-                    adopted=None) -> List[str]:
+                    adopted=None, submitted=None) -> List[str]:
     """The launch check both runners make. Static rules first, opening no
     kit: the executor rules (a problem here returns at once), a Kerberos
     ticket with GRID_TICKET_SECONDS left when a kit of the study asks for
@@ -560,7 +560,9 @@ def launch_problems(study, kits, *, executor: str, parallel,
     (measure.board_problems),
     computed from the versions `score` will use: `adopted` ({step: record},
     a resumed point's finished steps; None for a fresh one) keeps the
-    versions its steps ran under (measure.point_versions).
+    versions its steps ran under (measure.point_versions), and `submitted`
+    ({step: version}, its steps in flight under a recorded version) must
+    still be their kits' versions.
     `kits` stays open: the caller closes it."""
     problems = executor_problems(study, executor, parallel)
     if problems:
@@ -622,7 +624,8 @@ def launch_problems(study, kits, *, executor: str, parallel,
     if board is not None and not problems:
         current = {name: kits.get(name).version
                    for name in {s.kit for s in study.steps}}
-        versions, problems = measure.point_versions(study, current, adopted)
+        versions, problems = measure.point_versions(study, current, adopted,
+                                                    submitted)
         if not problems:
             problems = measure.board_problems(study, board, versions,
                                               current=current)

@@ -81,6 +81,43 @@ class TestPointVersions(_Toy):
         self.assertNotIn("leaderboard.file", problems[0])
 
 
+class TestInFlight(_Toy):
+    """A step submitted under a recorded version and not finished: its jobs
+    ran under that version, so it is measured at it, and the kit must still
+    report it when the results are read (the scheduler refuses otherwise)."""
+
+    def test_in_flight_at_the_current_version(self):
+        self.assertEqual(measure.point_versions(
+            self.study, {"toykit": "T"}, None, {"toy": "T"}),
+            ({"toykit": "T"}, []))
+
+    def test_in_flight_at_another_version(self):
+        _, problems = measure.point_versions(
+            self.study, {"toykit": "NEW"}, None, {"toy": "OLD"})
+        self.assertEqual(len(problems), 1)
+        for needle in ("'toykit'", "['toy']", "submitted under version "
+                       "'OLD'", "'NEW'", "new config name"):
+            self.assertIn(needle, problems[0])
+        self.assertNotIn("leaderboard.file", problems[0])
+
+    def test_in_flight_next_to_a_step_finished_at_the_current_version(self):
+        """The finished step agrees with the kit, so only the step in flight
+        tells that the point spans a bump."""
+        _, problems = measure.point_versions(
+            self.study, {"toykit": "NEW"}, {"toy": rec("toykit", "NEW", "toy")},
+            {"toy2": "OLD"})
+        self.assertEqual(len(problems), 1)
+        self.assertIn("['toy2'] were submitted under version 'OLD'",
+                      problems[0])
+
+    def test_a_finished_step_is_judged_by_its_record(self):
+        versions, problems = measure.point_versions(
+            self.study, {"toykit": "NEW"},
+            {"toy": rec("toykit", "NEW", "toy"),
+             "toy2": rec("toykit", "NEW", "toy2")}, {"toy2": "OLD"})
+        self.assertEqual((versions, problems), ({"toykit": "NEW"}, []))
+
+
 class TestBoardProblems(_Toy):
     def board(self, *shas):
         return write_board(self.study, self.tmp / "b.tsv", *shas)

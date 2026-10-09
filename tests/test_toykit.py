@@ -97,6 +97,11 @@ class TestJobs(_Store):
         self.assertEqual(self.store.cancel("c.toy"), {"state": "cancelled"})
         self.assertEqual(self.store.status("c.toy")["state"], "cancelled")
 
+    def test_version_is_bumped_by_a_file_in_its_state_dir(self):
+        self.assertEqual(self.store.version(), toykit.VERSION)
+        (self.tmp / "version").write_text("2\n")
+        self.assertEqual(self.store.version(), "2")
+
 
 class TestFailures(_Store):
     def test_status_failures(self):

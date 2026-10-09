@@ -77,6 +77,9 @@ class CountingKit:
     def __init__(self, ok):
         self.ok, self.checks = ok, 0
 
+    def start(self):
+        pass
+
     def check(self, name, params, files, inputs, workflow):
         self.checks += 1
         return self.ok, "pass: fine" if self.ok else "fail: no"

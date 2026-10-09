@@ -332,6 +332,126 @@ class TestResume(_Run):
         self.assertTrue(out["a"].ok)
 
 
+class RespawningKit(FakeKit):
+    """Reports version f2 after its first status poll, as a native kit does
+    when its server respawns from new code mid-step (core/kits.py reads
+    serverInfo.version at every start)."""
+
+    def status(self, handle, workflow):
+        status = super().status(handle, workflow)
+        self.version = "f2"
+        return status
+
+
+class TestSubmitRecord(_Run):
+    """state/<step>_submit.json holds the kit's version when the step was
+    submitted, written before the submit. A step whose kit reports another
+    version when it is resumed or its results are read fails: its jobs ran
+    under one version and its record would name another."""
+
+    F1 = '{\n "kit": "fake",\n "kit_version": "f1"\n}'
+
+    def put(self, name, text):
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / name).write_text(text)
+
+    @staticmethod
+    def record(version):
+        return json.dumps({"kit": "fake", "kit_version": version})
+
+    def assertMoved(self, out, was, now):
+        self.assertFalse(out["a"].ok)
+        for needle in (f"['a'] were submitted under version {was!r}",
+                       f"now {now!r}", "new config name"):
+            self.assertIn(needle, out["a"].message)
+        self.assertFalse((self.state / "a_results.json").exists())
+        self.assertIn("step a", (self.state / "broken.txt").read_text())
+
+    def test_it_is_written_before_the_kit_submits(self):
+        state = self.state
+
+        class Seeing(FakeKit):
+            def submit(self, name, params, files, inputs, workflow):
+                path = state / "a_submit.json"
+                self.seen = path.read_text() if path.exists() else None
+                return super().submit(name, params, files, inputs, workflow)
+
+        kit = Seeing()
+        out = self.run_steps(study(step("a")), kit)
+        self.assertTrue(out["a"].ok, out["a"].message)
+        self.assertEqual(kit.seen, self.F1)
+        self.assertEqual(out["a"].record["kit_version"], "f1")
+
+    def test_the_kit_is_started_before_its_version_is_recorded(self):
+        """As beamkit's: no version until start() (the launch check starts
+        every kit, but run_steps does not rely on it)."""
+        class Lazy(FakeKit):
+            def __init__(self):
+                super().__init__()
+                self.version = None
+
+            def start(self):
+                self.version = "f1"
+
+        out = self.run_steps(study(step("a")), Lazy())
+        self.assertTrue(out["a"].ok, out["a"].message)
+        self.assertEqual((self.state / "a_submit.json").read_text(), self.F1)
+
+    def test_a_version_change_in_flight_fails_the_step(self):
+        out = self.run_steps(study(step("a")),
+                             RespawningKit({"a": ["working", "completed"]}))
+        self.assertMoved(out, "f1", "f2")
+
+    def test_a_resume_at_another_version_fails_without_polling(self):
+        self.put("a_submit.json", self.record("f0"))
+        self.put("a_cluster.txt", "c.a\n")
+        kit = FakeKit()
+        out = self.run_steps(study(step("a")), kit)
+        self.assertMoved(out, "f0", "f1")
+        self.assertEqual(kit.submits, [])
+        self.assertFalse((self.state / "a_status.json").exists())
+
+    def test_a_resume_at_the_submit_version_polls_the_handle(self):
+        self.put("a_submit.json", self.record("f1"))
+        self.put("a_cluster.txt", "c.a\n")
+        kit = FakeKit()
+        out = self.run_steps(study(step("a")), kit)
+        self.assertTrue(out["a"].ok, out["a"].message)
+        self.assertEqual(kit.submits, [])
+        self.assertEqual(out["a"].record["kit_version"], "f1")
+
+    def test_a_record_cut_short_at_the_same_version_is_rewritten(self):
+        """Killed between the record and the submit: the step submits as if
+        fresh, at the version the record already names."""
+        self.put("a_submit.json", self.record("f1"))
+        kit = FakeKit()
+        out = self.run_steps(study(step("a")), kit)
+        self.assertTrue(out["a"].ok, out["a"].message)
+        self.assertEqual([s[0] for s in kit.submits], ["c.a"])
+        self.assertEqual((self.state / "a_submit.json").read_text(), self.F1)
+
+    def test_a_record_cut_short_at_another_version_is_refused(self):
+        """A kill during the submit may have left the kit a job of the old
+        version, which a submit (idempotent by name) would hand back."""
+        self.put("a_submit.json", self.record("f0"))
+        kit = FakeKit()
+        out = self.run_steps(study(step("a")), kit)
+        self.assertMoved(out, "f0", "f1")
+        self.assertEqual(kit.submits, [])
+        self.assertFalse((self.state / "a_cluster.txt").exists())
+
+    def test_a_handle_without_a_record_keeps_the_version_at_results(self):
+        """A handle written before submit records existed: the version it
+        was submitted under is unknown and never guessed, so the one read at
+        results is recorded, as before."""
+        self.put("a_cluster.txt", "c.a\n")
+        out = self.run_steps(study(step("a")),
+                             RespawningKit({"a": ["working", "completed"]}))
+        self.assertTrue(out["a"].ok, out["a"].message)
+        self.assertEqual(out["a"].record["kit_version"], "f2")
+        self.assertFalse((self.state / "a_submit.json").exists())
+
+
 class TestPolling(_Run):
     def test_the_poll_hint_is_clamped_to_the_kit_bounds(self):
         for poll_ms, expected in ((10, 0.5), (1500, 1.5), (10000, 2.0)):

@@ -10,6 +10,8 @@ the job it submitted before it was killed. A job completes delay_s seconds
 after its submit; `fail` picks a failure (failed | cancelled | bad_state |
 missing_metric | nonpositive). Functions: branin_currin (Branin and
 Currin on x1 in [-5, 10], x2 in [0, 15]) and reject (the check fails).
+The server reports VERSION, or the text of $TOYKIT_STATE_DIR/version when
+a test wrote one: a hand bump, read at server start as any kit's is.
 Run as a script it serves stdio; imported, it exposes ToyStore.
 
 No `from __future__ import annotations` here: the MCP SDK evaluates tool
@@ -141,6 +143,11 @@ class ToyStore:
         self._save(job)
         return {"state": "cancelled"}
 
+    def version(self) -> str:
+        """VERSION, or the version a test wrote to <root>/version."""
+        path = self.root / "version"
+        return path.read_text().strip() if path.exists() else VERSION
+
     @staticmethod
     def check(name, params, files, inputs) -> dict:
         if params.get("function") == "reject":
@@ -157,7 +164,7 @@ class ToyStore:
 def make_server(store: ToyStore):
     from mcp.server.mcpserver import Context, MCPServer
 
-    server = MCPServer(name="toykit", version=VERSION)
+    server = MCPServer(name="toykit", version=store.version())
 
     @server.tool(structured_output=True)
     async def submit(name: str, params: dict[str, Any],

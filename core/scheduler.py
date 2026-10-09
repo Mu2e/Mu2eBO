@@ -11,7 +11,12 @@ Each step works from its state files, which is what makes a killed child
 resumable with no second submit:
   state/<step>_results.json  done: adopt the record, skip the step
   state/<step>_cluster.txt   submitted: poll that handle
-  neither                    submit, then write the handle
+  neither                    record the kit's version (<step>_submit.json),
+                             submit, then write the handle
+A step's kit must report the version it was submitted under when the step
+resumes and when its results are read; otherwise the step fails
+(measure.in_flight_problem). A handle with no submit record (written
+before the record existed) records the version read at results.
 A failed or cancelled step, a kit error, or a reply outside the contract
 stops new launches and cancels the running steps whose kit offers `cancel`
 (the others finish); broken.txt names the first step that failed, written
@@ -32,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 import kit_registry
+import measure
 from contract import ContractError
 from kits import KitError
 from point_dir import PointDir
@@ -227,11 +233,14 @@ def _cancel_running(study, names, state_dir, kits, workflow, log) -> None:
 def _run_one(study, step, config, state_dir, env, files, kits, upstream,
              workflow, sleep, log, stop) -> StepOutcome:
     """Run one step: submit (or resume the handle an earlier run wrote), poll
-    to a terminal state, read the results. Two kinds of failure become a
+    to a terminal state, read the results. Three kinds of failure become a
     failed StepOutcome: a kit failure (KitError or ContractError, which
-    KitSet.get guarantees is all a kit raises) and an engine-side lookup or
-    parameter error (KeyError, ValueError) while preparing the step. The
-    handle-file read and write are not caught: an OSError there is a bug."""
+    KitSet.get guarantees is all a kit raises), an engine-side lookup or
+    parameter error (KeyError, ValueError) while preparing the step, and a
+    kit whose version is not the one the step was submitted under, on
+    resume or at results (measure.in_flight_problem). The reads and writes
+    of the handle and the submit record are not caught: an OSError there is
+    a bug, as is a submit record that is not one (ValueError)."""
     def failed(exc):
         return StepOutcome(step.step, False, f"{type(exc).__name__}: {exc}",
                            None)
@@ -249,13 +258,33 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
         return failed(exc)
     pd = PointDir(state_dir)
     handle = pd.handle(step.step)
+    # The kit's version when the step was submitted: None for a step not
+    # submitted yet, or one whose handle predates the submit record (its
+    # version is read at results, as it always was; never guessed).
+    was = pd.submit_version(step.step)
+    if handle is None and stop.is_set():
+        return StepOutcome(step.step, False, "cancelled: not "
+                           "submitted, another step failed first", None)
+    if handle is None or was is not None:
+        try:
+            kit.start()     # idempotent; beamkit has no version before it
+            now = kit.version
+        except (KitError, ContractError) as exc:
+            return failed(exc)
+        # With no handle, the record is a submit cut short by a kill: the
+        # kit may hold its job, which a submit (idempotent by name) would
+        # hand back, so only a submit at the same version may follow it.
+        if was is not None and was != now:
+            return StepOutcome(step.step, False, measure.in_flight_problem(
+                step.kit, [step.step], was, now), None)
     if handle is not None:
         log(f"[steps] {step.step}: polling {handle} (submitted by an "
             f"earlier run)")
     else:
-        if stop.is_set():
-            return StepOutcome(step.step, False, "cancelled: not "
-                               "submitted, another step failed first", None)
+        # Written first: a kill during the submit (prodtools' takes
+        # minutes, anakit's runs the whole analysis) leaves the version.
+        pd.write_submit(step.step, step.kit, now)
+        was = now
         try:
             handle = kit.submit(f"{config}.{step.step}", params, step_files,
                                 inputs, workflow)
@@ -297,6 +326,11 @@ def _run_one(study, step, config, state_dir, env, files, kits, upstream,
         kit_version = kit.version
     except (KitError, ContractError) as exc:
         return failed(exc)
+    # Again here: a native kit re-reads its version whenever its server
+    # respawns (core/kits.py), so it can change while the step runs.
+    if was is not None and kit_version != was:
+        return StepOutcome(step.step, False, measure.in_flight_problem(
+            step.kit, [step.step], was, kit_version), None)
     record = {"step": step.step, "kit": step.kit,
               "kit_version": kit_version, "handle": handle,
               "params": params, "inputs": inputs,
